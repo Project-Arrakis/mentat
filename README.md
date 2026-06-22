@@ -7,6 +7,10 @@ repository. The bot talks only to the console's disabled-by-default, bearer-toke
 protected Discord adapter API and does not mount the Docker socket, connect to
 the database, read game files, or execute console commands.
 
+This project does not provide or operate a shared public Discord bot. Each
+operator registers their own Discord application, owns their own bot token, and
+connects the bot to their own WebUI adapter endpoint.
+
 ## Commands
 
 Register one `/dune` slash command with these subcommands:
@@ -33,6 +37,18 @@ Docker users can start from `docker-compose.example.yml`.
 Pull requests are expected to pass unit tests, npm audit, Semgrep, Gitleaks,
 Trivy filesystem scanning, Docker image build, and Trivy image scanning before
 merge. See `docs/security-gates.md`.
+
+## Public Readiness
+
+Before making deployments public-facing or publishing releases, review:
+
+- `SECURITY.md`
+- `SUPPORT.md`
+- `docs/discord-setup.md`
+- `docs/networking.md`
+- `docs/public-readiness.md`
+- `docs/pr-transparency-template.md`
+- `docs/upstream-source.md`
 
 ## Configuration
 
