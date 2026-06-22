@@ -15,6 +15,7 @@ keeps their own bot token, and connects the bot to their own WebUI adapter.
 Register one `/dune` slash command with these subcommands:
 
 - `/dune about` shows safe bot and adapter metadata.
+- `/dune ping` measures Discord defer timing and adapter health latency.
 - `/dune health` checks the Discord adapter health endpoint.
 - `/dune status` shows the high-level server status payload.
 - `/dune readiness` shows readiness/preflight state.
@@ -74,7 +75,7 @@ refuses to start until at least one role or user allow-list is configured.
 
 - `DISCORD_ADMIN_ROLE_IDS` can use every current read-only command.
 - `DISCORD_OBSERVER_ROLE_IDS` can use every current read-only command.
-- `DISCORD_ABOUT_ROLE_IDS`, `DISCORD_HEALTH_ROLE_IDS`,
+- `DISCORD_ABOUT_ROLE_IDS`, `DISCORD_PING_ROLE_IDS`, `DISCORD_HEALTH_ROLE_IDS`,
   `DISCORD_STATUS_ROLE_IDS`, `DISCORD_READINESS_ROLE_IDS`, and
   `DISCORD_SERVICES_ROLE_IDS` grant a single command.
 - `DISCORD_ALLOWED_USER_IDS` is an explicit user allow-list for operational

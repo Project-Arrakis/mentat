@@ -34,6 +34,7 @@ export function loadConfig(env = process.env) {
         commandRoleIds: {
           health: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_HEALTH_ROLE_IDS)),
           about: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_ABOUT_ROLE_IDS)),
+          ping: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_PING_ROLE_IDS)),
           status: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_STATUS_ROLE_IDS)),
           readiness: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_READINESS_ROLE_IDS)),
           services: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_SERVICES_ROLE_IDS))

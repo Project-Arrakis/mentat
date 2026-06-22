@@ -21,6 +21,7 @@ test("loadConfig returns safe read-only adapter defaults", () => {
   assert.equal(config.discord.defaultEphemeral, true);
   assert.equal(config.discord.rbac.mode, "restricted");
   assert.deepEqual(config.discord.rbac.commandRoleIds.about, ["observer-role"]);
+  assert.deepEqual(config.discord.rbac.commandRoleIds.ping, ["observer-role"]);
   assert.deepEqual(config.discord.rbac.commandRoleIds.status, ["observer-role"]);
 });
 
@@ -43,11 +44,13 @@ test("loadConfig accepts endpoint overrides and legacy role allow-list", () => {
 test("loadConfig supports command-specific and admin RBAC role inheritance", () => {
   const config = loadConfig(baseEnv({
     DISCORD_ADMIN_ROLE_IDS: "admin-role",
+    DISCORD_PING_ROLE_IDS: "ping-role",
     DISCORD_SERVICES_ROLE_IDS: "service-role"
   }));
 
   assert.deepEqual(config.discord.rbac.commandRoleIds.health, ["observer-role", "admin-role"]);
   assert.deepEqual(config.discord.rbac.commandRoleIds.about, ["observer-role", "admin-role"]);
+  assert.deepEqual(config.discord.rbac.commandRoleIds.ping, ["observer-role", "admin-role", "ping-role"]);
   assert.deepEqual(config.discord.rbac.commandRoleIds.services, ["observer-role", "admin-role", "service-role"]);
 });
 

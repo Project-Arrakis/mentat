@@ -7,13 +7,14 @@ import {
   executeDuneCommand,
   extractRoleIds,
   isCommandAllowed,
+  pingPayload,
   requiredRoleIdsForCommand
 } from "../src/commands.js";
 
 test("buildDuneCommand exposes read-only subcommands only", () => {
   const command = buildDuneCommand().toJSON();
   const subcommands = command.options.map((option) => option.name).sort();
-  assert.deepEqual(subcommands, ["about", "health", "readiness", "services", "status"]);
+  assert.deepEqual(subcommands, ["about", "health", "ping", "readiness", "services", "status"]);
 });
 
 test("extractRoleIds supports discord.js role cache shape", () => {
@@ -159,4 +160,83 @@ test("executeDuneCommand handles about without calling the adapter", async () =>
   assert.deepEqual(deferred, { ephemeral: true });
   assert.match(edited, /Dune about/);
   assert.doesNotMatch(edited, /adapter-token|discord-token|secret/i);
+});
+
+test("pingPayload summarizes adapter health and latency", async () => {
+  let seenActor;
+  const payload = await pingPayload({
+    health: async (actor) => {
+      seenActor = actor;
+      return {
+        ok: true,
+        enabled: true,
+        readOnly: true,
+        writesEnabled: false,
+        token: "must-not-be-forwarded"
+      };
+    }
+  }, { userId: "user-1" }, 7);
+
+  assert.deepEqual(seenActor, { userId: "user-1" });
+  assert.equal(payload.ok, true);
+  assert.equal(payload.discord.deferReplyMs, 7);
+  assert.equal(payload.adapter.route, "health");
+  assert.equal(payload.adapter.ok, true);
+  assert.equal(payload.adapter.enabled, true);
+  assert.equal(payload.adapter.readOnly, true);
+  assert.equal(payload.adapter.writesEnabled, false);
+  assert.equal(typeof payload.adapter.roundTripMs, "number");
+  assert.deepEqual(JSON.stringify(payload).match(/must-not-be-forwarded|token/i), null);
+});
+
+test("executeDuneCommand handles ping through the health route", async () => {
+  let deferred = null;
+  let edited = "";
+  let seenActor;
+  const interaction = {
+    isChatInputCommand: () => true,
+    commandName: "dune",
+    options: { getSubcommand: () => "ping" },
+    user: { id: "user-1" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    member: { roles: ["role-a"] },
+    deferReply: async (options) => {
+      deferred = options;
+    },
+    editReply: async (content) => {
+      edited = content;
+    }
+  };
+  const adapterClient = {
+    health: async (actor) => {
+      seenActor = actor;
+      return { ok: true, enabled: true, readOnly: true, writesEnabled: false };
+    }
+  };
+
+  const handled = await executeDuneCommand(interaction, adapterClient, {
+    discord: {
+      defaultEphemeral: true,
+      rbac: {
+        mode: "restricted",
+        allowedUserIds: [],
+        commandRoleIds: {
+          ping: ["role-a"]
+        }
+      }
+    }
+  });
+
+  assert.equal(handled, true);
+  assert.deepEqual(deferred, { ephemeral: true });
+  assert.deepEqual(seenActor, {
+    userId: "user-1",
+    guildId: "guild-1",
+    channelId: "channel-1",
+    roleIds: ["role-a"]
+  });
+  assert.match(edited, /Dune ping/);
+  assert.match(edited, /roundTripMs/);
+  assert.doesNotMatch(edited, /must-not-be-forwarded|token/i);
 });

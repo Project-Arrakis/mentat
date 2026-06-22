@@ -24,6 +24,7 @@ an issue instead of a pull request.
 | `PR-0010` | PR | Add about command | PR #10 |
 | `PR-0011` | PR | Normalize change note identifiers | PR #11 |
 | `PR-0012` | PR | Expand PII redaction for game identity fields | PR #12 |
+| `PR-0013` | PR | Add ping command | PR #13 |
 
 Every future substantive PR should add or update its matching change note before
 merge. If a security finding is tracked as an issue, record the issue in this
