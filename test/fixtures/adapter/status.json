@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "operation": "status",
+  "exitCode": 0,
+  "result": {
+    "summary": {
+      "overall": "READY",
+      "title": "Dune Self-Host",
+      "region": "NA",
+      "mode": "public",
+      "population": "2/60",
+      "battlegroup": "example-battlegroup",
+      "automation": {
+        "autoscaler": "RUNNING",
+        "autoUpdates": "DISABLED"
+      }
+    }
+  }
+}

@@ -29,6 +29,16 @@ and `services` subcommands.
 The bot should return adapter health JSON without leaking token, authorization,
 password, secret, or API key fields.
 
+## Adapter Contract Fixtures
+
+```bash
+npm test -- test/adapterContract.test.js
+```
+
+The contract tests check the default upstream adapter routes, configured route
+overrides, supported methods, and fixture parsing without requiring a live
+console.
+
 ## Regression Checklist
 
 - `npm test`

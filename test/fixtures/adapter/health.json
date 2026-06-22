@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "service": "dune-console-discord-adapter",
+  "enabled": true,
+  "experimental": true,
+  "readOnly": true,
+  "writesEnabled": false,
+  "routes": [
+    "/api/integrations/discord/health",
+    "/api/integrations/discord/status",
+    "/api/integrations/discord/readiness",
+    "/api/integrations/discord/services"
+  ]
+}

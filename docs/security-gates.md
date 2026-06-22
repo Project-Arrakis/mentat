@@ -27,6 +27,21 @@ The gates fail on:
 Trivy uses `--ignore-unfixed` so a merge is not blocked by issues that cannot be
 fixed yet. Review those during scheduled weekly runs.
 
+## Finding Handling
+
+Do not ignore medium, high, or critical findings. A pull request that discovers a
+security finding must do one of the following before merge:
+
+- fix the finding in the same pull request
+- open a GitHub issue that records severity, affected component, evidence,
+  planned resolution, and owner
+- document a false-positive decision with the scanner output and rationale
+
+Use private vulnerability reporting or a private issue for anything that includes
+secrets, exploit details, private deployment information, or user-identifying
+data. Public issues are acceptable for ordinary dependency or hardening work
+that does not expose sensitive details.
+
 ## Local Developer Flow
 
 Install pre-commit if you want local fast-fail checks:

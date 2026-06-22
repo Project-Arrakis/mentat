@@ -47,6 +47,7 @@ Before publishing releases or opening a deployment to a wider audience, review:
 - `SUPPORT.md`
 - `docs/discord-setup.md`
 - `docs/networking.md`
+- `docs/adapter-contract.md`
 - `docs/public-readiness.md`
 - `docs/pr-transparency-template.md`
 - `docs/upstream-source.md`

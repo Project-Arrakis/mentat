@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "operation": "services",
+  "exitCode": 0,
+  "result": {
+    "output": "SERVICE                    STATUS\npostgres                   running\nrabbitmq                   running\nserver-gateway             running"
+  }
+}

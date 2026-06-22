@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "operation": "readiness",
+  "exitCode": 0,
+  "result": {
+    "output": "READY: Dune Awakening Self-Host Docker stack looks healthy."
+  }
+}
