@@ -14,14 +14,30 @@ const DEFAULT_METHODS = Object.freeze({
   services: "POST"
 });
 
+const RBAC_MODES = new Set(["restricted", "open"]);
+
 export function loadConfig(env = process.env) {
+  const legacyAllowedRoleIds = parseCsv(env.DISCORD_ALLOWED_ROLE_IDS);
+  const observerRoleIds = mergeRoleIds(parseCsv(env.DISCORD_OBSERVER_ROLE_IDS), legacyAllowedRoleIds);
+  const adminRoleIds = parseCsv(env.DISCORD_ADMIN_ROLE_IDS);
   const config = {
     discord: {
       token: readSecret(env, "DISCORD_BOT_TOKEN", "DISCORD_BOT_TOKEN_FILE"),
       clientId: requiredEnv(env, "DISCORD_CLIENT_ID"),
       guildId: optionalEnv(env, "DISCORD_GUILD_ID"),
-      allowedRoleIds: parseCsv(env.DISCORD_ALLOWED_ROLE_IDS),
-      defaultEphemeral: parseBoolean(env.DISCORD_DEFAULT_EPHEMERAL, true)
+      defaultEphemeral: parseBoolean(env.DISCORD_DEFAULT_EPHEMERAL, true),
+      rbac: {
+        mode: parseRbacMode(env.DISCORD_RBAC_MODE),
+        allowedUserIds: parseCsv(env.DISCORD_ALLOWED_USER_IDS),
+        adminRoleIds,
+        observerRoleIds,
+        commandRoleIds: {
+          health: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_HEALTH_ROLE_IDS)),
+          status: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_STATUS_ROLE_IDS)),
+          readiness: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_READINESS_ROLE_IDS)),
+          services: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_SERVICES_ROLE_IDS))
+        }
+      }
     },
     adapter: {
       baseUrl: requiredEnv(env, "DUNE_CONSOLE_API_URL"),
@@ -63,6 +79,10 @@ export function validateConfig(config) {
     }
   }
 
+  if (config.discord.rbac.mode === "restricted" && !hasAnyRbacPrincipal(config.discord.rbac)) {
+    throw new Error("Restricted RBAC requires at least one Discord role or user allow-list entry.");
+  }
+
   return config;
 }
 
@@ -102,6 +122,12 @@ function parseBoolean(value, fallback) {
   throw new Error(`Invalid boolean value: ${value}`);
 }
 
+function parseRbacMode(value) {
+  const mode = String(value || "restricted").trim().toLowerCase();
+  if (!RBAC_MODES.has(mode)) throw new Error(`DISCORD_RBAC_MODE must be one of: ${[...RBAC_MODES].join(", ")}.`);
+  return mode;
+}
+
 function parsePositiveInteger(value, fallback) {
   if (value === undefined || value === "") return fallback;
   const parsed = Number.parseInt(value, 10);
@@ -111,4 +137,17 @@ function parsePositiveInteger(value, fallback) {
 
 function parseMethod(value, fallback) {
   return String(value || fallback).trim().toUpperCase();
+}
+
+function mergeRoleIds(...roleGroups) {
+  return [...new Set(roleGroups.flat().filter(Boolean))];
+}
+
+function hasAnyRbacPrincipal(rbac) {
+  return Boolean(
+    rbac.allowedUserIds.length ||
+    rbac.adminRoleIds.length ||
+    rbac.observerRoleIds.length ||
+    Object.values(rbac.commandRoleIds).some((roleIds) => roleIds.length)
+  );
 }

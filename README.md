@@ -24,10 +24,12 @@ Register one `/dune` slash command with these subcommands:
 1. Copy `.env.example` to `.env`.
 2. Set `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DUNE_CONSOLE_API_URL`, and
    `DUNE_DISCORD_ADAPTER_TOKEN`.
-3. Optional: set `DISCORD_GUILD_ID` while testing so commands register quickly.
-4. Run `npm install`.
-5. Run `npm run register`.
-6. Run `npm start`.
+3. Set at least one RBAC principal, usually `DISCORD_OBSERVER_ROLE_IDS` or
+   `DISCORD_ADMIN_ROLE_IDS`.
+4. Optional: set `DISCORD_GUILD_ID` while testing so commands register quickly.
+5. Run `npm install`.
+6. Run `npm run register`.
+7. Run `npm start`.
 
 Docker users can start from `docker-compose.example.yml`.
 
@@ -61,6 +63,20 @@ read-only adapter draft:
 
 Set `DUNE_ADAPTER_*_PATH` or `DUNE_ADAPTER_*_METHOD` values if the upstream
 release uses different routes.
+
+## RBAC
+
+RBAC defaults to `DISCORD_RBAC_MODE=restricted`. In restricted mode the bot
+refuses to start until at least one role or user allow-list is configured.
+
+- `DISCORD_ADMIN_ROLE_IDS` can use every current read-only command.
+- `DISCORD_OBSERVER_ROLE_IDS` can use every current read-only command.
+- `DISCORD_HEALTH_ROLE_IDS`, `DISCORD_STATUS_ROLE_IDS`,
+  `DISCORD_READINESS_ROLE_IDS`, and `DISCORD_SERVICES_ROLE_IDS` grant a single
+  command.
+- `DISCORD_ALLOWED_USER_IDS` is an explicit user allow-list for operational
+  break-glass cases.
+- `DISCORD_RBAC_MODE=open` is available for local testing only.
 
 ## Addon Boundary
 

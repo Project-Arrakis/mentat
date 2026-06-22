@@ -26,8 +26,8 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
     return true;
   }
 
-  if (!isAllowed(interaction, config.discord.allowedRoleIds)) {
-    await interaction.reply({ content: "This command is restricted by Discord role.", ephemeral: true });
+  if (!isCommandAllowed(interaction, subcommand, config.discord.rbac)) {
+    await interaction.reply({ content: "You are not authorized to use this command.", ephemeral: true });
     return true;
   }
 
@@ -53,10 +53,18 @@ export function actorFromInteraction(interaction) {
   };
 }
 
-export function isAllowed(interaction, allowedRoleIds) {
-  if (!allowedRoleIds?.length) return true;
+export function isCommandAllowed(interaction, command, rbac) {
+  if (!rbac?.commandRoleIds?.[command]) return false;
+  if (rbac.mode === "open") return true;
+
+  if (rbac.allowedUserIds?.includes(interaction.user?.id)) return true;
+
   const roleIds = new Set(extractRoleIds(interaction));
-  return allowedRoleIds.some((roleId) => roleIds.has(roleId));
+  return rbac.commandRoleIds[command].some((roleId) => roleIds.has(roleId));
+}
+
+export function requiredRoleIdsForCommand(command, rbac) {
+  return rbac?.commandRoleIds?.[command] || [];
 }
 
 export function extractRoleIds(interaction) {

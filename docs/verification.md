@@ -32,6 +32,7 @@ password, secret, or API key fields.
 ## Regression Checklist
 
 - `npm test`
+- startup with `DISCORD_RBAC_MODE=restricted` and no allow-list should fail closed
 - `npm run register` against a test guild
 - `/dune health`
 - `/dune status`

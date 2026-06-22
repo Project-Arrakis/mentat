@@ -16,7 +16,7 @@ Runtime flow:
 
 1. A Discord user runs `/dune health`, `/dune status`, `/dune readiness`, or
    `/dune services`.
-2. The bot checks the optional Discord role allow-list.
+2. The bot checks restricted-by-default command RBAC.
 3. The bot sends a bearer-token authenticated request to the configured console
    adapter endpoint.
 4. The console adapter returns JSON.
@@ -26,7 +26,7 @@ Runtime flow:
 ```mermaid
 flowchart LR
   User["Discord user"] --> Bot["Discord bot runtime"]
-  Bot --> Guard["Optional Discord role allow-list"]
+  Bot --> Guard["Command RBAC"]
   Guard --> Client["Adapter client"]
   Client --> Adapter["Console Discord adapter API"]
   Adapter --> Console["Dune console safe boundary"]
@@ -74,7 +74,7 @@ The bot accepts JSON from the adapter and does not depend on console internals.
 
 - Read-only command surface.
 - Bearer-token authentication to the console adapter.
-- Optional Discord role allow-list.
+- Restricted-by-default Discord RBAC with command-level role allow-lists.
 - Credential-shaped keys are redacted before Discord output.
 - Docker example runs with read-only filesystem, no new privileges, and dropped
   Linux capabilities.

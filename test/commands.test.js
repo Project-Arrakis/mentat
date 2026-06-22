@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { actorFromInteraction, buildDuneCommand, extractRoleIds, isAllowed } from "../src/commands.js";
+import {
+  actorFromInteraction,
+  buildDuneCommand,
+  extractRoleIds,
+  isCommandAllowed,
+  requiredRoleIdsForCommand
+} from "../src/commands.js";
 
 test("buildDuneCommand exposes read-only subcommands only", () => {
   const command = buildDuneCommand().toJSON();
@@ -20,14 +26,55 @@ test("extractRoleIds supports discord.js role cache shape", () => {
   assert.deepEqual(extractRoleIds(interaction), ["role-a", "role-b"]);
 });
 
-test("isAllowed permits all users when no allow-list is configured", () => {
-  assert.equal(isAllowed({}, []), true);
+test("isCommandAllowed permits all users only in explicit open mode", () => {
+  const rbac = {
+    mode: "open",
+    commandRoleIds: {
+      status: []
+    }
+  };
+
+  assert.equal(isCommandAllowed({}, "status", rbac), true);
+  assert.equal(isCommandAllowed({}, "restart", rbac), false);
 });
 
-test("isAllowed enforces configured role IDs", () => {
+test("isCommandAllowed enforces command-specific role IDs", () => {
   const interaction = { member: { roles: ["role-a"] } };
-  assert.equal(isAllowed(interaction, ["role-b"]), false);
-  assert.equal(isAllowed(interaction, ["role-a"]), true);
+  const rbac = {
+    mode: "restricted",
+    allowedUserIds: [],
+    commandRoleIds: {
+      status: ["role-a"],
+      services: ["role-b"]
+    }
+  };
+
+  assert.equal(isCommandAllowed(interaction, "status", rbac), true);
+  assert.equal(isCommandAllowed(interaction, "services", rbac), false);
+});
+
+test("isCommandAllowed supports explicit user allow-list", () => {
+  const interaction = { user: { id: "user-a" }, member: { roles: [] } };
+  const rbac = {
+    mode: "restricted",
+    allowedUserIds: ["user-a"],
+    commandRoleIds: {
+      status: ["role-a"]
+    }
+  };
+
+  assert.equal(isCommandAllowed(interaction, "status", rbac), true);
+});
+
+test("requiredRoleIdsForCommand returns an empty list for unsupported commands", () => {
+  const rbac = {
+    commandRoleIds: {
+      status: ["role-a"]
+    }
+  };
+
+  assert.deepEqual(requiredRoleIdsForCommand("status", rbac), ["role-a"]);
+  assert.deepEqual(requiredRoleIdsForCommand("restart", rbac), []);
 });
 
 test("actorFromInteraction emits minimal Discord context", () => {
