@@ -36,6 +36,7 @@ The bot must not:
 
 | Bot command | Method | Adapter route | Expected body |
 | --- | --- | --- | --- |
+| `/dune ping` | `GET` | `/api/integrations/discord/health` | none |
 | `/dune health` | `GET` | `/api/integrations/discord/health` | none |
 | `/dune status` | `POST` | `/api/integrations/discord/status` | `{ "actor": { ... } }` |
 | `/dune readiness` | `POST` | `/api/integrations/discord/readiness` | `{ "actor": { ... } }` |
@@ -73,6 +74,8 @@ loopback when using the default local token.
 - `POST` requests send actor context and `content-type: application/json`.
 - Adapter errors are formatted through the same redaction path as successful
   payloads.
+- `/dune ping` summarizes the health response and timing metadata instead of
+  forwarding the raw health payload.
 
 ## STRIDE Notes
 

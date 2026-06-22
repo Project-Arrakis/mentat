@@ -3,13 +3,14 @@ import { readFileSync } from "node:fs";
 import { formatError, formatPayload } from "./format.js";
 
 const PACKAGE = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-const SUBCOMMANDS = new Set(["about", "health", "status", "readiness", "services"]);
+const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "readiness", "services"]);
 
 export function buildDuneCommand() {
   return new SlashCommandBuilder()
     .setName("dune")
     .setDescription("Read Dune server state from the console Discord adapter.")
     .addSubcommand((command) => command.setName("about").setDescription("Show safe bot and adapter metadata."))
+    .addSubcommand((command) => command.setName("ping").setDescription("Measure Discord and adapter latency."))
     .addSubcommand((command) => command.setName("health").setDescription("Check the console Discord adapter."))
     .addSubcommand((command) => command.setName("status").setDescription("Show high-level server status."))
     .addSubcommand((command) => command.setName("readiness").setDescription("Show readiness and preflight state."))
@@ -34,18 +35,46 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
     return true;
   }
 
+  const startedAt = Date.now();
+  const actor = actorFromInteraction(interaction);
   await interaction.deferReply({ ephemeral: config.discord.defaultEphemeral });
+  const deferReplyMs = elapsedMs(startedAt);
 
   try {
-    const payload = subcommand === "about"
-      ? aboutPayload(config)
-      : await adapterClient[subcommand](actorFromInteraction(interaction));
+    let payload;
+    if (subcommand === "about") {
+      payload = aboutPayload(config);
+    } else if (subcommand === "ping") {
+      payload = await pingPayload(adapterClient, actor, deferReplyMs);
+    } else {
+      payload = await adapterClient[subcommand](actor);
+    }
     await interaction.editReply(formatPayload(`Dune ${subcommand}`, payload));
   } catch (error) {
     await interaction.editReply(formatError(error));
   }
 
   return true;
+}
+
+export async function pingPayload(adapterClient, actor, deferReplyMs = 0) {
+  const startedAt = Date.now();
+  const health = await adapterClient.health(actor);
+
+  return {
+    ok: health?.ok === true,
+    discord: {
+      deferReplyMs: normalizeDuration(deferReplyMs)
+    },
+    adapter: {
+      route: "health",
+      roundTripMs: elapsedMs(startedAt),
+      ok: health?.ok === true,
+      enabled: health?.enabled === true,
+      readOnly: health?.readOnly === true,
+      writesEnabled: health?.writesEnabled === true
+    }
+  };
 }
 
 export function aboutPayload(config) {
@@ -104,6 +133,14 @@ export function extractRoleIds(interaction) {
   if (roles.cache?.keys) return [...roles.cache.keys()];
   if (roles instanceof Set) return [...roles].map(String);
   return [];
+}
+
+function elapsedMs(startedAt) {
+  return normalizeDuration(Date.now() - startedAt);
+}
+
+function normalizeDuration(value) {
+  return Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
 }
 
 function adapterOrigin(baseUrl) {

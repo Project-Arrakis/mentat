@@ -50,6 +50,7 @@ least one Discord role or user allow-list is configured.
 Current permissions are command scoped:
 
 - `/dune about`: safe bot and adapter metadata.
+- `/dune ping`: Discord defer timing and adapter health latency.
 - `/dune health`: adapter health.
 - `/dune status`: high-level server status.
 - `/dune readiness`: readiness and preflight state.
