@@ -1,0 +1,26 @@
+repos:
+  - repo: https://github.com/semgrep/pre-commit
+    rev: v1.167.0
+    hooks:
+      - id: semgrep
+        name: semgrep security scan
+        args:
+          - --config
+          - p/default
+          - --config
+          - p/secrets
+          - --error
+          - --severity
+          - ERROR
+          - --severity
+          - WARNING
+          - --exclude
+          - package-lock.json
+
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks secret scan
+        entry: gitleaks detect --source . --redact --no-git
+        language: system
+        pass_filenames: false

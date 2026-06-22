@@ -28,6 +28,12 @@ Register one `/dune` slash command with these subcommands:
 
 Docker users can start from `docker-compose.example.yml`.
 
+## Security Gates
+
+Pull requests are expected to pass unit tests, npm audit, Semgrep, Gitleaks,
+Trivy filesystem scanning, Docker image build, and Trivy image scanning before
+merge. See `docs/security-gates.md`.
+
 ## Configuration
 
 Endpoint paths and methods are configurable because the upstream adapter release
