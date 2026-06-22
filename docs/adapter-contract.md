@@ -39,6 +39,7 @@ The bot must not:
 | `/dune ping` | `GET` | `/api/integrations/discord/health` | none |
 | `/dune health` | `GET` | `/api/integrations/discord/health` | none |
 | `/dune status` | `POST` | `/api/integrations/discord/status` | `{ "actor": { ... } }` |
+| `/dune status-summary` | `POST` | `/api/integrations/discord/status` | `{ "actor": { ... } }` |
 | `/dune readiness` | `POST` | `/api/integrations/discord/readiness` | `{ "actor": { ... } }` |
 | `/dune services` | `POST` | `/api/integrations/discord/services` | `{ "actor": { ... } }` |
 
@@ -76,6 +77,8 @@ loopback when using the default local token.
   payloads.
 - `/dune ping` summarizes the health response and timing metadata instead of
   forwarding the raw health payload.
+- `/dune status-summary` summarizes aggregate status fields and intentionally
+  omits server title and battlegroup from the compact output.
 
 ## STRIDE Notes
 

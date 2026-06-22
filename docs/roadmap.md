@@ -45,6 +45,7 @@ branch for this bot.
 | `/dune ping` | Discord defer timing and adapter health latency | Low | Unit tested |
 | `/dune health` | Adapter health check | Low | Unit tested |
 | `/dune status` | High-level server status | Medium | Unit tested |
+| `/dune status-summary` | Compact aggregate server status | Low | Unit tested |
 | `/dune readiness` | Readiness and preflight state | Medium | Unit tested |
 | `/dune services` | Service state from the adapter | Medium | Unit tested |
 
@@ -101,13 +102,16 @@ Only add commands backed by safe upstream adapter responses.
 
 Low complexity:
 
-- `/dune status summary`: compact public-channel status.
+- Complete.
 
 Progress:
 
 - `/dune about` is implemented with command-level RBAC and no adapter call.
 - `/dune ping` is implemented with command-level RBAC and the existing health
   adapter route.
+- `/dune status-summary` is implemented with command-level RBAC and the existing
+  status adapter route. It uses a hyphenated subcommand to avoid breaking the
+  existing `/dune status` slash command structure.
 
 Medium complexity:
 

@@ -53,6 +53,7 @@ Current permissions are command scoped:
 - `/dune ping`: Discord defer timing and adapter health latency.
 - `/dune health`: adapter health.
 - `/dune status`: high-level server status.
+- `/dune status-summary`: compact aggregate server status.
 - `/dune readiness`: readiness and preflight state.
 - `/dune services`: service state.
 

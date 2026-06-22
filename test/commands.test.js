@@ -8,13 +8,14 @@ import {
   extractRoleIds,
   isCommandAllowed,
   pingPayload,
-  requiredRoleIdsForCommand
+  requiredRoleIdsForCommand,
+  statusSummaryPayload
 } from "../src/commands.js";
 
 test("buildDuneCommand exposes read-only subcommands only", () => {
   const command = buildDuneCommand().toJSON();
   const subcommands = command.options.map((option) => option.name).sort();
-  assert.deepEqual(subcommands, ["about", "health", "ping", "readiness", "services", "status"]);
+  assert.deepEqual(subcommands, ["about", "health", "ping", "readiness", "services", "status", "status-summary"]);
 });
 
 test("extractRoleIds supports discord.js role cache shape", () => {
@@ -239,4 +240,106 @@ test("executeDuneCommand handles ping through the health route", async () => {
   assert.match(edited, /Dune ping/);
   assert.match(edited, /roundTripMs/);
   assert.doesNotMatch(edited, /must-not-be-forwarded|token/i);
+});
+
+test("statusSummaryPayload keeps aggregate status fields only", () => {
+  const payload = statusSummaryPayload({
+    ok: true,
+    result: {
+      summary: {
+        overall: "READY",
+        title: "Private Jane Server",
+        region: "NA",
+        mode: "public",
+        population: "2/60",
+        battlegroup: "private-battlegroup",
+        automation: {
+          autoscaler: "RUNNING",
+          autoUpdates: "DISABLED"
+        }
+      }
+    }
+  });
+
+  assert.deepEqual(payload, {
+    ok: true,
+    overall: "READY",
+    region: "NA",
+    mode: "public",
+    population: "2/60",
+    automation: {
+      autoscaler: "RUNNING",
+      autoUpdates: "DISABLED"
+    }
+  });
+  assert.deepEqual(JSON.stringify(payload).match(/Jane|battlegroup|Private/i), null);
+});
+
+test("executeDuneCommand handles status-summary through the status route", async () => {
+  let deferred = null;
+  let edited = "";
+  let seenActor;
+  const interaction = {
+    isChatInputCommand: () => true,
+    commandName: "dune",
+    options: { getSubcommand: () => "status-summary" },
+    user: { id: "user-1" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    member: { roles: ["role-a"] },
+    deferReply: async (options) => {
+      deferred = options;
+    },
+    editReply: async (content) => {
+      edited = content;
+    }
+  };
+  const adapterClient = {
+    status: async (actor) => {
+      seenActor = actor;
+      return {
+        ok: true,
+        result: {
+          summary: {
+            overall: "READY",
+            title: "Private Jane Server",
+            region: "NA",
+            mode: "public",
+            population: "2/60",
+            battlegroup: "private-battlegroup",
+            automation: {
+              autoscaler: "RUNNING",
+              autoUpdates: "DISABLED"
+            }
+          }
+        }
+      };
+    }
+  };
+
+  const handled = await executeDuneCommand(interaction, adapterClient, {
+    discord: {
+      defaultEphemeral: false,
+      rbac: {
+        mode: "restricted",
+        allowedUserIds: [],
+        commandRoleIds: {
+          "status-summary": ["role-a"]
+        }
+      }
+    }
+  });
+
+  assert.equal(handled, true);
+  assert.deepEqual(deferred, { ephemeral: false });
+  assert.deepEqual(seenActor, {
+    userId: "user-1",
+    guildId: "guild-1",
+    channelId: "channel-1",
+    roleIds: ["role-a"]
+  });
+  assert.match(edited, /Dune status-summary/);
+  assert.match(edited, /READY/);
+  assert.match(edited, /2\/60/);
+  assert.doesNotMatch(edited, /Jane|battlegroup|Private/i);
 });
