@@ -22,9 +22,25 @@ credentials.
 
 ## Output Handling
 
-Before sending adapter responses to Discord, the bot redacts keys matching
-credential-like names such as `token`, `secret`, `password`, `authorization`,
-`cookie`, `apiKey`, and `credential`.
+Before sending adapter responses to Discord, the bot applies shared output
+redaction. The redactor covers:
+
+- credential-like keys such as `token`, `secret`, `password`, `authorization`,
+  `cookie`, `apiKey`, and `credential`
+- email address keys and email addresses in free-text strings
+- Steam ID keys, SteamID64 values, Steam2 values, Steam3 values, and labeled
+  Steam ID values in free-text strings
+- Funcom ID keys and labeled Funcom ID values in free-text strings
+- explicit real-name keys such as first name, last name, full name, real name,
+  legal name, given name, family name, surname, and birth name
+
+The project is not expected to process PCI/payment-card data. If payment-card
+data appears in adapter output, treat it as a security finding and stop the data
+flow before adding or widening commands.
+
+Automated redaction cannot reliably identify arbitrary real names or unlabeled
+third-party account identifiers inside free text. New adapter routes and command
+formatters should avoid returning those values in the first place.
 
 ## RBAC
 

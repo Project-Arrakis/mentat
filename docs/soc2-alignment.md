@@ -28,7 +28,7 @@ claim.
 | Availability | Docker runtime example, adapter timeout handling, documented smoke tests, future healthcheck roadmap item. |
 | Processing integrity | Unit tests for config, RBAC, formatting, adapter route compatibility, and bounded output behavior. |
 | Confidentiality | No shared hosted bot, no Docker socket, no database mount, no game-file access, no direct console command execution. |
-| Privacy | Minimal Discord actor context, no message-content collection, no user data persistence in the bot. |
+| Privacy | Minimal Discord actor context, no message-content collection, no user data persistence in the bot, shared output redaction for PII/game identity fields, and no expected PCI/payment-card processing. |
 
 ## Required Evidence Discipline
 
