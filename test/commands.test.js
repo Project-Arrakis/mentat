@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  aboutPayload,
   actorFromInteraction,
   buildDuneCommand,
+  executeDuneCommand,
   extractRoleIds,
   isCommandAllowed,
   requiredRoleIdsForCommand
@@ -11,7 +13,7 @@ import {
 test("buildDuneCommand exposes read-only subcommands only", () => {
   const command = buildDuneCommand().toJSON();
   const subcommands = command.options.map((option) => option.name).sort();
-  assert.deepEqual(subcommands, ["health", "readiness", "services", "status"]);
+  assert.deepEqual(subcommands, ["about", "health", "readiness", "services", "status"]);
 });
 
 test("extractRoleIds supports discord.js role cache shape", () => {
@@ -91,4 +93,70 @@ test("actorFromInteraction emits minimal Discord context", () => {
     channelId: "channel-1",
     roleIds: ["role-1"]
   });
+});
+
+test("aboutPayload exposes safe metadata without secrets", () => {
+  const payload = aboutPayload({
+    adapter: {
+      baseUrl: "https://user:pass@example.com:8443/console",
+      timeoutMs: 5000
+    },
+    discord: {
+      defaultEphemeral: true,
+      rbac: { mode: "restricted" }
+    }
+  });
+
+  assert.equal(payload.bot.version, "0.1.0");
+  assert.equal(payload.bot.readOnly, true);
+  assert.equal(payload.bot.writesEnabled, false);
+  assert.equal(payload.adapter.origin, "https://example.com:8443");
+  assert.equal(payload.discord.rbacMode, "restricted");
+  assert.equal(payload.boundary.dockerSocket, false);
+  assert.deepEqual(JSON.stringify(payload).match(/pass|token|secret|authorization/i), null);
+});
+
+test("executeDuneCommand handles about without calling the adapter", async () => {
+  let deferred = null;
+  let edited = "";
+  const interaction = {
+    isChatInputCommand: () => true,
+    commandName: "dune",
+    options: { getSubcommand: () => "about" },
+    user: { id: "user-1" },
+    member: { roles: ["role-a"] },
+    deferReply: async (options) => {
+      deferred = options;
+    },
+    editReply: async (content) => {
+      edited = content;
+    }
+  };
+  const adapterClient = {
+    about: () => {
+      throw new Error("about must not call the adapter");
+    }
+  };
+
+  const handled = await executeDuneCommand(interaction, adapterClient, {
+    adapter: {
+      baseUrl: "http://console-api:3000",
+      timeoutMs: 8000
+    },
+    discord: {
+      defaultEphemeral: true,
+      rbac: {
+        mode: "restricted",
+        allowedUserIds: [],
+        commandRoleIds: {
+          about: ["role-a"]
+        }
+      }
+    }
+  });
+
+  assert.equal(handled, true);
+  assert.deepEqual(deferred, { ephemeral: true });
+  assert.match(edited, /Dune about/);
+  assert.doesNotMatch(edited, /adapter-token|discord-token|secret/i);
 });

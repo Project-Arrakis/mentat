@@ -17,7 +17,7 @@ DISCORD_GUILD_ID=your-guild-id npm run register
 ```
 
 Discord should show one `/dune` command with `health`, `status`, `readiness`,
-and `services` subcommands.
+`services`, and `about` subcommands.
 
 ## Runtime Smoke Test
 
@@ -65,6 +65,7 @@ non-loopback address, `DUNE_DISCORD_ADAPTER_TOKEN` must also be set explicitly.
 - startup with `DISCORD_RBAC_MODE=restricted` and no allow-list should fail closed
 - `npm run register` against a test guild
 - `npm run mock:adapter`
+- `/dune about`
 - `/dune health`
 - `/dune status`
 - `/dune readiness`

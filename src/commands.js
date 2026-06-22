@@ -1,12 +1,15 @@
 import { SlashCommandBuilder } from "discord.js";
+import { readFileSync } from "node:fs";
 import { formatError, formatPayload } from "./format.js";
 
-const SUBCOMMANDS = new Set(["health", "status", "readiness", "services"]);
+const PACKAGE = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+const SUBCOMMANDS = new Set(["about", "health", "status", "readiness", "services"]);
 
 export function buildDuneCommand() {
   return new SlashCommandBuilder()
     .setName("dune")
     .setDescription("Read Dune server state from the console Discord adapter.")
+    .addSubcommand((command) => command.setName("about").setDescription("Show safe bot and adapter metadata."))
     .addSubcommand((command) => command.setName("health").setDescription("Check the console Discord adapter."))
     .addSubcommand((command) => command.setName("status").setDescription("Show high-level server status."))
     .addSubcommand((command) => command.setName("readiness").setDescription("Show readiness and preflight state."))
@@ -34,14 +37,41 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
   await interaction.deferReply({ ephemeral: config.discord.defaultEphemeral });
 
   try {
-    const actor = actorFromInteraction(interaction);
-    const payload = await adapterClient[subcommand](actor);
+    const payload = subcommand === "about"
+      ? aboutPayload(config)
+      : await adapterClient[subcommand](actorFromInteraction(interaction));
     await interaction.editReply(formatPayload(`Dune ${subcommand}`, payload));
   } catch (error) {
     await interaction.editReply(formatError(error));
   }
 
   return true;
+}
+
+export function aboutPayload(config) {
+  return {
+    ok: true,
+    bot: {
+      name: PACKAGE.name,
+      version: PACKAGE.version,
+      readOnly: true,
+      writesEnabled: false
+    },
+    adapter: {
+      origin: adapterOrigin(config.adapter.baseUrl),
+      timeoutMs: config.adapter.timeoutMs
+    },
+    discord: {
+      rbacMode: config.discord.rbac.mode,
+      defaultEphemeral: config.discord.defaultEphemeral
+    },
+    boundary: {
+      dockerSocket: false,
+      databaseDirect: false,
+      gameFiles: false,
+      shellCommands: false
+    }
+  };
 }
 
 export function actorFromInteraction(interaction) {
@@ -74,4 +104,8 @@ export function extractRoleIds(interaction) {
   if (roles.cache?.keys) return [...roles.cache.keys()];
   if (roles instanceof Set) return [...roles].map(String);
   return [];
+}
+
+function adapterOrigin(baseUrl) {
+  return new URL(baseUrl).origin;
 }

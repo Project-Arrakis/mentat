@@ -22,6 +22,7 @@ Secrets can also be loaded from files with `DISCORD_BOT_TOKEN_FILE` and
 | `DISCORD_ALLOWED_USER_IDS` | empty | Explicit user allow-list for every current command. |
 | `DISCORD_ADMIN_ROLE_IDS` | empty | Role IDs allowed to use every current command. |
 | `DISCORD_OBSERVER_ROLE_IDS` | empty | Role IDs allowed to use every current read-only command. |
+| `DISCORD_ABOUT_ROLE_IDS` | empty | Role IDs allowed to use `/dune about`. |
 | `DISCORD_HEALTH_ROLE_IDS` | empty | Role IDs allowed to use `/dune health`. |
 | `DISCORD_STATUS_ROLE_IDS` | empty | Role IDs allowed to use `/dune status`. |
 | `DISCORD_READINESS_ROLE_IDS` | empty | Role IDs allowed to use `/dune readiness`. |

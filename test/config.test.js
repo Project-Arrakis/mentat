@@ -20,6 +20,7 @@ test("loadConfig returns safe read-only adapter defaults", () => {
   assert.equal(config.adapter.methods.status, "POST");
   assert.equal(config.discord.defaultEphemeral, true);
   assert.equal(config.discord.rbac.mode, "restricted");
+  assert.deepEqual(config.discord.rbac.commandRoleIds.about, ["observer-role"]);
   assert.deepEqual(config.discord.rbac.commandRoleIds.status, ["observer-role"]);
 });
 
@@ -46,6 +47,7 @@ test("loadConfig supports command-specific and admin RBAC role inheritance", () 
   }));
 
   assert.deepEqual(config.discord.rbac.commandRoleIds.health, ["observer-role", "admin-role"]);
+  assert.deepEqual(config.discord.rbac.commandRoleIds.about, ["observer-role", "admin-role"]);
   assert.deepEqual(config.discord.rbac.commandRoleIds.services, ["observer-role", "admin-role", "service-role"]);
 });
 
