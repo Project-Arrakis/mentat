@@ -4,7 +4,8 @@
 
 The Discord bot lives in its own repository so the Dune console remains the
 safety boundary. Version 1 is read-only. It uses Discord slash commands to ask
-the console adapter for health, ping, status, readiness, and service state.
+the console adapter for health, ping, status, status summary, readiness, and
+service state.
 
 The bot does not need Docker socket access, database credentials, shell access,
 or mounted game files. It only needs the disabled-by-default, bearer-token
@@ -15,7 +16,7 @@ protected adapter API.
 Runtime flow:
 
 1. A Discord user runs `/dune ping`, `/dune health`, `/dune status`,
-   `/dune readiness`, or `/dune services`.
+   `/dune status-summary`, `/dune readiness`, or `/dune services`.
 2. The bot checks restricted-by-default command RBAC.
 3. The bot sends a bearer-token authenticated request to the configured console
    adapter endpoint.

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { formatError, formatPayload } from "./format.js";
 
 const PACKAGE = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "readiness", "services"]);
+const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services"]);
 
 export function buildDuneCommand() {
   return new SlashCommandBuilder()
@@ -13,6 +13,7 @@ export function buildDuneCommand() {
     .addSubcommand((command) => command.setName("ping").setDescription("Measure Discord and adapter latency."))
     .addSubcommand((command) => command.setName("health").setDescription("Check the console Discord adapter."))
     .addSubcommand((command) => command.setName("status").setDescription("Show high-level server status."))
+    .addSubcommand((command) => command.setName("status-summary").setDescription("Show compact aggregate server status."))
     .addSubcommand((command) => command.setName("readiness").setDescription("Show readiness and preflight state."))
     .addSubcommand((command) => command.setName("services").setDescription("Show service state."));
 }
@@ -46,6 +47,8 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       payload = aboutPayload(config);
     } else if (subcommand === "ping") {
       payload = await pingPayload(adapterClient, actor, deferReplyMs);
+    } else if (subcommand === "status-summary") {
+      payload = statusSummaryPayload(await adapterClient.status(actor));
     } else {
       payload = await adapterClient[subcommand](actor);
     }
@@ -73,6 +76,23 @@ export async function pingPayload(adapterClient, actor, deferReplyMs = 0) {
       enabled: health?.enabled === true,
       readOnly: health?.readOnly === true,
       writesEnabled: health?.writesEnabled === true
+    }
+  };
+}
+
+export function statusSummaryPayload(status) {
+  const summary = status?.result?.summary || {};
+  const automation = summary.automation || {};
+
+  return {
+    ok: status?.ok === true,
+    overall: summaryValue(summary.overall, "UNKNOWN"),
+    region: summaryValue(summary.region, "unknown"),
+    mode: summaryValue(summary.mode, "unknown"),
+    population: summaryValue(summary.population, "unknown"),
+    automation: {
+      autoscaler: summaryValue(automation.autoscaler, "unknown"),
+      autoUpdates: summaryValue(automation.autoUpdates, "unknown")
     }
   };
 }
@@ -141,6 +161,10 @@ function elapsedMs(startedAt) {
 
 function normalizeDuration(value) {
   return Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+}
+
+function summaryValue(value, fallback) {
+  return value === undefined || value === null || value === "" ? fallback : value;
 }
 
 function adapterOrigin(baseUrl) {
