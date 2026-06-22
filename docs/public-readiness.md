@@ -1,15 +1,14 @@
 # Public Readiness
 
-## Executive Summary
+## Overview
 
-The repository can be made public once the project clearly communicates its
-trust model and ships with security controls visible to users. Public does not
-mean hosted. Users must run their own Discord bot and connect it to their own
-WebUI adapter.
+The repository can be made public once the trust model and security controls
+are clear. Public does not mean hosted: users still run their own Discord bot
+and connect it to their own WebUI adapter.
 
 ## Trust Model
 
-This project provides source code and deployment examples only.
+This repository provides source code and deployment examples only.
 
 The project maintainers do not:
 
@@ -55,8 +54,8 @@ Public availability can increase:
 - malicious forks or lookalike packages
 - pressure to add unsafe write commands
 
-These risks are managed with documentation, CI gates, conservative defaults, and
-a strict read-only v1 policy.
+Documentation, CI gates, conservative defaults, and a read-only v1 policy keep
+those risks manageable.
 
 ## Publish Checklist
 
@@ -77,7 +76,7 @@ Before switching visibility to public:
 
 ## Transparency Standard
 
-Every feature PR should include:
+Every feature PR should say:
 
 - user-visible behavior
 - security impact

@@ -1,12 +1,11 @@
 # PR Transparency Template
 
-Use this template for each pull request. The repository also includes
-`.github/PULL_REQUEST_TEMPLATE.md` so these prompts appear automatically when a
-PR is opened on GitHub.
+Use these notes for each pull request. The GitHub PR template asks for the same
+information.
 
 ## Summary
 
-What changed and why.
+What changed, and why.
 
 ## User Impact
 
@@ -14,7 +13,7 @@ What users or operators will notice.
 
 ## Security Impact
 
-Describe:
+Cover:
 
 - whether the command surface changed
 - whether RBAC changed
@@ -25,7 +24,7 @@ Describe:
 ## Least Privilege
 
 List the minimum Discord permissions, gateway intents, WebUI adapter access, and
-container privileges needed after this change.
+container privileges needed after the change.
 
 ## Tests
 
@@ -41,7 +40,7 @@ List local and CI checks:
 
 ## Known Limitations
 
-Be direct about what remains incomplete or intentionally out of scope.
+Say what remains incomplete or out of scope.
 
 ## Sources
 

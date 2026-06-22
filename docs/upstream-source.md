@@ -1,6 +1,6 @@
 # Upstream Source of Truth
 
-## Executive Summary
+## Canonical Upstream
 
 The canonical upstream for WebUI behavior, adapter routes, and integration
 expectations is:
@@ -8,14 +8,13 @@ expectations is:
 https://github.com/Red-Blink/dune-awakening-selfhost-docker
 
 Do not use personal forks, local workstreams, or experimental branches as the
-source of truth for this bot project.
+compatibility baseline for this bot.
 
 ## Why This Matters
 
-This Discord bot is an external companion to the upstream WebUI. Its defaults,
-documentation, and compatibility tests should track released or mainline
-behavior from the upstream project, not behavior from another workstream that
-may contain local experiments or unmerged changes.
+The bot is an external companion to the upstream WebUI. Defaults, docs, and
+compatibility tests should track released or mainline upstream behavior, not
+local experiments or unmerged fork changes.
 
 ## Recommended Local Reference Clone
 
@@ -38,9 +37,9 @@ in it.
 
 ## Forks and Workstreams
 
-Forks are useful for contribution work, but they are not authoritative for this
-bot unless the relevant change has landed upstream or has been explicitly
-accepted as the target compatibility baseline.
+Forks are useful for contribution work, but they are not authoritative here
+unless the relevant behavior has landed upstream or has been explicitly accepted
+as the compatibility target.
 
 When reviewing WebUI changes for bot impact, record:
 

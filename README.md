@@ -2,14 +2,13 @@
 
 Read-only Discord companion for Dune Awakening Self-Host Docker.
 
-This repository intentionally keeps the Discord bot outside the main console
-repository. The bot talks only to the console's disabled-by-default, bearer-token
-protected Discord adapter API and does not mount the Docker socket, connect to
-the database, read game files, or execute console commands.
+The bot runs outside the main console repo and talks only to the console's
+disabled-by-default, bearer-token protected Discord adapter API. It does not
+mount the Docker socket, connect to the database, read game files, or execute
+console commands.
 
-This project does not provide or operate a shared public Discord bot. Each
-operator registers their own Discord application, owns their own bot token, and
-connects the bot to their own WebUI adapter endpoint.
+There is no shared public bot. Each operator registers a Discord application,
+keeps their own bot token, and connects the bot to their own WebUI adapter.
 
 ## Commands
 
@@ -40,7 +39,7 @@ merge. See `docs/security-gates.md`.
 
 ## Public Readiness
 
-Before making deployments public-facing or publishing releases, review:
+Before publishing releases or opening a deployment to a wider audience, review:
 
 - `SECURITY.md`
 - `SUPPORT.md`
@@ -52,9 +51,8 @@ Before making deployments public-facing or publishing releases, review:
 
 ## Configuration
 
-Endpoint paths and methods are configurable because the upstream adapter release
-may change route names before publication. Defaults match the prior read-only
-adapter draft:
+Endpoint paths and methods are configurable. The defaults match the current
+read-only adapter draft:
 
 - `GET /api/integrations/discord/health`
 - `POST /api/integrations/discord/status`
@@ -66,8 +64,7 @@ release uses different routes.
 
 ## Addon Boundary
 
-The `addon/` folder contains a zero-permission UI addon panel. It is optional
-and exists only as a console-facing install/help surface. The bot runtime is a
-separate process and remains the supported deployment boundary.
+The `addon/` folder contains a zero-permission UI panel. It is optional and is
+only meant to point console users at setup help. The bot runtime stays separate.
 
 See `docs/architecture.md` and `docs/upstream-integration.md` for the design.

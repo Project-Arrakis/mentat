@@ -1,15 +1,14 @@
 # Discord Setup
 
-## Executive Summary
+## Overview
 
-Each operator should create and run their own Discord application. This project
-does not provide, host, or recommend a shared public bot. A user-owned bot keeps
-Discord tokens, guild access, and WebUI adapter tokens under the operator's
-control.
+Each install should use its own Discord application. Do not use a shared public
+bot. Keeping the bot user-owned keeps Discord access, bot tokens, and WebUI
+adapter tokens under the operator's control.
 
 ## Required Discord Model
 
-Use one Discord application per deployment or administrative group:
+Use one Discord application per deployment or admin group:
 
 1. Create an application in the Discord Developer Portal.
 2. Add a bot user to that application.
@@ -25,9 +24,8 @@ Use only the scopes required for this bot:
 - `bot`
 - `applications.commands`
 
-Discord documents OAuth2 scopes as the way an application requests access, and
-slash commands are application commands. This bot does not need user OAuth
-tokens.
+Discord uses OAuth2 scopes to decide what an application can do. This bot needs
+the bot identity and slash commands only; it does not need user OAuth tokens.
 
 ## Bot Permissions
 

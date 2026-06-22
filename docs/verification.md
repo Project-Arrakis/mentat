@@ -6,7 +6,7 @@
 npm test
 ```
 
-Expected result: all tests pass.
+All tests should pass.
 
 ## Command Registration Smoke Test
 
@@ -16,8 +16,8 @@ Use a test guild for fast command propagation:
 DISCORD_GUILD_ID=your-guild-id npm run register
 ```
 
-Expected result: Discord shows one `/dune` command with `health`, `status`,
-`readiness`, and `services` subcommands.
+Discord should show one `/dune` command with `health`, `status`, `readiness`,
+and `services` subcommands.
 
 ## Runtime Smoke Test
 
@@ -26,8 +26,8 @@ Expected result: Discord shows one `/dune` command with `health`, `status`,
 3. Run `npm start`.
 4. Execute `/dune health` in Discord.
 
-Expected result: the bot returns adapter health JSON without leaking token,
-authorization, password, secret, or API key fields.
+The bot should return adapter health JSON without leaking token, authorization,
+password, secret, or API key fields.
 
 ## Regression Checklist
 

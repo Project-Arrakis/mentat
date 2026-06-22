@@ -1,8 +1,8 @@
 # Support
 
-## Before Asking for Help
+## Before Opening an Issue
 
-Please review:
+Start with:
 
 - `README.md`
 - `SECURITY.md`
@@ -19,7 +19,7 @@ For setup or runtime issues, include:
 - host type, such as WSL, Docker Compose, or Linux server
 - Node.js version if running outside Docker
 - whether the WebUI adapter is reachable from the bot host
-- command used, with secrets removed
+- the command you ran, with secrets removed
 - relevant logs, with secrets removed
 
 ## What Not to Include
@@ -30,8 +30,7 @@ Do not post:
 - WebUI adapter bearer tokens
 - `.env` files
 - screenshots showing secrets
-- public IPs or private server addresses unless you intentionally want them
-  visible
+- public IPs or private server addresses unless you mean to make them visible
 
 ## Security Issues
 

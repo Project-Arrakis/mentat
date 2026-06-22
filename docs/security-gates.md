@@ -1,10 +1,9 @@
 # Security Gates
 
-## Executive Summary
+## Overview
 
-Security scanning is an authoritative CI gate for this repository. Local hooks
-are useful for fast feedback, but GitHub Actions is the merge policy source of
-truth.
+Security scanning runs in CI for every pull request. Local hooks are useful for
+fast feedback, but GitHub Actions is the merge gate.
 
 ## Policy
 
@@ -25,8 +24,8 @@ The gates fail on:
 - any npm audit finding at `moderate` or higher
 - any Trivy `HIGH` or `CRITICAL` finding with an available fix
 
-Trivy uses `--ignore-unfixed` so a merge is not blocked by issues that cannot
-yet be remediated. Those should still be reviewed during scheduled weekly runs.
+Trivy uses `--ignore-unfixed` so a merge is not blocked by issues that cannot be
+fixed yet. Review those during scheduled weekly runs.
 
 ## Local Developer Flow
 
@@ -67,7 +66,6 @@ it when adding command families or adapter capabilities:
 
 ## SARIF and GitHub Code Scanning
 
-SARIF upload is intentionally not a hard gate in this first private-repo setup.
-GitHub Code Scanning for private repositories depends on GitHub Code Security
-being enabled. The scanner exit codes are the merge gate; SARIF upload can be
-added later as a reporting enhancement.
+SARIF upload is not a hard gate in this private-repo setup. GitHub Code Scanning
+for private repositories depends on GitHub Code Security being enabled. Scanner
+exit codes are the gate; SARIF upload can be added later for reporting.

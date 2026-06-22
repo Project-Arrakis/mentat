@@ -2,17 +2,16 @@
 
 ## Supported Versions
 
-This project is pre-1.0. Security fixes are applied to the `main` branch until
-formal releases begin.
+The project is pre-1.0. Until formal releases begin, security fixes land on
+`main`.
 
 ## Reporting a Vulnerability
 
 Do not open public issues for suspected vulnerabilities, leaked tokens, or
 private deployment details.
 
-Until GitHub private vulnerability reporting is enabled for this repository,
-send a private report to the repository owner through GitHub contact channels.
-Include:
+Until GitHub private vulnerability reporting is enabled here, send a private
+report to the repository owner through GitHub contact channels. Please include:
 
 - affected commit or release
 - vulnerable component
@@ -48,7 +47,7 @@ In v1, the bot is read-only and must not:
 
 ## Public Repository Notice
 
-This repository is intended to be safe to publish, but publishing source code
-does not make user deployments safe by itself. Users must run their own Discord
+Publishing the source code is useful for review, but it does not make a
+deployment safe by itself. Users still need to run their own Discord
 application, generate their own tokens, and connect only to their own WebUI
 adapter endpoint.

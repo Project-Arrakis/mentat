@@ -1,9 +1,9 @@
 # Upstream Integration Plan
 
-## Goal
+## Purpose
 
-Keep upstream impact minimal by treating the Discord bot as an external addon
-package rather than a console subsystem.
+Keep upstream impact small by treating the Discord bot as an external addon
+package, not a console subsystem.
 
 ## Recommended Path
 
@@ -18,7 +18,7 @@ package rather than a console subsystem.
    external bot or adds the zero-permission addon panel to a community addon
    index.
 
-## What Should Not Move Upstream
+## Keep Out of Upstream
 
 - Discord bot runtime process.
 - Discord tokens or setup workflow.

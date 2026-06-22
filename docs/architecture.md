@@ -1,18 +1,16 @@
 # Design and Architecture
 
-## Executive Summary
+## Overview
 
-This project moves Discord bot functionality into a separate repository and
-keeps the Dune console as the safety boundary. The bot is read-only in v1. It
-uses Discord slash commands to request health, status, readiness, and service
-state from the console's Discord adapter API.
+The Discord bot lives in its own repository so the Dune console remains the
+safety boundary. Version 1 is read-only. It uses Discord slash commands to ask
+the console adapter for health, status, readiness, and service state.
 
-The bot does not require upstream console code changes, Docker socket access,
-database credentials, raw shell commands, or mounted game files. Upstream only
-needs to ship the disabled-by-default, bearer-token protected adapter API that
-the maintainer already described.
+The bot does not need Docker socket access, database credentials, shell access,
+or mounted game files. It only needs the disabled-by-default, bearer-token
+protected adapter API.
 
-## Technical Summary
+## Runtime Flow
 
 Runtime flow:
 
@@ -38,7 +36,7 @@ flowchart LR
 
 ## Boundaries
 
-- Discord bot repository owns command registration, Discord runtime,
+- This repository owns command registration, Discord runtime,
   formatting, deployment docs, and tests.
 - Console repository owns the read-only adapter API and any internal decisions
   about how health/status/readiness/services are gathered.
@@ -47,7 +45,7 @@ flowchart LR
 
 ## Adapter Contract
 
-Defaults are intentionally configurable:
+The defaults are configurable:
 
 | Function | Default method | Default path |
 | --- | --- | --- |
@@ -70,8 +68,7 @@ minimal actor context:
 }
 ```
 
-The bot accepts any JSON response. It does not rely on privileged fields or
-console internals.
+The bot accepts JSON from the adapter and does not depend on console internals.
 
 ## Security Controls
 

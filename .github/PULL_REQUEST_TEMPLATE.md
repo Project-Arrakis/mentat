@@ -1,6 +1,6 @@
 ## Summary
 
-What changed and why.
+What changed, and why.
 
 ## User Impact
 
@@ -17,7 +17,7 @@ What users or operators will notice.
 ## Least Privilege
 
 Minimum required Discord scopes, bot permissions, gateway intents, WebUI adapter
-access, and container privileges after this change.
+access, and container privileges after the change.
 
 ## Tests
 
@@ -31,7 +31,7 @@ access, and container privileges after this change.
 
 ## Known Limitations
 
-What remains incomplete, deferred, or intentionally out of scope.
+What remains incomplete, deferred, or out of scope.
 
 ## Sources
 

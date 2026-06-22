@@ -11,7 +11,7 @@ The console remains the trusted boundary. The bot only asks the console adapter
 for already-approved read-only data. The bot does not receive broader console
 credentials.
 
-## Explicit Non-Goals
+## Out of Scope
 
 - Restarting services.
 - Mutating configuration.

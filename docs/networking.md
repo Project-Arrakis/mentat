@@ -1,6 +1,6 @@
 # Networking and Deployment Boundary
 
-## Executive Summary
+## Overview
 
 The safest deployment keeps the bot close to the WebUI adapter and keeps the
 adapter off the public internet. Prefer Docker-internal networking or a private
@@ -15,8 +15,8 @@ flowchart LR
   Adapter --> WebUI["Dune WebUI safe boundary"]
 ```
 
-The bot talks outward to Discord and inward to the WebUI adapter. The WebUI
-adapter should not need a public inbound route.
+The bot talks outward to Discord and inward to the WebUI adapter. In a normal
+deployment, the adapter does not need a public inbound route.
 
 ## Docker Network
 
@@ -52,8 +52,8 @@ unavoidable, put it behind defense-in-depth controls:
 - adapter bearer token rotation
 - logs that do not include token values
 
-Public exposure should be treated as higher risk even when bearer-token
-authentication is enabled.
+Treat public exposure as higher risk even when bearer-token authentication is
+enabled.
 
 ## Token Handling
 
