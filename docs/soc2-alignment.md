@@ -24,7 +24,7 @@ claim.
 
 | Area | Current evidence |
 | --- | --- |
-| Security | Restricted-by-default RBAC, bearer-token adapter boundary, secret redaction, CI security gates, STRIDE review notes. |
+| Security | Restricted-by-default RBAC, bearer-token adapter boundary, secret redaction, structured redacted logs, CI security gates, STRIDE review notes. |
 | Availability | Docker runtime example, adapter timeout handling, documented smoke tests, future healthcheck roadmap item. |
 | Processing integrity | Unit tests for config, RBAC, formatting, adapter route compatibility, and bounded output behavior. |
 | Confidentiality | No shared hosted bot, no Docker socket, no database mount, no game-file access, no direct console command execution. |

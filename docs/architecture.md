@@ -77,6 +77,8 @@ The bot accepts JSON from the adapter and does not depend on console internals.
 - Bearer-token authentication to the console adapter.
 - Restricted-by-default Discord RBAC with command-level role allow-lists.
 - Credential, PII, and game identity fields are redacted before Discord output.
+- Runtime logs are structured JSON and use the same redaction path for fields
+  and bounded error details.
 - Docker example runs with read-only filesystem, no new privileges, and dropped
   Linux capabilities.
 - No Docker socket, DB credentials, raw command execution, or game-file mounts.
@@ -96,3 +98,4 @@ Current coverage focuses on:
 - HTTP error handling.
 - Sensitive output redaction and Discord message limits.
 - Read-only slash command definitions and role checks.
+- Structured log redaction.
