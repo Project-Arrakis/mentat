@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node src/index.js",
+    "mock:adapter": "node scripts/mock-adapter.js",
     "register": "node scripts/register-commands.js",
     "test": "node --test",
     "check": "npm test"

@@ -88,6 +88,8 @@ Progress:
   release `v1.3.19`.
 - Health, status, readiness, and services fixtures are covered by unit tests.
 - Configured route overrides are covered by compatibility tests.
+- A local token-protected adapter mock serves the fixtures on loopback for smoke
+  tests and examples.
 
 Complexity: low to medium.
 

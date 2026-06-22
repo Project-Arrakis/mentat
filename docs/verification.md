@@ -39,11 +39,32 @@ The contract tests check the default upstream adapter routes, configured route
 overrides, supported methods, and fixture parsing without requiring a live
 console.
 
+## Local Adapter Mock
+
+Run the mock adapter in a separate terminal for local smoke tests without a live
+console:
+
+```bash
+npm run mock:adapter
+```
+
+By default it listens on `127.0.0.1:8095` and accepts the local-only token
+`local-adapter-token`. To point the bot at it, use:
+
+```bash
+DUNE_CONSOLE_API_URL=http://127.0.0.1:8095
+DUNE_DISCORD_ADAPTER_TOKEN=local-adapter-token
+```
+
+Set `MOCK_ADAPTER_PORT` to change the port. If `MOCK_ADAPTER_HOST` is set to a
+non-loopback address, `DUNE_DISCORD_ADAPTER_TOKEN` must also be set explicitly.
+
 ## Regression Checklist
 
 - `npm test`
 - startup with `DISCORD_RBAC_MODE=restricted` and no allow-list should fail closed
 - `npm run register` against a test guild
+- `npm run mock:adapter`
 - `/dune health`
 - `/dune status`
 - `/dune readiness`

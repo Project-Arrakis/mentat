@@ -57,6 +57,13 @@ The contract fixtures live in `test/fixtures/adapter/`:
 The fixtures are intentionally small. They document the fields the bot must be
 able to receive and format without depending on a live console.
 
+## Local Mock
+
+`npm run mock:adapter` starts a local-only adapter mock that serves these
+fixtures over the same routes. It is for smoke tests and examples, not for
+production use. The mock requires a bearer token and refuses to bind outside
+loopback when using the default local token.
+
 ## Compatibility Rules
 
 - Default paths and methods should match upstream `main`.
