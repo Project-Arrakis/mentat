@@ -10,13 +10,13 @@ Evidence checked on June 22, 2026:
 | Source | Value |
 | --- | --- |
 | Upstream reference clone | `/home/ronal/dune-awakening-selfhost-docker-upstream-main` |
-| Upstream commit | `6fe7f46` |
+| Upstream commit | `b1a0c26` |
 | Upstream file | `console/api/src/services/discordAdapter.js` |
-| Latest published upstream release | `v1.3.17` |
+| Latest published upstream release | `v1.3.19` |
 
-The adapter contract is present on upstream `main` after the latest published
-release. Treat these defaults as upstream-main compatible until a release tag
-includes the same adapter behavior.
+The adapter contract is included in upstream release `v1.3.19`. No adapter
+route or method changes were observed between the fixture baseline at `6fe7f46`
+and the release commit `b1a0c26`.
 
 ## Boundary
 

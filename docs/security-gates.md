@@ -42,6 +42,17 @@ secrets, exploit details, private deployment information, or user-identifying
 data. Public issues are acceptable for ordinary dependency or hardening work
 that does not expose sensitive details.
 
+## Dependency Maintenance
+
+Dependabot checks npm package updates and GitHub Actions updates weekly. Treat
+Dependabot PRs as security-maintenance work even when they are not flagged as
+security advisories:
+
+- review changelogs and release notes before merge
+- run the same unit and security gates as other PRs
+- open a tracking issue if an update is blocked
+- prioritize security advisories and medium, high, or critical findings
+
 ## Local Developer Flow
 
 Install pre-commit if you want local fast-fail checks:

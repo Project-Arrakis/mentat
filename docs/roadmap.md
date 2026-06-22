@@ -82,6 +82,13 @@ Small pull requests:
 3. Add compatibility tests for configured route overrides.
 4. Add a local adapter mock for smoke testing and examples.
 
+Progress:
+
+- Endpoint paths, methods, and payload shapes are confirmed against upstream
+  release `v1.3.19`.
+- Health, status, readiness, and services fixtures are covered by unit tests.
+- Configured route overrides are covered by compatibility tests.
+
 Complexity: low to medium.
 
 ## Phase 3: Read-Only Command Expansion

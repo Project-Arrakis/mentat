@@ -1,3 +1,6 @@
+<!-- Keep these sections aligned with docs/pr-transparency-template.md. -->
+<!-- CLI-created PRs must fill the same sections manually. -->
+
 ## Summary
 
 What changed, and why.

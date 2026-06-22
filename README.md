@@ -50,6 +50,7 @@ Before publishing releases or opening a deployment to a wider audience, review:
 - `docs/adapter-contract.md`
 - `docs/public-readiness.md`
 - `docs/pr-transparency-template.md`
+- `docs/soc2-alignment.md`
 - `docs/upstream-source.md`
 
 ## Configuration
