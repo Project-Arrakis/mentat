@@ -19,10 +19,19 @@ The project is not expected to process PCI/payment-card data.
 
 ## Status
 
-Open. This should be handled before data-rich player or server-detail commands.
+Resolved by PR #12 before adding data-rich player or server-detail commands.
+
+## Resolution
+
+PR #12 expanded shared output redaction for email addresses, Steam IDs, Funcom
+IDs, credential-like labels, and explicit real-name fields. It also documented
+the no-PCI expectation and the limits of automated free-text real-name
+detection.
 
 ## Evidence
 
 - Issue: #9
-- Planned code area: `src/format.js`
-- Planned docs area: `docs/security-model.md`
+- Resolving PR: #12
+- Code area: `src/format.js`
+- Tests: `test/format.test.js`
+- Docs: `docs/security-model.md`
