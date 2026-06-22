@@ -42,6 +42,13 @@ Automated redaction cannot reliably identify arbitrary real names or unlabeled
 third-party account identifiers inside free text. New adapter routes and command
 formatters should avoid returning those values in the first place.
 
+## Logging
+
+Runtime and command-registration logs are structured JSON. Log fields use the
+same shared redaction path as Discord output. Unexpected errors are logged with
+bounded error metadata: name, message, status, and route. Raw error bodies,
+Discord tokens, adapter tokens, and stack traces are not logged by default.
+
 ## RBAC
 
 RBAC defaults to restricted mode. The bot fails closed at startup unless at

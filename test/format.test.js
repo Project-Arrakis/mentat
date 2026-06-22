@@ -52,12 +52,13 @@ test("redactSecrets removes PII and game identity keys", () => {
 
 test("redactSecrets removes sensitive values from free-text strings", () => {
   const redacted = redactSecrets({
-    message: "owner=operator@example.com steam=76561198000000000 steamId=custom123 STEAM_1:0:12345 [U:1:12345] FuncomID=fc-123 token=shh",
+    message: "owner=operator@example.com Authorization: Bearer abc.def steam=76561198000000000 steamId=custom123 STEAM_1:0:12345 [U:1:12345] FuncomID=fc-123 token=shh",
     note: "serviceName=server-gateway"
   });
 
   assert.match(redacted.message, /\[REDACTED\]/);
   assert.doesNotMatch(redacted.message, /operator@example\.com/);
+  assert.doesNotMatch(redacted.message, /abc\.def/);
   assert.doesNotMatch(redacted.message, /76561198000000000/);
   assert.doesNotMatch(redacted.message, /custom123/);
   assert.doesNotMatch(redacted.message, /STEAM_1:0:12345/);

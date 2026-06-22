@@ -26,6 +26,7 @@ an issue instead of a pull request.
 | `PR-0012` | PR | Expand PII redaction for game identity fields | PR #12 |
 | `PR-0013` | PR | Add ping command | PR #13 |
 | `PR-0014` | PR | Add status summary command | PR #14 |
+| `PR-0015` | PR | Add structured redacted logs | PR #15 |
 
 Every future substantive PR should add or update its matching change note before
 merge. If a security finding is tracked as an issue, record the issue in this

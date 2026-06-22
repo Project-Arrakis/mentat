@@ -5,6 +5,7 @@ const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const STEAM_ID64_PATTERN = /\b7656119\d{10}\b/g;
 const STEAM_ID2_PATTERN = /\bSTEAM_[0-5]:[01]:\d+\b/gi;
 const STEAM_ID3_PATTERN = /\[U:1:\d+\]/gi;
+const BEARER_TOKEN_PATTERN = /\b(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi;
 const LABELED_CREDENTIAL_PATTERN = /\b((?:authorization|cookie|password|secret|token|api[_-]?key|credential)\s*[:=]\s*)(?:"[^"]+"|'[^']+'|[^\s,;]+)/gi;
 const LABELED_STEAM_ID_PATTERN = /\b((?:steam[\s_-]*(?:id|id64|64|account(?:[\s_-]*id)?))\s*[:=#]\s*)(?:"[^"]+"|'[^']+'|[A-Za-z0-9._:-]{3,})/gi;
 const LABELED_FUNCOM_ID_PATTERN = /\b((?:funcom[\s_-]*(?:id|user(?:[\s_-]*id)?|account(?:[\s_-]*id)?))\s*[:=#]\s*)(?:"[^"]+"|'[^']+'|[A-Za-z0-9._:-]{3,})/gi;
@@ -61,6 +62,7 @@ function shouldRedactKey(key) {
 
 function redactSensitiveString(value) {
   return value
+    .replace(BEARER_TOKEN_PATTERN, `$1${REDACTED}`)
     .replace(LABELED_CREDENTIAL_PATTERN, `$1${REDACTED}`)
     .replace(LABELED_STEAM_ID_PATTERN, `$1${REDACTED}`)
     .replace(LABELED_FUNCOM_ID_PATTERN, `$1${REDACTED}`)
