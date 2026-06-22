@@ -3,9 +3,10 @@
 Use these notes for each pull request. The GitHub PR template at
 `.github/PULL_REQUEST_TEMPLATE.md` asks for the same information.
 
-For substantive changes, also add a permanent `docs/changes/NNN-short-name.md`
-change note using these sections. The PR body is for review; the change note is
-the durable evidence record after merge.
+For substantive changes, also add a permanent
+`docs/changes/PR-####-short-name.md` change note using these sections. Use
+`IS-####-short-name.md` for issue evidence notes. The PR body is for review; the
+change note is the durable evidence record after merge.
 
 ## Summary
 
