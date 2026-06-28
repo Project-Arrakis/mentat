@@ -27,7 +27,7 @@ claim.
 | Security | Restricted-by-default RBAC, bearer-token adapter boundary, secret redaction, structured redacted logs, CI security gates, STRIDE review notes. |
 | Availability | Docker runtime example, adapter timeout handling, local bot healthcheck, documented smoke tests. |
 | Processing integrity | Unit tests for config, RBAC, formatting, adapter route compatibility, and bounded output behavior. |
-| Confidentiality | No shared hosted bot, no Docker socket, no database mount, no game-file access, no direct console command execution. |
+| Confidentiality | No shared hosted bot, no Docker socket, no database mount, no game-file access, no direct console command execution, zero-permission addon package validation. |
 | Privacy | Minimal Discord actor context, no message-content collection, no user data persistence in the bot, shared output redaction for PII/game identity fields, and no expected PCI/payment-card processing. |
 
 ## Required Evidence Discipline

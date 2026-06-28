@@ -37,3 +37,17 @@ Keep any upstream PR tiny:
 
 The bot should not require upstream to merge a full Discord scaffold into the
 console repository.
+
+## Addon Release Package
+
+The optional addon panel can be packaged without adding console permissions:
+
+```bash
+npm run package:addon
+```
+
+The package command validates that `addon/addon.json` keeps an empty
+`permissions` array, rejects unsafe entry paths, writes
+`dist/discord-readonly-bot-v<version>.tar.gz`, and writes a matching SHA-256
+checksum file. The release artifact workflow runs the same command for tag
+pushes and manual release preparation.

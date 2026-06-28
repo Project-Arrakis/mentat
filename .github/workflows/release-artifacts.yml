@@ -1,0 +1,30 @@
+name: Release Artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  addon-package:
+    name: addon-package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run package:addon
+      - uses: actions/upload-artifact@v5.0.0
+        with:
+          name: discord-readonly-bot-addon
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error

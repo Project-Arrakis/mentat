@@ -28,6 +28,7 @@ an issue instead of a pull request.
 | `PR-0014` | PR | Add status summary command | PR #14 |
 | `PR-0015` | PR | Add structured redacted logs | PR #15 |
 | `PR-0016` | PR | Add Docker healthcheck | PR #16 |
+| `PR-0017` | PR | Package zero-permission addon releases | PR #17 |
 
 Every future substantive PR should add or update its matching change note before
 merge. If a security finding is tracked as an issue, record the issue in this

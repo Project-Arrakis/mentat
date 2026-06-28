@@ -59,9 +59,20 @@ DUNE_DISCORD_ADAPTER_TOKEN=local-adapter-token
 Set `MOCK_ADAPTER_PORT` to change the port. If `MOCK_ADAPTER_HOST` is set to a
 non-loopback address, `DUNE_DISCORD_ADAPTER_TOKEN` must also be set explicitly.
 
+## Addon Release Package
+
+```bash
+npm run package:addon
+```
+
+The command should create `dist/discord-readonly-bot-v<version>.tar.gz` and a
+matching `.sha256` file. It must fail if the optional addon manifest gains
+permissions or unsafe entry paths.
+
 ## Regression Checklist
 
 - `npm test`
+- `npm run package:addon`
 - startup with `DISCORD_RBAC_MODE=restricted` and no allow-list should fail closed
 - `npm run register` against a test guild
 - `npm run mock:adapter`

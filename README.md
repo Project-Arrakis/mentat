@@ -89,5 +89,7 @@ refuses to start until at least one role or user allow-list is configured.
 
 The `addon/` folder contains a zero-permission UI panel. It is optional and is
 only meant to point console users at setup help. The bot runtime stays separate.
+Release packages can be built with `npm run package:addon`; the script refuses
+non-zero addon permissions and writes a SHA-256 checksum next to the artifact.
 
 See `docs/architecture.md` and `docs/upstream-integration.md` for the design.
