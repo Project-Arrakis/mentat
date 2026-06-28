@@ -25,6 +25,10 @@ June 28, 2026. No Discord adapter route files changed between `v1.3.37` and
 `v1.3.38-rc.1`, so this bot keeps `v1.3.37` as the stable compatibility
 baseline.
 
+Future write-capable behavior is not part of this read-only contract. A draft
+upstream proposal for separate, disabled-by-default write adapter routes lives
+in `docs/upstream-write-adapter-rfc.md`.
+
 ## Boundary
 
 The adapter is disabled by default in the console, protected by a bearer token,

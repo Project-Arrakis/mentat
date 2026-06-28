@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "contractVersion": "discord-write-adapter-v1",
+  "operation": "execute",
+  "action": "maintenance.note.set",
+  "dryRun": false,
+  "correlationId": "corr-execute-0001",
+  "auditId": "audit-execute-0001",
+  "sideEffectSummary": [
+    "Replaced the operator-visible maintenance note.",
+    "No service restart, database mutation, or player-state mutation occurred."
+  ],
+  "rollbackHint": "Run maintenance.note.set with an empty note or replacement note.",
+  "result": {
+    "resource": "maintenance-note",
+    "updated": true
+  }
+}

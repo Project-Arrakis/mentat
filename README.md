@@ -84,6 +84,7 @@ Before publishing releases or opening a deployment to a wider audience, review:
 - `docs/release-process.md`
 - `docs/releases/v0.1.0.md`
 - `docs/soc2-alignment.md`
+- `docs/upstream-write-adapter-rfc.md`
 - `docs/upstream-source.md`
 
 ## Configuration

@@ -1,0 +1,17 @@
+{
+  "ok": false,
+  "contractVersion": "discord-write-adapter-v1",
+  "operation": "execute",
+  "action": "maintenance.note.set",
+  "dryRun": false,
+  "correlationId": "corr-timeout-0001",
+  "auditId": "audit-timeout-0001",
+  "sideEffectSummary": [
+    "Operation status is unknown; retry with the same idempotency key."
+  ],
+  "error": {
+    "code": "operation_timeout",
+    "message": "The adapter did not confirm completion before timeout.",
+    "retryable": true
+  }
+}

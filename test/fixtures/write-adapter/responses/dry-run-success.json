@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "contractVersion": "discord-write-adapter-v1",
+  "operation": "preview",
+  "action": "maintenance.note.set",
+  "dryRun": true,
+  "correlationId": "corr-preview-0001",
+  "auditId": "audit-preview-0001",
+  "sideEffectSummary": [
+    "Would replace the operator-visible maintenance note.",
+    "No service restart, database mutation, or player-state mutation would occur."
+  ],
+  "rollbackHint": "No rollback needed for preview.",
+  "result": {
+    "preview": {
+      "resource": "maintenance-note",
+      "visibleToPlayers": false
+    }
+  }
+}

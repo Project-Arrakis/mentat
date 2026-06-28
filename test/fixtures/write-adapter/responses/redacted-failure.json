@@ -1,0 +1,15 @@
+{
+  "ok": false,
+  "contractVersion": "discord-write-adapter-v1",
+  "operation": "preview",
+  "action": "maintenance.note.set",
+  "dryRun": true,
+  "correlationId": "corr-redacted-0001",
+  "auditId": "audit-redacted-0001",
+  "sideEffectSummary": [],
+  "error": {
+    "code": "validation_failed",
+    "message": "Request contained redacted sensitive values: [REDACTED_EMAIL], [REDACTED_STEAM_ID], [REDACTED_FUNCOM_ID].",
+    "retryable": false
+  }
+}
