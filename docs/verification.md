@@ -16,8 +16,8 @@ Use a test guild for fast command propagation:
 DISCORD_GUILD_ID=your-guild-id npm run register
 ```
 
-Discord should show one `/dune` command with `health`, `status`, `readiness`,
-`services`, and `about` subcommands.
+Discord should show one `/dune` command with `about`, `ping`, `health`,
+`status`, `status-summary`, `readiness`, and `services` subcommands.
 
 ## Runtime Smoke Test
 
@@ -66,8 +66,11 @@ non-loopback address, `DUNE_DISCORD_ADAPTER_TOKEN` must also be set explicitly.
 - `npm run register` against a test guild
 - `npm run mock:adapter`
 - `/dune about`
+- `/dune ping`
 - `/dune health`
 - `/dune status`
+- `/dune status-summary`
 - `/dune readiness`
 - `/dune services`
 - Docker start with `docker compose -f docker-compose.example.yml up --build`
+- Docker healthcheck with `docker inspect --format '{{json .State.Health}}' <container>`

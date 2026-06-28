@@ -72,7 +72,10 @@ read-only commands. Command-specific role variables grant only one command.
 The Docker Compose example uses:
 
 - `read_only: true`
+- `/tmp` tmpfs for local healthcheck state
 - `no-new-privileges:true`
 - `cap_drop: [ALL]`
+- container healthcheck that reads bot readiness state without Docker socket
+  access
 - no Docker socket mount
 - no database mount

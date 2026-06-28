@@ -34,7 +34,8 @@ Register one `/dune` slash command with these subcommands:
 6. Run `npm run register`.
 7. Run `npm start`.
 
-Docker users can start from `docker-compose.example.yml`.
+Docker users can start from `docker-compose.example.yml`, which keeps the root
+filesystem read-only and uses a local healthcheck state file under `/tmp`.
 
 ## Security Gates
 

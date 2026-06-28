@@ -81,6 +81,9 @@ The bot accepts JSON from the adapter and does not depend on console internals.
   and bounded error details.
 - Docker example runs with read-only filesystem, no new privileges, and dropped
   Linux capabilities.
+- Docker healthcheck reads local bot readiness state from `/tmp`, which stays
+  writable through the Compose tmpfs while the root filesystem remains
+  read-only.
 - No Docker socket, DB credentials, raw command execution, or game-file mounts.
 
 ## Unit Testing

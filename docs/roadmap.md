@@ -139,7 +139,7 @@ Security requirements:
 Small pull requests:
 
 1. Add structured logs without tokens or Discord secrets. Complete.
-2. Add a Docker healthcheck based on local bot process state.
+2. Add a Docker healthcheck based on local bot process state. Complete.
 3. Package the zero-permission addon panel for releases.
 4. Add SBOM publishing and dependency review.
 
