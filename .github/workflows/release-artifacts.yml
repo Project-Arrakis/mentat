@@ -65,11 +65,18 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
+          RELEASE_ARGS=(
+            --repo "${GITHUB_REPOSITORY}"
+            --title "${GITHUB_REF_NAME}"
+            --notes-file "docs/releases/${GITHUB_REF_NAME}.md"
+            --verify-tag
+          )
+          if [[ "${VERSION}" == *-* ]]; then
+            RELEASE_ARGS+=(--prerelease)
+          fi
+
           gh release create "${GITHUB_REF_NAME}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "${GITHUB_REF_NAME}" \
-            --notes-file "docs/releases/${GITHUB_REF_NAME}.md" \
-            --verify-tag \
+            "${RELEASE_ARGS[@]}" \
             "dist/discord-readonly-bot-v${VERSION}.tar.gz" \
             "dist/discord-readonly-bot-v${VERSION}.tar.gz.sha256" \
             "dist/dune-awakening-selfhost-discordbot.cdx.json" \

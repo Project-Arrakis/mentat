@@ -18,6 +18,19 @@ test("validateReleaseMetadata accepts matching versions and documented release n
   }
 });
 
+test("validateReleaseMetadata accepts prerelease versions", async () => {
+  const rootDir = await createReleaseTree({ version: "1.2.3-rc.1" });
+
+  try {
+    const result = await validateReleaseMetadata({ rootDir });
+
+    assert.equal(result.version, "1.2.3-rc.1");
+    assert.equal(result.notesPath, join(rootDir, "docs", "releases", "v1.2.3-rc.1.md"));
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("validateReleaseMetadata rejects mismatched addon versions", async () => {
   const rootDir = await createReleaseTree({
     version: "1.2.3",

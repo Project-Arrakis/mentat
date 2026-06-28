@@ -9,15 +9,21 @@ Evidence checked on June 28, 2026:
 
 | Source | Value |
 | --- | --- |
-| Upstream reference clone | `/home/ronal/dune-awakening-selfhost-docker-upstream-main` |
+| Upstream reference clone | `C:\Users\ronal\Documents\Codex\2026-06-22\dune-awakening-selfhost-discordbot\work\dune-awakening-selfhost-docker-upstream-main` |
 | Upstream commit | `1bb72c5` |
 | Upstream file | `console/api/src/services/discordAdapter.js` |
 | Latest published upstream release | `v1.3.37` |
+| Latest upstream release candidate observed | `v1.3.38-rc.1` at `233aedf` |
 
 The adapter contract is included in upstream release `v1.3.37`. No route or
 method changes were observed between the earlier fixture baseline and upstream
 commit `1bb72c5`. The health payload still advertises `readOnly: true` and
 `writesEnabled: false`.
+
+The upstream `v1.3.38-rc.1` tag was checked as release-candidate evidence on
+June 28, 2026. No Discord adapter route files changed between `v1.3.37` and
+`v1.3.38-rc.1`, so this bot keeps `v1.3.37` as the stable compatibility
+baseline.
 
 ## Boundary
 

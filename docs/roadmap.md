@@ -31,6 +31,8 @@ These pieces are already in place:
 | Public readiness and support docs | Complete |
 | Human-maintained documentation pass | Complete |
 | Upstream source-of-truth tracking | Complete |
+| First read-only release | Complete: `v0.1.0` |
+| Release artifacts, SBOM, and checksums | Complete |
 
 The upstream console source of truth is
 `Red-Blink/dune-awakening-selfhost-docker`. The local reference clone is used
@@ -142,8 +144,41 @@ Small pull requests:
 2. Add a Docker healthcheck based on local bot process state. Complete.
 3. Package the zero-permission addon panel for releases. Complete.
 4. Add SBOM publishing and dependency review. Complete.
+5. Add release-candidate support before future stable releases. In progress.
 
 Complexity: medium.
+
+## Phase 5: Release Candidate and Stable Release Discipline
+
+Goal: make every release traceable, reproducible, and security-gated.
+
+Required release path:
+
+1. Review upstream stable and release-candidate tags for adapter impact.
+2. Open a release-preparation PR with changelog, release notes, and change note
+   evidence.
+3. Publish `vMAJOR.MINOR.PATCH-rc.N` as a GitHub prerelease when a change needs
+   candidate validation before it becomes the latest stable release.
+4. Verify addon and SBOM checksums from the published GitHub Release assets.
+5. Promote to `vMAJOR.MINOR.PATCH` only after local gates, GitHub CI/security
+   gates, and any planned operator smoke testing pass.
+
+Current release state:
+
+- Latest bot stable release: `v0.1.0`
+- Next candidate target: `v0.1.1-rc.1`
+- Next stable target after candidate verification: `v0.1.1`
+- Latest upstream stable baseline: `v1.3.37`
+- Latest upstream release candidate observed: `v1.3.38-rc.1`
+
+Security requirements:
+
+- no stable release with unresolved medium, high, or critical findings
+- prereleases must use the same security gates as stable releases
+- release notes, PRs, and issues must redact secrets, PII, SteamIDs,
+  FuncomIDs, private addresses, and real names
+- upstream RCs are monitored but do not replace the stable compatibility
+  baseline without explicit approval
 
 ## Deferred Write Actions
 

@@ -8,6 +8,7 @@ const TAR_BLOCK_SIZE = 512;
 const TAR_MTIME_SECONDS = 0;
 const DEFAULT_ADDON_DIR = "addon";
 const DEFAULT_OUTPUT_DIR = "dist";
+const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 export async function packageAddon({
   addonDir = DEFAULT_ADDON_DIR,
@@ -51,8 +52,8 @@ export async function readAddonManifest(addonDir) {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(manifest.id || "")) {
     throw new Error("Addon manifest id must be lowercase letters, digits, and hyphens.");
   }
-  if (!/^\d+\.\d+\.\d+$/.test(manifest.version || "")) {
-    throw new Error("Addon manifest version must use semver major.minor.patch format.");
+  if (!SEMVER_PATTERN.test(manifest.version || "")) {
+    throw new Error("Addon manifest version must use semver major.minor.patch format with optional prerelease.");
   }
   if (manifest.type !== "ui") {
     throw new Error("Addon manifest type must be ui.");

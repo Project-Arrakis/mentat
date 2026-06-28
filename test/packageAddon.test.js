@@ -15,8 +15,9 @@ test("packageAddon creates a zero-permission addon artifact and checksum", async
       addonDir: join(process.cwd(), "addon"),
       outputDir: dir
     });
+    const expectedArtifactName = `discord-readonly-bot-v${result.manifest.version}.tar.gz`;
 
-    assert.equal(basename(result.artifactPath), "discord-readonly-bot-v0.1.0.tar.gz");
+    assert.equal(basename(result.artifactPath), expectedArtifactName);
     assert.deepEqual(result.files, ["addon.json", "web/index.html"]);
     assert.equal(result.manifest.permissions.length, 0);
 
@@ -25,7 +26,7 @@ test("packageAddon creates a zero-permission addon artifact and checksum", async
     assert.equal(result.sha256, checksum);
     assert.equal(
       await readFile(result.checksumPath, "utf8"),
-      `${checksum}  discord-readonly-bot-v0.1.0.tar.gz\n`
+      `${checksum}  ${expectedArtifactName}\n`
     );
 
     assert.deepEqual(listTarEntries(gunzipSync(archive)), [
@@ -34,6 +35,23 @@ test("packageAddon creates a zero-permission addon artifact and checksum", async
     ]);
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("packageAddon accepts prerelease semver versions", async () => {
+  const addonDir = await createTempAddon({
+    version: "0.1.1-rc.1"
+  });
+  const outputDir = await mkdtemp(join(tmpdir(), "dune-addon-prerelease-"));
+
+  try {
+    const result = await packageAddon({ addonDir, outputDir });
+
+    assert.equal(basename(result.artifactPath), "discord-readonly-bot-v0.1.1-rc.1.tar.gz");
+    assert.equal(result.manifest.version, "0.1.1-rc.1");
+  } finally {
+    await rm(addonDir, { recursive: true, force: true });
+    await rm(outputDir, { recursive: true, force: true });
   }
 });
 

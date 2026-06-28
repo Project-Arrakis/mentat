@@ -62,6 +62,9 @@ Tagged releases publish checksummed addon and SBOM artifacts:
 - `dune-awakening-selfhost-discordbot.cdx.json.sha256`
 
 Verify checksum files before installing or redistributing release artifacts.
+Release-candidate tags such as `v0.1.1-rc.1` are published as GitHub
+prereleases and should be treated as validation candidates, not the default
+stable operator release.
 
 ## Public Readiness
 

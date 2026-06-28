@@ -23,6 +23,8 @@ Before any write command ships:
 - CI must still pass every existing security gate.
 - A STRIDE review must be recorded for the command family.
 - A GitHub issue must track the write command family before implementation.
+- Write-capable releases must ship as GitHub prerelease candidates before any
+  stable release promotion.
 
 ## Required Controls
 
@@ -156,6 +158,21 @@ Do not merge a write command if any of these are true:
 - retry behavior can duplicate side effects
 - rollback or disable path is unclear
 - any medium, high, or critical security finding is unresolved
+
+## Release Candidate Requirement
+
+The first release containing write-readiness scaffolding or write-capable
+behavior must be a release candidate, not a stable release. Stable promotion
+requires:
+
+- a release-candidate tag and GitHub prerelease
+- full local and GitHub security gates
+- published addon and SBOM checksum verification
+- STRIDE evidence for the affected command family or foundation slice
+- no unresolved medium, high, or critical findings
+- documented rollback or disable instructions
+
+This applies even when the write work is disabled by default.
 
 ## First Recommended Slice
 
