@@ -4,6 +4,20 @@ This project follows Semantic Versioning for release tags. Security fixes,
 dependency updates, and release evidence stay tied to pull requests and durable
 change notes under `docs/changes/`.
 
+## Unreleased
+
+### Added
+
+- Release-candidate workflow support for prerelease SemVer tags and GitHub
+  prereleases.
+- Roadmap guidance for candidate validation before stable promotion.
+
+### Changed
+
+- Upstream evidence now records the standalone Windows reference clone and the
+  latest observed upstream release-candidate tag separately from the stable
+  compatibility baseline.
+
 ## v0.1.0 - 2026-06-28
 
 Initial read-only release for the self-hosted Discord bot.

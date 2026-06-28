@@ -11,16 +11,43 @@ changes or upstream pull requests unless explicitly requested.
 ## Release Standard
 
 - Use Semantic Versioning tags in the form `vMAJOR.MINOR.PATCH`.
+- Use release candidate tags in the form `vMAJOR.MINOR.PATCH-rc.N`.
 - Cut releases only from `main` after the release-preparation pull request has
   merged.
 - Use annotated Git tags for release tags.
 - Keep release notes under `docs/releases/vMAJOR.MINOR.PATCH.md`.
-- Keep `CHANGELOG.md`, `package.json`, and `addon/addon.json` aligned.
+- Keep `CHANGELOG.md`, `package.json`, `package-lock.json`, and
+  `addon/addon.json` aligned.
 - Attach checksummed release artifacts and the CycloneDX SBOM to the GitHub
   Release.
 
 Pre-1.0 versions may change operator-facing behavior, but every release still
 requires the same security gates and documentation evidence.
+
+## Release Candidates
+
+Release candidates are GitHub prereleases. Use them when a change should receive
+full release-artifact validation before becoming the latest stable operator
+release.
+
+Release candidate rules:
+
+- Use `rc.1`, `rc.2`, and later suffixes on the target stable version.
+- Keep `package.json`, `package-lock.json`, `addon/addon.json`,
+  `CHANGELOG.md`, and `docs/releases/vMAJOR.MINOR.PATCH-rc.N.md` aligned.
+- Publish RC tags only after the release-candidate preparation PR merges to
+  `main`.
+- Mark GitHub Releases as prereleases automatically when the version contains a
+  prerelease suffix.
+- Promote to a stable release only after local gates, GitHub CI/security gates,
+  artifact checksum verification, and any planned operator smoke testing pass.
+- Do not promote if any medium, high, or critical security finding is
+  unresolved.
+
+Upstream release-candidate tags are compatibility signals, not stable baselines.
+Track them in roadmap or adapter-contract evidence when useful, but keep the
+default compatibility baseline on the latest upstream stable release unless the
+repository owner explicitly approves targeting an upstream RC.
 
 ## Required Preconditions
 
@@ -100,9 +127,10 @@ git tag -a v0.1.0 -m "Release v0.1.0"
 git push origin v0.1.0
 ```
 
-Replace `v0.1.0` with the target version. The tag push starts the release
-workflow. Do not move or replace release tags except for a documented emergency
-repair approved by the repository owner.
+Replace `v0.1.0` with the target version, such as `v0.1.1-rc.1` for a release
+candidate or `v0.1.1` for a stable patch release. The tag push starts the
+release workflow. Do not move or replace release tags except for a documented
+emergency repair approved by the repository owner.
 
 ## Release Artifacts
 
