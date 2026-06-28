@@ -6,6 +6,12 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
+No changes yet.
+
+## v0.1.1-rc.1 - 2026-06-28
+
+Release candidate for the release-candidate workflow and roadmap update.
+
 ### Added
 
 - Release-candidate workflow support for prerelease SemVer tags and GitHub

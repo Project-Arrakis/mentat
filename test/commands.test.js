@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   aboutPayload,
@@ -11,6 +12,10 @@ import {
   requiredRoleIdsForCommand,
   statusSummaryPayload
 } from "../src/commands.js";
+
+const packageVersion = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8")
+).version;
 
 test("buildDuneCommand exposes read-only subcommands only", () => {
   const command = buildDuneCommand().toJSON();
@@ -109,7 +114,7 @@ test("aboutPayload exposes safe metadata without secrets", () => {
     }
   });
 
-  assert.equal(payload.bot.version, "0.1.0");
+  assert.equal(payload.bot.version, packageVersion);
   assert.equal(payload.bot.readOnly, true);
   assert.equal(payload.bot.writesEnabled, false);
   assert.equal(payload.adapter.origin, "https://example.com:8443");
