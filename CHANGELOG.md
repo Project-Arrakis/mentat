@@ -8,6 +8,24 @@ change notes under `docs/changes/`.
 
 No changes yet.
 
+## v0.1.1 - 2026-06-28
+
+Stable promotion of the `v0.1.1-rc.1` release candidate after candidate
+workflow validation, GitHub prerelease publication, and published artifact
+checksum verification.
+
+### Added
+
+- Release-candidate workflow support for prerelease SemVer tags and GitHub
+  prereleases.
+- Roadmap guidance for candidate validation before stable promotion.
+
+### Changed
+
+- Upstream evidence records the standalone Windows reference clone and the
+  latest observed upstream release-candidate tag separately from the stable
+  compatibility baseline.
+
 ## v0.1.1-rc.1 - 2026-06-28
 
 Release candidate for the release-candidate workflow and roadmap update.

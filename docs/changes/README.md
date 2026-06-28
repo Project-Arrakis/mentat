@@ -35,6 +35,7 @@ an issue instead of a pull request.
 | `PR-0021` | PR | Add release practices | PR #21 |
 | `PR-0022` | PR | Add release candidate roadmap | PR #22 |
 | `PR-0023` | PR | Prepare v0.1.1-rc.1 | PR #23 |
+| `PR-0024` | PR | Promote v0.1.1 | PR #24 |
 
 Every future substantive PR should add or update its matching change note before
 merge. If a security finding is tracked as an issue, record the issue in this
