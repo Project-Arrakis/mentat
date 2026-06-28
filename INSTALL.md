@@ -50,9 +50,14 @@ docker inspect --format '{{json .State.Health}}' <container>
 
 ## Release Artifacts
 
-Optional release artifacts can be generated locally:
+Tagged GitHub Releases publish the optional addon package, its SHA-256 checksum,
+the CycloneDX SBOM, and the SBOM checksum. Verify checksum files before
+installing or redistributing artifacts.
+
+Release artifacts can also be generated locally:
 
 ```bash
+npm run release:check
 npm run package:addon
 npm run sbom
 ```
@@ -60,6 +65,9 @@ npm run sbom
 The addon package command refuses non-zero addon permissions. The SBOM command
 writes a CycloneDX JSON SBOM from `package-lock.json`. Both commands write
 SHA-256 checksum files under `dist/`.
+
+See `docs/release-process.md` and `CHANGELOG.md` for release practice and
+version history.
 
 ## More Setup Detail
 

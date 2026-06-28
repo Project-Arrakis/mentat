@@ -2,8 +2,10 @@
 
 ## Supported Versions
 
-The project is pre-1.0. Until formal releases begin, security fixes land on
-`main`.
+The project is pre-1.0. Security fixes land on `main` first and are released by
+tagging the next patch or minor version after the normal PR and security-gate
+process completes. Operators should run the latest GitHub Release or the current
+`main` branch only when they intentionally want unreleased changes.
 
 ## Reporting a Vulnerability
 

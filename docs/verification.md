@@ -6,8 +6,17 @@
 npm run check
 ```
 
-All tests should pass, the addon package should build, and the SBOM should be
-generated.
+All tests should pass, release metadata should validate, the addon package
+should build, and the SBOM should be generated.
+
+## Release Metadata
+
+```bash
+npm run release:check
+```
+
+The command verifies that `package.json`, `addon/addon.json`, `CHANGELOG.md`,
+and `docs/releases/v<version>.md` agree on the release version.
 
 ## Command Registration Smoke Test
 
@@ -79,9 +88,20 @@ npm run sbom
 The command should create `dist/dune-awakening-selfhost-discordbot.cdx.json`
 and a matching `.sha256` file from `package-lock.json`.
 
+## Release Artifact Checksums
+
+After `npm run check`, verify local release artifact checksums with:
+
+```bash
+cd dist
+sha256sum -c discord-readonly-bot-v0.1.0.tar.gz.sha256
+sha256sum -c dune-awakening-selfhost-discordbot.cdx.json.sha256
+```
+
 ## Regression Checklist
 
 - `npm test`
+- `npm run release:check`
 - `npm run package:addon`
 - `npm run sbom`
 - startup with `DISCORD_RBAC_MODE=restricted` and no allow-list should fail closed

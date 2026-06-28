@@ -62,6 +62,9 @@ those risks manageable.
 Before switching visibility to public:
 
 - Security Gates workflow is passing on `main`.
+- `CHANGELOG.md` and release notes are current for the version being published.
+- `docs/release-process.md` explains the tag, artifact, SBOM, and checksum
+  process.
 - `SECURITY.md` exists and explains private reporting.
 - `INSTALL.md` and `USAGE.md` exist and avoid unsafe shortcuts.
 - Discord setup docs explain user-owned bot registration.

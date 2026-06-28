@@ -49,10 +49,25 @@ build, and Trivy image scanning before merge. See `docs/security-gates.md`.
 
 `npm run check` runs unit tests, addon package validation, and SBOM generation.
 
+## Releases
+
+Release notes live under `docs/releases/`, and the project changelog lives in
+`CHANGELOG.md`. The release process is documented in `docs/release-process.md`.
+
+Tagged releases publish checksummed addon and SBOM artifacts:
+
+- `discord-readonly-bot-v<version>.tar.gz`
+- `discord-readonly-bot-v<version>.tar.gz.sha256`
+- `dune-awakening-selfhost-discordbot.cdx.json`
+- `dune-awakening-selfhost-discordbot.cdx.json.sha256`
+
+Verify checksum files before installing or redistributing release artifacts.
+
 ## Public Readiness
 
 Before publishing releases or opening a deployment to a wider audience, review:
 
+- `CHANGELOG.md`
 - `SECURITY.md`
 - `INSTALL.md`
 - `USAGE.md`
@@ -63,6 +78,8 @@ Before publishing releases or opening a deployment to a wider audience, review:
 - `docs/dependency-management.md`
 - `docs/public-readiness.md`
 - `docs/pr-transparency-template.md`
+- `docs/release-process.md`
+- `docs/releases/v0.1.0.md`
 - `docs/soc2-alignment.md`
 - `docs/upstream-source.md`
 

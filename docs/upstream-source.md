@@ -29,7 +29,7 @@ Refresh it with:
 ```bash
 git -C ../dune-awakening-selfhost-docker-upstream-main fetch --prune origin
 git -C ../dune-awakening-selfhost-docker-upstream-main switch main
-git -C ../dune-awakening-selfhost-docker-upstream-main reset --hard origin/main
+git -C ../dune-awakening-selfhost-docker-upstream-main pull --ff-only
 ```
 
 Only use this clean clone for compatibility review. Do not make feature changes
