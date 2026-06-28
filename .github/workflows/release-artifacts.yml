@@ -7,7 +7,11 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   addon-package:
@@ -15,13 +19,31 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v6.4.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run package:addon
-      - run: npm run sbom
+      - name: Validate release tag
+        id: release
+        shell: bash
+        run: |
+          VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package version v${VERSION}."
+            exit 1
+          fi
+      - run: npm run check
+      - name: Verify release checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum -c "discord-readonly-bot-v${{ steps.release.outputs.version }}.tar.gz.sha256"
+          sha256sum -c "dune-awakening-selfhost-discordbot.cdx.json.sha256"
       - uses: actions/upload-artifact@v5.0.0
         with:
           name: discord-readonly-bot-addon
@@ -36,3 +58,19 @@ jobs:
             dist/*.cdx.json
             dist/*.cdx.json.sha256
           if-no-files-found: error
+      - name: Create GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file "docs/releases/${GITHUB_REF_NAME}.md" \
+            --verify-tag \
+            "dist/discord-readonly-bot-v${VERSION}.tar.gz" \
+            "dist/discord-readonly-bot-v${VERSION}.tar.gz.sha256" \
+            "dist/dune-awakening-selfhost-discordbot.cdx.json" \
+            "dist/dune-awakening-selfhost-discordbot.cdx.json.sha256"

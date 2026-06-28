@@ -30,6 +30,11 @@ The command reads `package-lock.json`, writes
 SHA-256 checksum. Release artifact workflows upload the SBOM and checksum for
 tagged or manually prepared releases.
 
+Tagged GitHub Releases attach the SBOM and checksum next to the addon package.
+Before publishing a release, `npm run release:check` must confirm that
+`package.json`, `addon/addon.json`, `CHANGELOG.md`, and the release notes agree
+on the version.
+
 ## Finding Handling
 
 Do not ignore medium, high, or critical findings. If a finding appears:
@@ -51,6 +56,14 @@ Dependency PRs should record:
 - relevant changelog or release-note evidence
 - local and CI gate results
 - unresolved advisories or scanner findings
+
+Release PRs should also record:
+
+- release version
+- upstream compatibility SHA and tag
+- SBOM generation evidence
+- checksum verification evidence
+- any security finding issue opened or resolved before release
 
 Security advisories and medium, high, or critical findings take priority over
 routine updates.

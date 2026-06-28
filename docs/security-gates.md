@@ -15,6 +15,7 @@ Pull requests must pass:
 - Gitleaks secret scanning
 - Trivy filesystem scan for dependency and Dockerfile/Compose misconfiguration
 - GitHub dependency review for pull requests that change dependencies
+- release metadata validation for versioned release work
 - CycloneDX SBOM generation from `package-lock.json`
 - Docker image build
 - Trivy image scan for runtime vulnerabilities and misconfiguration
@@ -79,9 +80,20 @@ docker build -t dune-awakening-selfhost-discordbot:security .
 trivy image --scanners vuln,misconfig --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 dune-awakening-selfhost-discordbot:security
 ```
 
-`npm run check` runs unit tests, addon packaging validation, and SBOM generation.
-The SBOM command writes `dist/dune-awakening-selfhost-discordbot.cdx.json` and a
-matching `.sha256` checksum.
+`npm run check` runs unit tests, release metadata validation, addon packaging
+validation, and SBOM generation. The SBOM command writes
+`dist/dune-awakening-selfhost-discordbot.cdx.json` and a matching `.sha256`
+checksum.
+
+Release metadata can be checked directly with:
+
+```bash
+npm run release:check
+```
+
+The release artifact workflow also rejects tag pushes that do not match the
+package version and verifies addon and SBOM SHA-256 checksum files before
+creating a GitHub Release.
 
 ## STRIDE Usage
 

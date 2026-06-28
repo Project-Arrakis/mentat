@@ -12,9 +12,10 @@
     "mock:adapter": "node scripts/mock-adapter.js",
     "package:addon": "node scripts/package-addon.js",
     "register": "node scripts/register-commands.js",
+    "release:check": "node scripts/validate-release.js",
     "sbom": "node scripts/generate-sbom.js",
     "test": "node --test",
-    "check": "npm test && npm run package:addon && npm run sbom"
+    "check": "npm test && npm run release:check && npm run package:addon && npm run sbom"
   },
   "dependencies": {
     "discord.js": "^14.26.4"
