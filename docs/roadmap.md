@@ -88,7 +88,7 @@ Small pull requests:
 Progress:
 
 - Endpoint paths, methods, and payload shapes are confirmed against upstream
-  release `v1.3.19`.
+  release `v1.3.37`.
 - Health, status, readiness, and services fixtures are covered by unit tests.
 - Configured route overrides are covered by compatibility tests.
 - A local token-protected adapter mock serves the fixtures on loopback for smoke
@@ -141,7 +141,7 @@ Small pull requests:
 1. Add structured logs without tokens or Discord secrets. Complete.
 2. Add a Docker healthcheck based on local bot process state. Complete.
 3. Package the zero-permission addon panel for releases. Complete.
-4. Add SBOM publishing and dependency review.
+4. Add SBOM publishing and dependency review. Complete.
 
 Complexity: medium.
 

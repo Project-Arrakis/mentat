@@ -26,6 +26,19 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=moderate
 
+  dependency-review:
+    name: dependency-review
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/dependency-review-action@v5.0.0
+        with:
+          fail-on-severity: moderate
+          vulnerability-check: true
+          license-check: false
+          comment-summary-in-pr: never
+
   semgrep-sast:
     name: semgrep-sast
     runs-on: ubuntu-24.04

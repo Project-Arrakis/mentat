@@ -24,7 +24,7 @@ claim.
 
 | Area | Current evidence |
 | --- | --- |
-| Security | Restricted-by-default RBAC, bearer-token adapter boundary, secret redaction, structured redacted logs, CI security gates, STRIDE review notes. |
+| Security | Restricted-by-default RBAC, bearer-token adapter boundary, secret redaction, structured redacted logs, CI security gates, dependency review, SBOM evidence, STRIDE review notes. |
 | Availability | Docker runtime example, adapter timeout handling, local bot healthcheck, documented smoke tests. |
 | Processing integrity | Unit tests for config, RBAC, formatting, adapter route compatibility, and bounded output behavior. |
 | Confidentiality | No shared hosted bot, no Docker socket, no database mount, no game-file access, no direct console command execution, zero-permission addon package validation. |
@@ -37,6 +37,7 @@ Every substantive pull request should include:
 - PR body using `.github/PULL_REQUEST_TEMPLATE.md`
 - durable change note under `docs/changes/`
 - tests and security-gate results
+- dependency review and SBOM evidence when dependencies or release artifacts are touched
 - upstream source evidence when behavior depends on upstream
 - GitHub issue or in-PR fix for every security finding
 - documented false-positive rationale when a scanner finding is not fixed

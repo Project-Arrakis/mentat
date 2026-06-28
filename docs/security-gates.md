@@ -14,6 +14,8 @@ Pull requests must pass:
 - Semgrep SAST with `p/default` and `p/secrets`
 - Gitleaks secret scanning
 - Trivy filesystem scan for dependency and Dockerfile/Compose misconfiguration
+- GitHub dependency review for pull requests that change dependencies
+- CycloneDX SBOM generation from `package-lock.json`
 - Docker image build
 - Trivy image scan for runtime vulnerabilities and misconfiguration
 
@@ -22,6 +24,7 @@ The gates fail on:
 - any Gitleaks secret finding
 - any Semgrep `ERROR` or `WARNING` finding from the configured rulesets
 - any npm audit finding at `moderate` or higher
+- any dependency review vulnerability at `moderate` or higher
 - any Trivy `HIGH` or `CRITICAL` finding with an available fix
 
 Trivy uses `--ignore-unfixed` so a merge is not blocked by issues that cannot be
@@ -68,13 +71,17 @@ CI because it is slower and requires Docker.
 Manual local checks:
 
 ```bash
-npm test
+npm run check
 npm audit --audit-level=moderate
 semgrep scan --config p/default --config p/secrets --error --severity ERROR --severity WARNING --exclude node_modules --exclude .git --exclude package-lock.json .
 trivy fs --scanners vuln,misconfig --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --skip-dirs node_modules --skip-dirs .git .
 docker build -t dune-awakening-selfhost-discordbot:security .
 trivy image --scanners vuln,misconfig --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 dune-awakening-selfhost-discordbot:security
 ```
+
+`npm run check` runs unit tests, addon packaging validation, and SBOM generation.
+The SBOM command writes `dist/dune-awakening-selfhost-discordbot.cdx.json` and a
+matching `.sha256` checksum.
 
 ## STRIDE Usage
 

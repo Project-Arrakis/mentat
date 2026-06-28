@@ -22,13 +22,15 @@ What users or operators will notice.
 Minimum required Discord scopes, bot permissions, gateway intents, WebUI adapter
 access, and container privileges after the change.
 
-## Tests
+## Tests and Evidence
 
-- [ ] `npm test`
+- [ ] `npm run check`
 - [ ] `npm audit --audit-level=moderate`
 - [ ] Semgrep
 - [ ] Gitleaks
 - [ ] Trivy filesystem
+- [ ] Dependency review
+- [ ] SBOM generation
 - [ ] Docker build
 - [ ] Trivy image
 

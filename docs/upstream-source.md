@@ -35,6 +35,10 @@ git -C ../dune-awakening-selfhost-docker-upstream-main reset --hard origin/main
 Only use this clean clone for compatibility review. Do not make feature changes
 in it.
 
+Current evidence for this roadmap slice was checked against upstream
+`Red-Blink/dune-awakening-selfhost-docker@1bb72c5` and latest tag `v1.3.37` on
+June 28, 2026.
+
 ## Forks and Workstreams
 
 Forks are useful for contribution work, but they are not authoritative here

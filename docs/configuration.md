@@ -23,13 +23,17 @@ Secrets can also be loaded from files with `DISCORD_BOT_TOKEN_FILE` and
 | `DISCORD_ADMIN_ROLE_IDS` | empty | Role IDs allowed to use every current command. |
 | `DISCORD_OBSERVER_ROLE_IDS` | empty | Role IDs allowed to use every current read-only command. |
 | `DISCORD_ABOUT_ROLE_IDS` | empty | Role IDs allowed to use `/dune about`. |
+| `DISCORD_PING_ROLE_IDS` | empty | Role IDs allowed to use `/dune ping`. |
 | `DISCORD_HEALTH_ROLE_IDS` | empty | Role IDs allowed to use `/dune health`. |
 | `DISCORD_STATUS_ROLE_IDS` | empty | Role IDs allowed to use `/dune status`. |
+| `DISCORD_STATUS_SUMMARY_ROLE_IDS` | empty | Role IDs allowed to use `/dune status-summary`. |
 | `DISCORD_READINESS_ROLE_IDS` | empty | Role IDs allowed to use `/dune readiness`. |
 | `DISCORD_SERVICES_ROLE_IDS` | empty | Role IDs allowed to use `/dune services`. |
 | `DISCORD_ALLOWED_ROLE_IDS` | empty | Legacy alias for `DISCORD_OBSERVER_ROLE_IDS`. |
 | `DISCORD_DEFAULT_EPHEMERAL` | `true` | Keep command responses private by default. |
 | `REQUEST_TIMEOUT_MS` | `8000` | Console adapter request timeout. |
+| `DUNE_BOT_HEALTH_STATE_FILE` | `/tmp/dune-discord-bot/health.json` | Local bot readiness state file used by the container healthcheck. |
+| `DUNE_BOT_HEALTH_MAX_AGE_MS` | `120000` | Maximum accepted age for the local healthcheck state file. |
 
 ## Adapter Overrides
 

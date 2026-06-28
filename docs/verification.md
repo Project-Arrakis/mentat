@@ -3,10 +3,11 @@
 ## Unit Tests
 
 ```bash
-npm test
+npm run check
 ```
 
-All tests should pass.
+All tests should pass, the addon package should build, and the SBOM should be
+generated.
 
 ## Command Registration Smoke Test
 
@@ -69,10 +70,20 @@ The command should create `dist/discord-readonly-bot-v<version>.tar.gz` and a
 matching `.sha256` file. It must fail if the optional addon manifest gains
 permissions or unsafe entry paths.
 
+## SBOM
+
+```bash
+npm run sbom
+```
+
+The command should create `dist/dune-awakening-selfhost-discordbot.cdx.json`
+and a matching `.sha256` file from `package-lock.json`.
+
 ## Regression Checklist
 
 - `npm test`
 - `npm run package:addon`
+- `npm run sbom`
 - startup with `DISCORD_RBAC_MODE=restricted` and no allow-list should fail closed
 - `npm run register` against a test guild
 - `npm run mock:adapter`

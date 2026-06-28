@@ -2,8 +2,8 @@
 
 ## v1 Scope
 
-The first release is read-only. Commands are limited to health, status,
-readiness, and services.
+The first release is read-only. Commands are limited to about, ping, health,
+status, status summary, readiness, and services.
 
 ## Trust Boundary
 
@@ -79,3 +79,15 @@ The Docker Compose example uses:
   access
 - no Docker socket mount
 - no database mount
+
+## Supply Chain Controls
+
+Dependency and release checks include:
+
+- Dependabot for npm and GitHub Actions updates.
+- npm audit blocking moderate and higher advisories.
+- GitHub dependency review blocking newly introduced moderate and higher
+  vulnerable dependencies.
+- CycloneDX SBOM generation from `package-lock.json`.
+- Trivy filesystem and runtime image scanning.
+- Gitleaks secret scanning.

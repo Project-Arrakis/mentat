@@ -31,15 +31,17 @@ Cover:
 List the minimum Discord permissions, gateway intents, WebUI adapter access, and
 container privileges needed after the change.
 
-## Tests
+## Tests and Evidence
 
 List local and CI checks:
 
-- `npm test`
+- `npm run check`
 - `npm audit --audit-level=moderate`
 - Semgrep
 - Gitleaks
 - Trivy filesystem
+- Dependency review
+- SBOM generation
 - Docker build
 - Trivy image
 

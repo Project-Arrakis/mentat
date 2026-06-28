@@ -21,10 +21,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run package:addon
+      - run: npm run sbom
       - uses: actions/upload-artifact@v5.0.0
         with:
           name: discord-readonly-bot-addon
           path: |
             dist/*.tar.gz
             dist/*.sha256
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v5.0.0
+        with:
+          name: discord-readonly-bot-sbom
+          path: |
+            dist/*.cdx.json
+            dist/*.cdx.json.sha256
           if-no-files-found: error

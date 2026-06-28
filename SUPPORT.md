@@ -5,10 +5,13 @@
 Start with:
 
 - `README.md`
+- `INSTALL.md`
+- `USAGE.md`
 - `SECURITY.md`
 - `docs/discord-setup.md`
 - `docs/networking.md`
 - `docs/configuration.md`
+- `docs/dependency-management.md`
 - `docs/verification.md`
 
 ## What to Include
@@ -30,6 +33,7 @@ Do not post:
 - WebUI adapter bearer tokens
 - `.env` files
 - screenshots showing secrets
+- emails, SteamIDs, FuncomIDs, real names, or other user-identifying data
 - public IPs or private server addresses unless you mean to make them visible
 
 ## Security Issues

@@ -63,14 +63,18 @@ Before switching visibility to public:
 
 - Security Gates workflow is passing on `main`.
 - `SECURITY.md` exists and explains private reporting.
+- `INSTALL.md` and `USAGE.md` exist and avoid unsafe shortcuts.
 - Discord setup docs explain user-owned bot registration.
 - Network docs recommend private adapter access.
 - Upstream compatibility docs identify Red-Blink upstream as source of truth.
+- Dependency management docs explain Dependabot, dependency review, SBOMs, and
+  finding handling.
 - README states that this is not a shared public bot.
 - README states that v1 is read-only.
 - `.env.example` uses placeholders only.
 - No real tokens exist in Git history.
 - Docker runtime image passes Trivy high/critical gates.
+- Release artifacts include a generated SBOM and SHA-256 checksum.
 - Current command set is covered by unit tests.
 - Restricted-by-default RBAC has merged and is documented.
 

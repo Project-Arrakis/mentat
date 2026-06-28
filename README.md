@@ -24,13 +24,17 @@ Register one `/dune` slash command with these subcommands:
 
 ## Setup
 
-1. Copy `.env.example` to `.env`.
-2. Set `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DUNE_CONSOLE_API_URL`, and
+See `INSTALL.md` for the full install path.
+
+Short version:
+
+1. Run `npm install`.
+2. Copy `.env.example` to `.env`.
+3. Set `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DUNE_CONSOLE_API_URL`, and
    `DUNE_DISCORD_ADAPTER_TOKEN`.
-3. Set at least one RBAC principal, usually `DISCORD_OBSERVER_ROLE_IDS` or
+4. Set at least one RBAC principal, usually `DISCORD_OBSERVER_ROLE_IDS` or
    `DISCORD_ADMIN_ROLE_IDS`.
-4. Optional: set `DISCORD_GUILD_ID` while testing so commands register quickly.
-5. Run `npm install`.
+5. Optional: set `DISCORD_GUILD_ID` while testing so commands register quickly.
 6. Run `npm run register`.
 7. Run `npm start`.
 
@@ -40,18 +44,23 @@ filesystem read-only and uses a local healthcheck state file under `/tmp`.
 ## Security Gates
 
 Pull requests are expected to pass unit tests, npm audit, Semgrep, Gitleaks,
-Trivy filesystem scanning, Docker image build, and Trivy image scanning before
-merge. See `docs/security-gates.md`.
+Trivy filesystem scanning, dependency review, SBOM generation, Docker image
+build, and Trivy image scanning before merge. See `docs/security-gates.md`.
+
+`npm run check` runs unit tests, addon package validation, and SBOM generation.
 
 ## Public Readiness
 
 Before publishing releases or opening a deployment to a wider audience, review:
 
 - `SECURITY.md`
+- `INSTALL.md`
+- `USAGE.md`
 - `SUPPORT.md`
 - `docs/discord-setup.md`
 - `docs/networking.md`
 - `docs/adapter-contract.md`
+- `docs/dependency-management.md`
 - `docs/public-readiness.md`
 - `docs/pr-transparency-template.md`
 - `docs/soc2-alignment.md`
@@ -59,8 +68,10 @@ Before publishing releases or opening a deployment to a wider audience, review:
 
 ## Configuration
 
+See `docs/configuration.md` for the complete environment variable list.
+
 Endpoint paths and methods are configurable. The defaults match the current
-read-only adapter draft:
+read-only adapter:
 
 - `GET /api/integrations/discord/health`
 - `POST /api/integrations/discord/status`
@@ -93,3 +104,10 @@ Release packages can be built with `npm run package:addon`; the script refuses
 non-zero addon permissions and writes a SHA-256 checksum next to the artifact.
 
 See `docs/architecture.md` and `docs/upstream-integration.md` for the design.
+
+## Usage and Operations
+
+- `USAGE.md` covers command behavior, RBAC, and troubleshooting.
+- `docs/verification.md` covers smoke tests and regression checks.
+- `docs/dependency-management.md` covers Dependabot, dependency review, SBOMs,
+  and finding handling.
