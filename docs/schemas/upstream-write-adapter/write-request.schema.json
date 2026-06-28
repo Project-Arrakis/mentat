@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yacketrj.github.io/dune-awakening-selfhost-discordbot/schemas/upstream-write-adapter/write-request.schema.json",
+  "title": "Discord Write Adapter Request",
+  "type": "object",
+  "required": [
+    "contractVersion",
+    "clientRequestId",
+    "idempotencyKey",
+    "dryRun",
+    "action",
+    "actor",
+    "target",
+    "parameters"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "contractVersion": {
+      "type": "string",
+      "pattern": "^discord-write-adapter-v[0-9]+$"
+    },
+    "clientRequestId": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9._:-]{8,128}$"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9._:-]{16,160}$"
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "action": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9-]*)+$"
+    },
+    "actor": {
+      "type": "object",
+      "required": ["userId", "guildId", "channelId", "roleIds"],
+      "additionalProperties": false,
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "guildId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "channelId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "roleIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "target": {
+      "type": "object"
+    },
+    "parameters": {
+      "type": "object"
+    },
+    "confirmation": {
+      "type": "object",
+      "required": ["nonce", "confirmedAt", "displayTextHash"],
+      "additionalProperties": false,
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "minLength": 16
+        },
+        "confirmedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "displayTextHash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

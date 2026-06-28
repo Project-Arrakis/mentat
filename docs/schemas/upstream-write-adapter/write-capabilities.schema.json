@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yacketrj.github.io/dune-awakening-selfhost-discordbot/schemas/upstream-write-adapter/write-capabilities.schema.json",
+  "title": "Discord Write Adapter Capabilities",
+  "type": "object",
+  "required": [
+    "contractVersion",
+    "service",
+    "readOnly",
+    "writesEnabled",
+    "writeRoutes",
+    "supportedActions",
+    "requiredActorFields",
+    "maxRequestBytes",
+    "rateLimit",
+    "idempotencyWindowSeconds"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "contractVersion": {
+      "type": "string",
+      "pattern": "^discord-write-adapter-v[0-9]+$"
+    },
+    "service": {
+      "type": "string",
+      "const": "dune-console-discord-write-adapter"
+    },
+    "readOnly": {
+      "type": "boolean"
+    },
+    "writesEnabled": {
+      "type": "boolean"
+    },
+    "writeRoutes": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "string",
+        "pattern": "^/api/integrations/discord/write/"
+      }
+    },
+    "supportedActions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "action",
+          "label",
+          "risk",
+          "tier",
+          "dryRunSupported",
+          "confirmationRequired",
+          "idempotencyRequired",
+          "sideEffects",
+          "rollback"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9-]*)+$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "risk": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "tier": {
+            "type": "string",
+            "enum": ["write-admin", "owner"]
+          },
+          "dryRunSupported": {
+            "type": "boolean"
+          },
+          "confirmationRequired": {
+            "type": "boolean"
+          },
+          "idempotencyRequired": {
+            "type": "boolean"
+          },
+          "targetSchemaRef": {
+            "type": "string"
+          },
+          "parameterSchemaRef": {
+            "type": "string"
+          },
+          "sideEffects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rollback": {
+            "type": "string",
+            "minLength": 1
+          },
+          "disabledReason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "requiredActorFields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["userId", "guildId", "channelId", "roleIds"]
+      }
+    },
+    "maxRequestBytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "rateLimit": {
+      "type": "object",
+      "required": ["windowSeconds", "maxRequests"],
+      "additionalProperties": false,
+      "properties": {
+        "windowSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxRequests": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "idempotencyWindowSeconds": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

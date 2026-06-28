@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yacketrj.github.io/dune-awakening-selfhost-discordbot/schemas/upstream-write-adapter/write-response.schema.json",
+  "title": "Discord Write Adapter Response",
+  "type": "object",
+  "required": [
+    "ok",
+    "contractVersion",
+    "operation",
+    "action",
+    "dryRun",
+    "correlationId",
+    "auditId",
+    "sideEffectSummary"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "contractVersion": {
+      "type": "string",
+      "pattern": "^discord-write-adapter-v[0-9]+$"
+    },
+    "operation": {
+      "type": "string",
+      "enum": ["preview", "execute"]
+    },
+    "action": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9-]*)+$"
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "correlationId": {
+      "type": "string",
+      "minLength": 8
+    },
+    "auditId": {
+      "type": "string",
+      "minLength": 8
+    },
+    "sideEffectSummary": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rollbackHint": {
+      "type": "string"
+    },
+    "result": {
+      "type": "object"
+    },
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

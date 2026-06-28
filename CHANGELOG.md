@@ -6,7 +6,11 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
-No changes yet.
+### Added
+
+- Draft upstream write-adapter RFC with proposed disabled-by-default write
+  routes, schemas, fixtures, STRIDE notes, abuse cases, and maintainer
+  questions.
 
 ## v0.1.1 - 2026-06-28
 

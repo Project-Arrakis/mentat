@@ -1,0 +1,15 @@
+{
+  "ok": false,
+  "contractVersion": "discord-write-adapter-v1",
+  "operation": "execute",
+  "action": "maintenance.note.set",
+  "dryRun": false,
+  "correlationId": "corr-denied-0001",
+  "auditId": "audit-denied-0001",
+  "sideEffectSummary": [],
+  "error": {
+    "code": "not_authorized",
+    "message": "Discord actor is not authorized for write-admin access.",
+    "retryable": false
+  }
+}

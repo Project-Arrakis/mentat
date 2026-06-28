@@ -1,0 +1,22 @@
+{
+  "contractVersion": "discord-write-adapter-v1",
+  "clientRequestId": "discord-preview-0001",
+  "idempotencyKey": "preview-maintenance-note-0001",
+  "dryRun": true,
+  "action": "maintenance.note.set",
+  "actor": {
+    "userId": "discord-user-123",
+    "guildId": "discord-guild-123",
+    "channelId": "discord-channel-123",
+    "roleIds": [
+      "discord-role-write-admin"
+    ]
+  },
+  "target": {
+    "resource": "maintenance-note"
+  },
+  "parameters": {
+    "note": "Maintenance window planned for 2026-06-28T22:00:00Z.",
+    "visibleToPlayers": false
+  }
+}

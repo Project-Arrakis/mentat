@@ -1,0 +1,27 @@
+{
+  "contractVersion": "discord-write-adapter-v1",
+  "clientRequestId": "discord-execute-0001",
+  "idempotencyKey": "execute-maintenance-note-0001",
+  "dryRun": false,
+  "action": "maintenance.note.set",
+  "actor": {
+    "userId": "discord-user-123",
+    "guildId": "discord-guild-123",
+    "channelId": "discord-channel-123",
+    "roleIds": [
+      "discord-role-write-admin"
+    ]
+  },
+  "target": {
+    "resource": "maintenance-note"
+  },
+  "parameters": {
+    "note": "Maintenance window planned for 2026-06-28T22:00:00Z.",
+    "visibleToPlayers": false
+  },
+  "confirmation": {
+    "nonce": "confirm-maintenance-note-0001",
+    "confirmedAt": "2026-06-28T21:55:00Z",
+    "displayTextHash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  }
+}

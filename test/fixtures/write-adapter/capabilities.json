@@ -1,0 +1,56 @@
+{
+  "contractVersion": "discord-write-adapter-v1",
+  "service": "dune-console-discord-write-adapter",
+  "readOnly": false,
+  "writesEnabled": true,
+  "writeRoutes": [
+    "/api/integrations/discord/write/capabilities",
+    "/api/integrations/discord/write/preview",
+    "/api/integrations/discord/write/execute"
+  ],
+  "supportedActions": [
+    {
+      "action": "maintenance.note.set",
+      "label": "Set maintenance note",
+      "risk": "low",
+      "tier": "write-admin",
+      "dryRunSupported": true,
+      "confirmationRequired": true,
+      "idempotencyRequired": true,
+      "targetSchemaRef": "#/$defs/maintenanceNoteTarget",
+      "parameterSchemaRef": "#/$defs/maintenanceNoteParameters",
+      "sideEffects": [
+        "Writes operator-visible maintenance metadata only"
+      ],
+      "rollback": "Clear or replace the maintenance note through the same action."
+    },
+    {
+      "action": "service.restart",
+      "label": "Restart a service",
+      "risk": "high",
+      "tier": "owner",
+      "dryRunSupported": true,
+      "confirmationRequired": true,
+      "idempotencyRequired": true,
+      "targetSchemaRef": "#/$defs/serviceTarget",
+      "parameterSchemaRef": "#/$defs/serviceRestartParameters",
+      "sideEffects": [
+        "May temporarily interrupt game server availability"
+      ],
+      "rollback": "Wait for service health recovery or use console recovery steps.",
+      "disabledReason": "Not recommended for the first write-capable adapter slice."
+    }
+  ],
+  "requiredActorFields": [
+    "userId",
+    "guildId",
+    "channelId",
+    "roleIds"
+  ],
+  "maxRequestBytes": 8192,
+  "rateLimit": {
+    "windowSeconds": 60,
+    "maxRequests": 5
+  },
+  "idempotencyWindowSeconds": 900
+}

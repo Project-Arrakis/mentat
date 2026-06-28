@@ -10,6 +10,11 @@ Write access changes the risk profile. Treat every write-capable command as an
 administrative action against a self-hosted game server, not as a convenience
 shortcut.
 
+The upstream proposal packet lives in `docs/upstream-write-adapter-rfc.md`.
+It includes proposed routes, schema files, fixtures, STRIDE notes, abuse cases,
+and maintainer questions. It is a discussion artifact, not an implemented bot
+contract.
+
 ## Non-Negotiable Preconditions
 
 Before any write command ships:
@@ -48,6 +53,10 @@ Do not add write commands to public channels by default. Write command responses
 should remain ephemeral unless a command-specific review justifies otherwise.
 
 ## Adapter Contract Requirements
+
+See `docs/schemas/upstream-write-adapter/` and
+`test/fixtures/write-adapter/` for the draft schema and fixture packet that can
+be shared upstream.
 
 Write adapter requests should include:
 
