@@ -160,3 +160,6 @@ tests:
 
 Write work should ship one command family at a time and stay separate from
 read-only improvements.
+
+See `docs/non-readonly-roadmap.md` for the security-first roadmap that must be
+followed before any write-capable implementation begins.

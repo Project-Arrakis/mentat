@@ -111,3 +111,5 @@ See `docs/architecture.md` and `docs/upstream-integration.md` for the design.
 - `docs/verification.md` covers smoke tests and regression checks.
 - `docs/dependency-management.md` covers Dependabot, dependency review, SBOMs,
   and finding handling.
+- `docs/non-readonly-roadmap.md` covers the security bar for any future write
+  capabilities.

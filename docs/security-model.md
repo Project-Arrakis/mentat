@@ -91,3 +91,11 @@ Dependency and release checks include:
 - CycloneDX SBOM generation from `package-lock.json`.
 - Trivy filesystem and runtime image scanning.
 - Gitleaks secret scanning.
+
+## Future Write Actions
+
+Write actions are outside the current security boundary. Future non-read-only
+work must follow `docs/non-readonly-roadmap.md` and remain blocked until an
+upstream write-capable adapter contract, write-specific RBAC, confirmation,
+audit logging, idempotency, rate limits, rollback guidance, STRIDE review, and
+tests are in place.

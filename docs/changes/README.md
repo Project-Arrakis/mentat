@@ -31,6 +31,7 @@ an issue instead of a pull request.
 | `PR-0017` | PR | Package zero-permission addon releases | PR #17 |
 | `PR-0018` | PR | Add SBOM and dependency review gates | PR #18 |
 | `PR-0019` | PR | Record read-only security review | PR #19 |
+| `PR-0020` | PR | Add non-read-only roadmap | PR #20 |
 
 Every future substantive PR should add or update its matching change note before
 merge. If a security finding is tracked as an issue, record the issue in this
