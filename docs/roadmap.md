@@ -144,7 +144,7 @@ Small pull requests:
 2. Add a Docker healthcheck based on local bot process state. Complete.
 3. Package the zero-permission addon panel for releases. Complete.
 4. Add SBOM publishing and dependency review. Complete.
-5. Add release-candidate support before future stable releases. In progress.
+5. Add release-candidate support before future stable releases. Complete.
 
 Complexity: medium.
 
@@ -165,9 +165,11 @@ Required release path:
 
 Current release state:
 
-- Latest bot stable release: `v0.1.0`
-- Next candidate target: `v0.1.1-rc.1`
-- Next stable target after candidate verification: `v0.1.1`
+- Latest bot stable release: `v0.1.1`
+- Latest release candidate validated: `v0.1.1-rc.1`
+- Next candidate target: to be assigned by the next release-preparation PR
+- Next stable target: to be assigned after the next candidate or patch scope is
+  approved
 - Latest upstream stable baseline: `v1.3.37`
 - Latest upstream release candidate observed: `v1.3.38-rc.1`
 
