@@ -11,6 +11,13 @@ change notes under `docs/changes/`.
 - Draft upstream write-adapter RFC with proposed disabled-by-default write
   routes, schemas, fixtures, STRIDE notes, abuse cases, and maintainer
   questions.
+- Durable documentation guard for tool and provider references in docs and PR
+  templates.
+
+### Changed
+
+- Replaced workspace-specific upstream clone paths with portable sibling-path
+  references in source-bound documentation.
 
 ## v0.1.1 - 2026-06-28
 

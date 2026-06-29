@@ -39,10 +39,11 @@ Current evidence for this roadmap slice was checked against upstream
 `Red-Blink/dune-awakening-selfhost-docker@1bb72c5` and latest tag `v1.3.37` on
 June 28, 2026.
 
-The standalone local reference clone used for this review is:
+The standalone local reference clone used for this review followed the
+recommended sibling path:
 
 ```text
-C:\Users\ronal\Documents\Codex\2026-06-22\dune-awakening-selfhost-discordbot\work\dune-awakening-selfhost-docker-upstream-main
+../dune-awakening-selfhost-docker-upstream-main
 ```
 
 The latest upstream release-candidate tag observed on June 28, 2026 is

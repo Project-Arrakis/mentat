@@ -9,7 +9,7 @@ Evidence checked on June 28, 2026:
 
 | Source | Value |
 | --- | --- |
-| Upstream reference clone | `C:\Users\ronal\Documents\Codex\2026-06-22\dune-awakening-selfhost-discordbot\work\dune-awakening-selfhost-docker-upstream-main` |
+| Upstream reference clone | Clean local clone of upstream `main`, kept outside this repository. Recommended sibling path: `../dune-awakening-selfhost-docker-upstream-main` |
 | Upstream commit | `1bb72c5` |
 | Upstream file | `console/api/src/services/discordAdapter.js` |
 | Latest published upstream release | `v1.3.37` |
