@@ -37,6 +37,8 @@ an issue instead of a pull request.
 | `PR-0023` | PR | Prepare v0.1.1-rc.1 | PR #23 |
 | `PR-0024` | PR | Promote v0.1.1 | PR #24 |
 | `PR-0025` | PR | Add upstream write adapter RFC | PR #25 |
+| `IS-0026` | Issue | Moved: WSL2 native Docker vehicle rubber-banding investigation | Issue #26 |
+| `PR-0027` | PR | Remove tool-specific PR and documentation references | PR #27 |
 
 Every future substantive PR should add or update its matching change note before
 merge. If a security finding is tracked as an issue, record the issue in this
