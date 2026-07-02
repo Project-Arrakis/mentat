@@ -33,6 +33,7 @@ These pieces are already in place:
 | Upstream source-of-truth tracking | Complete |
 | First read-only release | Complete: `v0.1.0` |
 | Release artifacts, SBOM, and checksums | Complete |
+| R1.0.0 production release plan | Complete |
 
 The upstream console source of truth is
 `Red-Blink/dune-awakening-selfhost-docker`. The local reference clone is used
@@ -166,6 +167,8 @@ Required release path:
 Current release state:
 
 - Latest bot stable release: `v0.1.1`
+- Current planning baseline: `R0.1.5`
+- Production target: read-only `R1.0.0`, published as `v1.0.0`
 - Latest release candidate validated: `v0.1.1-rc.1`
 - Next candidate target: to be assigned by the next release-preparation PR
 - Next stable target: to be assigned after the next candidate or patch scope is
@@ -182,6 +185,9 @@ Security requirements:
   FuncomIDs, private addresses, and real names
 - upstream RCs are monitored but do not replace the stable compatibility
   baseline without explicit approval
+
+See `docs/production-release-plan.md` for the full path from the current
+`R0.1.5` planning baseline to the read-only production `R1.0.0` release.
 
 ## Deferred Write Actions
 
