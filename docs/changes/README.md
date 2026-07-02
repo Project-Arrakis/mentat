@@ -39,6 +39,8 @@ an issue instead of a pull request.
 | `PR-0025` | PR | Add upstream write adapter RFC | PR #25 |
 | `IS-0026` | Issue | Moved: WSL2 native Docker vehicle rubber-banding investigation | Issue #26 |
 | `PR-0027` | PR | Remove tool-specific PR and documentation references | PR #27 |
+| `IS-0030` | Issue | Pin GitHub Actions to immutable commit SHAs | Issue #30 |
+| `PR-0031` | PR | Pin GitHub Actions to immutable commit SHAs | PR #31 |
 
 Every future substantive PR should add or update its matching change note before
 merge. If a security finding is tracked as an issue, record the issue in this

@@ -13,11 +13,18 @@ change notes under `docs/changes/`.
   questions.
 - Durable documentation guard for tool and provider references in docs and PR
   templates.
+- Workflow policy guard requiring GitHub Actions references to use immutable
+  commit SHA pins.
 
 ### Changed
 
 - Replaced workspace-specific upstream clone paths with portable sibling-path
   references in source-bound documentation.
+
+### Security
+
+- Pinned GitHub Actions workflow dependencies to immutable commit SHAs to close
+  the Semgrep mutable-action supply-chain finding tracked in issue #30.
 
 ## v0.1.1 - 2026-06-28
 
