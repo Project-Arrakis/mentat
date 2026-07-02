@@ -90,7 +90,7 @@ Small pull requests:
 Progress:
 
 - Endpoint paths, methods, and payload shapes are confirmed against upstream
-  release `v1.3.37`.
+  release `v1.3.40`.
 - Health, status, readiness, and services fixtures are covered by unit tests.
 - Configured route overrides are covered by compatibility tests.
 - A local token-protected adapter mock serves the fixtures on loopback for smoke
@@ -170,8 +170,9 @@ Current release state:
 - Next candidate target: to be assigned by the next release-preparation PR
 - Next stable target: to be assigned after the next candidate or patch scope is
   approved
-- Latest upstream stable baseline: `v1.3.37`
-- Latest upstream release candidate observed: `v1.3.38-rc.1`
+- Latest upstream stable baseline: `v1.3.40`
+- Latest upstream commit checked: `fea65b4` on July 2, 2026
+- Latest upstream release candidate observed: none newer than `v1.3.40`
 
 Security requirements:
 
