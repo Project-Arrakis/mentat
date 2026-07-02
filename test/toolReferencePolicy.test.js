@@ -10,6 +10,7 @@ const blocked = [
   { label: "workspace tool name", parts: ["co", "dex"] },
   { label: "provider name", parts: ["open", "a", "i"] },
   { label: "chat tool name", parts: ["chat", "gpt"] },
+  { label: "coding assistant name", parts: ["co", "pilot"] },
   { label: "standalone automation acronym", parts: ["a", "i"] },
   { label: "model acronym", parts: ["l", "l", "m"] }
 ].map(({ label, parts }) => ({
