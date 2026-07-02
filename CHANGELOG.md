@@ -25,6 +25,8 @@ change notes under `docs/changes/`.
 
 - Pinned GitHub Actions workflow dependencies to immutable commit SHAs to close
   the Semgrep mutable-action supply-chain finding tracked in issue #30.
+- Updated pinned workflow action SHAs for setup-python and upload-artifact
+  after dependency review and successful security gates.
 
 ## v0.1.1 - 2026-06-28
 
