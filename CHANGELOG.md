@@ -11,6 +11,8 @@ change notes under `docs/changes/`.
 - Draft upstream write-adapter RFC with proposed disabled-by-default write
   routes, schemas, fixtures, STRIDE notes, abuse cases, and maintainer
   questions.
+- Production release plan and release train strategy for the read-only
+  `R1.0.0` target.
 - Durable documentation guard for tool and provider references in docs and PR
   templates.
 - Workflow policy guard requiring GitHub Actions references to use immutable
