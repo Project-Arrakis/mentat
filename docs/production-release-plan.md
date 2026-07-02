@@ -181,7 +181,9 @@ write-capable release train begins:
 - the first write-capable release must be a prerelease candidate
 
 See `docs/non-readonly-roadmap.md` and
-`docs/upstream-write-adapter-rfc.md`.
+`docs/upstream-write-adapter-rfc.md`. See `docs/full-release-roadmap.md` for
+the broader release-train map from read-only production to later write-capable
+milestones.
 
 ## Sources
 

@@ -54,7 +54,8 @@ build, and Trivy image scanning before merge. See `docs/security-gates.md`.
 Release notes live under `docs/releases/`, and the project changelog lives in
 `CHANGELOG.md`. The release process is documented in `docs/release-process.md`.
 The production release plan for the read-only `R1.0.0` target is documented in
-`docs/production-release-plan.md`.
+`docs/production-release-plan.md`. The larger release-train roadmap toward a
+full-featured bot is documented in `docs/full-release-roadmap.md`.
 
 Tagged releases publish checksummed addon and SBOM artifacts:
 
@@ -81,6 +82,7 @@ Before publishing releases or opening a deployment to a wider audience, review:
 - `docs/networking.md`
 - `docs/adapter-contract.md`
 - `docs/dependency-management.md`
+- `docs/full-release-roadmap.md`
 - `docs/public-readiness.md`
 - `docs/pr-transparency-template.md`
 - `docs/production-release-plan.md`

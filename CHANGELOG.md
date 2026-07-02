@@ -13,6 +13,8 @@ change notes under `docs/changes/`.
   questions.
 - Production release plan and release train strategy for the read-only
   `R1.0.0` target.
+- Full release roadmap that keeps `R1.0.0` read-only and maps later major
+  trains toward controlled write-capable features.
 - Durable documentation guard for tool and provider references in docs and PR
   templates.
 - Workflow policy guard requiring GitHub Actions references to use immutable

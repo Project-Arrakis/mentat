@@ -188,6 +188,8 @@ Security requirements:
 
 See `docs/production-release-plan.md` for the full path from the current
 `R0.1.5` planning baseline to the read-only production `R1.0.0` release.
+See `docs/full-release-roadmap.md` for later major release trains toward
+controlled write-capable and full-featured milestones.
 
 ## Deferred Write Actions
 
@@ -208,3 +210,5 @@ read-only improvements.
 See `docs/non-readonly-roadmap.md` for the security-first roadmap that must be
 followed before any write-capable implementation begins. See
 `docs/upstream-write-adapter-rfc.md` for the draft upstream proposal packet.
+See `docs/full-release-roadmap.md` for the release gates that separate read-only
+production, low-risk writes, operational writes, and highest-risk operations.
