@@ -12,6 +12,8 @@ changes or upstream pull requests unless explicitly requested.
 
 - Use Semantic Versioning tags in the form `vMAJOR.MINOR.PATCH`.
 - Use release candidate tags in the form `vMAJOR.MINOR.PATCH-rc.N`.
+- Use `RMAJOR.MINOR.PATCH` only as a human release-train label in planning
+  documents. The corresponding repository tag remains `vMAJOR.MINOR.PATCH`.
 - Cut releases only from `main` after the release-preparation pull request has
   merged.
 - Use annotated Git tags for release tags.
@@ -23,6 +25,29 @@ changes or upstream pull requests unless explicitly requested.
 
 Pre-1.0 versions may change operator-facing behavior, but every release still
 requires the same security gates and documentation evidence.
+
+The current planning baseline is `R0.1.5`; the latest published stable artifact
+is still `v0.1.1` until a release-preparation pull request intentionally bumps
+`package.json`, `package-lock.json`, `addon/addon.json`, `CHANGELOG.md`, and
+`docs/releases/`.
+
+## Production Release Train
+
+The read-only production target is `R1.0.0`, published as tag `v1.0.0`.
+Production readiness is tracked in `docs/production-release-plan.md`.
+
+Release train rules:
+
+- `R0.x.y` releases are pre-production hardening, compatibility, and release
+  evidence releases.
+- `R1.0.0-rc.N` candidates must be published as GitHub prereleases before
+  stable `R1.0.0`.
+- `R1.0.0` must remain read-only unless the repository owner explicitly
+  re-scopes the release after upstream publishes a write-capable adapter
+  contract.
+- Write-capable command families are breaking risk-profile changes and should
+  use a later major release train unless they are disabled-by-default
+  foundation work with no write execution path.
 
 ## Release Candidates
 

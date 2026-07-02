@@ -45,6 +45,7 @@ an issue instead of a pull request.
 | `PR-0031` | PR | Pin GitHub Actions to immutable commit SHAs | PR #31 |
 | `PR-0032` | PR | Update pinned workflow actions | PR #32 |
 | `PR-0033` | PR | Refresh upstream v1.3.40 compatibility evidence | PR #33 |
+| `PR-0034` | PR | Add R1.0.0 production release plan | PR #34 |
 
 Every future substantive PR should add or update its matching change note before
 merge. If a security finding is tracked as an issue, record the issue in this
