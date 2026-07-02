@@ -15,6 +15,11 @@ It includes proposed routes, schema files, fixtures, STRIDE notes, abuse cases,
 and maintainer questions. It is a discussion artifact, not an implemented bot
 contract.
 
+The broader release-train roadmap lives in `docs/full-release-roadmap.md`.
+`R1.0.0` remains the read-only production release; write-capable work starts in
+later major release trains only after the upstream contract and controls in this
+document are satisfied.
+
 ## Non-Negotiable Preconditions
 
 Before any write command ships:
