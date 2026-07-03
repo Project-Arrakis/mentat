@@ -36,8 +36,8 @@ Only use this clean clone for compatibility review. Do not make feature changes
 in it.
 
 Current evidence for this roadmap slice was checked against upstream
-`Red-Blink/dune-awakening-selfhost-docker@fea65b4` and latest tag `v1.3.40` on
-July 2, 2026.
+`Red-Blink/dune-awakening-selfhost-docker@5163bd8` and latest tag `v1.3.41` on
+July 3, 2026.
 
 The standalone local reference clone used for this review followed the
 recommended sibling path:
@@ -46,7 +46,7 @@ recommended sibling path:
 ../dune-awakening-selfhost-docker-upstream-main
 ```
 
-No upstream release-candidate tag newer than `v1.3.40` was observed during this
+No upstream release-candidate tag newer than `v1.3.41` was observed during this
 review. Older release-candidate tags remain historical evidence, but the stable
 compatibility baseline is the latest published release.
 

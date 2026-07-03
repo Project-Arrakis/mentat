@@ -42,8 +42,8 @@ foundation work but has not yet entered production release freeze.
 Current evidence:
 
 - Latest published stable release: `v0.1.1`.
-- Current upstream baseline: `Red-Blink/dune-awakening-selfhost-docker@fea65b4`,
-  tag `v1.3.40`.
+- Current upstream baseline: `Red-Blink/dune-awakening-selfhost-docker@5163bd8`,
+  tag `v1.3.41`.
 - Read-only command family is implemented and unit tested.
 - Restricted-by-default RBAC is implemented and unit tested.
 - Adapter route fixtures, compatibility tests, and local adapter mock are in
