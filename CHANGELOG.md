@@ -6,6 +6,15 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
+No unreleased changes.
+
+## v1.0.0-rc.1 - 2026-07-03
+
+Release candidate for the read-only `R1.0.0` production target. This candidate
+keeps the bot read-only and packages the completed operator validation,
+upstream compatibility, security review, and release-roadmap evidence for
+prerelease validation.
+
 ### Added
 
 - Draft upstream write-adapter RFC with proposed disabled-by-default write
@@ -32,6 +41,8 @@ change notes under `docs/changes/`.
 
 - Replaced workspace-specific upstream clone paths with portable sibling-path
   references in source-bound documentation.
+- Advanced the release planning baseline from `R0.1.5` to `R0.9.0` release
+  candidate freeze for the `v1.0.0-rc.1` preparation.
 
 ### Security
 

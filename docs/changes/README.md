@@ -51,6 +51,7 @@ an issue instead of a pull request.
 | `PR-0037` | PR | Add R1.x to R2.x release roadmap | PR #37 |
 | `PR-0038` | PR | Add R1.1 operator validation smoke path | PR #38 |
 | `PR-0039` | PR | Record read-only production readiness security review | PR #39 |
+| `PR-0040` | PR | Prepare v1.0.0-rc.1 release candidate | PR #40 |
 
 Every future substantive PR should add or update its matching change note before
 merge. If a security finding is tracked as an issue, record the issue in this
