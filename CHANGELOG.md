@@ -21,6 +21,8 @@ change notes under `docs/changes/`.
   train scopes, and go/no-go gates.
 - Operator validation checklist and read-only adapter smoke command for the
   `R1.1` validation path.
+- Read-only production readiness security review current through PR #38 and
+  upstream `v1.3.41`.
 - Durable documentation guard for tool and provider references in docs and PR
   templates.
 - Workflow policy guard requiring GitHub Actions references to use immutable
@@ -33,6 +35,9 @@ change notes under `docs/changes/`.
 
 ### Security
 
+- Recorded current STRIDE, privacy, SOC 2 alignment, supply-chain, release
+  readiness, and finding disposition evidence for the read-only production
+  boundary.
 - Pinned GitHub Actions workflow dependencies to immutable commit SHAs to close
   the Semgrep mutable-action supply-chain finding tracked in issue #30.
 - Updated pinned workflow action SHAs for setup-python and upload-artifact

@@ -72,6 +72,8 @@ Before switching visibility to public:
 - Upstream compatibility docs identify Red-Blink upstream as source of truth.
 - Dependency management docs explain Dependabot, dependency review, SBOMs, and
   finding handling.
+- Latest read-only security review, `docs/security-review-2026-07-03.md`, is
+  current and linked from the security docs.
 - README states that this is not a shared public bot.
 - README states that v1 is read-only.
 - `.env.example` uses placeholders only.
