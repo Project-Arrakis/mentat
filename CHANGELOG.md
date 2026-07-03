@@ -11,6 +11,8 @@ change notes under `docs/changes/`.
 - Post-publication release evidence for `v1.0.0-rc.1`, including release
   workflow status, prerelease state, published assets, and downloaded-asset
   checksum verification.
+- Stable `v1.0.0` promotion checklist that names completed evidence, remaining
+  operator-owned gates, deferral rules, and go/no-go requirements.
 
 ## v1.0.0-rc.1 - 2026-07-03
 

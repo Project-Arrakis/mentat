@@ -172,8 +172,8 @@ Current release state:
 - Latest release candidate validated: `v1.0.0-rc.1`
 - Next candidate target: `v1.0.0-rc.2` only if validation requires another
   candidate
-- Next stable target: `v1.0.0` after candidate validation, operator-owned smoke
-  evidence or approved deferral, and owner go/no-go
+- Next stable target: `v1.0.0` after the promotion checklist in
+  `docs/v1.0.0-promotion-checklist.md` is satisfied
 - Latest upstream stable baseline: `v1.3.41`
 - Latest upstream commit checked: `5163bd8` on July 3, 2026
 - Latest upstream release candidate observed: none newer than `v1.3.41`
