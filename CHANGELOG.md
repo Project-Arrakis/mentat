@@ -6,7 +6,11 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
-No unreleased changes.
+### Added
+
+- Post-publication release evidence for `v1.0.0-rc.1`, including release
+  workflow status, prerelease state, published assets, and downloaded-asset
+  checksum verification.
 
 ## v1.0.0-rc.1 - 2026-07-03
 
