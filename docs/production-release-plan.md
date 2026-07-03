@@ -8,9 +8,10 @@ The `R` prefix is a human release-train label for roadmap discussions; Git tags,
 package versions, addon versions, changelog entries, and release notes continue
 to use SemVer-compatible `vMAJOR.MINOR.PATCH` tags.
 
-The current planning baseline is `R0.1.5`. The latest published stable artifact
-is still `v0.1.1`; do not describe `R0.1.5` as a published release until a
-release-preparation PR updates all release metadata and publishes the
+The current planning baseline is `R0.9.0` release candidate freeze for
+`v1.0.0-rc.1`. The latest published stable artifact is still `v0.1.1`; do not
+describe `R1.0.0` as a published stable release until a stable
+release-preparation PR promotes a verified candidate and publishes the
 corresponding tag.
 
 `R1.0.0` is a production release for the read-only Discord bot. Write-capable
@@ -34,20 +35,25 @@ re-scopes the release after upstream publishes a write-capable adapter contract.
   names, keys, tokens, passwords, private server addresses, and logs. PCI data
   is not expected; if it appears, treat it as a security finding.
 
-## Current Baseline: R0.1.5
+## Current Baseline: R0.9.0
 
-The `R0.1.5` baseline means the repository has passed the initial read-only
-foundation work but has not yet entered production release freeze.
+The `R0.9.0` baseline means the repository has entered release candidate freeze
+for the read-only production target. Only release-blocking fixes should be
+accepted before the `v1.0.0-rc.1` tag is cut.
 
 Current evidence:
 
 - Latest published stable release: `v0.1.1`.
+- Next release candidate target: `v1.0.0-rc.1`.
 - Current upstream baseline: `Red-Blink/dune-awakening-selfhost-docker@5163bd8`,
   tag `v1.3.41`.
 - Read-only command family is implemented and unit tested.
 - Restricted-by-default RBAC is implemented and unit tested.
 - Adapter route fixtures, compatibility tests, and local adapter mock are in
   place.
+- Operator validation smoke path is documented and locally testable.
+- Current read-only security review is recorded in
+  `docs/security-review-2026-07-03.md`.
 - CI and Security Gates include unit tests, npm audit, Semgrep, Gitleaks, Trivy
   filesystem, Docker build, Trivy image, dependency review for pull requests,
   release metadata validation, addon packaging, and SBOM generation.

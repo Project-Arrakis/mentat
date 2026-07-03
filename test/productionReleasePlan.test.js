@@ -5,9 +5,10 @@ import { test } from "node:test";
 test("production release plan records the release train baseline and target", async () => {
   const plan = await readFile("docs/production-release-plan.md", "utf8");
 
-  assert.match(plan, /\bR0\.1\.5\b/);
+  assert.match(plan, /\bR0\.9\.0\b/);
   assert.match(plan, /\bR1\.0\.0\b/);
   assert.match(plan, /\bv1\.0\.0\b/);
+  assert.match(plan, /\bv1\.0\.0-rc\.1\b/);
   assert.match(plan, /\bv0\.1\.1\b/);
   assert.match(plan, /read-only Discord bot/);
 });
@@ -17,7 +18,7 @@ test("release process distinguishes roadmap labels from SemVer tags", async () =
 
   assert.match(process, /RMAJOR\.MINOR\.PATCH/);
   assert.match(process, /vMAJOR\.MINOR\.PATCH/);
-  assert.match(process, /current planning baseline is `R0\.1\.5`/);
+  assert.match(process, /current planning baseline is `R0\.9\.0`/);
 });
 
 test("production release plan keeps security gates non-negotiable", async () => {

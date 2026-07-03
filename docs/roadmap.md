@@ -167,10 +167,10 @@ Required release path:
 Current release state:
 
 - Latest bot stable release: `v0.1.1`
-- Current planning baseline: `R0.1.5`
+- Current planning baseline: `R0.9.0`
 - Production target: read-only `R1.0.0`, published as `v1.0.0`
 - Latest release candidate validated: `v0.1.1-rc.1`
-- Next candidate target: to be assigned by the next release-preparation PR
+- Next candidate target: `v1.0.0-rc.1`
 - Next stable target: to be assigned after the next candidate or patch scope is
   approved
 - Latest upstream stable baseline: `v1.3.41`
@@ -187,7 +187,7 @@ Security requirements:
   baseline without explicit approval
 
 See `docs/production-release-plan.md` for the full path from the current
-`R0.1.5` planning baseline to the read-only production `R1.0.0` release.
+`R0.9.0` planning baseline to the read-only production `R1.0.0` release.
 See `docs/full-release-roadmap.md` for later major release trains toward
 controlled write-capable and full-featured milestones. See
 `docs/r1-r2-release-roadmap.md` for detailed `R1.x` and `R2.x` cadence and
