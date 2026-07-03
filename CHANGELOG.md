@@ -17,6 +17,8 @@ change notes under `docs/changes/`.
   trains toward controlled write-capable features.
 - Refreshed current upstream compatibility evidence to
   `Red-Blink/dune-awakening-selfhost-docker@5163bd8`, tag `v1.3.41`.
+- Detailed `R1.x` to `R2.x` roadmap with release cadence, entry criteria,
+  train scopes, and go/no-go gates.
 - Durable documentation guard for tool and provider references in docs and PR
   templates.
 - Workflow policy guard requiring GitHub Actions references to use immutable

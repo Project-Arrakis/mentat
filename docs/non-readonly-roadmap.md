@@ -18,7 +18,8 @@ contract.
 The broader release-train roadmap lives in `docs/full-release-roadmap.md`.
 `R1.0.0` remains the read-only production release; write-capable work starts in
 later major release trains only after the upstream contract and controls in this
-document are satisfied.
+document are satisfied. The detailed transition plan from `R1.x` read-only
+maturity to `R2.x` write safety lives in `docs/r1-r2-release-roadmap.md`.
 
 ## Non-Negotiable Preconditions
 
