@@ -15,6 +15,8 @@ change notes under `docs/changes/`.
   `R1.0.0` target.
 - Full release roadmap that keeps `R1.0.0` read-only and maps later major
   trains toward controlled write-capable features.
+- Refreshed current upstream compatibility evidence to
+  `Red-Blink/dune-awakening-selfhost-docker@5163bd8`, tag `v1.3.41`.
 - Durable documentation guard for tool and provider references in docs and PR
   templates.
 - Workflow policy guard requiring GitHub Actions references to use immutable
