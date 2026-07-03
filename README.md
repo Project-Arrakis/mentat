@@ -97,6 +97,7 @@ Before publishing releases or opening a deployment to a wider audience, review:
 - `docs/soc2-alignment.md`
 - `docs/upstream-write-adapter-rfc.md`
 - `docs/upstream-source.md`
+- `docs/v1.0.0-promotion-checklist.md`
 
 ## Configuration
 
