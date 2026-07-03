@@ -59,7 +59,7 @@ Blocked from R1.x:
 
 | Train | Theme | Candidate outcomes | Release gate |
 | --- | --- | --- | --- |
-| `R1.1` | Operator validation | Documented runtime smoke tests, test-guild registration evidence, mock-adapter scenarios, Docker start and healthcheck checklist. | At least one documented end-to-end read-only smoke path. |
+| `R1.1` | Operator validation | Documented runtime smoke tests, test-guild registration evidence, mock-adapter scenarios, Docker start and healthcheck checklist. | At least one documented end-to-end read-only smoke path. See `docs/operator-validation.md`. |
 | `R1.2` | Read-only detail expansion | `/dune services detail`, `/dune readiness detail`, maintenance metadata, or similar safe detail commands only if upstream exposes safe data. | Adapter contract evidence and fixture coverage for every new field. |
 | `R1.3` | Read-only notifications | Scheduled status posts, readiness alerts, or incident digests. | Channel allow-list, rate limits, opt-in config, and no public-channel default. |
 | `R1.4` | Compatibility hardening | Upstream drift checklist, fixture refresh workflow, release-candidate monitoring, stronger route compatibility tests. | Current upstream evidence and no stale source-bound docs. |

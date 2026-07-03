@@ -69,6 +69,18 @@ DUNE_DISCORD_ADAPTER_TOKEN=local-adapter-token
 Set `MOCK_ADAPTER_PORT` to change the port. If `MOCK_ADAPTER_HOST` is set to a
 non-loopback address, `DUNE_DISCORD_ADAPTER_TOKEN` must also be set explicitly.
 
+## Operator Adapter Smoke
+
+After starting the mock adapter or configuring a live private adapter, run:
+
+```bash
+npm run smoke:adapter
+```
+
+The command calls health, status, readiness, and services through the read-only
+adapter client and fails if a response contains fields or values that would be
+redacted before Discord output. See `docs/operator-validation.md`.
+
 ## Addon Release Package
 
 ```bash
@@ -107,6 +119,7 @@ sha256sum -c dune-awakening-selfhost-discordbot.cdx.json.sha256
 - startup with `DISCORD_RBAC_MODE=restricted` and no allow-list should fail closed
 - `npm run register` against a test guild
 - `npm run mock:adapter`
+- `npm run smoke:adapter`
 - `/dune about`
 - `/dune ping`
 - `/dune health`

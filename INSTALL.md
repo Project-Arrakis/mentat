@@ -69,10 +69,17 @@ SHA-256 checksum files under `dist/`.
 See `docs/release-process.md` and `CHANGELOG.md` for release practice and
 version history.
 
+## Operator Validation
+
+After setup, follow `docs/operator-validation.md` to record local adapter smoke,
+test-guild command registration, runtime command smoke, and Docker healthcheck
+evidence before promoting a release candidate or wider deployment.
+
 ## More Setup Detail
 
 - `docs/discord-setup.md`
 - `docs/configuration.md`
 - `docs/networking.md`
+- `docs/operator-validation.md`
 - `docs/verification.md`
 - `docs/security-model.md`
