@@ -189,7 +189,9 @@ Security requirements:
 See `docs/production-release-plan.md` for the full path from the current
 `R0.1.5` planning baseline to the read-only production `R1.0.0` release.
 See `docs/full-release-roadmap.md` for later major release trains toward
-controlled write-capable and full-featured milestones.
+controlled write-capable and full-featured milestones. See
+`docs/r1-r2-release-roadmap.md` for detailed `R1.x` and `R2.x` cadence and
+release gates.
 
 ## Deferred Write Actions
 

@@ -183,7 +183,8 @@ write-capable release train begins:
 See `docs/non-readonly-roadmap.md` and
 `docs/upstream-write-adapter-rfc.md`. See `docs/full-release-roadmap.md` for
 the broader release-train map from read-only production to later write-capable
-milestones.
+milestones, and `docs/r1-r2-release-roadmap.md` for detailed cadence and gates
+from `R1.x` through `R2.x`.
 
 ## Sources
 

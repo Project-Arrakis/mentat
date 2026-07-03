@@ -7,6 +7,10 @@ release trains needed for a full-featured Discord bot. It does not change the
 current product boundary: `R1.0.0` is the production-ready read-only bot,
 published as `v1.0.0`.
 
+See `docs/r1-r2-release-roadmap.md` for the detailed cadence, train sequencing,
+and release gates for the `R1.x` read-only maturity line and the first `R2.x`
+write-safety line.
+
 The full-featured bot is a later major-release objective. It must be reached
 incrementally, with every write-capable step gated by upstream adapter support,
 explicit authorization, confirmation, idempotency, audit evidence, privacy
