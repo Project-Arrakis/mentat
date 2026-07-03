@@ -122,6 +122,8 @@ candidate number. Do not move an existing release tag.
 Promote to `v1.0.0` only when:
 
 - the final release candidate has passed all candidate gates
+- `docs/v1.0.0-promotion-checklist.md` is complete or records an
+  owner-approved deferral for deployment-specific smoke evidence
 - any candidate findings are fixed or documented as accepted low-risk items
   approved by the repository owner
 - there are no unresolved medium, high, or critical findings
