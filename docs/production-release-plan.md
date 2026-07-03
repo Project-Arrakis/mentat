@@ -44,7 +44,9 @@ accepted before the `v1.0.0-rc.1` tag is cut.
 Current evidence:
 
 - Latest published stable release: `v0.1.1`.
-- Next release candidate target: `v1.0.0-rc.1`.
+- Latest published release candidate: `v1.0.0-rc.1`.
+- Next release candidate target: `v1.0.0-rc.2` only if validation requires
+  another candidate.
 - Current upstream baseline: `Red-Blink/dune-awakening-selfhost-docker@5163bd8`,
   tag `v1.3.41`.
 - Read-only command family is implemented and unit tested.
@@ -54,6 +56,8 @@ Current evidence:
 - Operator validation smoke path is documented and locally testable.
 - Current read-only security review is recorded in
   `docs/security-review-2026-07-03.md`.
+- Published `v1.0.0-rc.1` release workflow and downloaded-asset checksum
+  verification are recorded in `docs/release-evidence/v1.0.0-rc.1.md`.
 - CI and Security Gates include unit tests, npm audit, Semgrep, Gitleaks, Trivy
   filesystem, Docker build, Trivy image, dependency review for pull requests,
   release metadata validation, addon packaging, and SBOM generation.

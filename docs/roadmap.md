@@ -169,10 +169,11 @@ Current release state:
 - Latest bot stable release: `v0.1.1`
 - Current planning baseline: `R0.9.0`
 - Production target: read-only `R1.0.0`, published as `v1.0.0`
-- Latest release candidate validated: `v0.1.1-rc.1`
-- Next candidate target: `v1.0.0-rc.1`
-- Next stable target: to be assigned after the next candidate or patch scope is
-  approved
+- Latest release candidate validated: `v1.0.0-rc.1`
+- Next candidate target: `v1.0.0-rc.2` only if validation requires another
+  candidate
+- Next stable target: `v1.0.0` after candidate validation, operator-owned smoke
+  evidence or approved deferral, and owner go/no-go
 - Latest upstream stable baseline: `v1.3.41`
 - Latest upstream commit checked: `5163bd8` on July 3, 2026
 - Latest upstream release candidate observed: none newer than `v1.3.41`

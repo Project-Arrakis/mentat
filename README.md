@@ -53,6 +53,7 @@ build, and Trivy image scanning before merge. See `docs/security-gates.md`.
 
 Release notes live under `docs/releases/`, and the project changelog lives in
 `CHANGELOG.md`. The release process is documented in `docs/release-process.md`.
+Post-publication release evidence lives under `docs/release-evidence/`.
 The production release plan for the read-only `R1.0.0` target is documented in
 `docs/production-release-plan.md`. The larger release-train roadmap toward a
 full-featured bot is documented in `docs/full-release-roadmap.md`. The detailed
@@ -90,6 +91,7 @@ Before publishing releases or opening a deployment to a wider audience, review:
 - `docs/production-release-plan.md`
 - `docs/r1-r2-release-roadmap.md`
 - `docs/release-process.md`
+- `docs/release-evidence/v1.0.0-rc.1.md`
 - `docs/releases/v0.1.0.md`
 - `docs/security-review-2026-07-03.md`
 - `docs/soc2-alignment.md`
