@@ -81,6 +81,7 @@ Before publishing releases or opening a deployment to a wider audience, review:
 - `SUPPORT.md`
 - `docs/discord-setup.md`
 - `docs/networking.md`
+- `docs/operator-validation.md`
 - `docs/adapter-contract.md`
 - `docs/dependency-management.md`
 - `docs/full-release-roadmap.md`
@@ -137,6 +138,7 @@ See `docs/architecture.md` and `docs/upstream-integration.md` for the design.
 
 - `USAGE.md` covers command behavior, RBAC, and troubleshooting.
 - `docs/verification.md` covers smoke tests and regression checks.
+- `docs/operator-validation.md` covers R1.1 operator smoke evidence.
 - `docs/dependency-management.md` covers Dependabot, dependency review, SBOMs,
   and finding handling.
 - `docs/non-readonly-roadmap.md` covers the security bar for any future write
