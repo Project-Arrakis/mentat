@@ -169,6 +169,11 @@ Each release should publish:
 The addon package must remain zero-permission. The SBOM must be generated from
 the committed `package-lock.json`.
 
+After a tag publishes, record post-publication evidence under
+`docs/release-evidence/vMAJOR.MINOR.PATCH*.md`. The evidence should include the
+tag, target commit, release workflow run, GitHub Release URL, prerelease or
+stable state, asset names, and downloaded-asset checksum verification.
+
 ## Privacy and PII
 
 Release notes, PR bodies, issues, screenshots, logs, and artifacts must not
