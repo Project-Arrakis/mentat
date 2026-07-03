@@ -19,6 +19,8 @@ change notes under `docs/changes/`.
   `Red-Blink/dune-awakening-selfhost-docker@5163bd8`, tag `v1.3.41`.
 - Detailed `R1.x` to `R2.x` roadmap with release cadence, entry criteria,
   train scopes, and go/no-go gates.
+- Operator validation checklist and read-only adapter smoke command for the
+  `R1.1` validation path.
 - Durable documentation guard for tool and provider references in docs and PR
   templates.
 - Workflow policy guard requiring GitHub Actions references to use immutable

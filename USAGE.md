@@ -61,6 +61,7 @@ Useful checks:
 ```bash
 npm run check
 npm audit --audit-level=moderate
+npm run smoke:adapter
 ```
 
 Do not paste tokens, `.env` files, private server addresses, SteamIDs,
@@ -74,4 +75,5 @@ requests.
 - `SUPPORT.md`
 - `docs/adapter-contract.md`
 - `docs/configuration.md`
+- `docs/operator-validation.md`
 - `docs/verification.md`
