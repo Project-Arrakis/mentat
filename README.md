@@ -91,6 +91,7 @@ Before publishing releases or opening a deployment to a wider audience, review:
 - `docs/r1-r2-release-roadmap.md`
 - `docs/release-process.md`
 - `docs/releases/v0.1.0.md`
+- `docs/security-review-2026-07-03.md`
 - `docs/soc2-alignment.md`
 - `docs/upstream-write-adapter-rfc.md`
 - `docs/upstream-source.md`
@@ -141,5 +142,7 @@ See `docs/architecture.md` and `docs/upstream-integration.md` for the design.
 - `docs/operator-validation.md` covers R1.1 operator smoke evidence.
 - `docs/dependency-management.md` covers Dependabot, dependency review, SBOMs,
   and finding handling.
+- `docs/security-review-2026-07-03.md` records the latest read-only production
+  readiness security review.
 - `docs/non-readonly-roadmap.md` covers the security bar for any future write
   capabilities.
