@@ -73,4 +73,5 @@ adapter endpoint.
 - `docs/security-model.md`
 - `docs/security-gates.md`
 - `docs/dependency-management.md`
+- `docs/security-review-2026-07-03.md`
 - `docs/soc2-alignment.md`
