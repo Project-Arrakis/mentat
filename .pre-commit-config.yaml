@@ -24,3 +24,10 @@ repos:
         entry: gitleaks detect --source . --redact --no-git
         language: system
         pass_filenames: false
+
+      - id: trivy
+        name: trivy misconfig + secret scan
+        entry: trivy filesystem --scanners misconfig,secret --skip-dirs node_modules,.security-audit,dist . --no-progress
+        language: system
+        pass_filenames: false
+        require_serial: true
