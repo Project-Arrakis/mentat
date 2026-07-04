@@ -8,11 +8,27 @@ change notes under `docs/changes/`.
 
 ### Added
 
-- Post-publication release evidence for `v1.0.0-rc.1`, including release
-  workflow status, prerelease state, published assets, and downloaded-asset
-  checksum verification.
-- Stable `v1.0.0` promotion checklist that names completed evidence, remaining
-  operator-owned gates, deferral rules, and go/no-go requirements.
+- (reserved for future changes)
+
+## v1.5.0 - 2026-07-03
+
+R2 readiness review (R1.5). Final read-only hardening before write foundation
+work begins. Comprehensive security review and owner approval gate for
+transitioning to R2 planning.
+
+### Added
+
+- Comprehensive security review covering all read-only surfaces.
+- STRIDE re-review for accumulated R1.x changes.
+- Privacy review for all read-only command output.
+- Dependency and container security review.
+- Upstream compatibility evidence freeze for R1.5 baseline.
+- R2 entry criteria assessment checklist.
+- Owner approval documentation for R2 planning commencement.
+
+### Changed
+
+- Release planning baseline advanced from R1.x to R2 readiness evaluation.
 
 ## v1.0.0-rc.1 - 2026-07-03
 
