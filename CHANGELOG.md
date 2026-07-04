@@ -10,26 +10,28 @@ change notes under `docs/changes/`.
 
 - (reserved for future changes)
 
-## v1.2.0 - 2026-07-03
+## v1.3.0 - 2026-07-03
 
-Read-only detail expansion (R1.2). Adds enhanced detail output for services
-and readiness commands, with adapter contract evidence and fixture coverage
-for every new field. All commands remain read-only.
+Read-only notifications (R1.3). Adds scheduled status posts, readiness alerts,
+and incident digest summaries to allow-listed Discord channels. All output
+remains read-only with channel allow-lists and rate limits.
 
 ### Added
 
-- `/dune services detail` subcommand for per-service status with metadata
-  when upstream adapter exposes safe detailed data.
-- `/dune readiness detail` subcommand for granular readiness component status.
-- Maintenance window metadata display when upstream exposes safe read-only
-  maintenance state.
-- Adapter contract evidence and fixture coverage for all new detail fields.
-- Route compatibility tests covering new detail assumptions.
-- Redaction tests for any new fields carrying sensitive data.
+- Scheduled status posts to allow-listed channels with configurable interval.
+- Readiness alert subscriptions for channel-based notifications on state
+  changes.
+- Incident digest summaries aggregating recent status transitions.
+- Channel allow-list configuration with `DISCORD_STATUS_CHANNEL_IDS` and
+  `DISCORD_ALERT_CHANNEL_IDS` environment variables.
+- Rate limiting for recurring output to respect Discord API rate limits.
+- Opt-in configuration: no public-channel default.
+- Unit tests for scheduler, rate-limiter, and digest-formatter modules.
+- Route compatibility tests for adapter state-change detection.
 
 ### Changed
 
-- Release planning baseline advanced to R1.2 for the read-only detail train.
+- Release planning baseline advanced to R1.3 for read-only notifications.
 
 ## v1.0.0-rc.1 - 2026-07-03
 
