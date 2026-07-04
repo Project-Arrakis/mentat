@@ -8,11 +8,28 @@ change notes under `docs/changes/`.
 
 ### Added
 
-- Post-publication release evidence for `v1.0.0-rc.1`, including release
-  workflow status, prerelease state, published assets, and downloaded-asset
-  checksum verification.
-- Stable `v1.0.0` promotion checklist that names completed evidence, remaining
-  operator-owned gates, deferral rules, and go/no-go requirements.
+- (reserved for future changes)
+
+## v1.2.0 - 2026-07-03
+
+Read-only detail expansion (R1.2). Adds enhanced detail output for services
+and readiness commands, with adapter contract evidence and fixture coverage
+for every new field. All commands remain read-only.
+
+### Added
+
+- `/dune services detail` subcommand for per-service status with metadata
+  when upstream adapter exposes safe detailed data.
+- `/dune readiness detail` subcommand for granular readiness component status.
+- Maintenance window metadata display when upstream exposes safe read-only
+  maintenance state.
+- Adapter contract evidence and fixture coverage for all new detail fields.
+- Route compatibility tests covering new detail assumptions.
+- Redaction tests for any new fields carrying sensitive data.
+
+### Changed
+
+- Release planning baseline advanced to R1.2 for the read-only detail train.
 
 ## v1.0.0-rc.1 - 2026-07-03
 
