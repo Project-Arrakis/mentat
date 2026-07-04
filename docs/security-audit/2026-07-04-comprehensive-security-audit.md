@@ -131,8 +131,8 @@ All findings are tracked below with severity, owner, and recommended remediation
 #### FINDING-CORE-1: Hardcoded fallback command-auth token (HIGH)
 
 - **Location:**
-  - `console/api/src/rmq.js:7` — `const BUILTIN_COMMAND_AUTH_TOKEN = "Nu6VmPWUMvdPMeB7qErr";`
-  - `runtime/scripts/admin-tools.sh:12` — `BUILTIN_COMMAND_AUTH_TOKEN="Nu6VmPWUMvdPMeB7qErr"`
+  - `console/api/src/rmq.js:7` — `const BUILTIN_COMMAND_AUTH_TOKEN = "[REDACTED-HARDCODED-TOKEN]";`
+  - `runtime/scripts/admin-tools.sh:12` — `BUILTIN_COMMAND_AUTH_TOKEN="[REDACTED-HARDCODED-TOKEN]"`
   - Also present in upstream `admin-server/src/rmq.js` and git history
 - **Risk:** Any party with source access knows the fallback token. If `DUNE_COMMAND_AUTH_TOKEN` is not explicitly set at runtime, the console falls back to a publicly known secret, bypassing the intended command authentication boundary.
 - **Recommendation:**
