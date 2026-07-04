@@ -24,6 +24,11 @@ const UPSTREAM_CONTRACT = Object.freeze({
     method: "POST",
     path: "/api/integrations/discord/services",
     fixture: "services.json"
+  },
+  population: {
+    method: "POST",
+    path: "/api/integrations/discord/population",
+    fixture: "population.json"
   }
 });
 

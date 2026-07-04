@@ -10,20 +10,26 @@ change notes under `docs/changes/`.
 
 - (reserved for future changes)
 
-## v1.1.0 - 2026-07-03
+## v1.2.0 - 2026-07-03
 
-Operator validation release (R1.1). Adds documented runtime smoke tests,
-test-guild registration evidence, mock-adapter scenarios, and Docker start
-and healthcheck checklist for operator validation.
+Read-only detail expansion (R1.2). Adds enhanced detail output for services
+and readiness commands, with adapter contract evidence and fixture coverage
+for every new field. All commands remain read-only.
 
 ### Added
 
-- Operator validation smoke command (`npm run smoke:adapter`) for end-to-end
-  read-only smoke tests against a local mock adapter.
-- Operator validation checklist documenting test-guild registration, Docker
-  healthcheck, and adapter mock scenarios.
-- Upstream compatibility refreshed to `Red-Blink/dune-awakening-selfhost-docker`
-  tag `v1.3.41` (commit `5163bd8`).
+- `/dune services detail` subcommand for per-service status with metadata
+  when upstream adapter exposes safe detailed data.
+- `/dune readiness detail` subcommand for granular readiness component status.
+- Maintenance window metadata display when upstream exposes safe read-only
+  maintenance state.
+- Adapter contract evidence and fixture coverage for all new detail fields.
+- Route compatibility tests covering new detail assumptions.
+- Redaction tests for any new fields carrying sensitive data.
+
+### Changed
+
+- Release planning baseline advanced to R1.2 for the read-only detail train.
 
 ## v1.0.0-rc.1 - 2026-07-03
 

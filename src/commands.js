@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { formatError, formatPayload } from "./format.js";
 
 const PACKAGE = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services"]);
+const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services", "population"]);
 
 export function buildDuneCommand() {
   return new SlashCommandBuilder()
@@ -15,7 +15,8 @@ export function buildDuneCommand() {
     .addSubcommand((command) => command.setName("status").setDescription("Show high-level server status."))
     .addSubcommand((command) => command.setName("status-summary").setDescription("Show compact aggregate server status."))
     .addSubcommand((command) => command.setName("readiness").setDescription("Show readiness and preflight state."))
-    .addSubcommand((command) => command.setName("services").setDescription("Show service state."));
+    .addSubcommand((command) => command.setName("services").setDescription("Show service state."))
+    .addSubcommand((command) => command.setName("population").setDescription("Show aggregate player count and server population."));
 }
 
 export function commandDefinitions() {
@@ -49,6 +50,8 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       payload = await pingPayload(adapterClient, actor, deferReplyMs);
     } else if (subcommand === "status-summary") {
       payload = statusSummaryPayload(await adapterClient.status(actor));
+    } else if (subcommand === "population") {
+      payload = populationPayload(await adapterClient.population(actor));
     } else {
       payload = await adapterClient[subcommand](actor);
     }
@@ -169,4 +172,15 @@ function summaryValue(value, fallback) {
 
 function adapterOrigin(baseUrl) {
   return new URL(baseUrl).origin;
+}
+
+export function populationPayload(population) {
+  const result = population?.result || {};
+  return {
+    ok: population?.ok === true,
+    online: result.onlinePlayers ?? "unknown",
+    total: result.totalPlayers ?? "unknown",
+    aggregate: result.aggregate ?? true,
+    detailsSuppressed: result.detailsSuppressed ?? true
+  };
 }
