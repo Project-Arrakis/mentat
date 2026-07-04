@@ -18,7 +18,8 @@
     "validate:operator": "node scripts/validate-operator.js",
     "test": "node --test",
     "check": "npm test && npm run release:check && npm run package:addon && npm run sbom",
-    "compat:check": "node scripts/check-compatibility.js"
+    "compat:check": "node scripts/check-compatibility.js",
+    "security:api": "node scripts/api-security-test.js"
   },
   "dependencies": {
     "discord.js": "^14.26.4"
