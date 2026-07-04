@@ -5,7 +5,8 @@ const DEFAULT_PATHS = Object.freeze({
   status: "/api/integrations/discord/status",
   readiness: "/api/integrations/discord/readiness",
   services: "/api/integrations/discord/services",
-  population: "/api/integrations/discord/population"
+  population: "/api/integrations/discord/population",
+  backups: "/api/integrations/discord/backups/list"
 });
 
 const DEFAULT_METHODS = Object.freeze({
@@ -13,7 +14,8 @@ const DEFAULT_METHODS = Object.freeze({
   status: "POST",
   readiness: "POST",
   services: "POST",
-  population: "POST"
+  population: "POST",
+  backups: "GET"
 });
 
 const RBAC_MODES = new Set(["restricted", "open"]);
@@ -41,7 +43,8 @@ export function loadConfig(env = process.env) {
           "status-summary": mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_STATUS_SUMMARY_ROLE_IDS)),
           readiness: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_READINESS_ROLE_IDS)),
           services: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_SERVICES_ROLE_IDS)),
-          population: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_POPULATION_ROLE_IDS))
+          population: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_POPULATION_ROLE_IDS)),
+          backups: mergeRoleIds(observerRoleIds, adminRoleIds, parseCsv(env.DISCORD_BACKUPS_ROLE_IDS))
         }
       }
     },
@@ -54,14 +57,16 @@ export function loadConfig(env = process.env) {
         status: optionalEnv(env, "DUNE_ADAPTER_STATUS_PATH") || DEFAULT_PATHS.status,
         readiness: optionalEnv(env, "DUNE_ADAPTER_READINESS_PATH") || DEFAULT_PATHS.readiness,
         services: optionalEnv(env, "DUNE_ADAPTER_SERVICES_PATH") || DEFAULT_PATHS.services,
-        population: optionalEnv(env, "DUNE_ADAPTER_POPULATION_PATH") || DEFAULT_PATHS.population
+        population: optionalEnv(env, "DUNE_ADAPTER_POPULATION_PATH") || DEFAULT_PATHS.population,
+        backups: optionalEnv(env, "DUNE_ADAPTER_BACKUPS_PATH") || DEFAULT_PATHS.backups
       },
       methods: {
         health: parseMethod(env.DUNE_ADAPTER_HEALTH_METHOD, DEFAULT_METHODS.health),
         status: parseMethod(env.DUNE_ADAPTER_STATUS_METHOD, DEFAULT_METHODS.status),
         readiness: parseMethod(env.DUNE_ADAPTER_READINESS_METHOD, DEFAULT_METHODS.readiness),
         services: parseMethod(env.DUNE_ADAPTER_SERVICES_METHOD, DEFAULT_METHODS.services),
-        population: parseMethod(env.DUNE_ADAPTER_POPULATION_METHOD, DEFAULT_METHODS.population)
+        population: parseMethod(env.DUNE_ADAPTER_POPULATION_METHOD, DEFAULT_METHODS.population),
+        backups: parseMethod(env.DUNE_ADAPTER_BACKUPS_METHOD, DEFAULT_METHODS.backups)
       }
     }
   };
