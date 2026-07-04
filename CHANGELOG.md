@@ -8,11 +8,18 @@ change notes under `docs/changes/`.
 
 ### Added
 
-- Post-publication release evidence for `v1.0.0-rc.1`, including release
-  workflow status, prerelease state, published assets, and downloaded-asset
-  checksum verification.
-- Stable `v1.0.0` promotion checklist that names completed evidence, remaining
-  operator-owned gates, deferral rules, and go/no-go requirements.
+- (reserved for future changes)
+
+## v1.0.0 - 2026-07-03
+
+Stable read-only production release. Promotes the v1.0.0-rc.1 candidate
+after successful security gates, upstream compatibility evidence, artifact
+verification, and operator validation. No command surface, RBAC, or behavior
+changes from v1.0.0-rc.1.
+
+### Added
+
+- (no new features from v1.0.0-rc.1; this is a stability promotion)
 
 ## v1.0.0-rc.1 - 2026-07-03
 
