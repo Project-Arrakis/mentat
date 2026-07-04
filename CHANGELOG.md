@@ -8,11 +8,26 @@ change notes under `docs/changes/`.
 
 ### Added
 
-- Post-publication release evidence for `v1.0.0-rc.1`, including release
-  workflow status, prerelease state, published assets, and downloaded-asset
-  checksum verification.
-- Stable `v1.0.0` promotion checklist that names completed evidence, remaining
-  operator-owned gates, deferral rules, and go/no-go requirements.
+- (reserved for future changes)
+
+## v1.4.0 - 2026-07-03
+
+Compatibility hardening (R1.4). Adds upstream drift checklist, fixture refresh
+workflow, release-candidate monitoring, and stronger route compatibility tests.
+
+### Added
+
+- Upstream drift detection checklist for adapter contract changes.
+- Fixture refresh workflow for automated adapter evidence updates.
+- Release-candidate monitoring for upstream pre-release compatibility
+  signals.
+- Stronger route compatibility tests covering edge cases and field-level
+  contract assertions.
+- Documentation guard tests ensuring source-bound evidence is current.
+
+### Changed
+
+- Release planning baseline advanced to R1.4 for compatibility hardening.
 
 ## v1.0.0-rc.1 - 2026-07-03
 
