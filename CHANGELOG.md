@@ -10,16 +10,20 @@ change notes under `docs/changes/`.
 
 - (reserved for future changes)
 
-## v1.0.0 - 2026-07-03
+## v1.1.0 - 2026-07-03
 
-Stable read-only production release. Promotes the v1.0.0-rc.1 candidate
-after successful security gates, upstream compatibility evidence, artifact
-verification, and operator validation. No command surface, RBAC, or behavior
-changes from v1.0.0-rc.1.
+Operator validation release (R1.1). Adds documented runtime smoke tests,
+test-guild registration evidence, mock-adapter scenarios, and Docker start
+and healthcheck checklist for operator validation.
 
 ### Added
 
-- (no new features from v1.0.0-rc.1; this is a stability promotion)
+- Operator validation smoke command (`npm run smoke:adapter`) for end-to-end
+  read-only smoke tests against a local mock adapter.
+- Operator validation checklist documenting test-guild registration, Docker
+  healthcheck, and adapter mock scenarios.
+- Upstream compatibility refreshed to `Red-Blink/dune-awakening-selfhost-docker`
+  tag `v1.3.41` (commit `5163bd8`).
 
 ## v1.0.0-rc.1 - 2026-07-03
 

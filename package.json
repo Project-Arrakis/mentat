@@ -1,6 +1,6 @@
 {
   "name": "dune-awakening-selfhost-discordbot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Read-only Discord bot for Dune Awakening Self-Host Docker.",
   "type": "module",
@@ -15,6 +15,7 @@
     "release:check": "node scripts/validate-release.js",
     "smoke:adapter": "node scripts/operator-smoke.js",
     "sbom": "node scripts/generate-sbom.js",
+    "validate:operator": "node scripts/validate-operator.js",
     "test": "node --test",
     "check": "npm test && npm run release:check && npm run package:addon && npm run sbom"
   },
