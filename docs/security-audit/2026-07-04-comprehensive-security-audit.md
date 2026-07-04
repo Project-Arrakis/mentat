@@ -68,7 +68,7 @@ All findings are tracked below with severity, owner, and recommended remediation
 #### FINDING-BOT-2: Gitleaks false positive on RFC test fixture (LOW / FALSE POSITIVE)
 
 - **Location:** `test/fixtures/write-adapter/requests/execute-maintenance-note.json`
-- **Match:** `clientRequestId": "discord-execute-0001"`
+- **Match:** `clientRequestId": "[REDACTED-TEST-ID]"`
 - **Risk:** None — this is a deterministic test identifier, not a credential.
 - **Recommendation:** Add `.gitleaksignore` entry or a `gitleaks.toml` allowlist for RFC fixtures so CI does not repeatedly flag it.
 - **Remediation branch:** `security/bot-gitleaks-allowlist`
