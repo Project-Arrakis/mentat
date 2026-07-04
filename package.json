@@ -15,6 +15,7 @@
     "release:check": "node scripts/validate-release.js",
     "smoke:adapter": "node scripts/operator-smoke.js",
     "sbom": "node scripts/generate-sbom.js",
+    "validate:operator": "node scripts/validate-operator.js",
     "test": "node --test",
     "check": "npm test && npm run release:check && npm run package:addon && npm run sbom"
   },
