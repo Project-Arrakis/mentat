@@ -2,6 +2,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 export const DEFAULT_HEALTH_STATE_FILE = "/tmp/dune-discord-bot/health.json";
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
 
 export function startHealthState({
   filePath = process.env.DUNE_BOT_HEALTH_STATE_FILE || DEFAULT_HEALTH_STATE_FILE,
@@ -13,7 +15,7 @@ export function startHealthState({
 
   const write = (extra = {}) => {
     try {
-      mkdirSync(dirname(filePath), { recursive: true });
+      mkdirSync(dirname(filePath), { recursive: true, mode: DIR_MODE });
       const updatedAt = new Date().toISOString();
       writeFileSync(filePath, `${JSON.stringify({
         ready,
@@ -21,7 +23,7 @@ export function startHealthState({
         updatedAt,
         pid: process.pid,
         ...extra
-      })}\n`, "utf8");
+      })}\n`, { encoding: "utf8", mode: FILE_MODE });
     } catch (error) {
       onError(error);
     }
