@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { formatError, formatPayload } from "./format.js";
 
 const PACKAGE = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services", "population"]);
+const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services", "population", "backups"]);
 
 export function buildDuneCommand() {
   return new SlashCommandBuilder()
@@ -16,7 +16,8 @@ export function buildDuneCommand() {
     .addSubcommand((command) => command.setName("status-summary").setDescription("Show compact aggregate server status."))
     .addSubcommand((command) => command.setName("readiness").setDescription("Show readiness and preflight state."))
     .addSubcommand((command) => command.setName("services").setDescription("Show service state."))
-    .addSubcommand((command) => command.setName("population").setDescription("Show aggregate player count and server population."));
+    .addSubcommand((command) => command.setName("population").setDescription("Show aggregate player count and server population."))
+    .addSubcommand((command) => command.setName("backups").setDescription("List recent backup metadata (read-only, no create/restore/delete)."));
 }
 
 export function commandDefinitions() {
@@ -50,6 +51,8 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       payload = await pingPayload(adapterClient, actor, deferReplyMs);
     } else if (subcommand === "status-summary") {
       payload = statusSummaryPayload(await adapterClient.status(actor));
+    } else if (subcommand === "backups") {
+      payload = backupPayload(await adapterClient.backups(actor));
     } else if (subcommand === "population") {
       payload = populationPayload(await adapterClient.population(actor));
     } else {
@@ -182,5 +185,19 @@ export function populationPayload(population) {
     total: result.totalPlayers ?? "unknown",
     aggregate: result.aggregate ?? true,
     detailsSuppressed: result.detailsSuppressed ?? true
+  };
+}
+
+export function backupPayload(backups) {
+  const result = backups?.result || {};
+  const list = Array.isArray(result.backups) ? result.backups.slice(0, 10) : [];
+  return {
+    ok: backups?.ok === true,
+    count: list.length,
+    backups: list.map((b) => ({
+      name: b.name || "unknown",
+      date: b.date || b.createdAt || "unknown",
+      size: b.size || "unknown"
+    }))
   };
 }
