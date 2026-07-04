@@ -1,10 +1,11 @@
 import { SlashCommandBuilder } from "discord.js";
 import { readFileSync } from "node:fs";
 import { checkCooldown, applyCooldown } from "./cooldown.js";
+import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload } from "./format.js";
 
 const PACKAGE = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services", "population", "backups"]);
+const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services", "population", "backups", "broadcast"]);
 
 export function buildDuneCommand() {
   return new SlashCommandBuilder()
@@ -18,7 +19,9 @@ export function buildDuneCommand() {
     .addSubcommand((command) => command.setName("readiness").setDescription("Show readiness and preflight state."))
     .addSubcommand((command) => command.setName("services").setDescription("Show service state."))
     .addSubcommand((command) => command.setName("population").setDescription("Show aggregate player count and server population."))
-    .addSubcommand((command) => command.setName("backups").setDescription("List recent backup metadata (read-only, no create/restore/delete)."));
+    .addSubcommand((command) => command.setName("backups").setDescription("List recent backup metadata (read-only, no create/restore/delete)."))
+    .addSubcommand((command) => command.setName("broadcast").setDescription("Send a message to in-game players (moderator+).")
+      .addStringOption((option) => option.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500)));
 }
 
 export function commandDefinitions() {
@@ -66,6 +69,14 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       payload = statusSummaryPayload(await adapterClient.status(actor));
     } else if (subcommand === "backups") {
       payload = backupPayload(await adapterClient.backups(actor));
+    } else if (subcommand === "broadcast") {
+      const msg = interaction.options.getString("message");
+      const result = await executeBroadcast({ interaction, adapterClient, config, userRequest: msg });
+      if (result.ok && result.needsConfirmation) {
+        payload = { ok: true, action: "broadcast", message: result.message, idempotencyKey: result.idempotencyKey, confirmation: result.confirmationMessage };
+      } else {
+        payload = result;
+      }
     } else if (subcommand === "population") {
       payload = populationPayload(await adapterClient.population(actor));
     } else {
