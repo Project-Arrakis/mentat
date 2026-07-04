@@ -48,7 +48,7 @@ When a train is validated, use `pr-body.md` with `gh pr create --body-file`.
 | R1.5 | v1.5.0 | R2 readiness review | `release/v1.5.0` | — | Merged into main |
 | — | v1.5.0 | Command cooldowns | — | `feature/command-cooldowns` | Merged into main |
 | — | v1.5.0 | Backup list | — | `feature/backup-list` | Merged into main |
-| R2.0.0 | v2.0.0 | Write foundation | `release/v2.0.0` | — | Feature branch |
+| R2.0.0+ | v2.0.0 | Write foundation + 12 command families | `feature/r2-write-foundation` | [#63](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/63) | Open |
 | R2.1 | v2.1.0 | Maintenance writes | `release/v2.1.0` | — | Feature branch |
 | R2.2 | v2.2.0 | Notification writes | `release/v2.2.0` | — | Feature branch |
 | R2.3 | v2.3.0 | Schedule writes | `release/v2.3.0` | — | Feature branch |
