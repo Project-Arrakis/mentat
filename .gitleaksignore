@@ -1,0 +1,5 @@
+# False positives: deterministic test fixtures and documentation examples.
+# The hardcoded command-auth token in upstream core is a real finding and is NOT allowlisted.
+
+# RFC fixture clientRequestId is not a secret.
+test/fixtures/write-adapter/requests/execute-maintenance-note.json:generic-api-key:3
