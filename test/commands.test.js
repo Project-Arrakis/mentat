@@ -20,7 +20,7 @@ const packageVersion = JSON.parse(
 test("buildDuneCommand exposes read-only subcommands only", () => {
   const command = buildDuneCommand().toJSON();
   const subcommands = command.options.map((option) => option.name).sort();
-  assert.deepEqual(subcommands, ["about", "activity", "backups", "broadcast", "combat", "dashboard", "economy", "health", "inventory", "location", "ping", "population", "prometheus", "readiness", "resources", "services", "soc", "status", "status-summary"]);
+  assert.deepEqual(subcommands, ["about", "activity", "backups", "broadcast", "combat", "dashboard", "doctor", "economy", "health", "help", "inventory", "location", "ping", "population", "prometheus", "readiness", "resources", "services", "soc", "status", "status-summary"]);
 });
 
 test("extractRoleIds supports discord.js role cache shape", () => {

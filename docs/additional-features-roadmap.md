@@ -200,3 +200,142 @@ out-of-band approval, rollback plan, and enhanced audit retention.
 6. Update staged PR bodies in `releases/` with completed implementation evidence.
 7. Only open upstream PRs after all tests and security gates pass on the merged
    branch (which will be v1.5.0 or v2.0.0 after sequential merging).
+
+## Additional Features — Phase 2 (Zero Upstream Dependency)
+
+These features can be implemented entirely within the bot with no adapter changes.
+All are read-only.
+
+### P2-FEAT-17: Role-aware help command (`/dune help`) — PRIORITY: HIGH
+
+**Branch:** `feature/dune-help`
+**Complexity:** Low
+**Description:** Shows available `/dune` subcommands filtered by the invoking user's role.
+Unavailable commands shown as locked. Zero upstream dependency.
+**Implementation:** Reads `commandRoleIds` from `config.js` and user's role set from the interaction.
+Filters the 19 subcommands into "available" and "locked" lists.
+
+### P2-FEAT-18: Comprehensive diagnostic (`/dune doctor`) — PRIORITY: HIGH
+
+**Branch:** `feature/dune-doctor`
+**Complexity:** Low-Medium
+**Description:** Aggregates health, status (diagnostic), readiness, and services into
+a single diagnostic view. Admin/owner only. Zero upstream dependency.
+**Implementation:** Fires multiple existing adapter calls (`health`, `status` with diagnostic,
+`readiness`, `services`) in parallel and merges results into one compact report.
+
+### P2-FEAT-19: Cooldown status viewer (`/dune cooldowns`) — PRIORITY: MEDIUM
+
+**Branch:** `feature/dune-cooldowns`
+**Complexity:** Low
+**Description:** Shows active cooldowns across all users and commands (admin/owner only).
+Zero upstream dependency.
+**Implementation:** Uses existing `cooldownStats()` export from `src/cooldown.js`.
+
+### P2-FEAT-20: Adapter latency history (`/dune latency`) — PRIORITY: LOW
+
+**Branch:** `feature/dune-latency`
+**Complexity:** Low
+**Description:** Shows recent adapter response times with route and timing data.
+Zero upstream dependency.
+**Implementation:** Ring buffer wrapper around `adapterClient.request()` captures
+last N requests with route, method, duration, and status.
+
+### P2-FEAT-21: Command usage statistics (`/dune stats`) — PRIORITY: LOW
+
+**Branch:** `feature/dune-stats`
+**Complexity:** Low
+**Description:** Shows bot command usage metrics (counts per command, error rates).
+Admin/owner only. Zero upstream dependency.
+**Implementation:** Counter tracking in `commands.js` interaction handler.
+
+### P2-FEAT-22: Recent incident log (`/dune events`) — PRIORITY: MEDIUM
+
+**Branch:** `feature/dune-events`
+**Complexity:** Low-Medium
+**Description:** Shows recent server events captured by the scheduler (readiness
+failures, service down, status degradation) with timestamps. Admin/owner only.
+**Implementation:** Ring buffer in scheduler/notifications module; exposes last
+N alerts with event type, timestamp, and description.
+
+## Additional Features — Phase 3 (Existing Upstream Route Definitions)
+
+These leverage upstream `DISCORD_ADAPTER_ROUTES` that are defined in the adapter
+but lack handler implementations. Minimal upstream changes needed.
+
+### P3-FEAT-23: Map state viewer (`/dune maps`) — PRIORITY: HIGH
+
+**Branch:** `feature/dune-maps`
+**Complexity:** Medium
+**Description:** Shows running game maps: state (READY/STARTING/DOWN), uptime, metadata.
+Upstream route `POST /api/integrations/discord/map-state` is defined in
+`DISCORD_ADAPTER_ROUTES` with `MAPS_READ` capability. Needs handler wiring.
+
+### P3-FEAT-24: Container logs viewer (`/dune logs`) — PRIORITY: HIGH
+
+**Branch:** `feature/dune-logs`
+**Complexity:** Medium
+**Description:** Shows recent container logs for a named service. Capped at 50 lines,
+redacted, admin/owner only. Upstream route `POST /api/integrations/discord/logs` is
+defined with `LOGS_READ` capability. Needs handler wiring.
+
+## Additional Features — Phase 4 (New Upstream Routes Required)
+
+These require entirely new upstream adapter routes. The underlying `dune` CLI
+operations exist in `runner.js` but need adapter exposure.
+
+### P4-FEAT-25: Server config viewer (`/dune config`) — PRIORITY: HIGH
+
+**Branch:** `feature/dune-config`
+**Complexity:** High
+**Description:** Shows server title, mode, memory, map modes, automation status,
+restart schedules, backup auto-status in one view. Requires new aggregate
+`POST /api/integrations/discord/config` route.
+
+### P4-FEAT-26: Server ports viewer (`/dune ports`) — PRIORITY: MEDIUM
+
+**Branch:** `feature/dune-ports`
+**Complexity:** Low
+**Description:** Shows open ports, protocols, and listener status. Requires new
+`POST /api/integrations/discord/ports` route. Upstream runner has `ports` operation.
+
+### P4-FEAT-27: Update availability check (`/dune updates`) — PRIORITY: MEDIUM
+
+**Branch:** `feature/dune-updates`
+**Complexity:** Medium
+**Description:** Shows whether server or self-updates are available, current version,
+auto-update status. Requires new `POST /api/integrations/discord/updates` route.
+
+### P4-FEAT-28: Scheduled operations viewer (`/dune schedule`) — PRIORITY: MEDIUM
+
+**Branch:** `feature/dune-schedule`
+**Complexity:** Medium
+**Description:** Shows restart schedule, backup auto-schedule, update auto-schedule,
+IP-change-restart, shutdown-protection status. Requires new
+`POST /api/integrations/discord/schedule` aggregate route.
+
+### P4-FEAT-29: Population history (`/dune pop-history`) — PRIORITY: LOW
+
+**Branch:** `feature/dune-pop-history`
+**Complexity:** Medium
+**Description:** Shows population over time using bot-local cached snapshots from
+the scheduler or on-demand polling. Uses existing `POST /api/integrations/discord/population`
+route with bot-side time-series cache. No upstream changes needed for the simplest implementation.
+
+## Summary Matrix
+
+| # | Command | Upstream Dep | Complexity | Priority |
+|---|---------|-------------|------------|----------|
+| P2-17 | `/dune help` | None | Low | HIGH |
+| P2-18 | `/dune doctor` | None | Low-Med | HIGH |
+| P2-19 | `/dune cooldowns` | None | Low | MEDIUM |
+| P2-22 | `/dune events` | None | Low-Med | MEDIUM |
+| P2-20 | `/dune latency` | None | Low | LOW |
+| P2-21 | `/dune stats` | None | Low | LOW |
+| P3-23 | `/dune maps` | Route defined | Medium | HIGH |
+| P3-24 | `/dune logs` | Route defined | Medium | HIGH |
+| P4-25 | `/dune config` | New route | High | HIGH |
+| P4-26 | `/dune ports` | New route | Low | MEDIUM |
+| P4-27 | `/dune updates` | New route | Medium | MEDIUM |
+| P4-28 | `/dune schedule` | New route | Medium | MEDIUM |
+| P4-29 | `/dune pop-history` | None | Medium | LOW |
