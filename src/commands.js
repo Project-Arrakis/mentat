@@ -1,5 +1,6 @@
 import { SlashCommandBuilder } from "discord.js";
 import { readFileSync } from "node:fs";
+import { checkCooldown, applyCooldown } from "./cooldown.js";
 import { formatError, formatPayload } from "./format.js";
 
 const PACKAGE = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -37,6 +38,18 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
     return true;
   }
 
+  const cooldown = checkCooldown({
+    userId: interaction.user?.id,
+    commandName: subcommand,
+    interaction,
+    config
+  });
+  if (!cooldown.allowed) {
+    const secs = Math.ceil(cooldown.remainingMs / 1000);
+    await interaction.reply({ content: `Please wait ${secs}s before using this command again.`, ephemeral: true });
+    return true;
+  }
+
   const startedAt = Date.now();
   const actor = actorFromInteraction(interaction);
   await interaction.deferReply({ ephemeral: config.discord.defaultEphemeral });
@@ -59,6 +72,13 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
   } catch (error) {
     await interaction.editReply(formatError(error));
   }
+
+  applyCooldown({
+    userId: interaction.user?.id,
+    commandName: subcommand,
+    interaction,
+    config
+  });
 
   return true;
 }
