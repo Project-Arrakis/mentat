@@ -3,7 +3,7 @@ import { AdapterClient } from "../src/adapterClient.js";
 import { loadConfig } from "../src/config.js";
 import { redactSecrets } from "../src/format.js";
 
-const ROUTES = Object.freeze(["health", "status", "readiness", "services"]);
+const ROUTES = Object.freeze(["health", "status", "readiness", "services", "population", "backups", "announcements", "ops-activity", "ops-combat", "ops-resources", "ops-economy", "ops-inventory", "ops-location", "ops-soc", "ops-prometheus", "ops-dashboard"]);
 
 const SMOKE_ACTOR = Object.freeze({
   userId: "operator-smoke-user",
@@ -30,7 +30,8 @@ export async function runOperatorSmoke({
   const results = [];
 
   for (const route of ROUTES) {
-    const body = await client[route](actor);
+    const methodName = routeToMethodName(route);
+    const body = await client[methodName](actor);
     assertNoSensitiveContent(route, body);
     results.push({
       route,
@@ -41,6 +42,10 @@ export async function runOperatorSmoke({
   }
 
   return { ok: true, results };
+}
+
+function routeToMethodName(route) {
+  return route.replace(/-(\w)/g, (_, c) => c.toUpperCase());
 }
 
 export function assertNoSensitiveContent(route, body) {

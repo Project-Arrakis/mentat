@@ -21,7 +21,19 @@ test("operator smoke check exercises all read-only adapter routes", async () => 
       { route: "health", method: "GET", path: "/api/integrations/discord/health" },
       { route: "status", method: "POST", path: "/api/integrations/discord/status" },
       { route: "readiness", method: "POST", path: "/api/integrations/discord/readiness" },
-      { route: "services", method: "POST", path: "/api/integrations/discord/services" }
+      { route: "services", method: "POST", path: "/api/integrations/discord/services" },
+      { route: "population", method: "POST", path: "/api/integrations/discord/population" },
+      { route: "backups", method: "GET", path: "/api/integrations/discord/backups/list" },
+      { route: "announcements", method: "POST", path: "/api/integrations/discord/announcements" },
+      { route: "ops-activity", method: "POST", path: "/api/integrations/discord/ops/activity" },
+      { route: "ops-combat", method: "POST", path: "/api/integrations/discord/ops/combat" },
+      { route: "ops-resources", method: "POST", path: "/api/integrations/discord/ops/resources" },
+      { route: "ops-economy", method: "POST", path: "/api/integrations/discord/ops/economy" },
+      { route: "ops-inventory", method: "POST", path: "/api/integrations/discord/ops/inventory" },
+      { route: "ops-location", method: "POST", path: "/api/integrations/discord/ops/location" },
+      { route: "ops-soc", method: "POST", path: "/api/integrations/discord/ops/soc" },
+      { route: "ops-prometheus", method: "POST", path: "/api/integrations/discord/ops/prometheus" },
+      { route: "ops-dashboard", method: "POST", path: "/api/integrations/discord/ops/dashboard" }
     ]);
   } finally {
     await closeServer(server);

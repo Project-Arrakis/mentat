@@ -11,7 +11,20 @@ const ROUTES = Object.freeze({
   "/api/integrations/discord/health": { method: "GET", fixture: "health.json" },
   "/api/integrations/discord/status": { method: "POST", fixture: "status.json" },
   "/api/integrations/discord/readiness": { method: "POST", fixture: "readiness.json" },
-  "/api/integrations/discord/services": { method: "POST", fixture: "services.json" }
+  "/api/integrations/discord/services": { method: "POST", fixture: "services.json" },
+  "/api/integrations/discord/population": { method: "POST", fixture: "population.json" },
+  "/api/integrations/discord/backups/list": { method: "GET", fixture: "backups.json" },
+  "/api/integrations/discord/announcements": { method: "POST", fixture: "announcements.json" },
+  "/api/integrations/discord/broadcast": { method: "POST", fixture: "broadcast.json" },
+  "/api/integrations/discord/ops/activity": { method: "POST", fixture: "ops.json" },
+  "/api/integrations/discord/ops/combat": { method: "POST", fixture: "ops.json" },
+  "/api/integrations/discord/ops/resources": { method: "POST", fixture: "ops.json" },
+  "/api/integrations/discord/ops/economy": { method: "POST", fixture: "ops.json" },
+  "/api/integrations/discord/ops/inventory": { method: "POST", fixture: "ops.json" },
+  "/api/integrations/discord/ops/location": { method: "POST", fixture: "ops.json" },
+  "/api/integrations/discord/ops/soc": { method: "POST", fixture: "ops.json" },
+  "/api/integrations/discord/ops/prometheus": { method: "POST", fixture: "ops.json" },
+  "/api/integrations/discord/ops/dashboard": { method: "POST", fixture: "ops.json" }
 });
 
 const DEFAULT_FIXTURE_DIR = new URL("../test/fixtures/adapter/", import.meta.url);
