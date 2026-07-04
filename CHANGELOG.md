@@ -10,28 +10,24 @@ change notes under `docs/changes/`.
 
 - (reserved for future changes)
 
-## v1.3.0 - 2026-07-03
+## v1.4.0 - 2026-07-03
 
-Read-only notifications (R1.3). Adds scheduled status posts, readiness alerts,
-and incident digest summaries to allow-listed Discord channels. All output
-remains read-only with channel allow-lists and rate limits.
+Compatibility hardening (R1.4). Adds upstream drift checklist, fixture refresh
+workflow, release-candidate monitoring, and stronger route compatibility tests.
 
 ### Added
 
-- Scheduled status posts to allow-listed channels with configurable interval.
-- Readiness alert subscriptions for channel-based notifications on state
-  changes.
-- Incident digest summaries aggregating recent status transitions.
-- Channel allow-list configuration with `DISCORD_STATUS_CHANNEL_IDS` and
-  `DISCORD_ALERT_CHANNEL_IDS` environment variables.
-- Rate limiting for recurring output to respect Discord API rate limits.
-- Opt-in configuration: no public-channel default.
-- Unit tests for scheduler, rate-limiter, and digest-formatter modules.
-- Route compatibility tests for adapter state-change detection.
+- Upstream drift detection checklist for adapter contract changes.
+- Fixture refresh workflow for automated adapter evidence updates.
+- Release-candidate monitoring for upstream pre-release compatibility
+  signals.
+- Stronger route compatibility tests covering edge cases and field-level
+  contract assertions.
+- Documentation guard tests ensuring source-bound evidence is current.
 
 ### Changed
 
-- Release planning baseline advanced to R1.3 for read-only notifications.
+- Release planning baseline advanced to R1.4 for compatibility hardening.
 
 ## v1.0.0-rc.1 - 2026-07-03
 
