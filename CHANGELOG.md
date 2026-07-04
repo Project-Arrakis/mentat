@@ -4,6 +4,11 @@ This project follows Semantic Versioning for release tags. Security fixes,
 dependency updates, and release evidence stay tied to pull requests and durable
 change notes under `docs/changes/`.
 
+## v2.3.0 - TBD
+
+Future release train — planning documentation only.
+
+
 ## Unreleased
 
 ### Added
