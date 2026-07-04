@@ -1,0 +1,4 @@
+{
+  "ok": true,
+  "result": { "message": "Server event in 5 minutes", "broadcastType": "Generic", "sent": true }
+}
