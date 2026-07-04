@@ -7,17 +7,35 @@ updates:
       day: "monday"
       time: "10:00"
       timezone: "America/Los_Angeles"
-    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      npm-patch-minor:
+        update-types:
+          - "patch"
+          - "minor"
+      npm-major:
+        update-types:
+          - "major"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "deps"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "10:30"
       timezone: "America/Los_Angeles"
-    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        patterns:
+          - "*"
     commit-message:
       prefix: "ci"
