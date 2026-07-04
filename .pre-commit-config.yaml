@@ -16,6 +16,7 @@ repos:
           - WARNING
           - --exclude
           - package-lock.json
+        stages: [pre-commit, pre-push]
 
   - repo: local
     hooks:
@@ -24,6 +25,7 @@ repos:
         entry: gitleaks detect --source . --redact --no-git
         language: system
         pass_filenames: false
+        stages: [pre-commit, pre-push]
 
       - id: trivy
         name: trivy misconfig + secret scan
@@ -31,3 +33,27 @@ repos:
         language: system
         pass_filenames: false
         require_serial: true
+        stages: [pre-commit, pre-push]
+
+      - id: npm-audit
+        name: npm audit moderate+
+        entry: npm audit --audit-level=moderate
+        language: system
+        pass_filenames: false
+        stages: [pre-commit, pre-push]
+
+      - id: test
+        name: unit tests
+        entry: npm test
+        language: system
+        pass_filenames: false
+        require_serial: true
+        stages: [pre-push]
+
+      - id: api-security
+        name: API endpoint security tests (DAST)
+        entry: npm run security:api
+        language: system
+        pass_filenames: false
+        require_serial: true
+        stages: [pre-push]
