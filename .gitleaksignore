@@ -1,0 +1,11 @@
+# False positives: deterministic test fixtures and documentation examples.
+# The hardcoded command-auth token in upstream core is a real finding and is NOT allowlisted.
+
+# RFC fixture clientRequestId is not a secret.
+test/fixtures/write-adapter/requests/execute-maintenance-note.json:generic-api-key:3
+
+# Scanner output directory is gitignored but may be scanned locally.
+.security-audit/*
+
+# Audit report mentions the test fixture identifier in a security context.
+docs/security-audit/2026-07-04-comprehensive-security-audit.md:generic-api-key:71
