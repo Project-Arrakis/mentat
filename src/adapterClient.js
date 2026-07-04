@@ -27,6 +27,8 @@ export class AdapterClient {
     return this.request("readiness", actor);
   }
 
+
+  population(actor) { return this.request("population", actor); }
   services(actor) {
     return this.request("services", actor);
   }
