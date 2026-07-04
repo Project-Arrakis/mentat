@@ -32,6 +32,16 @@ export class AdapterClient {
 
   backups(actor) { return this.request("backups", actor); }
 
+opsActivity(actor) { return this.request("ops-activity", actor); }
+  opsCombat(actor) { return this.request("ops-combat", actor); }
+  opsResources(actor) { return this.request("ops-resources", actor); }
+  opsEconomy(actor) { return this.request("ops-economy", actor); }
+  opsInventory(actor) { return this.request("ops-inventory", actor); }
+  opsLocation(actor) { return this.request("ops-location", actor); }
+  opsSoc(actor) { return this.request("ops-soc", actor); }
+  opsPrometheus(actor) { return this.request("ops-prometheus", actor); }
+  opsDashboard(actor) { return this.request("ops-dashboard", actor); }
+
   announcements(actor) {
     return this.request("announcements", actor);
   }
