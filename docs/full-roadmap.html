@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dune Discord Bot — Release Roadmap</title>
+<style>
+@page { size: letter; margin: 0.6in 0.8in; @bottom-center { content: "Dune Discord Bot Roadmap — Page " counter(page); font-size: 8px; color: #888; }}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; font-size: 9.5pt; line-height: 1.45; color: #1a1a2e; }
+.cover { text-align: center; padding: 60px 0 40px; page-break-after: always; background: linear-gradient(135deg, #002868 0%, #003399 100%); color: #fff; }
+.cover h1 { font-size: 28pt; margin-bottom: 8px; }
+.cover h2 { font-size: 14pt; color: #ffd0d0; margin-bottom: 30px; font-weight: 400; }
+.cover .stars { font-size: 10pt; letter-spacing: 4px; color: #ffffff66; margin-bottom: 12px; }
+.cover .meta { font-size: 9pt; color: #ffffff99; line-height: 2; }
+.page { page-break-after: always; }
+h1 { font-size: 16pt; color: #002868; margin: 0 0 8px; border-bottom: 2px solid #bf0a30; padding-bottom: 4px; }
+h2 { font-size: 12pt; color: #bf0a30; margin: 14px 0 6px; }
+h3 { font-size: 10pt; color: #1a1a2e; margin: 10px 0 4px; }
+p, li { margin-bottom: 4px; }
+ul { margin: 4px 0 4px 18px; }
+table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 8.5pt; }
+th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; }
+th { background: #002868; color: #fff; font-weight: 600; }
+tr:nth-child(even) td { background: #f0f3f8; }
+.tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 7.5pt; font-weight: 600; }
+.tag-ro { background: #e3f2fd; color: #002868; }
+.tag-rw { background: #fce4ec; color: #bf0a30; }
+.tag-done { background: #e8f5e9; color: #2e7d32; }
+.tag-plan { background: #fff3e0; color: #e65100; }
+.footer { margin-top: 20px; border-top: 1px solid #ddd; padding-top: 8px; font-size: 8pt; color: #999; }
+.bar { display: flex; gap: 4px; margin: 6px 0; }
+.bar-item { height: 6px; border-radius: 2px; }
+.bar-done { background: #2e7d32; }
+.bar-impl { background: #1565c0; }
+.bar-plan { background: #e65100; }
+.bar-future { background: #ccc; }
+</style>
+</head>
+<body>
+
+<!-- COVER PAGE -->
+<div class="cover">
+  <div class="stars">★ ★ ★</div>
+  <h1>Dune Discord Bot</h1>
+  <h2>Multi-Train Release Roadmap</h2>
+  <p class="meta">
+    <strong>Version:</strong> v1.5.0 (main)<br>
+    <strong>Date:</strong> 2026-07-04<br>
+    <strong>Status:</strong> All R1.x Read-Only Complete · R2+ Planning<br>
+    <strong>No upstream PRs — local feature branches staged</strong>
+  </p>
+</div>
+
+<!-- SUMMARY PAGE -->
+<div class="page">
+<h1>Executive Summary</h1>
+
+<p>The Dune Discord Bot provides secure, read-only operational visibility for Dune Awakening dedicated servers. All commands go through a bearer-token protected adapter API. The bot never accesses the Docker socket, Postgres, game files, or shell commands directly.</p>
+
+<h2>Current Metrics</h2>
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>Tests</td><td>125 / 125 passing</td></tr>
+<tr><td>npm audit</td><td>0 vulnerabilities</td></tr>
+<tr><td>Semgrep SAST</td><td>0 findings</td></tr>
+<tr><td>Gitleaks</td><td>0 leaks</td></tr>
+<tr><td>Trivy filesystem</td><td>0 findings</td></tr>
+<tr><td>Trivy image</td><td>0 findings</td></tr>
+<tr><td>Commands</td><td>19 (/dune subcommands)</td></tr>
+<tr><td>Source modules</td><td>13</td></tr>
+<tr><td>RBAC</td><td>Restricted-by-default, fails closed</td></tr>
+<tr><td>Addon</td><td>Zero-permission, static HTML</td></tr>
+</table>
+
+<h2>Release Train Overview</h2>
+<table>
+<tr><th>Train</th><th>Scope</th><th>Commands</th><th>Status</th></tr>
+<tr><td>R1.0.0</td><td>Stable read-only GA</td><td>7 core</td><td><span class="tag tag-done">MERGED</span></td></tr>
+<tr><td>R1.x</td><td>Read-only maturity</td><td>12 additions</td><td><span class="tag tag-done">MERGED</span></td></tr>
+<tr><td>R2.0.0</td><td>Write-safety foundation</td><td>Framework</td><td><span class="tag tag-plan">FEATURE BRANCH</span></td></tr>
+<tr><td>R2.x</td><td>Low-risk admin writes</td><td>6 write stubs</td><td><span class="tag tag-plan">FEATURE BRANCHES</span></td></tr>
+<tr><td>R3.0.0</td><td>Operational writes</td><td>4 write stubs</td><td><span class="tag tag-plan">FEATURE BRANCH</span></td></tr>
+<tr><td>R4.0.0+</td><td>Highest-risk ops</td><td>Planning</td><td><span class="tag tag-plan">FEATURE BRANCH</span></td></tr>
+</table>
+</div>
+
+<!-- R1.0.0 PAGE -->
+<div class="page">
+<h1>R1.0.0 — Stable Read-Only GA (v1.0.0)</h1>
+<p><span class="tag tag-done">MERGED</span> &bull; Target: <code>release/v1.0.0</code></p>
+
+<h2>Scope</h2>
+<p>First stable release of the read-only Discord bot. Promotes the v1.0.0-rc.1 release candidate after comprehensive security gates and operator validation.</p>
+
+<h2>Commands</h2>
+<table>
+<tr><th>Command</th><th>Mode</th><th>RBAC</th><th>Description</th></tr>
+<tr><td><code>/dune about</code></td><td><span class="tag tag-ro">RO</span></td><td>Observer</td><td>Bot and adapter metadata</td></tr>
+<tr><td><code>/dune ping</code></td><td><span class="tag tag-ro">RO</span></td><td>Observer</td><td>Discord and adapter latency</td></tr>
+<tr><td><code>/dune health</code></td><td><span class="tag tag-ro">RO</span></td><td>Observer</td><td>Adapter health check</td></tr>
+<tr><td><code>/dune status</code></td><td><span class="tag tag-ro">RO</span></td><td>Observer</td><td>High-level server status</td></tr>
+<tr><td><code>/dune status-summary</code></td><td><span class="tag tag-ro">RO</span></td><td>Observer</td><td>Compact aggregate status</td></tr>
+<tr><td><code>/dune readiness</code></td><td><span class="tag tag-ro">RO</span></td><td>Observer</td><td>Readiness and preflight</td></tr>
+<tr><td><code>/dune services</code></td><td><span class="tag tag-ro">RO</span></td><td>Observer</td><td>Service state</td></tr>
+</table>
+
+<h2>Security Controls</h2>
+<ul>
+<li>Restricted-by-default RBAC (fails closed if no principals)</li>
+<li>Bearer-token adapter authentication</li>
+<li>Secret file support (DISCORD_BOT_TOKEN_FILE)</li>
+<li>Output redaction (credentials, PII, Steam IDs, Funcom IDs, emails, IPs)</li>
+<li>Zero-permission addon (addon.json permissions: [])</li>
+<li>Non-root Docker container (USER node), HEALTHCHECK defined</li>
+<li>Dependabot with 7-day cooldown</li>
+<li>Pinned GitHub Actions (immutable SHA)</li>
+</ul>
+</div>
+
+<!-- R1.x PAGE -->
+<div class="page">
+<h1>R1.x — Read-Only Maturity (v1.1.0–v1.5.0)</h1>
+<p><span class="tag tag-done">MERGED</span> &bull; Targets: <code>release/v1.1.0</code> through <code>release/v1.5.0</code></p>
+
+<h2>Added Features</h2>
+<table>
+<tr><th>v</th><th>Feature</th><th>Type</th><th>Source</th></tr>
+<tr><td>1.1.0</td><td>Operator validation script (8 infra checks)</td><td><span class="tag tag-ro">RO</span></td><td>scripts/validate-operator.js</td></tr>
+<tr><td>1.2.0</td><td>Population command (aggregate-only, moderator+)</td><td><span class="tag tag-ro">RO</span></td><td>src/commands.js</td></tr>
+<tr><td>1.3.0</td><td>Notification scheduler + alert digests</td><td><span class="tag tag-ro">RO</span></td><td>src/scheduler.js, src/notifications.js</td></tr>
+<tr><td>1.4.0</td><td>Adapter compatibility drift check</td><td><span class="tag tag-ro">RO</span></td><td>scripts/check-compatibility.js</td></tr>
+<tr><td>1.5.0</td><td>R2 readiness documentation</td><td><span class="tag tag-ro">RO</span></td><td>docs/releases/v1.5.0.md</td></tr>
+<tr><td>—</td><td>Command cooldowns (anti-flood)</td><td><span class="tag tag-ro">RO</span></td><td>src/cooldown.js</td></tr>
+<tr><td>—</td><td>Backup list command</td><td><span class="tag tag-ro">RO</span></td><td>src/commands.js</td></tr>
+<tr><td>—</td><td>Game→Discord announcement bridge</td><td><span class="tag tag-ro">RO</span></td><td>src/announcements.js</td></tr>
+<tr><td>—</td><td>OPS observability commands (9 domains)</td><td><span class="tag tag-ro">RO</span></td><td>src/opsCommands.js</td></tr>
+</table>
+
+<h2>OPS Observability Commands</h2>
+<p>Sourced from <code>yacketrj/dune-ops-observability-addon</code> — all ops:read permission.</p>
+<ul>
+<li><code>/dune activity</code> — Player activity (online, returning, per-guild, per-map)</li>
+<li><code>/dune combat</code> — Combat stats (PvP/PvE, deaths by cause, K/D ratio)</li>
+<li><code>/dune resources</code> — Resource fields (spice, water, minerals, solar, organic)</li>
+<li><code>/dune economy</code> — Economy (currency holders, supply, orders, taxes)</li>
+<li><code>/dune inventory</code> — Inventory and crafting statistics</li>
+<li><code>/dune location</code> — Map markers, player density, territories</li>
+<li><code>/dune soc</code> — OPS bridge health and request statistics</li>
+<li><code>/dune prometheus</code> — Container metrics (CPU, memory, restarts)</li>
+<li><code>/dune dashboard</code> — Aggregated operational dashboard summary</li>
+</ul>
+</div>
+
+<!-- COMMUNICATIONS PAGE -->
+<div class="page">
+<h1>Game ⇄ Discord Communication Bridge</h1>
+<p><span class="tag tag-done">MERGED</span></p>
+
+<h2>Game → Discord (Announcements)</h2>
+<p>In-game announcements are forwarded to a configured Discord channel. The bot polls the adapter for new announcements at configurable intervals, deduplicates by ID, caps message length at 1800 characters, and redacts all output.</p>
+
+<p><strong>Configuration:</strong> <code>DUNE_ANNOUNCEMENTS_ENABLED=true</code>, <code>DUNE_ANNOUNCEMENTS_CHANNEL=channel-id</code></p>
+<p><strong>Implementation:</strong> <code>src/announcements.js</code> — 7 unit tests</p>
+
+<h2>Discord → Game (Broadcast)</h2>
+<p>Moderator+ roles can use <code>/dune broadcast &lt;message&gt;</code> to send a message to all in-game players. The command includes:</p>
+<ul>
+<li>Write-enabled gate (disabled by default)</li>
+<li>Moderator RBAC check</li>
+<li>Confirmation primitive (action, target, risk)</li>
+<li>Idempotency key generation</li>
+<li>60-second per-user cooldown</li>
+<li>Tamper-evident audit event</li>
+<li>Message validation (1–500 printable characters)</li>
+</ul>
+
+<p><strong>Configuration:</strong> <code>DUNE_DISCORD_WRITES_ENABLED=true</code>, <code>DISCORD_WRITE_ADMIN_ROLE_IDS</code></p>
+<p><strong>Implementation:</strong> <code>src/broadcast.js</code>, <code>src/writes.js</code> — 8 unit tests</p>
+</div>
+
+<!-- R2.x PAGE -->
+<div class="page">
+<h1>R2.x — Write-Capable Release Trains</h1>
+<p><span class="tag tag-plan">PLANNING</span> &bull; Upstream write-contract required before implementation</p>
+
+<h2>R2.0.0 — Write-Safety Foundation (v2.0.0)</h2>
+<table>
+<tr><th>Component</th><th>Status</th><th>Source</th></tr>
+<tr><td>Write-enabled gate (disabled by default)</td><td><span class="tag tag-impl">IMPLEMENTED</span></td><td>src/writes.js</td></tr>
+<tr><td>Write-specific RBAC (not inherited by observer)</td><td><span class="tag tag-impl">IMPLEMENTED</span></td><td>src/writes.js</td></tr>
+<tr><td>Confirmation primitives</td><td><span class="tag tag-impl">IMPLEMENTED</span></td><td>src/writes.js</td></tr>
+<tr><td>Idempotency key generation</td><td><span class="tag tag-impl">IMPLEMENTED</span></td><td>src/writes.js</td></tr>
+<tr><td>Write audit events</td><td><span class="tag tag-impl">IMPLEMENTED</span></td><td>src/writes.js</td></tr>
+<tr><td>Write adapter timeout and retry rules</td><td><span class="tag tag-future">PENDING</span></td><td>—</td></tr>
+<tr><td>STRIDE and abuse-case review</td><td><span class="tag tag-future">PENDING</span></td><td>—</td></tr>
+</table>
+
+<h2>R2.1–R2.4 — Low-Risk Administrative Writes</h2>
+<table>
+<tr><th>v</th><th>Feature</th><th>Branch</th></tr>
+<tr><td>2.1.0</td><td>Maintenance note/window set commands</td><td>release/v2.1.0</td></tr>
+<tr><td>2.2.0</td><td>Notification configuration writes</td><td>release/v2.2.0</td></tr>
+<tr><td>2.3.0</td><td>Scheduled-post configuration writes</td><td>release/v2.3.0</td></tr>
+<tr><td>2.4.0</td><td>R3 readiness review</td><td>release/v2.4.0</td></tr>
+</table>
+
+<h2>Entry Criteria (not yet met)</h2>
+<ul>
+<li>Upstream publishes and approves a write-capable adapter contract</li>
+<li>All R1.x releases merged and stable</li>
+<li>Every write path defaults disabled</li>
+<li>No observer role can execute writes</li>
+<li>Confirmation cannot be bypassed</li>
+</ul>
+</div>
+
+<!-- R3.x PAGE -->
+<div class="page">
+<h1>R3.0.0 — Operational Writes (v3.0.0)</h1>
+<p><span class="tag tag-plan">PLANNING</span> &bull; Branch: <code>release/v3.0.0</code></p>
+
+<h2>Candidate Command Families</h2>
+<table>
+<tr><th>Command</th><th>Risk</th><th>Requires Owner</th></tr>
+<tr><td><code>/dune create-backup</code></td><td>Medium</td><td>No</td></tr>
+<tr><td><code>/dune restart-service &lt;name&gt;</code></td><td>High</td><td>No</td></tr>
+<tr><td><code>/dune trigger-update</code></td><td>High</td><td>Yes</td></tr>
+<tr><td><code>/dune clear-cache</code></td><td>Medium</td><td>No</td></tr>
+</table>
+
+<h2>Required Controls</h2>
+<ul>
+<li>Write-admin or owner role only</li>
+<li>Per-command allow-list support</li>
+<li>Maintenance-window awareness</li>
+<li>Cooldowns and concurrency limits</li>
+<li>Dry-run or impact preview</li>
+<li>Stronger confirmation wording</li>
+<li>Rollback or recovery runbook</li>
+<li>Audit evidence before and after side effects</li>
+<li>Operator smoke test before stable promotion</li>
+</ul>
+
+<h2>Release Gates</h2>
+<ul>
+<li>Release candidate required</li>
+<li>No stable promotion without documented operator validation</li>
+<li>Failure modes tested: timeout, denied auth, adapter error, duplicate retry, redaction</li>
+<li>Backup work includes storage, quota, and retention review</li>
+<li>Restart/update work includes availability impact notes</li>
+</ul>
+</div>
+
+<!-- R4.x PAGE -->
+<div class="page">
+<h1>R4.0.0+ — Highest-Risk Operations (v4.0.0+)</h1>
+<p><span class="tag tag-plan">PLANNING</span> &bull; Branch: <code>release/v4.0.0</code></p>
+
+<h2>Candidate Areas</h2>
+<ul>
+<li>Player moderation (kick, warn, ban)</li>
+<li>Player messaging (whisper, broadcast, admin chat)</li>
+<li>Gameplay-affecting configuration changes</li>
+<li>Restore execution</li>
+<li>Database-backed operations</li>
+<li>Two-way chat bridge (Discord ↔ game chat)</li>
+</ul>
+
+<h2>Default Stance</h2>
+<ul>
+<li>Do not implement unless upstream exposes a narrow, audited, purpose-built adapter action</li>
+<li>Do not expose raw database execution through Discord</li>
+<li>Do not start with player or restore operations</li>
+<li>Every action must be authorized, validated, audited, rate-limited, and reversible where practical</li>
+</ul>
+
+<h2>Required Controls</h2>
+<ul>
+<li>Owner-level authorization or equivalent</li>
+<li>Out-of-band approval where practical</li>
+<li>Enhanced privacy review</li>
+<li>Abuse-case review</li>
+<li>Audit retention expectation</li>
+<li>Rollback or recovery proof</li>
+<li>Incident response notes</li>
+<li>Operator training or runbook update</li>
+</ul>
+
+<h2>Go/No-Go Gates</h2>
+<ul>
+<li>Any uncertain privacy, abuse, restore, or data-integrity risk blocks merge</li>
+<li>Any ambiguous upstream side effect blocks merge</li>
+<li>Any unresolved medium, high, or critical finding blocks merge</li>
+<li>No stable release without at least one RC and owner approval</li>
+<li>R3.0.0 must be merged and operational writes proven in production</li>
+</ul>
+</div>
+
+<!-- GATES PAGE -->
+<div class="page">
+<h1>Universal Security Gates</h1>
+<p>Every substantive PR, release candidate, and stable release must pass:</p>
+
+<table>
+<tr><th>Gate</th><th>Tool</th><th>Requirement</th></tr>
+<tr><td>Unit tests</td><td>node:test</td><td>125 passing, no failures</td></tr>
+<tr><td>Release metadata</td><td>validate-release.js</td><td>Version alignment across package.json, addon.json, CHANGELOG</td></tr>
+<tr><td>Addon package</td><td>package-addon.js</td><td>Zero-permission, checksum verified</td></tr>
+<tr><td>SBOM</td><td>generate-sbom.js</td><td>25 components, hash verified</td></tr>
+<tr><td>Dependency audit</td><td>npm audit</td><td>0 moderate+ vulnerabilities</td></tr>
+<tr><td>Static analysis</td><td>Semgrep</td><td>0 findings (auto rules)</td></tr>
+<tr><td>Secret scan</td><td>Gitleaks</td><td>0 leaks (documented allowlist)</td></tr>
+<tr><td>Filesystem scan</td><td>Trivy</td><td>0 misconfigurations or secrets</td></tr>
+<tr><td>Image scan</td><td>Trivy</td><td>0 vulnerabilities in container image</td></tr>
+<tr><td>Docker build</td><td>docker</td><td>Successful build, non-root, HEALTHCHECK</td></tr>
+<tr><td>Supply chain</td><td>Dependabot</td><td>7-day cooldown, major versions ignored</td></tr>
+<tr><td>Workflow integrity</td><td>GitHub Actions</td><td>Immutable SHA pins, no eval/CVE</td></tr>
+</table>
+
+<h2>Additional Requirements</h2>
+<ul>
+<li>PR body uses transparency template (Summary, User Impact, Security Impact, Least Privilege, Tests, Known Limitations, Sources)</li>
+<li>Durable <code>docs/changes/PR-####</code> change note</li>
+<li>Documentation updated with source-bound evidence</li>
+<li>GitHub issue created for every finding not fixed in the discovering PR</li>
+<li>PII and secrets redacted from PRs, issues, logs, screenshots, release notes, and artifacts</li>
+</ul>
+</div>
+
+<div class="footer">
+  Dune Discord Bot Roadmap &bull; v1.5.0 &bull; 2026-07-04 &bull; 125 tests · 0 findings · All R1.x read-only complete · R2+ planning
+</div>
+
+</body>
+</html>
