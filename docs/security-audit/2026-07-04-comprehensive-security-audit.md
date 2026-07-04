@@ -236,10 +236,21 @@ Scanner outputs are stored in `.security-audit/` (gitignored) on each repo branc
 - Discord bot `main`: `.security-audit/npm-audit.json`, `semgrep.json`, `gitleaks.json`, `trivy-fs.json`, `trivy-image.json`, `gitleaks-git.json`
 - Core `release/discord-adapter-readonly`: `.security-audit/trivy-fs.json`, `semgrep.json`, `gitleaks.json`, `gitleaks-git.json`
 
+## Remediation Status
+
+| Finding | Status | Branch | Verification |
+|---------|--------|--------|--------------|
+| FINDING-BOT-1 Dependabot cooldown | Implemented | `security/bot-dependabot-cooldown` | Semgrep 0 findings; `npm run check` passes |
+| FINDING-BOT-2 Gitleaks false positive | Implemented | `security/bot-gitleaks-allowlist` | Gitleaks 0 findings; `npm run check` passes |
+| FINDING-BOT-3 Health-state permissions | Implemented | `security/bot-health-state-permissions` | `npm run check` passes |
+| FINDING-CORE-1 Hardcoded command-auth token | Implemented | `security/core-remove-hardcoded-command-token` | Gitleaks 0 findings; `npm test` 220/220 pass |
+| FINDING-CORE-7 Gitleaks false positives | Implemented | `security/core-gitleaks-allowlist` | Gitleaks 0 findings |
+
 ## Next Local Steps
 
-1. Create remediation branches from current local feature branches.
-2. Implement the four immediate findings first.
-3. Re-run `npm run check` and the full scanner suite after each change.
-4. Update this audit document with remediation status.
-5. When all immediate findings are resolved, update the staged PR bodies in `releases/` to mention the security hardening.
+1. Review the four bot security branches and merge into `main`.
+2. Review the core token-removal branch and merge into `release/discord-adapter-readonly`.
+3. Re-run the full scanner suite on `main` and `release/discord-adapter-readonly` after merges.
+4. Begin short-term hardening: Discord interaction rate limiting and core Dockerfile non-root/HEALTHCHECK/apt fixes.
+5. Update staged PR bodies in `releases/` to mention completed security hardening.
+6. Open upstream tracking issue for the hardcoded command-auth token once the local branch is merged.
