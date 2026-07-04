@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RFC — Dune Discord Bot &amp; Adapter Release Roadmap</title>
+<style>
+@page { size: letter; margin: 0.75in 1in; @bottom-center { content: "RFC — Dune Discord Bot Roadmap — Page " counter(page) " of " counter(pages); font-size: 9px; color: #555; }}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; font-size: 11pt; line-height: 1.5; color: #1a1a2e; }
+.cover { text-align: center; padding: 120px 0 60px; page-break-after: always; }
+.cover h1 { font-size: 32pt; color: #002868; margin-bottom: 12px; }
+.cover h2 { font-size: 18pt; color: #bf0a30; margin-bottom: 30px; }
+.cover .meta { font-size: 11pt; color: #555; line-height: 2; }
+.cover .meta strong { color: #1a1a2e; }
+.header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #002868; padding-bottom: 8px; margin-bottom: 24px; }
+.header .title { font-size: 14pt; font-weight: 700; color: #002868; }
+.header .number { font-size: 10pt; color: #666; }
+h1 { font-size: 18pt; color: #002868; margin: 28px 0 12px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+h2 { font-size: 14pt; color: #bf0a30; margin: 22px 0 8px; }
+h3 { font-size: 12pt; color: #1a1a2e; margin: 16px 0 6px; }
+p, li { margin-bottom: 6px; }
+ul, ol { margin: 6px 0 6px 24px; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 10pt; }
+th { background: #002868; color: #fff; }
+.status-open { color: #bf0a30; font-weight: 600; }
+.status-closed { color: #2e7d32; font-weight: 600; }
+.status-draft { color: #e65100; font-weight: 600; }
+.footer { margin-top: 40px; border-top: 1px solid #ccc; padding-top: 12px; font-size: 9pt; color: #888; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>Request for Comment</h1>
+  <h2>Dune Discord Bot &amp; Adapter<br>Multi-Train Release Roadmap</h2>
+  <p class="meta">
+    <strong>Status:</strong> Draft<br>
+    <strong>Date:</strong> 2026-07-04<br>
+    <strong>Authors:</strong> Dune Awakening Selfhost Contributors<br>
+    <strong>Repository:</strong> yacketrj/dune-awakening-selfhost-discordbot<br>
+    <strong>Core Adapter:</strong> Red-Blink/dune-awakening-selfhost-docker
+  </p>
+</div>
+
+<div class="header">
+  <div class="title">RFC — Dune Discord Bot Multi-Train Release Roadmap</div>
+  <div class="number">2026-07-04 &bull; Draft</div>
+</div>
+
+<h1>1. Abstract</h1>
+
+<p>This RFC defines a multi-train release roadmap for the Dune Awakening
+Selfhost Discord Bot and its companion WebUI adapter. The roadmap delivers
+read-only operational visibility first, write-safety foundation second, and
+controlled game-facing operations only after lower-risk trains are proven in
+production.</p>
+
+<p>The bot operates as an external companion to the Dune Docker Console WebUI.
+All commands go through a bearer-token protected adapter API. At no point does
+the bot access the Docker socket, Postgres database, game files, or shell
+commands directly.</p>
+
+<h1>2. Motivation</h1>
+
+<p>Operators and server administrators need a safe way to monitor and manage
+their Dune Awakening dedicated servers through Discord. The bot must:</p>
+
+<ul>
+  <li>Provide read-only operational visibility (server status, readiness, services, population).</li>
+  <li>Support scheduled status posts, alert subscriptions, and incident digests.</li>
+  <li>Eventually support administrative writes (maintenance notes, notification config, scheduled posts).</li>
+  <li>Eventually support operational writes (backup creation, service restart, update trigger).</li>
+  <li>Support game-to-Discord announcement bridging and Discord-to-game broadcast commands under careful authorization gates.</li>
+  <li>Never expose raw database access, shell execution, Docker socket access, or game-server command passthrough through Discord.</li>
+</ul>
+
+<h1>3. Design Principles</h1>
+
+<ol>
+  <li><strong>Security gates first; functionality second.</strong> Every PR passes npm audit, Semgrep SAST, Gitleaks, Trivy filesystem and image scans, dependency review, and test gates before merge.</li>
+  <li><strong>Read-only by default.</strong> All commands are read-only until the R2.0.0 write-safety foundation is approved and upstream write-contract is in place.</li>
+  <li><strong>Write paths disabled by default.</strong> Every write command requires DUNE_DISCORD_WRITES_ENABLED=true and write-specific RBAC that observer roles do not inherit.</li>
+  <li><strong>Confirmation cannot be bypassed.</strong> Write commands require explicit confirmation with action, target, and risk displayed.</li>
+  <li><strong>All output is bounded, redacted, and role-gated.</strong> PII, secrets, internal IPs, Steam IDs, Funcom IDs, and credentials are redacted before Discord output.</li>
+  <li><strong>No direct infrastructure access.</strong> The bot never mounts the Docker socket, writes to Postgres, stores secrets in addon files, or executes shell commands.</li>
+  <li><strong>Zero-permission addon.</strong> The WebUI addon is a static pointer with no backend access.</li>
+</ol>
+
+<h1>4. Release Train Model</h1>
+
+<table>
+<tr><th>Train</th><th>Scope</th><th>Key Commands</th><th>Status</th></tr>
+<tr><td>R1.0.0 (v1.0.0)</td><td>Stable read-only GA</td><td>about, ping, health, status, status-summary, readiness, services</td><td class="status-closed">Implemented</td></tr>
+<tr><td>R1.1–R1.5 (v1.1.0–v1.5.0)</td><td>Read-only maturity</td><td>population, backups, scheduler, validation, compatibility</td><td class="status-closed">Implemented</td></tr>
+<tr><td>R2.0.0 (v2.0.0)</td><td>Write-safety foundation</td><td>Disabled-by-default write framework, RBAC, idempotency, audit</td><td class="status-open">Feature Branch</td></tr>
+<tr><td>R2.1–R2.4 (v2.1.0–v2.4.0)</td><td>Low-risk admin writes</td><td>Maintenance notes, notification config, scheduled-post config</td><td class="status-open">Feature Branches</td></tr>
+<tr><td>R3.0.0 (v3.0.0)</td><td>Operational writes</td><td>Backup creation, service restart, update trigger, cache clear</td><td class="status-open">Feature Branch</td></tr>
+<tr><td>R4.0.0+ (v4.0.0+)</td><td>Highest-risk operations</td><td>Player moderation, game broadcast, chat bridge, restore execution</td><td class="status-open">Feature Branches</td></tr>
+</table>
+
+<h1>5. Security Gates</h1>
+
+<p>Every substantive PR, release candidate, and stable release must pass the following gates:</p>
+
+<ul>
+  <li><code>npm run check</code> — 125 unit tests + release metadata + addon package + SBOM</li>
+  <li><code>npm audit --audit-level=moderate</code> — zero vulnerabilities</li>
+  <li>Semgrep SAST — zero findings</li>
+  <li>Gitleaks secret scan — zero leaks (with documented false-positive allowlist)</li>
+  <li>Trivy filesystem scan — zero findings</li>
+  <li>Trivy image scan — zero findings</li>
+  <li>Docker build — success</li>
+  <li>Dependabot cooldown (7-day default) — prevents supply-chain poisoning</li>
+  <li>Pinned GitHub Actions (immutable SHA) — prevents workflow injection</li>
+  <li>No unresolved medium, high, or critical security findings</li>
+</ul>
+
+<h1>6. Communication Bridge</h1>
+
+<h2>6.1 Game → Discord (Announcements)</h2>
+<p>In-game announcements (broadcasts, server events, shutdown warnings) are forwarded to a configured Discord channel. The bridge polls the adapter for new announcements at configurable intervals, deduplicates by ID, and caps message length at 1800 characters. All output is redacted before posting.</p>
+<p><strong>Disabled by default:</strong> <code>DUNE_ANNOUNCEMENTS_ENABLED=true</code> to enable.</p>
+
+<h2>6.2 Discord → Game (Broadcast Command)</h2>
+<p>Moderator+ roles can use <code>/dune broadcast &lt;message&gt;</code> to send a message to all in-game players. The command requires write-enabled mode, RBAC check, confirmation, idempotency key, 60-second per-user cooldown, and produces a tamper-evident audit event.</p>
+<p><strong>Disabled by default:</strong> <code>DUNE_DISCORD_WRITES_ENABLED=true</code> and write-role assignment required.</p>
+
+<h1>7. Current Implementation Evidence</h1>
+
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>Tests passing</td><td>125 / 125</td></tr>
+<tr><td>npm audit</td><td>0 vulnerabilities</td></tr>
+<tr><td>Semgrep</td><td>0 findings</td></tr>
+<tr><td>Gitleaks</td><td>0 leaks</td></tr>
+<tr><td>Trivy filesystem</td><td>0 findings</td></tr>
+<tr><td>Trivy image</td><td>0 findings</td></tr>
+<tr><td>Commands</td><td>10 (about, ping, health, status, status-summary, readiness, services, population, backups, broadcast)</td></tr>
+<tr><td>Source modules</td><td>12 (adapterClient, announcements, broadcast, commands, config, cooldown, format, healthState, index, logger, notifications, scheduler)</td></tr>
+<tr><td>RBAC mode</td><td>restricted by default, fails closed</td></tr>
+<tr><td>Addon</td><td>zero-permission, static HTML</td></tr>
+<tr><td>Container</td><td>non-root (USER node), HEALTHCHECK, npm removed from runtime</td></tr>
+</table>
+
+<h1>8. Appendix — Source References</h1>
+
+<ul>
+  <li><code>docs/full-release-roadmap.md</code> — Detailed release train specification</li>
+  <li><code>docs/r1-r2-release-roadmap.md</code> — R1.x to R2.x cadence and entry criteria</li>
+  <li><code>docs/additional-features-roadmap.md</code> — 16 proposed additional features</li>
+  <li><code>docs/security-audit/2026-07-04-comprehensive-security-audit.md</code> — Full security audit</li>
+  <li><code>docs/pr-transparency-template.md</code> — PR documentation requirements</li>
+  <li><code>releases/index.md</code> — Upstream PR staging manifest</li>
+</ul>
+
+<div class="footer">
+  RFC — Dune Discord Bot Roadmap &bull; Draft 2026-07-04 &bull; No upstream PRs created &bull; All work is local feature branches staged in releases/
+</div>
+
+</body>
+</html>

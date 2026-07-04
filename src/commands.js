@@ -3,9 +3,10 @@ import { readFileSync } from "node:fs";
 import { checkCooldown, applyCooldown } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload } from "./format.js";
+import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 
 const PACKAGE = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services", "population", "backups", "broadcast"]);
+const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services", "population", "backups", "broadcast", ...OPS_SUBCOMMAND_NAMES]);
 
 export function buildDuneCommand() {
   return new SlashCommandBuilder()
@@ -21,7 +22,16 @@ export function buildDuneCommand() {
     .addSubcommand((command) => command.setName("population").setDescription("Show aggregate player count and server population."))
     .addSubcommand((command) => command.setName("backups").setDescription("List recent backup metadata (read-only, no create/restore/delete)."))
     .addSubcommand((command) => command.setName("broadcast").setDescription("Send a message to in-game players (moderator+).")
-      .addStringOption((option) => option.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500)));
+      .addStringOption((option) => option.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500)))
+    .addSubcommand((command) => command.setName("activity").setDescription(opsDescriptionFor("activity")))
+    .addSubcommand((command) => command.setName("combat").setDescription(opsDescriptionFor("combat")))
+    .addSubcommand((command) => command.setName("resources").setDescription(opsDescriptionFor("resources")))
+    .addSubcommand((command) => command.setName("economy").setDescription(opsDescriptionFor("economy")))
+    .addSubcommand((command) => command.setName("inventory").setDescription(opsDescriptionFor("inventory")))
+    .addSubcommand((command) => command.setName("location").setDescription(opsDescriptionFor("location")))
+    .addSubcommand((command) => command.setName("soc").setDescription(opsDescriptionFor("soc")))
+    .addSubcommand((command) => command.setName("prometheus").setDescription(opsDescriptionFor("prometheus")))
+    .addSubcommand((command) => command.setName("dashboard").setDescription(opsDescriptionFor("dashboard")));
 }
 
 export function commandDefinitions() {
@@ -79,6 +89,13 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       }
     } else if (subcommand === "population") {
       payload = populationPayload(await adapterClient.population(actor));
+    } else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
+      const route = opsRouteFor(subcommand);
+      if (route) {
+        payload = formatOpsPayload(subcommand, await adapterClient[route](actor));
+      } else {
+        payload = { ok: false, error: `Unknown OPS command: ${subcommand}` };
+      }
     } else {
       payload = await adapterClient[subcommand](actor);
     }

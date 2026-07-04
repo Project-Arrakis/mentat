@@ -7,7 +7,17 @@ const DEFAULT_PATHS = Object.freeze({
   services: "/api/integrations/discord/services",
   population: "/api/integrations/discord/population",
   backups: "/api/integrations/discord/backups/list",
-  announcements: "/api/integrations/discord/announcements"
+  announcements: "/api/integrations/discord/announcements",
+  broadcast: "/api/integrations/discord/broadcast",
+  "ops-activity": "/api/integrations/discord/ops/activity",
+  "ops-combat": "/api/integrations/discord/ops/combat",
+  "ops-resources": "/api/integrations/discord/ops/resources",
+  "ops-economy": "/api/integrations/discord/ops/economy",
+  "ops-inventory": "/api/integrations/discord/ops/inventory",
+  "ops-location": "/api/integrations/discord/ops/location",
+  "ops-soc": "/api/integrations/discord/ops/soc",
+  "ops-prometheus": "/api/integrations/discord/ops/prometheus",
+  "ops-dashboard": "/api/integrations/discord/ops/dashboard"
 });
 
 const DEFAULT_METHODS = Object.freeze({
@@ -17,7 +27,17 @@ const DEFAULT_METHODS = Object.freeze({
   services: "POST",
   population: "POST",
   backups: "GET",
-  announcements: "POST"
+  announcements: "POST",
+  broadcast: "POST",
+  "ops-activity": "POST",
+  "ops-combat": "POST",
+  "ops-resources": "POST",
+  "ops-economy": "POST",
+  "ops-inventory": "POST",
+  "ops-location": "POST",
+  "ops-soc": "POST",
+  "ops-prometheus": "POST",
+  "ops-dashboard": "POST"
 });
 
 const RBAC_MODES = new Set(["restricted", "open"]);
@@ -61,7 +81,17 @@ export function loadConfig(env = process.env) {
         services: optionalEnv(env, "DUNE_ADAPTER_SERVICES_PATH") || DEFAULT_PATHS.services,
         population: optionalEnv(env, "DUNE_ADAPTER_POPULATION_PATH") || DEFAULT_PATHS.population,
         backups: optionalEnv(env, "DUNE_ADAPTER_BACKUPS_PATH") || DEFAULT_PATHS.backups,
-        announcements: optionalEnv(env, "DUNE_ADAPTER_ANNOUNCEMENTS_PATH") || DEFAULT_PATHS.announcements
+        announcements: optionalEnv(env, "DUNE_ADAPTER_ANNOUNCEMENTS_PATH") || DEFAULT_PATHS.announcements,
+        broadcast: optionalEnv(env, "DUNE_ADAPTER_BROADCAST_PATH") || DEFAULT_PATHS.broadcast,
+        "ops-activity": optionalEnv(env, "DUNE_ADAPTER_OPS_ACTIVITY_PATH") || DEFAULT_PATHS["ops-activity"],
+        "ops-combat": optionalEnv(env, "DUNE_ADAPTER_OPS_COMBAT_PATH") || DEFAULT_PATHS["ops-combat"],
+        "ops-resources": optionalEnv(env, "DUNE_ADAPTER_OPS_RESOURCES_PATH") || DEFAULT_PATHS["ops-resources"],
+        "ops-economy": optionalEnv(env, "DUNE_ADAPTER_OPS_ECONOMY_PATH") || DEFAULT_PATHS["ops-economy"],
+        "ops-inventory": optionalEnv(env, "DUNE_ADAPTER_OPS_INVENTORY_PATH") || DEFAULT_PATHS["ops-inventory"],
+        "ops-location": optionalEnv(env, "DUNE_ADAPTER_OPS_LOCATION_PATH") || DEFAULT_PATHS["ops-location"],
+        "ops-soc": optionalEnv(env, "DUNE_ADAPTER_OPS_SOC_PATH") || DEFAULT_PATHS["ops-soc"],
+        "ops-prometheus": optionalEnv(env, "DUNE_ADAPTER_OPS_PROMETHEUS_PATH") || DEFAULT_PATHS["ops-prometheus"],
+        "ops-dashboard": optionalEnv(env, "DUNE_ADAPTER_OPS_DASHBOARD_PATH") || DEFAULT_PATHS["ops-dashboard"]
       },
       methods: {
         health: parseMethod(env.DUNE_ADAPTER_HEALTH_METHOD, DEFAULT_METHODS.health),
@@ -70,7 +100,17 @@ export function loadConfig(env = process.env) {
         services: parseMethod(env.DUNE_ADAPTER_SERVICES_METHOD, DEFAULT_METHODS.services),
         population: parseMethod(env.DUNE_ADAPTER_POPULATION_METHOD, DEFAULT_METHODS.population),
         backups: parseMethod(env.DUNE_ADAPTER_BACKUPS_METHOD, DEFAULT_METHODS.backups),
-        announcements: parseMethod(env.DUNE_ADAPTER_ANNOUNCEMENTS_METHOD, DEFAULT_METHODS.announcements)
+        announcements: parseMethod(env.DUNE_ADAPTER_ANNOUNCEMENTS_METHOD, DEFAULT_METHODS.announcements),
+        broadcast: parseMethod(env.DUNE_ADAPTER_BROADCAST_METHOD, DEFAULT_METHODS.broadcast),
+        "ops-activity": parseMethod(env.DUNE_ADAPTER_OPS_ACTIVITY_METHOD, DEFAULT_METHODS["ops-activity"]),
+        "ops-combat": parseMethod(env.DUNE_ADAPTER_OPS_COMBAT_METHOD, DEFAULT_METHODS["ops-combat"]),
+        "ops-resources": parseMethod(env.DUNE_ADAPTER_OPS_RESOURCES_METHOD, DEFAULT_METHODS["ops-resources"]),
+        "ops-economy": parseMethod(env.DUNE_ADAPTER_OPS_ECONOMY_METHOD, DEFAULT_METHODS["ops-economy"]),
+        "ops-inventory": parseMethod(env.DUNE_ADAPTER_OPS_INVENTORY_METHOD, DEFAULT_METHODS["ops-inventory"]),
+        "ops-location": parseMethod(env.DUNE_ADAPTER_OPS_LOCATION_METHOD, DEFAULT_METHODS["ops-location"]),
+        "ops-soc": parseMethod(env.DUNE_ADAPTER_OPS_SOC_METHOD, DEFAULT_METHODS["ops-soc"]),
+        "ops-prometheus": parseMethod(env.DUNE_ADAPTER_OPS_PROMETHEUS_METHOD, DEFAULT_METHODS["ops-prometheus"]),
+        "ops-dashboard": parseMethod(env.DUNE_ADAPTER_OPS_DASHBOARD_METHOD, DEFAULT_METHODS["ops-dashboard"])
       }
     }
   };

@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "result": {
+    "summary": {
+      "total": 128,
+      "online": 8,
+      "faction": {"Atreides": 42, "Harkonnen": 38, "Fremen": 28},
+      "guild": {"active": 3, "total": 5}
+    },
+    "health": {"status": "healthy", "uptime": "72h"},
+    "metrics": {"cpu_avg": 45.2, "memory_mb": 2048, "restarts": 0}
+  }
+}
