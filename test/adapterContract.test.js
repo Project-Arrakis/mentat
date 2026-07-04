@@ -29,6 +29,11 @@ const UPSTREAM_CONTRACT = Object.freeze({
     method: "POST",
     path: "/api/integrations/discord/population",
     fixture: "population.json"
+  },
+  backups: {
+    method: "GET",
+    path: "/api/integrations/discord/backups/list",
+    fixture: "backups.json"
   }
 });
 
@@ -104,8 +109,10 @@ test("AdapterClient requests upstream routes with the expected methods and actor
   assert.equal(calls[0].contentType, undefined);
   for (const call of calls.slice(1)) {
     assert.equal(call.authorization, "Bearer adapter-token");
-    assert.equal(call.contentType, "application/json");
-    assert.deepEqual(call.body, { actor });
+    if (call.method === "POST") {
+      assert.equal(call.contentType, "application/json");
+      assert.deepEqual(call.body, { actor });
+    }
   }
 });
 
