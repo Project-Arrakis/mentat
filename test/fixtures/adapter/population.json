@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "result": {
+    "onlinePlayers": 8,
+    "totalPlayers": 128,
+    "aggregate": true,
+    "detailsSuppressed": true
+  }
+}
