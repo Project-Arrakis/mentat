@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "result": {
+    "announcements": [
+      {"type": "Broadcast", "message": "Server event in 10 minutes", "timestamp": "2026-07-04T12:00:00Z", "id": "a1"}
+    ]
+  }
+}

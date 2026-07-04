@@ -31,6 +31,10 @@ export class AdapterClient {
   population(actor) { return this.request("population", actor); }
 
   backups(actor) { return this.request("backups", actor); }
+
+  announcements(actor) {
+    return this.request("announcements", actor);
+  }
   services(actor) {
     return this.request("services", actor);
   }

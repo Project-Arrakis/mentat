@@ -1,5 +1,6 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { AdapterClient } from "./adapterClient.js";
+import { createAnnouncementBridge, announcementConfig } from "./announcements.js";
 import { executeDuneCommand } from "./commands.js";
 import { loadConfig } from "./config.js";
 import { startHealthState } from "./healthState.js";
@@ -13,6 +14,7 @@ const healthState = startHealthState({
   onError: (error) => logError("health_state.write_failed", error)
 });
 let scheduler = { active: false, stop() {} };
+let announcementBridge = { active: false, stop() {} };
 
 client.once(Events.ClientReady, (readyClient) => {
   healthState.markReady();
@@ -31,6 +33,21 @@ client.once(Events.ClientReady, (readyClient) => {
       channels: scheduler.allowedChannels
     });
   }
+
+  const annConfig = announcementConfig();
+  if (annConfig.enabled && annConfig.channelId) {
+    announcementBridge = createAnnouncementBridge({
+      adapterClient,
+      client,
+      channelId: annConfig.channelId,
+      onError: (error) => logError("announcements.failed", error)
+    });
+    announcementBridge.start(annConfig.pollIntervalMs);
+    logInfo("announcements.started", {
+      channel: annConfig.channelId,
+      pollIntervalMs: annConfig.pollIntervalMs
+    });
+  }
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -45,6 +62,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, async () => {
     logInfo("process.shutdown", { signal });
     scheduler.stop();
+    announcementBridge.stop();
     await client.destroy();
     healthState.stop();
     process.exit(0);
