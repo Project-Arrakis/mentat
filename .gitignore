@@ -7,3 +7,4 @@ coverage/
 dist/
 tmp/
 *.local
+.security-audit/
