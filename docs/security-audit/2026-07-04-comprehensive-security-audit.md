@@ -186,7 +186,7 @@ All findings are tracked below with severity, owner, and recommended remediation
 #### FINDING-CORE-7: Gitleaks false positives in adapter README examples (LOW / FALSE POSITIVE)
 
 - **Location:** `docs/discord-control-bot/README.md`
-- **Match:** `DISCORD_CLIENT_ID="123456789012345678"`, `DISCORD_GUILD_ID`, `DISCORD_*_ROLE_IDS`
+- **Match:** `DISCORD_CLIENT_ID="[REDACTED-FAKE-ID]"`, `DISCORD_GUILD_ID`, `DISCORD_*_ROLE_IDS`
 - **Risk:** None — these are example IDs.
 - **Recommendation:** Add `.gitleaksignore` entries or wrap examples in code blocks with a comment noting they are examples.
 - **Remediation branch:** `security/core-gitleaks-allowlist`
