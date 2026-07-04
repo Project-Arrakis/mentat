@@ -21,10 +21,13 @@ const blocked = [
 test("durable docs and PR templates avoid tool/provider references", async () => {
   const files = await trackedFiles();
   const durableEvidenceFiles = files.filter((file) =>
-    file === "README.md" ||
-    file === "CHANGELOG.md" ||
-    file.startsWith("docs/") ||
-    file.startsWith(".github/")
+    (file === "README.md" ||
+     file === "CHANGELOG.md" ||
+     file.startsWith("docs/") ||
+     file.startsWith(".github/")) &&
+    !file.endsWith(".pdf") &&
+    !file.endsWith(".png") &&
+    !file.endsWith(".ico")
   );
 
   const findings = [];
