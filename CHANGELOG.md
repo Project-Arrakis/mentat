@@ -10,24 +10,25 @@ change notes under `docs/changes/`.
 
 - (reserved for future changes)
 
-## v1.4.0 - 2026-07-03
+## v1.5.0 - 2026-07-03
 
-Compatibility hardening (R1.4). Adds upstream drift checklist, fixture refresh
-workflow, release-candidate monitoring, and stronger route compatibility tests.
+R2 readiness review (R1.5). Final read-only hardening before write foundation
+work begins. Comprehensive security review and owner approval gate for
+transitioning to R2 planning.
 
 ### Added
 
-- Upstream drift detection checklist for adapter contract changes.
-- Fixture refresh workflow for automated adapter evidence updates.
-- Release-candidate monitoring for upstream pre-release compatibility
-  signals.
-- Stronger route compatibility tests covering edge cases and field-level
-  contract assertions.
-- Documentation guard tests ensuring source-bound evidence is current.
+- Comprehensive security review covering all read-only surfaces.
+- STRIDE re-review for accumulated R1.x changes.
+- Privacy review for all read-only command output.
+- Dependency and container security review.
+- Upstream compatibility evidence freeze for R1.5 baseline.
+- R2 entry criteria assessment checklist.
+- Owner approval documentation for R2 planning commencement.
 
 ### Changed
 
-- Release planning baseline advanced to R1.4 for compatibility hardening.
+- Release planning baseline advanced from R1.x to R2 readiness evaluation.
 
 ## v1.0.0-rc.1 - 2026-07-03
 
