@@ -34,6 +34,11 @@ const UPSTREAM_CONTRACT = Object.freeze({
     method: "GET",
     path: "/api/integrations/discord/backups/list",
     fixture: "backups.json"
+  },
+  announcements: {
+    method: "POST",
+    path: "/api/integrations/discord/announcements",
+    fixture: "announcements.json"
   }
 });
 

@@ -6,7 +6,8 @@ const DEFAULT_PATHS = Object.freeze({
   readiness: "/api/integrations/discord/readiness",
   services: "/api/integrations/discord/services",
   population: "/api/integrations/discord/population",
-  backups: "/api/integrations/discord/backups/list"
+  backups: "/api/integrations/discord/backups/list",
+  announcements: "/api/integrations/discord/announcements"
 });
 
 const DEFAULT_METHODS = Object.freeze({
@@ -15,7 +16,8 @@ const DEFAULT_METHODS = Object.freeze({
   readiness: "POST",
   services: "POST",
   population: "POST",
-  backups: "GET"
+  backups: "GET",
+  announcements: "POST"
 });
 
 const RBAC_MODES = new Set(["restricted", "open"]);
@@ -58,7 +60,8 @@ export function loadConfig(env = process.env) {
         readiness: optionalEnv(env, "DUNE_ADAPTER_READINESS_PATH") || DEFAULT_PATHS.readiness,
         services: optionalEnv(env, "DUNE_ADAPTER_SERVICES_PATH") || DEFAULT_PATHS.services,
         population: optionalEnv(env, "DUNE_ADAPTER_POPULATION_PATH") || DEFAULT_PATHS.population,
-        backups: optionalEnv(env, "DUNE_ADAPTER_BACKUPS_PATH") || DEFAULT_PATHS.backups
+        backups: optionalEnv(env, "DUNE_ADAPTER_BACKUPS_PATH") || DEFAULT_PATHS.backups,
+        announcements: optionalEnv(env, "DUNE_ADAPTER_ANNOUNCEMENTS_PATH") || DEFAULT_PATHS.announcements
       },
       methods: {
         health: parseMethod(env.DUNE_ADAPTER_HEALTH_METHOD, DEFAULT_METHODS.health),
@@ -66,7 +69,8 @@ export function loadConfig(env = process.env) {
         readiness: parseMethod(env.DUNE_ADAPTER_READINESS_METHOD, DEFAULT_METHODS.readiness),
         services: parseMethod(env.DUNE_ADAPTER_SERVICES_METHOD, DEFAULT_METHODS.services),
         population: parseMethod(env.DUNE_ADAPTER_POPULATION_METHOD, DEFAULT_METHODS.population),
-        backups: parseMethod(env.DUNE_ADAPTER_BACKUPS_METHOD, DEFAULT_METHODS.backups)
+        backups: parseMethod(env.DUNE_ADAPTER_BACKUPS_METHOD, DEFAULT_METHODS.backups),
+        announcements: parseMethod(env.DUNE_ADAPTER_ANNOUNCEMENTS_METHOD, DEFAULT_METHODS.announcements)
       }
     }
   };
