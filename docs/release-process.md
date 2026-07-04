@@ -27,7 +27,7 @@ Pre-1.0 versions may change operator-facing behavior, but every release still
 requires the same security gates and documentation evidence.
 
 The current planning baseline is `R0.9.0` release candidate freeze for
-`v1.0.0-rc.1`. The latest published stable artifact is still `v0.1.1` until a
+`v1.0.0-rc.1`. The current stable release is `v1.5.0`. Before a new stable
 stable release-preparation pull request intentionally promotes a verified
 candidate.
 

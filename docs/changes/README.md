@@ -54,6 +54,19 @@ an issue instead of a pull request.
 | `PR-0040` | PR | Prepare v1.0.0-rc.1 release candidate | PR #40 |
 | `PR-0041` | PR | Record v1.0.0-rc.1 publication evidence | PR #41 |
 | `PR-0042` | PR | Add v1.0.0 stable promotion checklist | PR #42 |
+| `PR-0043` | PR | v1.0.0 stable release promotion | PR #43 |
+| `PR-0044` | PR | v1.1.0 operator validation | PR #44 |
+| `PR-0045` | PR | v1.2.0 read-only detail expansion (population) | PR #45 |
+| `PR-0046` | PR | v1.3.0 read-only notification scheduler | PR #46 |
+| `PR-0047` | PR | v1.4.0 compatibility hardening | PR #47 |
+| `PR-0048` | PR | v1.5.0 R2 readiness review | PR #48 |
+| `PR-0049` | PR | v2.0.0 write-safety foundation (planning) | PR #49 |
+| `PR-0056` | PR | v4.0.0 highest-risk operations (planning) | PR #56 |
+| `PR-0057` | PR | v2.1.0 maintenance metadata writes (planning) | PR #57 |
+| `PR-0058` | PR | v2.2.0 notification config writes (planning) | PR #58 |
+| `PR-0059` | PR | v2.3.0 scheduled-post config writes (planning) | PR #59 |
+| `PR-0060` | PR | v2.4.0 R3 readiness review (planning) | PR #60 |
+| `PR-0061` | PR | v3.0.0 operational writes (planning) | PR #61 |
 
 Every future substantive PR should add or update its matching change note before
 merge. If a security finding is tracked as an issue, record the issue in this

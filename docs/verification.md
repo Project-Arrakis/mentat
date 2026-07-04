@@ -106,7 +106,7 @@ After `npm run check`, verify local release artifact checksums with:
 
 ```bash
 cd dist
-sha256sum -c discord-readonly-bot-v0.1.0.tar.gz.sha256
+sha256sum -c discord-readonly-bot-v1.5.0.tar.gz.sha256
 sha256sum -c dune-awakening-selfhost-discordbot.cdx.json.sha256
 ```
 
