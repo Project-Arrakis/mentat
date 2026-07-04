@@ -6,7 +6,7 @@ import { formatError, formatPayload } from "./format.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 
 const PACKAGE = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services", "population", "backups", "broadcast", ...OPS_SUBCOMMAND_NAMES]);
+const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services", "population", "backups", "broadcast", "help", "doctor", ...OPS_SUBCOMMAND_NAMES]);
 
 export function buildDuneCommand() {
   return new SlashCommandBuilder()
@@ -23,6 +23,8 @@ export function buildDuneCommand() {
     .addSubcommand((command) => command.setName("backups").setDescription("List recent backup metadata (read-only, no create/restore/delete)."))
     .addSubcommand((command) => command.setName("broadcast").setDescription("Send a message to in-game players (moderator+).")
       .addStringOption((option) => option.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500)))
+    .addSubcommand((command) => command.setName("help").setDescription("Show available commands for your role."))
+    .addSubcommand((command) => command.setName("doctor").setDescription("Admin-only: comprehensive system diagnostic across all subsystems."))
     .addSubcommand((command) => command.setName("activity").setDescription(opsDescriptionFor("activity")))
     .addSubcommand((command) => command.setName("combat").setDescription(opsDescriptionFor("combat")))
     .addSubcommand((command) => command.setName("resources").setDescription(opsDescriptionFor("resources")))
@@ -87,6 +89,11 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       } else {
         payload = result;
       }
+    } else if (subcommand === "help") {
+      payload = helpPayload(config, interaction);
+    } else if (subcommand === "doctor") {
+      if (!isAdminActor(interaction, config)) throw new Error("Doctor diagnostic requires admin or owner role.");
+      payload = await doctorPayload(adapterClient, actor, config);
     } else if (subcommand === "population") {
       payload = populationPayload(await adapterClient.population(actor));
     } else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
@@ -247,5 +254,83 @@ export function backupPayload(backups) {
       date: b.date || b.createdAt || "unknown",
       size: b.size || "unknown"
     }))
+  };
+}
+
+function isAdminActor(interaction, config) {
+  const roleIds = extractRoleIds(interaction);
+  const adminRoles = new Set([
+    ...(parseCsv(process.env.DISCORD_ADMIN_ROLE_IDS)),
+    ...(parseCsv(process.env.DISCORD_WRITE_ADMIN_ROLE_IDS)),
+    ...(parseCsv(process.env.DISCORD_WRITE_OWNER_ROLE_IDS)),
+    ...(Array.isArray(config?.discord?.rbac?.adminRoleIds) ? config.discord.rbac.adminRoleIds : [])
+  ]);
+  const allowedUsers = new Set(parseCsv(process.env.DISCORD_ALLOWED_USER_IDS));
+  return roleIds.some((r) => adminRoles.has(r)) || allowedUsers.has(interaction?.user?.id);
+}
+
+function parseCsv(value) {
+  return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function helpPayload(config, interaction) {
+  const allCommands = [
+    { name: "about", desc: "Show safe bot and adapter metadata.", role: "observer" },
+    { name: "ping", desc: "Measure Discord and adapter latency.", role: "observer" },
+    { name: "health", desc: "Check the console Discord adapter.", role: "observer" },
+    { name: "status", desc: "Show high-level server status.", role: "observer" },
+    { name: "status-summary", desc: "Show compact aggregate server status.", role: "observer" },
+    { name: "readiness", desc: "Show readiness and preflight state.", role: "observer" },
+    { name: "services", desc: "Show service state.", role: "observer" },
+    { name: "population", desc: "Show aggregate player count.", role: "observer" },
+    { name: "backups", desc: "List recent backup metadata.", role: "observer" },
+    { name: "activity", desc: opsDescriptionFor("activity"), role: "observer" },
+    { name: "combat", desc: opsDescriptionFor("combat"), role: "observer" },
+    { name: "resources", desc: opsDescriptionFor("resources"), role: "observer" },
+    { name: "economy", desc: opsDescriptionFor("economy"), role: "observer" },
+    { name: "inventory", desc: opsDescriptionFor("inventory"), role: "observer" },
+    { name: "location", desc: opsDescriptionFor("location"), role: "observer" },
+    { name: "soc", desc: opsDescriptionFor("soc"), role: "observer" },
+    { name: "prometheus", desc: opsDescriptionFor("prometheus"), role: "observer" },
+    { name: "dashboard", desc: opsDescriptionFor("dashboard"), role: "observer" },
+    { name: "broadcast", desc: "Send a message to all players.", role: "admin" },
+    { name: "doctor", desc: "Comprehensive system diagnostic.", role: "admin" }
+  ];
+
+  const available = [];
+  const locked = [];
+  for (const cmd of allCommands) {
+    if (isCommandAllowed(interaction, cmd.name, config.discord.rbac)) {
+      available.push(cmd);
+    } else {
+      locked.push(cmd);
+    }
+  }
+
+  return {
+    ok: true,
+    total: allCommands.length,
+    available: available.map((c) => c.name),
+    locked: locked.map((c) => c.name),
+    availableCount: available.length,
+    rbacMode: config.discord.rbac.mode
+  };
+}
+
+async function doctorPayload(adapterClient, actor, config) {
+  const [health, status, readiness, services] = await Promise.all([
+    adapterClient.health(actor).catch(() => ({ ok: false, error: "health failed" })),
+    adapterClient.status(actor).catch(() => ({ ok: false, error: "status failed" })),
+    adapterClient.readiness(actor).catch(() => ({ ok: false, error: "readiness failed" })),
+    adapterClient.services(actor).catch(() => ({ ok: false, error: "services failed" }))
+  ]);
+
+  return {
+    ok: health?.ok !== false && status?.ok !== false,
+    health: { ok: health?.ok === true, enabled: health?.enabled, readOnly: health?.readOnly, writesEnabled: health?.writesEnabled },
+    status: { ok: status?.ok === true, summary: status?.result?.summary || {} },
+    readiness: { ok: readiness?.ok === true, ready: readiness?.result?.ready, issues: readiness?.result?.issues || [] },
+    services: { ok: services?.ok === true, overall: services?.result?.overall, count: (services?.result?.services || []).length },
+    timestamp: new Date().toISOString()
   };
 }
