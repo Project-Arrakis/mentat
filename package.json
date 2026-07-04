@@ -16,7 +16,8 @@
     "smoke:adapter": "node scripts/operator-smoke.js",
     "sbom": "node scripts/generate-sbom.js",
     "test": "node --test",
-    "check": "npm test && npm run release:check && npm run package:addon && npm run sbom"
+    "check": "npm test && npm run release:check && npm run package:addon && npm run sbom",
+    "compat:check": "node scripts/check-compatibility.js"
   },
   "dependencies": {
     "discord.js": "^14.26.4"
