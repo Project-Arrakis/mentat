@@ -10,6 +10,14 @@ change notes under `docs/changes/`.
 
 - (reserved for future changes)
 
+### Fixed
+
+- (reserved for future changes)
+
+### Removed
+
+- (reserved for future changes)
+
 ## v1.5.0 - 2026-07-03
 
 R2 readiness review (R1.5). Final read-only hardening before write foundation
@@ -17,6 +25,13 @@ work begins. Comprehensive security review and owner approval gate for
 transitioning to R2 planning.
 
 ### Added
+### Fixed
+
+- (reserved for future changes)
+
+### Removed
+
+- (reserved for future changes)
 
 - Comprehensive security review covering all read-only surfaces.
 - STRIDE re-review for accumulated R1.x changes.
@@ -38,6 +53,13 @@ upstream compatibility, security review, and release-roadmap evidence for
 prerelease validation.
 
 ### Added
+### Fixed
+
+- (reserved for future changes)
+
+### Removed
+
+- (reserved for future changes)
 
 - Draft upstream write-adapter RFC with proposed disabled-by-default write
   routes, schemas, fixtures, STRIDE notes, abuse cases, and maintainer
@@ -83,6 +105,13 @@ workflow validation, GitHub prerelease publication, and published artifact
 checksum verification.
 
 ### Added
+### Fixed
+
+- (reserved for future changes)
+
+### Removed
+
+- (reserved for future changes)
 
 - Release-candidate workflow support for prerelease SemVer tags and GitHub
   prereleases.
@@ -99,6 +128,13 @@ checksum verification.
 Release candidate for the release-candidate workflow and roadmap update.
 
 ### Added
+### Fixed
+
+- (reserved for future changes)
+
+### Removed
+
+- (reserved for future changes)
 
 - Release-candidate workflow support for prerelease SemVer tags and GitHub
   prereleases.
@@ -115,6 +151,13 @@ Release candidate for the release-candidate workflow and roadmap update.
 Initial read-only release for the self-hosted Discord bot.
 
 ### Added
+### Fixed
+
+- (reserved for future changes)
+
+### Removed
+
+- (reserved for future changes)
 
 - Read-only `/dune` command family for about, ping, health, status,
   status-summary, readiness, and services.
