@@ -37,6 +37,11 @@ echo "[6/6] API endpoint security tests"
 node scripts/api-security-test.js
 echo ""
 
+# 6.5 Documentation validation
+echo "[6.5/8] Documentation validation"
+node scripts/validate-docs.js
+echo ""
+
 # 7. Docker build + image scan
 echo "[7/7] Docker build + Trivy image scan"
 docker build -t dune-discord-bot:release-gate .
