@@ -44,6 +44,17 @@ echo "Base:    main"
 echo ""
 echo "=== Pre-flight checks ==="
 
+# Check CI status
+echo "Checking GitHub Actions status..."
+if bash scripts/ci-check.sh "$HEAD_BRANCH" 2>&1; then
+  echo ""
+else
+  echo ""
+  echo "CI checks failed. Push the branch and resolve failures first."
+  echo "  gh run list --branch $HEAD_BRANCH --json name,conclusion,status"
+  exit 1
+fi
+
 # Run pre-commit checks
 echo "Running pre-commit hooks..."
 pre-commit run --all-files 2>&1 | tail -5
