@@ -56,7 +56,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
 
-  // Banner background
+  // Banner background — fills the entire canvas
   const banner = await loadBanner();
   if (banner.width > 0) {
     const scale = Math.max(W / banner.width, H / banner.height);
@@ -64,35 +64,39 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     const sh = banner.height * scale;
     ctx.drawImage(banner, (W - sw) / 2, (H - sh) / 2, sw, sh);
 
-    // Warm dark overlay — lets the amber glow through
-    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    // Subtle gradient overlay — barely-there top, gently darker bottom for readability
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, "rgba(0,0,0,0.10)");
+    grad.addColorStop(0.4, "rgba(0,0,0,0.25)");
+    grad.addColorStop(1, "rgba(0,0,0,0.45)");
+    ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
   } else {
     ctx.fillStyle = COLORS.bg;
     ctx.fillRect(0, 0, W, H);
   }
 
-  // Card body — more transparent to show background
-  ctx.fillStyle = COLORS.cardBg;
-  roundRect(ctx, PAD, PAD, W - PAD * 2, H - PAD * 2, 12, true, false);
+  // Card body — lighter, lets background bleed through
+  ctx.fillStyle = "rgba(20,16,12,0.55)";
+  roundRect(ctx, PAD, PAD + 20, W - PAD * 2, H - PAD * 2 - 20, 12, true, false);
 
   // Accent bar at top
   ctx.fillStyle = COLORS.accent;
-  roundRect(ctx, PAD, PAD, W - PAD * 2, 4, { tl: 12, tr: 12 }, true, false);
+  roundRect(ctx, PAD + 10, PAD + 20, W - PAD * 2 - 20, 3, { tl: 12, tr: 12 }, true, false);
 
   // Title
   ctx.fillStyle = COLORS.text;
   ctx.font = "28px Marcellus";
-  ctx.fillText(`🌍 ${title || "Server Status"}`, PAD + 20, PAD + 52);
+  ctx.fillText(`${title || "Server Status"}`, PAD + 30, PAD + 60);
 
   // Status badge
   const badgeColor = overall === "READY" ? COLORS.success : overall === "ISSUE" ? COLORS.warning : COLORS.error;
   ctx.fillStyle = badgeColor;
   const badgeW = ctx.measureText(overall || "UNKNOWN").width + 24;
-  roundRect(ctx, W - PAD - 20 - badgeW, PAD + 28, badgeW, 28, 14, true, false);
-  ctx.fillStyle = "#fff";
+  roundRect(ctx, W - PAD - 30 - badgeW, PAD + 42, badgeW, 28, 14, true, false);
+  ctx.fillStyle = "#ffffff";
   ctx.font = "bold 14px Ubuntu Bold";
-  ctx.fillText(overall || "UNKNOWN", W - PAD - 20 - badgeW / 2 - ctx.measureText(overall || "UNKNOWN").width / 2, PAD + 48);
+  ctx.fillText(overall || "UNKNOWN", W - PAD - 30 - badgeW / 2 - ctx.measureText(overall || "UNKNOWN").width / 2, PAD + 62);
 
   // Stats row
   const stats = [
@@ -103,7 +107,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     { icon: "⚙️", label: "Services", value: String(services) },
   ];
 
-  const statY = PAD + 100;
+  const statY = PAD + 110;
   const statW = (W - PAD * 2 - 40) / stats.length;
   ctx.font = "14px Ubuntu";
 
