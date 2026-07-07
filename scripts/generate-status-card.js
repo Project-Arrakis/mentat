@@ -15,34 +15,38 @@ try {
   GlobalFonts.registerFromPath("/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf", "Ubuntu Bold");
 }
 
-// Cache the banner image
+// Cache the background image
 let BANNER = null;
 async function loadBanner() {
   if (!BANNER) {
     try {
-      BANNER = await loadImage(join(ASSETS, "bot-banner.png"));
+      BANNER = await loadImage(join(ASSETS, "status-bg.png"));
     } catch {
-      BANNER = new Image(); // empty placeholder
+      try {
+        BANNER = await loadImage(join(ASSETS, "bot-banner.png"));
+      } catch {
+        BANNER = new Image();
+      }
     }
   }
   return BANNER;
 }
 
-// Dune palette — extracted from the ACP banner
+// Dune palette — warm amber/desert, tuned for the new background
 const COLORS = {
-  bg: "#0f0c08",
-  cardBg: "#1c1510",
-  accent: "#966f47",
-  text: "#f0e6d3",
-  muted: "#8a7355",
+  bg: "#0c0a06",
+  cardBg: "rgba(28,21,16,0.70)",
+  accent: "#a06839",
+  text: "#ecd5b5",
+  muted: "#b8956e",
   success: "#6eeb83",
   warning: "#fbbf24",
   error: "#f87171",
   atreides: "#4ade80",
   harkonnen: "#f87171",
   fremen: "#fbbf24",
-  border: "#362515",
-  fieldBg: "#241a12",
+  border: "#4a321c",
+  fieldBg: "rgba(255,255,255,0.05)",
 };
 
 const W = 900, H = 480;
@@ -60,16 +64,16 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     const sh = banner.height * scale;
     ctx.drawImage(banner, (W - sw) / 2, (H - sh) / 2, sw, sh);
 
-    // Dark overlay for text readability
-    ctx.fillStyle = "rgba(0,0,0,0.60)";
+    // Warm dark overlay — lets the amber glow through
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
     ctx.fillRect(0, 0, W, H);
   } else {
     ctx.fillStyle = COLORS.bg;
     ctx.fillRect(0, 0, W, H);
   }
 
-  // Card body with slight transparency
-  ctx.fillStyle = "rgba(28,21,16,0.85)";
+  // Card body — more transparent to show background
+  ctx.fillStyle = COLORS.cardBg;
   roundRect(ctx, PAD, PAD, W - PAD * 2, H - PAD * 2, 12, true, false);
 
   // Accent bar at top
