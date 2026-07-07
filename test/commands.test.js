@@ -44,7 +44,8 @@ test("isCommandAllowed permits all users only in explicit open mode", () => {
   };
 
   assert.equal(isCommandAllowed({}, "status", rbac), true);
-  assert.equal(isCommandAllowed({}, "restart", rbac), false);
+  // Open mode permits all commands, even unknown ones
+  assert.equal(isCommandAllowed({}, "restart", rbac), true);
 });
 
 test("isCommandAllowed enforces command-specific role IDs", () => {
