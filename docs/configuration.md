@@ -121,7 +121,7 @@ Controls scheduled status posts to Discord channels.
 |----------|---------|-------------|
 | `DUNE_POST_SCHEDULE_TYPE` | `none` | `none`, `status`, `status-summary`, `readiness`, `services` |
 | `DUNE_POST_ALLOWED_CHANNELS` | *(empty)* | Comma-separated Discord channel IDs for scheduled posts |
-| `DUNE_SCHEDULER_INTERVAL_MS` | `300000` | Poll interval in milliseconds (5 min default) |
+| `DUNE_SCHEDULER_INTERVAL_MS` | `1800000) |
 | `DUNE_POST_RATE_LIMIT_MS` | `600000` | Minimum time between posts per channel (10 min default) |
 
 **Example:**
