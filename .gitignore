@@ -9,3 +9,7 @@ tmp/
 *.local
 .security-audit/
 .env
+secrets/
+
+# Added by ggshield
+.cache_ggshield
