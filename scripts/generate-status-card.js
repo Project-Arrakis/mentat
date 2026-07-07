@@ -15,21 +15,21 @@ try {
   GlobalFonts.registerFromPath("/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf", "Ubuntu Bold");
 }
 
-// Dune palette — faction colors + addon dark slate theme
+// Dune palette — extracted from the ACP banner
 const COLORS = {
-  bg: "#111827",
-  cardBg: "#1f2937",
-  accent: "#fde68a",
-  text: "#e5e7eb",
-  muted: "#9ca3af",
+  bg: "#17130c",
+  cardBg: "#221d13",
+  accent: "#966f47",
+  text: "#d4bfa4",
+  muted: "#7a6345",
   success: "#86efac",
-  warning: "#fde68a",
-  error: "#fca5a5",
+  warning: "#fbbf24",
+  error: "#f87171",
   atreides: "#4ade80",
   harkonnen: "#f87171",
   fremen: "#fbbf24",
-  border: "#374151",
-  fieldBg: "rgba(255,255,255,0.03)",
+  border: "#362515",
+  fieldBg: "rgba(255,255,255,0.04)",
 };
 
 const W = 800, H = 420;
