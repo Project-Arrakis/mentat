@@ -28,8 +28,8 @@ export class AdapterClient {
   }
 
   health(actor) { return this.request("health", actor); }
-  status(actor) { return this.request("status", actor); }
-  readiness(actor) { return this.request("readiness", actor); }
+  status(actor, diagnostic = false) { return this.request("status", actor, diagnostic ? { diagnostic: true } : undefined); }
+  readiness(actor, diagnostic = false) { return this.request("readiness", actor, diagnostic ? { diagnostic: true } : undefined); }
   services(actor) { return this.request("services", actor); }
   population(actor) { return this.request("population", actor); }
   backups(actor) { return this.request("backups", actor); }
@@ -44,7 +44,7 @@ export class AdapterClient {
   opsDashboard(actor) { return this.request("ops-dashboard", actor); }
   announcements(actor) { return this.request("announcements", actor); }
 
-  async request(route, actor) {
+  async request(route, actor, extra = undefined) {
     const path = this.config.adapter.paths[route];
     const method = this.config.adapter.methods[route];
     if (!path || !method) throw new Error(`Unsupported adapter route: ${route}`);
@@ -63,7 +63,7 @@ export class AdapterClient {
 
       if (method === "POST") {
         headers["content-type"] = "application/json";
-        options.body = JSON.stringify({ actor: actor || null });
+        options.body = JSON.stringify({ actor: actor || null, ...(extra || {}) });
       }
 
       const response = await this.fetchImpl(url, options);

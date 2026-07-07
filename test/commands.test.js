@@ -131,7 +131,7 @@ test("executeDuneCommand handles about without calling the adapter", async () =>
   const interaction = {
     isChatInputCommand: () => true,
     commandName: "dune",
-    options: { getSubcommand: () => "about" },
+    options: { getSubcommand: () => "about", getBoolean: () => false, getString: () => "" },
     user: { id: "user-1" },
     member: { roles: ["role-a"] },
     deferReply: async (options) => {
@@ -204,7 +204,7 @@ test("executeDuneCommand handles ping through the health route", async () => {
   const interaction = {
     isChatInputCommand: () => true,
     commandName: "dune",
-    options: { getSubcommand: () => "ping" },
+    options: { getSubcommand: () => "ping", getBoolean: () => false, getString: () => "" },
     user: { id: "user-1" },
     guildId: "guild-1",
     channelId: "channel-1",
@@ -290,7 +290,7 @@ test("executeDuneCommand handles status-summary through the status route", async
   const interaction = {
     isChatInputCommand: () => true,
     commandName: "dune",
-    options: { getSubcommand: () => "status-summary" },
+    options: { getSubcommand: () => "status-summary", getBoolean: () => false, getString: () => "" },
     user: { id: "user-1" },
     guildId: "guild-1",
     channelId: "channel-1",
