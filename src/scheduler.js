@@ -38,8 +38,8 @@ export function startScheduler({
           content = formatPayload("Scheduled Server Status", status);
         } else if (scheduleType === "status-summary") {
           const status = await adapterClient.status(defaultActor());
-          const summary = status?.result?.summary || {};
-          content = `**Scheduled Status Summary**\nServices: ${summary.overall || "UNKNOWN"} | Region: ${summary.region || "unknown"} | Mode: ${summary.mode || "unknown"}`;
+          const r = status?.result || status || {};
+          content = `**Scheduled Status Summary**\nOverall: ${r.overall || "UNKNOWN"} | Title: ${r.title || "unknown"} | Region: ${r.region || "unknown"} | Mode: ${r.mode || "unknown"} | Population: ${r.population || "?"}`;
         } else if (scheduleType === "readiness") {
           const readiness = await adapterClient.readiness(defaultActor());
           content = formatPayload("Scheduled Readiness", readiness);
