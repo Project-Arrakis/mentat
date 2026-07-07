@@ -51,6 +51,7 @@ const COLORS = {
 
 const W = 1200, H = 640;
 const PAD = 36;
+const TOP = 100; // Start content below the image's natural dark header
 
 export async function generateStatusCard({ title, overall, region, mode, population, maps = [], services = 0, latency = 0, quote = "" } = {}) {
   const canvas = createCanvas(W, H);
@@ -97,15 +98,15 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   roundRect(ctx, PAD + 10, PAD + 10, W - 2 * (PAD + 10), 3, 8, true, false);
 
   // Title — Dune Rise, amber accent color
-  drawTextBold(`${title || "Server Status"}`, PAD + 30, PAD + 54, "34px Dune Rise", COLORS.accent);
+  drawTextBold(`${title || "Server Status"}`, PAD + 30, TOP + 22, "34px Dune Rise", COLORS.accent);
 
   // Status badge
   const badgeColor = overall === "READY" ? COLORS.success : overall === "ISSUE" ? COLORS.warning : COLORS.error;
   ctx.fillStyle = badgeColor;
   const badgeText = overall || "UNKNOWN";
   const badgeW = ctx.measureText(badgeText).width + 28;
-  roundRect(ctx, W - PAD - 30 - badgeW, PAD + 24, badgeW, 32, 16, true, false);
-  drawText(badgeText, W - PAD - 30 - badgeW / 2 - ctx.measureText(badgeText).width / 2, PAD + 48, "bold 16px Ubuntu Bold", "#ffffff", false);
+  roundRect(ctx, W - PAD - 30 - badgeW, TOP - 8, badgeW, 32, 16, true, false);
+  drawText(badgeText, W - PAD - 30 - badgeW / 2 - ctx.measureText(badgeText).width / 2, TOP + 16, "bold 16px Ubuntu Bold", "#ffffff", false);
 
   // Stats row — icons with data
   const stats = [
@@ -116,7 +117,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     { icon: "⚙️", label: "Services", value: String(services) },
   ];
 
-  const statY = PAD + 110;
+  const statY = TOP + 60;
   const statW = (W - PAD * 2 - 60) / stats.length;
 
   stats.forEach((s, i) => {
