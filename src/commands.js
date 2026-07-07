@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { checkCooldown, applyCooldown } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload } from "./format.js";
+import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed } from "./embedFormat.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 
 const PACKAGE = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -106,7 +107,32 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
     } else {
       payload = await adapterClient[subcommand](actor);
     }
-    await interaction.editReply(formatPayload(`Dune ${subcommand}`, payload));
+    let embed;
+    if (subcommand === "about") {
+      embed = formatGenericEmbed(payload, "about");
+    } else if (subcommand === "ping") {
+      embed = formatPingEmbed(payload);
+    } else if (subcommand === "health") {
+      embed = formatHealthEmbed(payload);
+    } else if (subcommand === "status" || subcommand === "status-summary") {
+      embed = formatStatusEmbed(payload, subcommand === "status-summary" ? "summary" : "status");
+    } else if (subcommand === "population") {
+      embed = formatPopulationEmbed(payload);
+    } else if (subcommand === "backups") {
+      embed = formatBackupsEmbed(payload);
+    } else if (subcommand === "doctor") {
+      embed = formatDoctorEmbed(payload);
+    } else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
+      embed = formatGenericEmbed(payload, subcommand);
+    } else {
+      embed = formatGenericEmbed(payload, subcommand);
+    }
+
+    if (embed) {
+      await interaction.editReply({ embeds: [embed] });
+    } else {
+      await interaction.editReply(formatPayload(`Dune ${subcommand}`, payload));
+    }
   } catch (error) {
     await interaction.editReply(formatError(error));
   }

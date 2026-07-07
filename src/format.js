@@ -26,7 +26,7 @@ const JSON_BODY_LIMIT = 1800;
 export function formatPayload(title, value) {
   const body = JSON.stringify(redactSecrets(value), null, 2);
   const clipped = body.length > JSON_BODY_LIMIT ? `${body.slice(0, JSON_BODY_LIMIT)}\n... truncated` : body;
-  return limitDiscordContent(`**${title}**\n~~~json\n${clipped}\n~~~`);
+  return limitDiscordContent(`**${title}**\n\`\`\`json\n${clipped}\n\`\`\``);
 }
 
 export function formatError(error) {

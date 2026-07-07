@@ -9,3 +9,6 @@ test/fixtures/write-adapter/requests/execute-maintenance-note.json:generic-api-k
 
 # Audit report mentions the test fixture identifier in a security context.
 docs/security-audit/2026-07-04-comprehensive-security-audit.md:generic-api-key:71
+.env
+.env:generic-api-key:2
+.env:discord-api-token:7
