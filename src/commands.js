@@ -213,6 +213,7 @@ export function aboutPayload(config) {
 export function actorFromInteraction(interaction) {
   return {
     userId: interaction.user?.id,
+    username: interaction.user?.username || interaction.user?.displayName || "unknown",
     guildId: interaction.guildId,
     channelId: interaction.channelId,
     roleIds: extractRoleIds(interaction)

@@ -82,5 +82,5 @@ export function alertSubscriber({
 }
 
 function defaultActor() {
-  return { userId: "scheduler", guildId: "scheduler", channelId: "scheduler", roleIds: [] };
+  return { userId: "scheduler", username: "Thumper", guildId: "scheduler", channelId: "scheduler", roleIds: [] };
 }
