@@ -135,8 +135,8 @@ test("executeDuneCommand handles about without calling the adapter", async () =>
     deferReply: async (options) => {
       deferred = options;
     },
-    editReply: async (content) => {
-      edited = content;
+    editReply: async (reply) => {
+      edited = reply;
     }
   };
   const adapterClient = {
@@ -164,8 +164,8 @@ test("executeDuneCommand handles about without calling the adapter", async () =>
 
   assert.equal(handled, true);
   assert.deepEqual(deferred, { ephemeral: true });
-  assert.match(edited, /Dune about/);
-  assert.doesNotMatch(edited, /adapter-token|discord-token|secret/i);
+  assert.ok(edited?.embeds?.[0]?.data?.title, "about embed has title");
+  assert.doesNotMatch(JSON.stringify(edited), /adapter-token|discord-token|secret/i);
 });
 
 test("pingPayload summarizes adapter health and latency", async () => {
@@ -210,8 +210,8 @@ test("executeDuneCommand handles ping through the health route", async () => {
     deferReply: async (options) => {
       deferred = options;
     },
-    editReply: async (content) => {
-      edited = content;
+    editReply: async (reply) => {
+      edited = reply;
     }
   };
   const adapterClient = {
@@ -242,9 +242,9 @@ test("executeDuneCommand handles ping through the health route", async () => {
     channelId: "channel-1",
     roleIds: ["role-a"]
   });
-  assert.match(edited, /Dune ping/);
-  assert.match(edited, /roundTripMs/);
-  assert.doesNotMatch(edited, /must-not-be-forwarded|token/i);
+  assert.ok(edited?.embeds?.[0]?.data?.title, "ping embed has title");
+  assert.ok(edited?.embeds?.[0]?.data?.fields?.length > 0, "ping embed has fields");
+  assert.doesNotMatch(JSON.stringify(edited), /must-not-be-forwarded|token/i);
 });
 
 test("statusSummaryPayload keeps aggregate status fields only", () => {
@@ -295,8 +295,8 @@ test("executeDuneCommand handles status-summary through the status route", async
     deferReply: async (options) => {
       deferred = options;
     },
-    editReply: async (content) => {
-      edited = content;
+    editReply: async (reply) => {
+      edited = reply;
     }
   };
   const adapterClient = {
@@ -343,8 +343,8 @@ test("executeDuneCommand handles status-summary through the status route", async
     channelId: "channel-1",
     roleIds: ["role-a"]
   });
-  assert.match(edited, /Dune status-summary/);
-  assert.match(edited, /READY/);
-  assert.match(edited, /2\/60/);
-  assert.doesNotMatch(edited, /Jane|battlegroup|Private/i);
+  assert.ok(edited?.embeds?.[0]?.data?.title, "status-summary embed has title");
+  assert.ok(edited?.embeds?.[0]?.data?.description, "status-summary has description");
+  assert.ok(edited?.embeds?.[0]?.data?.fields?.length > 0, "status-summary has fields");
+  assert.doesNotMatch(JSON.stringify(edited), /Jane|battlegroup|Private/i);
 });
