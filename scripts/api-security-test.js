@@ -125,7 +125,7 @@ async function runApiSecurityTests() {
   console.log("=== API Endpoint Security Tests (DAST) ===\n");
   const { server, baseUrl } = await startServer();
   const results = [];
-  
+
   try {
     for (const { name, fn } of CHECKS) {
       try {
