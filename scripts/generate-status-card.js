@@ -9,6 +9,7 @@ const ASSETS = join(__dirname, "..", "assets");
 try {
   GlobalFonts.registerFromPath(join(ASSETS, "Ubuntu-R.ttf"), "Ubuntu");
   GlobalFonts.registerFromPath(join(ASSETS, "Ubuntu-B.ttf"), "Ubuntu Bold");
+  GlobalFonts.registerFromPath(join(ASSETS, "Marcellus.ttf"), "Marcellus");
 } catch {
   GlobalFonts.registerFromPath("/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf", "Ubuntu");
   GlobalFonts.registerFromPath("/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf", "Ubuntu Bold");
@@ -77,7 +78,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
 
   // Title
   ctx.fillStyle = COLORS.text;
-  ctx.font = "bold 30px Ubuntu Bold";
+  ctx.font = "28px Marcellus";
   ctx.fillText(`🌍 ${title || "Server Status"}`, PAD + 20, PAD + 52);
 
   // Status badge
@@ -113,7 +114,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     ctx.fillText(s.label, sx + 30, statY + 12);
     // Value
     ctx.fillStyle = COLORS.text;
-    ctx.font = "bold 16px Ubuntu Bold";
+    ctx.font = "15px Marcellus";
     ctx.fillText(s.value, sx + 30, statY + 34);
   });
 
@@ -165,7 +166,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     ctx.fillStyle = barColor;
     roundRect(ctx, bx, my + 6, bw, 20, 10, true, false);
     ctx.fillStyle = "#fff";
-    ctx.font = "bold 10px Ubuntu Bold";
+    ctx.font = "bold 11px Ubuntu Bold";
     ctx.fillText(state, bx + 8, my + 20);
   });
 
