@@ -1,8 +1,19 @@
-import { TextChannel } from "discord.js";
-import { formatPayload, formatError, redactSecrets } from "./format.js";
+import { redactSecrets } from "./format.js";
 
 export const DEFAULT_SCHEDULER_INTERVAL_MS = 1800000;
 export const DEFAULT_RATE_LIMIT_MS = 600000;
+
+const INCIDENT_RING = [];
+const MAX_INCIDENTS = 30;
+
+export function recordIncident(type, detail) {
+  INCIDENT_RING.push({ type, detail, time: new Date().toISOString() });
+  if (INCIDENT_RING.length > MAX_INCIDENTS) INCIDENT_RING.shift();
+}
+
+export function getIncidentHistory() {
+  return [...INCIDENT_RING].reverse();
+}
 
 export function startScheduler({
   client,
@@ -39,7 +50,11 @@ export function startScheduler({
         } else if (scheduleType === "status-summary") {
           const status = await adapterClient.status(defaultActor());
           const r = status?.result || status || {};
-          content = `**Scheduled Status Summary**\nOverall: ${r.overall || "UNKNOWN"} | Title: ${r.title || "unknown"} | Region: ${r.region || "unknown"} | Mode: ${r.mode || "unknown"} | Population: ${r.population || "?"}`;
+          const overall = r.overall || "UNKNOWN";
+          if (overall !== "READY" && overall !== "UNKNOWN") {
+            recordIncident("status-degraded", `Server status: ${overall}`);
+          }
+          content = `**Scheduled Status Summary**\nOverall: ${overall} | Title: ${r.title || "unknown"} | Region: ${r.region || "unknown"} | Mode: ${r.mode || "unknown"} | Population: ${r.population || "?"}`;
         } else if (scheduleType === "readiness") {
           const readiness = await adapterClient.readiness(defaultActor());
           content = formatPayload("Scheduled Readiness", readiness);

@@ -169,3 +169,70 @@ export function statusColor(payload) {
   if (payload?.ready === false || payload?.overall === "ISSUE") return "warning";
   return "spice";
 }
+
+export function formatMapsEmbed(maps) {
+  const list = Array.isArray(maps?.maps) ? maps.maps : (Array.isArray(maps?.result?.maps) ? maps.result.maps : []);
+  const desc = list.length === 0
+    ? "*No map data available*"
+    : list.map((m) => {
+        const state = m.state || m.status || "UNKNOWN";
+        const icon = state === "READY" ? "🟢" : state === "STARTING" ? "🟡" : "🔴";
+        return `${icon} **${m.name || "?"}** — ${state} (${m.uptime || "?"})`;
+      }).join("\n");
+
+  return duneEmbed({
+    title: "╔══════════════════════╗\n║   ACTIVE MAPS        ║\n╚══════════════════════╝",
+    color: list.some(m => (m.state || m.status) !== "READY") ? "warning" : "success",
+    description: desc.slice(0, 2048),
+    fields: [{ name: "Maps", value: String(list.length), inline: true }]
+  });
+}
+
+export function formatCooldownsEmbed(stats) {
+  const entries = stats?.entries || [];
+  const desc = entries.length === 0
+    ? "*No active cooldowns*"
+    : entries.map((e) => `**${e.userId}** → \`${e.command}\` (${Math.ceil(e.remaining / 1000)}s remaining)`).join("\n");
+
+  return duneEmbed({
+    title: "╔══════════════════════╗\n║   ACTIVE COOLDOWNS   ║\n╚══════════════════════╝",
+    color: entries.length > 0 ? "warning" : "success",
+    description: desc.slice(0, 2048),
+    fields: [{ name: "Active", value: String(entries.length), inline: true }]
+  });
+}
+
+export function formatLatencyEmbed(history) {
+  const entries = history || [];
+  const avg = entries.length > 0
+    ? Math.round(entries.reduce((s, e) => s + (e.durationMs || 0), 0) / entries.length)
+    : 0;
+  const desc = entries.slice(-10).map((e) => {
+    const icon = e.status === 200 ? "🟢" : "🔴";
+    return `${icon} \`${e.method} ${e.route}\` — ${e.durationMs}ms`;
+  }).join("\n") || "*No requests recorded yet*";
+
+  return duneEmbed({
+    title: "╔══════════════════════╗\n║   ADAPTER LATENCY    ║\n╚══════════════════════╝",
+    color: avg < 200 ? "success" : avg < 1000 ? "warning" : "error",
+    description: `**Avg: ${avg}ms** over ${entries.length} requests\n${desc}`.slice(0, 2048),
+    fields: [
+      { name: "Total Requests", value: String(entries.length), inline: true },
+      { name: "Average", value: `${avg}ms`, inline: true }
+    ]
+  });
+}
+
+export function formatEventsEmbed(incidents) {
+  const entries = incidents || [];
+  const desc = entries.length === 0
+    ? "*No incidents recorded*"
+    : entries.slice(0, 15).map((e, i) => `**${e.type}** — ${e.detail} (_${new Date(e.time).toLocaleTimeString()}_)`).join("\n");
+
+  return duneEmbed({
+    title: "╔══════════════════════╗\n║   INCIDENT LOG       ║\n╚══════════════════════╝",
+    color: entries.length > 0 ? "warning" : "success",
+    description: desc.slice(0, 2048),
+    fields: [{ name: "Incidents", value: String(entries.length), inline: true }]
+  });
+}
