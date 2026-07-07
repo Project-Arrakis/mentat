@@ -1,7 +1,7 @@
 import { TextChannel } from "discord.js";
 import { formatPayload, formatError, redactSecrets } from "./format.js";
 
-export const DEFAULT_SCHEDULER_INTERVAL_MS = 300000;
+export const DEFAULT_SCHEDULER_INTERVAL_MS = 1800000;
 export const DEFAULT_RATE_LIMIT_MS = 600000;
 
 export function startScheduler({
