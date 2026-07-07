@@ -64,3 +64,10 @@ repos:
         pass_filenames: false
         require_serial: true
         stages: [pre-push]
+
+      - id: ggshield
+        name: ggshield secret scan
+        entry: ggshield secret scan pre-commit
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
