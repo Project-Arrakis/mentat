@@ -43,6 +43,10 @@ export class AdapterClient {
   opsPrometheus(actor) { return this.request("ops-prometheus", actor); }
   opsDashboard(actor) { return this.request("ops-dashboard", actor); }
   announcements(actor) { return this.request("announcements", actor); }
+  version(actor) { return this.request("version", actor); }
+  servers(actor) { return this.request("servers", actor); }
+  ports(actor) { return this.request("ports", actor); }
+  db(actor) { return this.request("db", actor); }
 
   async request(route, actor, extra = undefined) {
     const path = this.config.adapter.paths[route];
