@@ -60,6 +60,7 @@ export function startScheduler({
 
   timer = setInterval(postStatus, intervalMs);
   timer.unref?.();
+  postStatus();
 
   return {
     active: true,
@@ -83,5 +84,5 @@ function parsePositiveInt(value, fallback) {
 }
 
 function defaultActor() {
-  return { userId: "scheduler", guildId: "scheduler", channelId: "scheduler", roleIds: [] };
+  return { userId: "scheduler", username: "Thumper", guildId: "scheduler", channelId: "scheduler", roleIds: [] };
 }

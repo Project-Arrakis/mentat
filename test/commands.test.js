@@ -96,6 +96,7 @@ test("actorFromInteraction emits minimal Discord context", () => {
 
   assert.deepEqual(actor, {
     userId: "user-1",
+    username: "unknown",
     guildId: "guild-1",
     channelId: "channel-1",
     roleIds: ["role-1"]
@@ -238,6 +239,7 @@ test("executeDuneCommand handles ping through the health route", async () => {
   assert.deepEqual(deferred, { ephemeral: true });
   assert.deepEqual(seenActor, {
     userId: "user-1",
+    username: "unknown",
     guildId: "guild-1",
     channelId: "channel-1",
     roleIds: ["role-a"]
@@ -339,6 +341,7 @@ test("executeDuneCommand handles status-summary through the status route", async
   assert.deepEqual(deferred, { ephemeral: false });
   assert.deepEqual(seenActor, {
     userId: "user-1",
+    username: "unknown",
     guildId: "guild-1",
     channelId: "channel-1",
     roleIds: ["role-a"]
