@@ -20,6 +20,13 @@ repos:
 
   - repo: local
     hooks:
+      - id: trailing-whitespace
+        name: trim trailing whitespace
+        entry: bash -c '! git grep -nE "[[:space:]]$" -- "*.js" "*.mjs" "*.ts" "*.tsx" | grep -v node_modules'
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
       - id: gitleaks
         name: gitleaks secret scan
         entry: gitleaks detect --source . --redact --no-git
