@@ -239,52 +239,19 @@ export function formatEventsEmbed(incidents) {
 
 export function formatStatusDetailEmbed(payload) {
   const r = payload?.result || payload || {};
+  const raw = r.redactedOutput || r.output || "";
   const maps = Array.isArray(r.maps) ? r.maps : [];
   const issues = Array.isArray(r.issues) ? r.issues : [];
 
-  // Build CLI-style summary
-  const summary = [
-    `\`\`\``,
-    `=== Dune Status ===`,
-    `Overall:     ${r.overall || "UNKNOWN"}`,
-    `Title:       ${r.title || "?"}`,
-    `Region:      ${r.region || "?"}`,
-    `Mode:        ${r.mode || "?"}`,
-    `Population:  ${r.population || "?"}`,
-  ];
-
-  if (r.battlegroup) summary.push(`Battlegroup: ${r.battlegroup}`);
-  if (r.serverIP) summary.push(`Server IP:   ${r.serverIP}`);
-
-  // Maps section
-  if (maps.length > 0) {
-    summary.push("");
-    summary.push("--- Maps ---");
-    for (const m of maps) {
-      const icon = (m.state || m.status) === "READY" ? "READY" : (m.state || m.status || "?");
-      summary.push(`${m.name || "?"} — ${icon} (${m.uptime || "?"})`);
-    }
-  }
-
-  // Issues
-  if (issues.length > 0) {
-    summary.push("");
-    summary.push("--- Issues ---");
-    for (const issue of issues) summary.push(`⚠ ${issue}`);
-  }
-
-  summary.push("\`\`\`");
-
-  const text = summary.join("\n");
+  const text = raw
+    ? `\`\`\`\n${raw.slice(0, 1800)}\n\`\`\``
+    : `\`\`\`\nOverall: ${r.overall || "UNKNOWN"}\nMaps: ${maps.length}\nIssues: ${issues.length}\n\`\`\``;
 
   return duneEmbed({
     title: "╔══════════════════════╗\n║   DIAGNOSTIC STATUS  ║\n╚══════════════════════╝",
     color: r.overall === "READY" ? "success" : "warning",
     description: text.slice(0, 2048),
-    fields: [
-      { name: "Maps", value: String(maps.length), inline: true },
-      { name: "Issues", value: String(issues.length), inline: true }
-    ]
+    fields: [{ name: "Maps", value: String(maps.length), inline: true }, { name: "Issues", value: String(issues.length), inline: true }]
   });
 }
 
@@ -292,65 +259,15 @@ export function formatReadinessDetailEmbed(payload) {
   const r = payload?.result || payload || {};
   const issues = Array.isArray(r.issues) ? r.issues : [];
   const ready = r.ready !== false;
-
-  const text = [
-    "\`\`\`",
-    `=== Readiness Check ===`,
-    `Status:      ${ready ? "READY ✅" : "NOT READY ❌"}`,
-    `Overall:     ${r.overall || (ready ? "READY" : "ISSUE")}`,
-  ];
-
-  if (issues.length > 0) {
-    text.push("");
-    text.push("--- Issues ---");
-    for (const issue of issues.slice(0, 15)) text.push(`⚠ ${issue}`);
-  } else {
-    text.push("");
-    text.push("No issues detected.");
-  }
-
+  const text = ["\`\`\`", `Status: ${ready ? "READY OK" : "NOT READY"}`, `Overall: ${r.overall || (ready ? "READY" : "ISSUE")}`];
+  for (const i of issues.slice(0, 10)) text.push(`- ${i}`);
+  if (issues.length === 0) text.push("No issues detected.");
   text.push("\`\`\`");
-
   return duneEmbed({
     title: "╔══════════════════════╗\n║   DIAGNOSTIC READY   ║\n╚══════════════════════╝",
     color: ready ? "success" : "error",
     description: text.join("\n").slice(0, 2048),
-    fields: [
-      { name: "Ready", value: ready ? "✅ Yes" : "❌ No", inline: true },
-      { name: "Issues", value: String(issues.length), inline: true }
-    ]
+    fields: [{ name: "Ready", value: ready ? "Yes" : "No", inline: true }, { name: "Issues", value: String(issues.length), inline: true }]
   });
 }
 
-export function formatDoctorDetailEmbed(payload) {
-  const r = payload || {};
-  const text = [
-    "\`\`\`",
-    `=== System Diagnostic ===`,
-    `Health:      ${r.health?.ok ? "✅ OK" : "❌ Down"}`,
-    `  Enabled:   ${r.health?.enabled ? "Yes" : "No"}`,
-    `  ReadOnly:  ${r.health?.readOnly ? "Yes" : "No"}`,
-    `  Writes:    ${r.health?.writesEnabled ? "On" : "Off (disabled)"}`,
-    "",
-    `Status:      ${r.status?.ok ? "✅ OK" : "❌ Failed"}`,
-    `  Overall:   ${r.status?.summary?.overall || "?"}`,
-    "",
-    `Readiness:   ${r.readiness?.ok ? "✅ Ready" : "❌ Issues"}`,
-    `  Ready:     ${r.readiness?.ready ? "Yes" : "No"}`,
-    `  Issues:    ${r.readiness?.issues?.length || 0}`,
-    "",
-    `Services:    ${r.services?.ok ? "✅ OK" : "❌ Failed"}`,
-    `  Overall:   ${r.services?.overall || "?"}`,
-    `  Running:   ${r.services?.count || 0}`,
-    "\`\`\`"
-  ].join("\n");
-
-  return duneEmbed({
-    title: "╔══════════════════════╗\n║   FULL DIAGNOSTIC    ║\n╚══════════════════════╝",
-    color: r.ok ? "success" : "warning",
-    description: text.slice(0, 2048),
-    fields: [
-      { name: "Timestamp", value: r.timestamp || "?", inline: true }
-    ]
-  });
-}
