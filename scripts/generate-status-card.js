@@ -51,7 +51,7 @@ const COLORS = {
 
 const W = 1200, H = 640;
 const PAD = 36;
-const TOP = 100; // Start content below the image's natural dark header
+const TOP = 240; // Content starts where the image's warm glow begins
 
 export async function generateStatusCard({ title, overall, region, mode, population, maps = [], services = 0, latency = 0, quote = "" } = {}) {
   const canvas = createCanvas(W, H);
@@ -143,9 +143,9 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   drawText("ACTIVE MAPS", PAD + 30, mapY - 12, "bold 12px Ubuntu Bold", COLORS.accent);
   mapY += 10;
 
-  const mapBarH = 38;
-  const mapGap = 8;
-  const maxMaps = Math.min(maps.length, 6);
+  const mapBarH = 34;
+  const mapGap = 6;
+  const maxMaps = Math.min(maps.length, 4);
   const factionColors = [COLORS.atreides, COLORS.harkonnen, COLORS.fremen];
 
   maps.slice(0, maxMaps).forEach((m, i) => {
@@ -167,7 +167,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   });
 
   // Footer
-  const footerY = H - PAD - 14;
+  const footerY = H - 50;
   drawText(`Thumper · ${quote || "The spice must flow."}`, PAD + 30, footerY, "12px Ubuntu", COLORS.muted);
 
   return canvas;
