@@ -75,12 +75,20 @@ fi
 echo ""
 echo "Creating PR..."
 
-gh pr create \
+PR_URL=$(gh pr create \
   --repo yacketrj/dune-awakening-selfhost-discordbot \
   --base main \
   --head "$HEAD_BRANCH" \
   --title "$TITLE" \
-  --body-file "$BODY_FILE"
+  --body-file "$BODY_FILE")
+
+PR_NUM=$(echo "$PR_URL" | grep -oP '\d+$' || echo "")
+
+# Post dev status
+if [ -f scripts/dev-status.sh ]; then
+  bash scripts/dev-status.sh pr-created "$HEAD_BRANCH" "$PR_NUM" "$TITLE"
+fi
 
 echo ""
+echo "$PR_URL"
 echo "Done. Don't forget to create the matching docs/changes/PR-#### change note."
