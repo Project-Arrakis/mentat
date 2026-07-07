@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload } from "./format.js";
-import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed } from "./embedFormat.js";
+import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatDoctorDetailEmbed } from "./embedFormat.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
@@ -18,9 +18,11 @@ export function buildDuneCommand() {
     .addSubcommand((command) => command.setName("about").setDescription("Show safe bot and adapter metadata."))
     .addSubcommand((command) => command.setName("ping").setDescription("Measure Discord and adapter latency."))
     .addSubcommand((command) => command.setName("health").setDescription("Check the console Discord adapter."))
-    .addSubcommand((command) => command.setName("status").setDescription("Show high-level server status."))
+    .addSubcommand((command) => command.setName("status").setDescription("Show high-level server status.")
+      .addBooleanOption((option) => option.setName("diagnostic").setDescription("Admin-only: show full diagnostic output with containers table.")))
     .addSubcommand((command) => command.setName("status-summary").setDescription("Show compact aggregate server status."))
-    .addSubcommand((command) => command.setName("readiness").setDescription("Show readiness and preflight state."))
+    .addSubcommand((command) => command.setName("readiness").setDescription("Show readiness and preflight state.")
+      .addBooleanOption((option) => option.setName("diagnostic").setDescription("Admin-only: show detailed readiness checks.")))
     .addSubcommand((command) => command.setName("services").setDescription("Show service state."))
     .addSubcommand((command) => command.setName("population").setDescription("Show aggregate player count and server population."))
     .addSubcommand((command) => command.setName("backups").setDescription("List recent backup metadata (read-only, no create/restore/delete)."))
@@ -73,6 +75,12 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
     return true;
   }
 
+  const diagnostic = interaction.options.getBoolean("diagnostic") || false;
+  if (diagnostic && !isAdminActor(interaction, config)) {
+    await interaction.reply({ content: "Diagnostic mode requires admin or owner role.", ephemeral: true });
+    return true;
+  }
+
   const startedAt = Date.now();
   const actor = actorFromInteraction(interaction);
   await interaction.deferReply({ ephemeral: config.discord.defaultEphemeral });
@@ -121,6 +129,10 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       } else {
         payload = { ok: false, error: `Unknown OPS command: ${subcommand}` };
       }
+    } else if (subcommand === "status" && diagnostic) {
+      payload = await adapterClient.status(actor, true);
+    } else if (subcommand === "readiness" && diagnostic) {
+      payload = await adapterClient.readiness(actor, true);
     } else {
       payload = await adapterClient[subcommand](actor);
     }
@@ -131,8 +143,14 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       embed = formatPingEmbed(payload);
     } else if (subcommand === "health") {
       embed = formatHealthEmbed(payload);
-    } else if (subcommand === "status" || subcommand === "status-summary") {
-      embed = formatStatusEmbed(payload, subcommand === "status-summary" ? "summary" : "status");
+    } else if (subcommand === "status") {
+      embed = diagnostic ? formatStatusDetailEmbed(payload) : formatStatusEmbed(payload, "status");
+    } else if (subcommand === "status-summary") {
+      embed = formatStatusEmbed(payload, "summary");
+    } else if (subcommand === "readiness") {
+      embed = diagnostic ? formatReadinessDetailEmbed(payload) : formatGenericEmbed(payload, "readiness");
+    } else if (subcommand === "doctor") {
+      embed = formatDoctorEmbed(payload);
     } else if (subcommand === "population") {
       embed = formatPopulationEmbed(payload);
     } else if (subcommand === "backups") {
