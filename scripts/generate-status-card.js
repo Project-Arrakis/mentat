@@ -65,13 +65,15 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     const sh = banner.height * scale;
     ctx.drawImage(banner, (W - sw) / 2, (H - sh) / 2, sw, sh);
 
-    // Very light gradient — barely-there, just enough for text contrast
+    // Gradient overlay — heavier at top, fading to bottom for readability
     const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, "rgba(0,0,0,0.05)");
-    grad.addColorStop(0.5, "rgba(0,0,0,0.15)");
-    grad.addColorStop(1, "rgba(0,0,0,0.30)");
+    grad.addColorStop(0, "rgba(0,0,0,0.50)");
+    grad.addColorStop(0.3, "rgba(0,0,0,0.35)");
+    grad.addColorStop(0.7, "rgba(0,0,0,0.20)");
+    grad.addColorStop(1, "rgba(0,0,0,0.40)");
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
+
   } else {
     ctx.fillStyle = COLORS.bg;
     ctx.fillRect(0, 0, W, H);
