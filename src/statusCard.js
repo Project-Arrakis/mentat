@@ -17,7 +17,7 @@ export async function sendStatusCard({ interaction, statusData, title, quote } =
     uptime: m.uptime || ""
   }));
 
-  const canvas = generateStatusCard({
+  const canvas = await generateStatusCard({
     title: title || r.title || "Server",
     overall: r.overall || "UNKNOWN",
     region: r.region || "",
