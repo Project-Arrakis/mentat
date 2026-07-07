@@ -332,3 +332,91 @@ export function formatReadinessDetailEmbed(payload) {
     ]
   });
 }
+
+export function formatServersEmbed(payload) {
+  const output = payload?.result?.output || payload?.output || "";
+  const partitions = parseServerPartitions(output);
+
+  const running = partitions.filter(p => p.ready || p.alive);
+  const desc = partitions.length === 0
+    ? "*No server partitions found*"
+    : partitions.slice(0, 20).map(p => {
+        const icon = p.ready ? "🟢" : p.alive ? "🟡" : "🔴";
+        const info = p.assigned ? `${p.assigned}` : "unassigned";
+        return `${icon} **${p.map}** — ${p.label || "?"} (${info})`;
+      }).join("\n");
+
+  return duneEmbed({
+    title: "🖥️ Server Partitions",
+    color: running.length > 0 ? "success" : "warning",
+    description: desc.slice(0, 2048),
+    fields: [
+      { name: "🗺️ Total", value: String(partitions.length), inline: true },
+      { name: "🟢 Ready", value: String(running.length), inline: true }
+    ]
+  });
+}
+
+function parseServerPartitions(raw) {
+  const partitions = [];
+  const lines = raw.split(/\r?\n/).filter(l => l.trim() && !l.match(/^[-+\s]+$/));
+  let headerFound = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.match(/^\d+\s+\|/)) {
+      const cols = trimmed.split(/\s*\|\s*/);
+      if (cols.length >= 9) {
+        partitions.push({
+          id: cols[0].trim(),
+          map: cols[1].trim(),
+          dim: cols[2].trim(),
+          label: cols[3].trim(),
+          assigned: cols[4].trim() || null,
+          gamePort: cols[5].trim(),
+          igwPort: cols[6].trim(),
+          ready: cols[7].trim() === "true",
+          alive: cols[8].trim() === "true"
+        });
+      }
+    }
+  }
+  return partitions;
+}
+
+export function formatPortsEmbed(payload) {
+  const output = payload?.result?.output || payload?.output || "";
+  const lines = output.split(/\r?\n/).filter(l => l.trim() && !l.match(/^[-=\s]+$/) && !l.toLowerCase().includes("check") && !l.match(/^\s*$/));
+
+  const items = [];
+  for (const line of lines.slice(0, 15)) {
+    const trimmed = line.trim();
+    if (/^OK\b/i.test(trimmed)) items.push(`🟢 ${trimmed}`);
+    else if (/^WARN\b/i.test(trimmed)) items.push(`🟡 ${trimmed}`);
+    else if (/^FAIL\b/i.test(trimmed)) items.push(`🔴 ${trimmed}`);
+    else items.push(trimmed);
+  }
+
+  return duneEmbed({
+    title: "🔌 Network Ports",
+    color: "spice",
+    description: items.join("\n").slice(0, 2000) || "*No port data*",
+    fields: [{ name: "Listeners", value: String(items.length), inline: true }]
+  });
+}
+
+export function formatDbEmbed(payload) {
+  const output = payload?.result?.output || payload?.output || "";
+  const lines = output.split(/\r?\n/).filter(l => l.trim());
+  const items = lines.slice(0, 10).map(l => {
+    if (/^OK\b/i.test(l.trim())) return `🟢 ${l.trim()}`;
+    if (/^WARN\b/i.test(l.trim())) return `🟡 ${l.trim()}`;
+    return l.trim();
+  });
+
+  return duneEmbed({
+    title: "🗄️ Database Status",
+    color: items.some(l => l.includes("🔴") || l.includes("WARN")) ? "warning" : "success",
+    description: items.join("\n").slice(0, 2000) || "*No database data*",
+    fields: [{ name: "Checks", value: String(items.length), inline: true }]
+  });
+}
