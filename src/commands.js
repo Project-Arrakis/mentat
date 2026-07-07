@@ -8,41 +8,63 @@ import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor 
 import { getLatencyHistory } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
 
-const PACKAGE = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services", "population", "backups", "broadcast", "help", "doctor", "maps", "cooldowns", "latency", "events", ...OPS_SUBCOMMAND_NAMES]);
+// Group → subcommand → handler config
+// Each group can have up to 25 subcommands; we have 6 groups with room for many more.
 
 export function buildDuneCommand() {
   return new SlashCommandBuilder()
     .setName("dune")
-    .setDescription("Read Dune server state from the console Discord adapter.")
-    .addSubcommand((command) => command.setName("about").setDescription("Show safe bot and adapter metadata."))
-    .addSubcommand((command) => command.setName("ping").setDescription("Measure Discord and adapter latency."))
-    .addSubcommand((command) => command.setName("health").setDescription("Check the console Discord adapter."))
-    .addSubcommand((command) => command.setName("status").setDescription("Show high-level server status.")
-      .addBooleanOption((option) => option.setName("diagnostic").setDescription("Admin-only: show full diagnostic output with containers table.")))
-    .addSubcommand((command) => command.setName("status-summary").setDescription("Show compact aggregate server status."))
-    .addSubcommand((command) => command.setName("readiness").setDescription("Show readiness and preflight state.")
-      .addBooleanOption((option) => option.setName("diagnostic").setDescription("Admin-only: show detailed readiness checks.")))
-    .addSubcommand((command) => command.setName("services").setDescription("Show service state."))
-    .addSubcommand((command) => command.setName("population").setDescription("Show aggregate player count and server population."))
-    .addSubcommand((command) => command.setName("backups").setDescription("List recent backup metadata (read-only, no create/restore/delete)."))
-    .addSubcommand((command) => command.setName("broadcast").setDescription("Send a message to in-game players (moderator+).")
-      .addStringOption((option) => option.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500)))
-    .addSubcommand((command) => command.setName("help").setDescription("Show available commands for your role."))
-    .addSubcommand((command) => command.setName("doctor").setDescription("Admin-only: comprehensive system diagnostic across all subsystems."))
-    .addSubcommand((command) => command.setName("maps").setDescription("Show active game maps with state and uptime."))
-    .addSubcommand((command) => command.setName("cooldowns").setDescription("Admin-only: show active command cooldowns."))
-    .addSubcommand((command) => command.setName("latency").setDescription("Show adapter request latency history."))
-    .addSubcommand((command) => command.setName("events").setDescription("Show recent server incidents and events."))
-    .addSubcommand((command) => command.setName("activity").setDescription(opsDescriptionFor("activity")))
-    .addSubcommand((command) => command.setName("combat").setDescription(opsDescriptionFor("combat")))
-    .addSubcommand((command) => command.setName("resources").setDescription(opsDescriptionFor("resources")))
-    .addSubcommand((command) => command.setName("economy").setDescription(opsDescriptionFor("economy")))
-    .addSubcommand((command) => command.setName("inventory").setDescription(opsDescriptionFor("inventory")))
-    .addSubcommand((command) => command.setName("location").setDescription(opsDescriptionFor("location")))
-    .addSubcommand((command) => command.setName("soc").setDescription(opsDescriptionFor("soc")))
-    .addSubcommand((command) => command.setName("prometheus").setDescription(opsDescriptionFor("prometheus")))
-    .addSubcommand((command) => command.setName("dashboard").setDescription(opsDescriptionFor("dashboard")));
+    .setDescription("Dune server operations and observability.")
+
+    // ── core group ──
+    .addSubcommandGroup((g) => g.setName("core").setDescription("Bot information and help.")
+      .addSubcommand((c) => c.setName("about").setDescription("Show safe bot and adapter metadata."))
+      .addSubcommand((c) => c.setName("ping").setDescription("Measure Discord and adapter latency."))
+      .addSubcommand((c) => c.setName("help").setDescription("Show available commands for your role.")))
+
+    // ── server group ──
+    .addSubcommandGroup((g) => g.setName("server").setDescription("Server health, status, and services.")
+      .addSubcommand((c) => c.setName("health").setDescription("Check the console Discord adapter."))
+      .addSubcommand((c) => c.setName("status").setDescription("Show high-level server status.")
+        .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin-only: full diagnostic with containers table.")))
+      .addSubcommand((c) => c.setName("summary").setDescription("Show compact aggregate server status."))
+      .addSubcommand((c) => c.setName("readiness").setDescription("Show readiness and preflight state.")
+        .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin-only: detailed readiness checks.")))
+      .addSubcommand((c) => c.setName("services").setDescription("Show service container state.")))
+
+    // ── data group ──
+    .addSubcommandGroup((g) => g.setName("data").setDescription("Server population, backups, and map information.")
+      .addSubcommand((c) => c.setName("population").setDescription("Show aggregate player count and server population."))
+      .addSubcommand((c) => c.setName("backups").setDescription("List recent backup metadata (read-only)."))
+      .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime.")))
+
+    // ── ops group ──
+    .addSubcommandGroup((g) => g.setName("ops").setDescription("Operational observability from the OPS addon.")
+      .addSubcommand((c) => c.setName("activity").setDescription(opsDescriptionFor("activity")))
+      .addSubcommand((c) => c.setName("combat").setDescription(opsDescriptionFor("combat")))
+      .addSubcommand((c) => c.setName("resources").setDescription(opsDescriptionFor("resources")))
+      .addSubcommand((c) => c.setName("economy").setDescription(opsDescriptionFor("economy")))
+      .addSubcommand((c) => c.setName("inventory").setDescription(opsDescriptionFor("inventory")))
+      .addSubcommand((c) => c.setName("location").setDescription(opsDescriptionFor("location")))
+      .addSubcommand((c) => c.setName("soc").setDescription(opsDescriptionFor("soc")))
+      .addSubcommand((c) => c.setName("prometheus").setDescription(opsDescriptionFor("prometheus")))
+      .addSubcommand((c) => c.setName("dashboard").setDescription(opsDescriptionFor("dashboard"))))
+
+    // ── admin group ──
+    .addSubcommandGroup((g) => g.setName("admin").setDescription("Admin-only diagnostics and management.")
+      .addSubcommand((c) => c.setName("doctor").setDescription("Comprehensive system diagnostic across all subsystems."))
+      .addSubcommand((c) => c.setName("cooldowns").setDescription("Show active command cooldowns."))
+      .addSubcommand((c) => c.setName("latency").setDescription("Show adapter request latency history."))
+      .addSubcommand((c) => c.setName("events").setDescription("Show recent server incidents and events."))
+      .addSubcommand((c) => c.setName("broadcast").setDescription("Send a message to all in-game players (moderator+).")
+        .addStringOption((o) => o.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500))))
+
+    // ── infra group ──
+    .addSubcommandGroup((g) => g.setName("infra").setDescription("Infrastructure: version, ports, servers, database.")
+      .addSubcommand((c) => c.setName("version").setDescription("Show Dune stack version."))
+      .addSubcommand((c) => c.setName("servers").setDescription("List game servers."))
+      .addSubcommand((c) => c.setName("ports").setDescription("Show network port and listener status."))
+      .addSubcommand((c) => c.setName("db").setDescription("Show database status and health.")));
 }
 
 export function commandDefinitions() {
@@ -52,23 +74,16 @@ export function commandDefinitions() {
 export async function executeDuneCommand(interaction, adapterClient, config) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== "dune") return false;
 
+  const group = interaction.options.getSubcommandGroup() || "";
   const subcommand = interaction.options.getSubcommand();
-  if (!SUBCOMMANDS.has(subcommand)) {
-    await interaction.reply({ content: "Unsupported Dune command.", ephemeral: true });
-    return true;
-  }
+  const key = group ? `${group}:${subcommand}` : subcommand;
 
-  if (!isCommandAllowed(interaction, subcommand, config.discord.rbac)) {
+  if (!isCommandAllowed(interaction, key, config.discord.rbac)) {
     await interaction.reply({ content: "You are not authorized to use this command.", ephemeral: true });
     return true;
   }
 
-  const cooldown = checkCooldown({
-    userId: interaction.user?.id,
-    commandName: subcommand,
-    interaction,
-    config
-  });
+  const cooldown = checkCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
   if (!cooldown.allowed) {
     const secs = Math.ceil(cooldown.remainingMs / 1000);
     await interaction.reply({ content: `Please wait ${secs}s before using this command again.`, ephemeral: true });
@@ -88,40 +103,37 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
 
   try {
     let payload;
-    if (subcommand === "about") {
+    // ── core group ──
+    if (key === "core:about") {
       payload = aboutPayload(config);
-    } else if (subcommand === "ping") {
+    } else if (key === "core:ping") {
       payload = await pingPayload(adapterClient, actor, deferReplyMs);
-    } else if (subcommand === "status-summary") {
-      payload = statusSummaryPayload(await adapterClient.status(actor));
-    } else if (subcommand === "backups") {
-      payload = backupPayload(await adapterClient.backups(actor));
-    } else if (subcommand === "broadcast") {
-      const msg = interaction.options.getString("message");
-      const result = await executeBroadcast({ interaction, adapterClient, config, userRequest: msg });
-      if (result.ok && result.needsConfirmation) {
-        payload = { ok: true, action: "broadcast", message: result.message, idempotencyKey: result.idempotencyKey, confirmation: result.confirmationMessage };
-      } else {
-        payload = result;
-      }
-    } else if (subcommand === "help") {
+    } else if (key === "core:help") {
       payload = helpPayload(config, interaction);
-    } else if (subcommand === "doctor") {
-      if (!isAdminActor(interaction, config)) throw new Error("Doctor diagnostic requires admin or owner role.");
-      payload = await doctorPayload(adapterClient, actor, config);
-    } else if (subcommand === "maps") {
+    }
+    // ── server group ──
+    else if (key === "server:health") {
+      payload = await adapterClient.health(actor);
+    } else if (key === "server:status") {
+      payload = await adapterClient.status(actor, diagnostic);
+    } else if (key === "server:summary") {
+      payload = statusSummaryPayload(await adapterClient.status(actor));
+    } else if (key === "server:readiness") {
+      payload = await adapterClient.readiness(actor, diagnostic);
+    } else if (key === "server:services") {
+      payload = await adapterClient.services(actor);
+    }
+    // ── data group ──
+    else if (key === "data:population") {
+      payload = populationPayload(await adapterClient.population(actor));
+    } else if (key === "data:backups") {
+      payload = backupPayload(await adapterClient.backups(actor));
+    } else if (key === "data:maps") {
       const status = await adapterClient.status(actor);
       payload = { maps: status?.result?.maps || [] };
-    } else if (subcommand === "cooldowns") {
-      if (!isAdminActor(interaction, config)) throw new Error("Cooldowns viewer requires admin or owner role.");
-      payload = cooldownStats();
-    } else if (subcommand === "latency") {
-      payload = getLatencyHistory();
-    } else if (subcommand === "events") {
-      payload = getIncidentHistory();
-    } else if (subcommand === "population") {
-      payload = populationPayload(await adapterClient.population(actor));
-    } else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
+    }
+    // ── ops group ──
+    else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
       const route = opsRouteFor(subcommand);
       if (route) {
         const methodName = route.replace(/-(\w)/g, (_, c) => c.toUpperCase());
@@ -129,13 +141,42 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       } else {
         payload = { ok: false, error: `Unknown OPS command: ${subcommand}` };
       }
-    } else if (subcommand === "status" && diagnostic) {
-      payload = await adapterClient.status(actor, true);
-    } else if (subcommand === "readiness" && diagnostic) {
-      payload = await adapterClient.readiness(actor, true);
-    } else {
-      payload = await adapterClient[subcommand](actor);
     }
+    // ── admin group ──
+    else if (key === "admin:doctor") {
+      if (!isAdminActor(interaction, config)) throw new Error("Doctor diagnostic requires admin or owner role.");
+      payload = await doctorPayload(adapterClient, actor, config);
+    } else if (key === "admin:cooldowns") {
+      if (!isAdminActor(interaction, config)) throw new Error("Cooldowns viewer requires admin or owner role.");
+      payload = cooldownStats();
+    } else if (key === "admin:latency") {
+      payload = getLatencyHistory();
+    } else if (key === "admin:events") {
+      payload = getIncidentHistory();
+    } else if (key === "admin:broadcast") {
+      const msg = interaction.options.getString("message");
+      const result = await executeBroadcast({ interaction, adapterClient, config, userRequest: msg });
+      if (result.ok && result.needsConfirmation) {
+        payload = { ok: true, action: "broadcast", message: result.message, idempotencyKey: result.idempotencyKey, confirmation: result.confirmationMessage };
+      } else {
+        payload = result;
+      }
+    }
+    // ── infra group ──
+    else if (key === "infra:version") {
+      payload = await adapterClient.version(actor);
+    } else if (key === "infra:servers") {
+      payload = await adapterClient.servers(actor);
+    } else if (key === "infra:ports") {
+      payload = await adapterClient.ports(actor);
+    } else if (key === "infra:db") {
+      payload = await adapterClient.db(actor);
+    }
+    else {
+      payload = { ok: false, error: `Unknown command: ${key}` };
+    }
+
+    // ── Embed selection ──
     let embed;
     if (subcommand === "about") {
       embed = formatGenericEmbed(payload, "about");
@@ -145,28 +186,24 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       embed = formatHealthEmbed(payload);
     } else if (subcommand === "status") {
       embed = diagnostic ? formatStatusDetailEmbed(payload) : formatStatusEmbed(payload, "status");
-    } else if (subcommand === "status-summary") {
+    } else if (subcommand === "summary") {
       embed = formatStatusEmbed(payload, "summary");
     } else if (subcommand === "readiness") {
       embed = diagnostic ? formatReadinessDetailEmbed(payload) : formatGenericEmbed(payload, "readiness");
-    } else if (subcommand === "doctor") {
-      embed = formatDoctorEmbed(payload);
     } else if (subcommand === "population") {
       embed = formatPopulationEmbed(payload);
     } else if (subcommand === "backups") {
       embed = formatBackupsEmbed(payload);
-    } else if (subcommand === "doctor") {
-      embed = formatDoctorEmbed(payload);
     } else if (subcommand === "maps") {
       embed = formatMapsEmbed(payload);
+    } else if (subcommand === "doctor") {
+      embed = formatDoctorEmbed(payload);
     } else if (subcommand === "cooldowns") {
       embed = formatCooldownsEmbed(payload);
     } else if (subcommand === "latency") {
       embed = formatLatencyEmbed(payload);
     } else if (subcommand === "events") {
       embed = formatEventsEmbed(payload);
-    } else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
-      embed = formatGenericEmbed(payload, subcommand);
     } else {
       embed = formatGenericEmbed(payload, subcommand);
     }
@@ -174,85 +211,17 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
     if (embed) {
       await interaction.editReply({ embeds: [embed] });
     } else {
-      await interaction.editReply(formatPayload(`Dune ${subcommand}`, payload));
+      await interaction.editReply(formatPayload(`Dune ${key}`, payload));
     }
   } catch (error) {
     await interaction.editReply(formatError(error));
   }
 
-  applyCooldown({
-    userId: interaction.user?.id,
-    commandName: subcommand,
-    interaction,
-    config
-  });
-
+  applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
   return true;
 }
 
-export async function pingPayload(adapterClient, actor, deferReplyMs = 0) {
-  const startedAt = Date.now();
-  const health = await adapterClient.health(actor);
-
-  return {
-    ok: health?.ok === true,
-    discord: {
-      deferReplyMs: normalizeDuration(deferReplyMs)
-    },
-    adapter: {
-      route: "health",
-      roundTripMs: elapsedMs(startedAt),
-      ok: health?.ok === true,
-      enabled: health?.enabled === true,
-      readOnly: health?.readOnly === true,
-      writesEnabled: health?.writesEnabled === true
-    }
-  };
-}
-
-export function statusSummaryPayload(status) {
-  const summary = status?.result?.summary || {};
-  const automation = summary.automation || {};
-
-  return {
-    ok: status?.ok === true,
-    overall: summaryValue(summary.overall, "UNKNOWN"),
-    region: summaryValue(summary.region, "unknown"),
-    mode: summaryValue(summary.mode, "unknown"),
-    population: summaryValue(summary.population, "unknown"),
-    automation: {
-      autoscaler: summaryValue(automation.autoscaler, "unknown"),
-      autoUpdates: summaryValue(automation.autoUpdates, "unknown")
-    }
-  };
-}
-
-export function aboutPayload(config) {
-  return {
-    ok: true,
-    bot: {
-      name: PACKAGE.name,
-      version: PACKAGE.version,
-      readOnly: true,
-      writesEnabled: false
-    },
-    adapter: {
-      origin: adapterOrigin(config.adapter.baseUrl),
-      timeoutMs: config.adapter.timeoutMs
-    },
-    discord: {
-      rbacMode: config.discord.rbac.mode,
-      defaultEphemeral: config.discord.defaultEphemeral
-    },
-    boundary: {
-      dockerSocket: false,
-      databaseDirect: false,
-      gameFiles: false,
-      shellCommands: false
-    }
-  };
-}
-
+// ── Actor ──
 export function actorFromInteraction(interaction) {
   return {
     userId: interaction.user?.id,
@@ -263,29 +232,15 @@ export function actorFromInteraction(interaction) {
   };
 }
 
+// ── RBAC ──
 export function isCommandAllowed(interaction, command, rbac) {
   if (rbac.mode === "open") return true;
   if (rbac.allowedUserIds?.includes(interaction.user?.id)) return true;
-
   const roleIds = new Set(extractRoleIds(interaction));
-
-  // If command has explicit role config, check it
   const cmdRoles = rbac?.commandRoleIds?.[command];
-  if (cmdRoles && cmdRoles.length > 0) {
-    return cmdRoles.some((roleId) => roleIds.has(roleId));
-  }
-
-  // No explicit config: allow if user has any observer or admin role
-  const allKnownRoles = new Set([
-    ...(rbac?.observerRoleIds || []),
-    ...(rbac?.adminRoleIds || []),
-    ...(rbac?.allowedUserIds || [])
-  ]);
-  return allKnownRoles.size > 0 && [...roleIds].some((r) => allKnownRoles.has(r));
-}
-
-export function requiredRoleIdsForCommand(command, rbac) {
-  return rbac?.commandRoleIds?.[command] || [];
+  if (cmdRoles && cmdRoles.length > 0) return cmdRoles.some((roleId) => roleIds.has(roleId));
+  const allKnown = new Set([...(rbac?.observerRoleIds || []), ...(rbac?.adminRoleIds || [])]);
+  return allKnown.size > 0 && [...roleIds].some((r) => allKnown.has(r));
 }
 
 export function extractRoleIds(interaction) {
@@ -297,121 +252,93 @@ export function extractRoleIds(interaction) {
   return [];
 }
 
-function elapsedMs(startedAt) {
-  return normalizeDuration(Date.now() - startedAt);
-}
-
-function normalizeDuration(value) {
-  return Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
-}
-
-function summaryValue(value, fallback) {
-  return value === undefined || value === null || value === "" ? fallback : value;
-}
-
-function adapterOrigin(baseUrl) {
-  return new URL(baseUrl).origin;
-}
-
-export function populationPayload(population) {
-  const result = population?.result || {};
-  return {
-    ok: population?.ok === true,
-    online: result.onlinePlayers ?? "unknown",
-    total: result.totalPlayers ?? "unknown",
-    aggregate: result.aggregate ?? true,
-    detailsSuppressed: result.detailsSuppressed ?? true
-  };
-}
-
-export function backupPayload(backups) {
-  const result = backups?.result || {};
-  const list = Array.isArray(result.backups) ? result.backups.slice(0, 10) : [];
-  return {
-    ok: backups?.ok === true,
-    count: list.length,
-    backups: list.map((b) => ({
-      name: b.name || "unknown",
-      date: b.date || b.createdAt || "unknown",
-      size: b.size || "unknown"
-    }))
-  };
-}
-
+// ── Helpers ──
 function isAdminActor(interaction, config) {
   const roleIds = extractRoleIds(interaction);
   const adminRoles = new Set([
-    ...(parseCsv(process.env.DISCORD_ADMIN_ROLE_IDS)),
-    ...(parseCsv(process.env.DISCORD_WRITE_ADMIN_ROLE_IDS)),
-    ...(parseCsv(process.env.DISCORD_WRITE_OWNER_ROLE_IDS)),
+    ...parseCsv(process.env.DISCORD_ADMIN_ROLE_IDS),
+    ...parseCsv(process.env.DISCORD_WRITE_ADMIN_ROLE_IDS),
+    ...parseCsv(process.env.DISCORD_WRITE_OWNER_ROLE_IDS),
     ...(Array.isArray(config?.discord?.rbac?.adminRoleIds) ? config.discord.rbac.adminRoleIds : [])
   ]);
   const allowedUsers = new Set(parseCsv(process.env.DISCORD_ALLOWED_USER_IDS));
   return roleIds.some((r) => adminRoles.has(r)) || allowedUsers.has(interaction?.user?.id);
 }
 
-function parseCsv(value) {
-  return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+function parseCsv(value) { return String(value || "").split(",").map(s => s.trim()).filter(Boolean); }
+function elapsedMs(startedAt) { const d = Date.now() - startedAt; return Number.isFinite(d) && d > 0 ? Math.round(d) : 0; }
+function adapterOrigin(baseUrl) { return new URL(baseUrl).origin; }
+
+// ── Payload formatters ──
+export async function pingPayload(adapterClient, actor, deferReplyMs = 0) {
+  const startedAt = Date.now();
+  const health = await adapterClient.health(actor);
+  return {
+    ok: health?.ok === true,
+    discord: { deferReplyMs: elapsedMs(startedAt) },
+    adapter: { route: "health", roundTripMs: 0, ok: health?.ok === true, enabled: health?.enabled === true, readOnly: health?.readOnly === true, writesEnabled: health?.writesEnabled === true }
+  };
 }
 
+export function statusSummaryPayload(status) {
+  const s = status?.result?.summary || {};
+  return { ok: status?.ok === true, overall: s.overall || "UNKNOWN", region: s.region || "unknown", mode: s.mode || "unknown", population: s.population || "unknown", automation: { autoscaler: s.automation?.autoscaler || "unknown", autoUpdates: s.automation?.autoUpdates || "unknown" } };
+}
+
+export function aboutPayload(config) {
+  return { ok: true, bot: { name: "dune-awakening-selfhost-discordbot", version: "1.5.0", readOnly: true, writesEnabled: false }, adapter: { origin: new URL(config.adapter.baseUrl).origin, timeoutMs: config.adapter.timeoutMs }, discord: { rbacMode: config.discord.rbac.mode, defaultEphemeral: config.discord.defaultEphemeral }, boundary: { dockerSocket: false, databaseDirect: false, gameFiles: false, shellCommands: false } };
+}
+
+export function populationPayload(p) { const r = p?.result || {}; return { ok: p?.ok === true, online: r.onlinePlayers ?? "unknown", total: r.totalPlayers ?? "unknown", aggregate: r.aggregate ?? true, detailsSuppressed: r.detailsSuppressed ?? true }; }
+
+export function backupPayload(b) { const list = Array.isArray(b?.result?.backups) ? b.result.backups.slice(0, 10) : []; return { ok: b?.ok === true, count: list.length, backups: list.map(x => ({ name: x.name || "unknown", date: x.date || x.createdAt || "unknown", size: x.size || "unknown" })) }; }
+
 function helpPayload(config, interaction) {
-  const allCommands = [
-    { name: "about", desc: "Show safe bot and adapter metadata.", role: "observer" },
-    { name: "ping", desc: "Measure Discord and adapter latency.", role: "observer" },
-    { name: "health", desc: "Check the console Discord adapter.", role: "observer" },
-    { name: "status", desc: "Show high-level server status.", role: "observer" },
-    { name: "status-summary", desc: "Show compact aggregate server status.", role: "observer" },
-    { name: "readiness", desc: "Show readiness and preflight state.", role: "observer" },
-    { name: "services", desc: "Show service state.", role: "observer" },
-    { name: "population", desc: "Show aggregate player count.", role: "observer" },
-    { name: "backups", desc: "List recent backup metadata.", role: "observer" },
-    { name: "activity", desc: opsDescriptionFor("activity"), role: "observer" },
-    { name: "combat", desc: opsDescriptionFor("combat"), role: "observer" },
-    { name: "resources", desc: opsDescriptionFor("resources"), role: "observer" },
-    { name: "economy", desc: opsDescriptionFor("economy"), role: "observer" },
-    { name: "inventory", desc: opsDescriptionFor("inventory"), role: "observer" },
-    { name: "location", desc: opsDescriptionFor("location"), role: "observer" },
-    { name: "soc", desc: opsDescriptionFor("soc"), role: "observer" },
-    { name: "prometheus", desc: opsDescriptionFor("prometheus"), role: "observer" },
-    { name: "dashboard", desc: opsDescriptionFor("dashboard"), role: "observer" },
-    { name: "broadcast", desc: "Send a message to all players.", role: "admin" },
-    { name: "doctor", desc: "Comprehensive system diagnostic.", role: "admin" }
+  const all = [
+    { name: "core:about", desc: "Show safe bot and adapter metadata.", role: "observer" },
+    { name: "core:ping", desc: "Measure Discord and adapter latency.", role: "observer" },
+    { name: "core:help", desc: "Show available commands for your role.", role: "observer" },
+    { name: "server:health", desc: "Check the console Discord adapter.", role: "observer" },
+    { name: "server:status", desc: "Show high-level server status.", role: "observer" },
+    { name: "server:summary", desc: "Show compact aggregate server status.", role: "observer" },
+    { name: "server:readiness", desc: "Show readiness and preflight state.", role: "observer" },
+    { name: "server:services", desc: "Show service container state.", role: "observer" },
+    { name: "data:population", desc: "Show aggregate player count.", role: "observer" },
+    { name: "data:backups", desc: "List recent backup metadata.", role: "observer" },
+    { name: "data:maps", desc: "Show active game maps.", role: "observer" },
+    { name: "ops:activity", desc: opsDescriptionFor("activity"), role: "observer" },
+    { name: "ops:combat", desc: opsDescriptionFor("combat"), role: "observer" },
+    { name: "ops:resources", desc: opsDescriptionFor("resources"), role: "observer" },
+    { name: "ops:economy", desc: opsDescriptionFor("economy"), role: "observer" },
+    { name: "ops:inventory", desc: opsDescriptionFor("inventory"), role: "observer" },
+    { name: "ops:location", desc: opsDescriptionFor("location"), role: "observer" },
+    { name: "ops:soc", desc: opsDescriptionFor("soc"), role: "observer" },
+    { name: "ops:prometheus", desc: opsDescriptionFor("prometheus"), role: "observer" },
+    { name: "ops:dashboard", desc: opsDescriptionFor("dashboard"), role: "observer" },
+    { name: "admin:doctor", desc: "Comprehensive system diagnostic.", role: "admin" },
+    { name: "admin:cooldowns", desc: "Show active cooldowns.", role: "admin" },
+    { name: "admin:latency", desc: "Adapter latency history.", role: "admin" },
+    { name: "admin:events", desc: "Recent incident log.", role: "admin" },
+    { name: "admin:broadcast", desc: "Send a message to all players.", role: "admin" },
+    { name: "infra:version", desc: "Dune stack version.", role: "observer" },
+    { name: "infra:servers", desc: "List game servers.", role: "observer" },
+    { name: "infra:ports", desc: "Network port status.", role: "observer" },
+    { name: "infra:db", desc: "Database status and health.", role: "observer" },
   ];
-
-  const available = [];
-  const locked = [];
-  for (const cmd of allCommands) {
-    if (isCommandAllowed(interaction, cmd.name, config.discord.rbac)) {
-      available.push(cmd);
-    } else {
-      locked.push(cmd);
-    }
+  const available = []; const locked = [];
+  for (const cmd of all) {
+    if (isCommandAllowed(interaction, cmd.name, config.discord.rbac)) available.push(cmd); else locked.push(cmd);
   }
-
-  return {
-    ok: true,
-    total: allCommands.length,
-    available: available.map((c) => c.name),
-    locked: locked.map((c) => c.name),
-    availableCount: available.length,
-    rbacMode: config.discord.rbac.mode
-  };
+  return { ok: true, total: all.length, available: available.map(c => c.name), locked: locked.map(c => c.name), availableCount: available.length, rbacMode: config.discord.rbac.mode };
 }
 
 async function doctorPayload(adapterClient, actor, config) {
   const [health, status, readiness, services] = await Promise.all([
-    adapterClient.health(actor).catch(() => ({ ok: false, error: "health failed" })),
-    adapterClient.status(actor).catch(() => ({ ok: false, error: "status failed" })),
-    adapterClient.readiness(actor).catch(() => ({ ok: false, error: "readiness failed" })),
-    adapterClient.services(actor).catch(() => ({ ok: false, error: "services failed" }))
+    adapterClient.health(actor).catch(() => ({ ok: false })),
+    adapterClient.status(actor).catch(() => ({ ok: false })),
+    adapterClient.readiness(actor).catch(() => ({ ok: false })),
+    adapterClient.services(actor).catch(() => ({ ok: false }))
   ]);
-
-  return {
-    ok: health?.ok !== false && status?.ok !== false,
-    health: { ok: health?.ok === true, enabled: health?.enabled, readOnly: health?.readOnly, writesEnabled: health?.writesEnabled },
-    status: { ok: status?.ok === true, summary: status?.result?.summary || {} },
-    readiness: { ok: readiness?.ok === true, ready: readiness?.result?.ready, issues: readiness?.result?.issues || [] },
-    services: { ok: services?.ok === true, overall: services?.result?.overall, count: (services?.result?.services || []).length },
-    timestamp: new Date().toISOString()
-  };
+  return { ok: health?.ok !== false && status?.ok !== false, health: { ok: health?.ok === true, enabled: health?.enabled, readOnly: health?.readOnly, writesEnabled: health?.writesEnabled }, status: { ok: status?.ok === true, summary: status?.result?.summary || {} }, readiness: { ok: readiness?.ok === true, ready: readiness?.result?.ready, issues: readiness?.result?.issues || [] }, services: { ok: services?.ok === true, overall: services?.result?.overall, count: (services?.result?.services || []).length }, timestamp: new Date().toISOString() };
 }
+export function requiredRoleIdsForCommand(command, rbac) { return rbac?.commandRoleIds?.[command] || []; }

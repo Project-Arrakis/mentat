@@ -45,6 +45,10 @@ const UPSTREAM_CONTRACT = Object.freeze({
     path: "/api/integrations/discord/broadcast",
     fixture: "broadcast.json"
   },
+  version: { method: "GET", path: "/api/integrations/discord/version", fixture: "health.json" },
+  servers: { method: "POST", path: "/api/integrations/discord/servers", fixture: "ops.json" },
+  ports: { method: "POST", path: "/api/integrations/discord/ports", fixture: "ops.json" },
+  db: { method: "POST", path: "/api/integrations/discord/db", fixture: "ops.json" },
   "ops-activity": { method: "POST", path: "/api/integrations/discord/ops/activity", fixture: "ops.json" },
   "ops-combat": { method: "POST", path: "/api/integrations/discord/ops/combat", fixture: "ops.json" },
   "ops-resources": { method: "POST", path: "/api/integrations/discord/ops/resources", fixture: "ops.json" },
