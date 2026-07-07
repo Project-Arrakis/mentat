@@ -4,6 +4,7 @@ import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload } from "./format.js";
 import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed } from "./embedFormat.js";
+import { sendStatusCard } from "./statusCard.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
@@ -116,6 +117,12 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       payload = await adapterClient.health(actor);
     } else if (key === "server:status") {
       payload = await adapterClient.status(actor, diagnostic);
+      if (!diagnostic) {
+        const statusData = payload?.result || payload || {};
+        await sendStatusCard({ interaction, statusData: payload, title: statusData.title });
+        applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
+        return true;
+      }
     } else if (key === "server:summary") {
       payload = statusSummaryPayload(await adapterClient.status(actor));
     } else if (key === "server:readiness") {

@@ -207,24 +207,73 @@ export function formatBackupsEmbed(backups) {
 }
 
 // ── Generic / OPS ──
+const DISPLAY_NAMES = {
+  overall: "Status", title: "Name", region: "Region", mode: "Mode",
+  population: "Players", online: "Online", total: "Total",
+  maps: "Maps", services: "Services", issues: "Issues",
+  output: "Output", version: "Version", result: "Result",
+  summary: "Summary", service: "Service", enabled: "Enabled",
+  readOnly: "ReadOnly", writesEnabled: "Writes",
+  ok: "Status", error: "Error", message: "Message",
+  route: "Route", count: "Count", backups: "Backups",
+  aggregate: "Aggregate", detailsSuppressed: "Suppressed",
+  active: "Active", entries: "Entries",
+  timestamp: "Time", health: "Health", status: "Status",
+  readiness: "Readiness", ready: "Ready",
+  onlinePlayers: "Online", totalPlayers: "Total",
+  uptime: "Uptime", state: "State", name: "Name",
+  date: "Date", size: "Size", type: "Type", detail: "Detail",
+  durationMs: "Duration", roundTripMs: "Roundtrip",
+  deferReplyMs: "Discord", idempotencyKey: "Idempotency",
+  needsConfirmation: "Confirm?", risk: "Risk", tier: "Tier",
+  family: "Family", available: "Available", locked: "Locked",
+  availableCount: "Available", rbacMode: "RBAC",
+};
+
 export function formatGenericEmbed(payload, title) {
   const ok = payload?.ok !== false;
   const result = payload?.result || payload || {};
   const safe = typeof result === "object" ? result : { value: String(result) };
-  const fields = Object.entries(safe)
-    .filter(([k]) => !["ok"].includes(k))
-    .slice(0, 25)
-    .map(([k, v]) => ({
-      name: k,
-      value: typeof v === "object" ? JSON.stringify(v).slice(0, 900) : String(v).slice(0, 900),
-      inline: true
-    }));
+
+  // Filter out noise and flatten one level
+  const fields = [];
+  for (const [key, val] of Object.entries(safe)) {
+    if (key === "ok" || key === "timestamp") continue;
+    if (val === null || val === undefined) continue;
+
+    const label = DISPLAY_NAMES[key] || key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, " $1");
+
+    if (typeof val === "object" && !Array.isArray(val)) {
+      // Flatten nested objects into sub-fields
+      for (const [k2, v2] of Object.entries(val).slice(0, 5)) {
+        if (v2 === null || v2 === undefined) continue;
+        const subLabel = DISPLAY_NAMES[k2] || k2;
+        fields.push({ name: `${label} › ${subLabel}`, value: formatValue(v2), inline: true });
+      }
+    } else if (Array.isArray(val)) {
+      if (val.length === 0) continue;
+      if (typeof val[0] === "object") {
+        fields.push({ name: label, value: `${val.length} items`, inline: true });
+      } else {
+        fields.push({ name: label, value: val.slice(0, 5).map(formatValue).join("\n").slice(0, 900), inline: true });
+      }
+    } else {
+      fields.push({ name: label, value: formatValue(val), inline: true });
+    }
+  }
+
   return duneEmbed({
     title: `📊 ${title}`,
     color: ok ? "spice" : "error",
-    description: ok ? "🟢 OK" : "🔴 Error",
-    fields
+    description: ok ? null : "🔴 Request failed",
+    fields: fields.slice(0, 20)
   });
+}
+
+function formatValue(val) {
+  if (typeof val === "boolean") return val ? "✅ Yes" : "❌ No";
+  if (typeof val === "number") return val < 10000 ? val.toLocaleString() : `${(val / 1000).toFixed(1)}k`;
+  return String(val).slice(0, 900);
 }
 
 // ── Doctor ──
