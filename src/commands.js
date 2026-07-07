@@ -1,13 +1,15 @@
 import { SlashCommandBuilder } from "discord.js";
 import { readFileSync } from "node:fs";
-import { checkCooldown, applyCooldown } from "./cooldown.js";
+import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload } from "./format.js";
-import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed } from "./embedFormat.js";
+import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed } from "./embedFormat.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
+import { getLatencyHistory } from "./adapterClient.js";
+import { getIncidentHistory } from "./scheduler.js";
 
 const PACKAGE = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services", "population", "backups", "broadcast", "help", "doctor", ...OPS_SUBCOMMAND_NAMES]);
+const SUBCOMMANDS = new Set(["about", "ping", "health", "status", "status-summary", "readiness", "services", "population", "backups", "broadcast", "help", "doctor", "maps", "cooldowns", "latency", "events", ...OPS_SUBCOMMAND_NAMES]);
 
 export function buildDuneCommand() {
   return new SlashCommandBuilder()
@@ -26,6 +28,10 @@ export function buildDuneCommand() {
       .addStringOption((option) => option.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500)))
     .addSubcommand((command) => command.setName("help").setDescription("Show available commands for your role."))
     .addSubcommand((command) => command.setName("doctor").setDescription("Admin-only: comprehensive system diagnostic across all subsystems."))
+    .addSubcommand((command) => command.setName("maps").setDescription("Show active game maps with state and uptime."))
+    .addSubcommand((command) => command.setName("cooldowns").setDescription("Admin-only: show active command cooldowns."))
+    .addSubcommand((command) => command.setName("latency").setDescription("Show adapter request latency history."))
+    .addSubcommand((command) => command.setName("events").setDescription("Show recent server incidents and events."))
     .addSubcommand((command) => command.setName("activity").setDescription(opsDescriptionFor("activity")))
     .addSubcommand((command) => command.setName("combat").setDescription(opsDescriptionFor("combat")))
     .addSubcommand((command) => command.setName("resources").setDescription(opsDescriptionFor("resources")))
@@ -95,6 +101,16 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
     } else if (subcommand === "doctor") {
       if (!isAdminActor(interaction, config)) throw new Error("Doctor diagnostic requires admin or owner role.");
       payload = await doctorPayload(adapterClient, actor, config);
+    } else if (subcommand === "maps") {
+      const status = await adapterClient.status(actor);
+      payload = { maps: status?.result?.maps || [] };
+    } else if (subcommand === "cooldowns") {
+      if (!isAdminActor(interaction, config)) throw new Error("Cooldowns viewer requires admin or owner role.");
+      payload = cooldownStats();
+    } else if (subcommand === "latency") {
+      payload = getLatencyHistory();
+    } else if (subcommand === "events") {
+      payload = getIncidentHistory();
     } else if (subcommand === "population") {
       payload = populationPayload(await adapterClient.population(actor));
     } else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
@@ -122,6 +138,14 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       embed = formatBackupsEmbed(payload);
     } else if (subcommand === "doctor") {
       embed = formatDoctorEmbed(payload);
+    } else if (subcommand === "maps") {
+      embed = formatMapsEmbed(payload);
+    } else if (subcommand === "cooldowns") {
+      embed = formatCooldownsEmbed(payload);
+    } else if (subcommand === "latency") {
+      embed = formatLatencyEmbed(payload);
+    } else if (subcommand === "events") {
+      embed = formatEventsEmbed(payload);
     } else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
       embed = formatGenericEmbed(payload, subcommand);
     } else {
