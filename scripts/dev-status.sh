@@ -62,6 +62,20 @@ case "$EVENT" in
     DETAILS="${DETAILS:-Check CI for details}"
     COLOR=15158332  # red
     ;;
+  security-pass)
+    ICON="🔒"
+    TITLE="Security Gates Passed"
+    BODY="**${BRANCH}**"
+    DETAILS="${DETAILS:-All security checks pass}"
+    COLOR=3066993  # green
+    ;;
+  security-fail)
+    ICON="🚨"
+    TITLE="Security Gates Failed"
+    BODY="**${BRANCH}**"
+    DETAILS="${DETAILS:-Security check failures — review required}"
+    COLOR=15158332  # red
+    ;;
   *)
     ICON="📢"
     TITLE="Dev Update"
