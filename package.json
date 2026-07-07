@@ -20,7 +20,8 @@
     "check": "npm test && npm run release:check && npm run package:addon && npm run sbom",
     "compat:check": "node scripts/check-compatibility.js",
     "security:api": "node scripts/api-security-test.js",
-    "validate:docs": "node scripts/validate-docs.js"
+    "validate:docs": "node scripts/validate-docs.js",
+    "security:check": "bash scripts/security-check-notify.sh"
   },
   "dependencies": {
     "discord.js": "^14.26.4"

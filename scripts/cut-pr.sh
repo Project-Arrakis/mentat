@@ -65,6 +65,11 @@ echo "Running unit tests..."
 npm test 2>&1 | grep -E "^# tests|^# pass|^# fail"
 echo ""
 
+# Run full security suite and post to Discord
+echo "Running security checks..."
+bash scripts/security-check-notify.sh "$HEAD_BRANCH"
+echo ""
+
 # Confirm
 read -p "Create upstream PR? [y/N] " -r
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
