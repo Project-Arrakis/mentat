@@ -116,7 +116,8 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
     } else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
       const route = opsRouteFor(subcommand);
       if (route) {
-        payload = formatOpsPayload(subcommand, await adapterClient[route](actor));
+        const methodName = route.replace(/-(\w)/g, (_, c) => c.toUpperCase());
+        payload = formatOpsPayload(subcommand, await adapterClient[methodName](actor));
       } else {
         payload = { ok: false, error: `Unknown OPS command: ${subcommand}` };
       }
