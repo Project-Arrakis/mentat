@@ -245,13 +245,24 @@ export function actorFromInteraction(interaction) {
 }
 
 export function isCommandAllowed(interaction, command, rbac) {
-  if (!rbac?.commandRoleIds?.[command]) return false;
   if (rbac.mode === "open") return true;
-
   if (rbac.allowedUserIds?.includes(interaction.user?.id)) return true;
 
   const roleIds = new Set(extractRoleIds(interaction));
-  return rbac.commandRoleIds[command].some((roleId) => roleIds.has(roleId));
+
+  // If command has explicit role config, check it
+  const cmdRoles = rbac?.commandRoleIds?.[command];
+  if (cmdRoles && cmdRoles.length > 0) {
+    return cmdRoles.some((roleId) => roleIds.has(roleId));
+  }
+
+  // No explicit config: allow if user has any observer or admin role
+  const allKnownRoles = new Set([
+    ...(rbac?.observerRoleIds || []),
+    ...(rbac?.adminRoleIds || []),
+    ...(rbac?.allowedUserIds || [])
+  ]);
+  return allKnownRoles.size > 0 && [...roleIds].some((r) => allKnownRoles.has(r));
 }
 
 export function requiredRoleIdsForCommand(command, rbac) {
