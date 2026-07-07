@@ -1,17 +1,35 @@
 import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
-// Dune palette
+// Register bundled fonts
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ASSETS = join(__dirname, "..", "assets");
+
+try {
+  GlobalFonts.registerFromPath(join(ASSETS, "Ubuntu-R.ttf"), "Ubuntu");
+  GlobalFonts.registerFromPath(join(ASSETS, "Ubuntu-B.ttf"), "Ubuntu Bold");
+} catch {
+  // Fallback: use system fonts
+  GlobalFonts.registerFromPath("/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf", "Ubuntu");
+  GlobalFonts.registerFromPath("/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf", "Ubuntu Bold");
+}
+
+// Dune palette — faction colors + addon dark slate theme
 const COLORS = {
-  bg: "#1a1208",
-  cardBg: "#2a1f14",
-  accent: "#D4A03C",
-  text: "#E8D5B5",
-  muted: "#8B7355",
-  success: "#2ECC71",
-  warning: "#F39C12",
-  error: "#E74C3C",
-  blue: "#5DADE2",
-  border: "#4A3728",
+  bg: "#111827",
+  cardBg: "#1f2937",
+  accent: "#fde68a",
+  text: "#e5e7eb",
+  muted: "#9ca3af",
+  success: "#86efac",
+  warning: "#fde68a",
+  error: "#fca5a5",
+  atreides: "#4ade80",
+  harkonnen: "#f87171",
+  fremen: "#fbbf24",
+  border: "#374151",
+  fieldBg: "rgba(255,255,255,0.03)",
 };
 
 const W = 800, H = 420;
@@ -35,7 +53,7 @@ export function generateStatusCard({ title, overall, region, mode, population, m
 
   // Title
   ctx.fillStyle = COLORS.text;
-  ctx.font = "bold 26px system-ui, sans-serif";
+  ctx.font = "bold 26px Ubuntu";
   ctx.fillText(`🌍 ${title || "Server Status"}`, PAD + 20, PAD + 52);
 
   // Status badge
@@ -44,7 +62,7 @@ export function generateStatusCard({ title, overall, region, mode, population, m
   const badgeW = ctx.measureText(overall || "UNKNOWN").width + 24;
   roundRect(ctx, W - PAD - 20 - badgeW, PAD + 28, badgeW, 28, 14, true, false);
   ctx.fillStyle = "#fff";
-  ctx.font = "bold 14px system-ui, sans-serif";
+  ctx.font = "bold 14px Ubuntu";
   ctx.fillText(overall || "UNKNOWN", W - PAD - 20 - badgeW / 2 - ctx.measureText(overall || "UNKNOWN").width / 2, PAD + 48);
 
   // Stats row
@@ -58,20 +76,20 @@ export function generateStatusCard({ title, overall, region, mode, population, m
 
   const statY = PAD + 100;
   const statW = (W - PAD * 2 - 40) / stats.length;
-  ctx.font = "13px system-ui, sans-serif";
+  ctx.font = "13px Ubuntu";
 
   stats.forEach((s, i) => {
     const sx = PAD + 20 + i * statW;
     // Icon
-    ctx.font = "22px system-ui, sans-serif";
+    ctx.font = "22px Ubuntu";
     ctx.fillText(s.icon, sx, statY + 22);
     // Label
     ctx.fillStyle = COLORS.muted;
-    ctx.font = "11px system-ui, sans-serif";
+    ctx.font = "11px Ubuntu";
     ctx.fillText(s.label, sx + 30, statY + 12);
     // Value
     ctx.fillStyle = COLORS.text;
-    ctx.font = "bold 16px system-ui, sans-serif";
+    ctx.font = "bold 16px Ubuntu";
     ctx.fillText(s.value, sx + 30, statY + 34);
   });
 
@@ -86,7 +104,7 @@ export function generateStatusCard({ title, overall, region, mode, population, m
   // Maps section
   let mapY = statY + 100;
   ctx.fillStyle = COLORS.muted;
-  ctx.font = "12px system-ui, sans-serif";
+  ctx.font = "12px Ubuntu";
   ctx.fillText("ACTIVE MAPS", PAD + 20, mapY - 8);
 
   const mapBarH = 32;
@@ -96,21 +114,23 @@ export function generateStatusCard({ title, overall, region, mode, population, m
   maps.slice(0, maxMaps).forEach((m, i) => {
     const my = mapY + i * (mapBarH + mapGap);
     const state = m.state || m.status || "UNKNOWN";
-    const barColor = state === "READY" ? COLORS.success : state === "STARTING" ? COLORS.warning : COLORS.error;
+    // State badge with faction colors
+    const factionColors = [COLORS.atreides, COLORS.harkonnen, COLORS.fremen];
+    const barColor = factionColors[i % 3];
 
     // Map row background
-    ctx.fillStyle = "rgba(255,255,255,0.04)";
+    ctx.fillStyle = COLORS.fieldBg;
     roundRect(ctx, PAD + 20, my, W - PAD * 2 - 40, mapBarH, 6, true, false);
 
     // Name
     ctx.fillStyle = COLORS.text;
-    ctx.font = "13px system-ui, sans-serif";
+    ctx.font = "13px Ubuntu";
     ctx.fillText(m.name || "?", PAD + 40, my + 22);
 
     // Uptime
     if (m.uptime) {
       ctx.fillStyle = COLORS.muted;
-      ctx.font = "11px system-ui, sans-serif";
+      ctx.font = "11px Ubuntu";
       const ux = PAD + 200;
       ctx.fillText(m.uptime, ux, my + 22);
     }
@@ -121,14 +141,14 @@ export function generateStatusCard({ title, overall, region, mode, population, m
     ctx.fillStyle = barColor;
     roundRect(ctx, bx, my + 6, bw, 20, 10, true, false);
     ctx.fillStyle = "#fff";
-    ctx.font = "bold 10px system-ui, sans-serif";
+    ctx.font = "bold 10px Ubuntu";
     ctx.fillText(state, bx + 8, my + 20);
   });
 
   // Footer
   const footerY = H - PAD - 12;
   ctx.fillStyle = COLORS.muted;
-  ctx.font = "10px system-ui, sans-serif";
+  ctx.font = "10px Ubuntu";
   ctx.fillText(`Thumper · ${quote || "The spice must flow."}`, PAD + 20, footerY);
 
   return canvas;
@@ -156,7 +176,6 @@ function roundRect(ctx, x, y, w, h, r = 0, fill = false, stroke = false) {
 }
 
 // Quick test if run directly
-import { fileURLToPath } from "node:url";
 import { writeFileSync } from "node:fs";
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const canvas = generateStatusCard({
