@@ -82,7 +82,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     ctx.font = "bold 11px \"Ubuntu Bold\"";
     ctx.fillText(s.label, sx, statY + 14);
     ctx.fillStyle = "#ffffff";
-    ctx.font = "22px \"Dune Rise\"";
+    ctx.font = "16px \"Dune Rise\"";
     ctx.fillText(s.value, sx, statY + 42);
   });
 
