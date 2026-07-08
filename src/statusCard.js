@@ -25,7 +25,7 @@ export async function sendStatusCard({ interaction, statusData, title, quote } =
     population: r.population || "—",
     maps,
     services: Array.isArray(r.services) ? r.services.length : 0,
-    latency: 0,
+    latency: latency || await getLatestLatency(),
     quote: quote || QUOTES[Math.floor(Math.random() * QUOTES.length)]
   });
 
@@ -33,4 +33,15 @@ export async function sendStatusCard({ interaction, statusData, title, quote } =
   const attachment = new AttachmentBuilder(buffer, { name: "status-card.png" });
 
   await interaction.editReply({ files: [attachment], embeds: [] });
+}
+
+async function getLatestLatency() {
+  try {
+    const { getLatencyHistory } = await import("./adapterClient.js");
+    const hist = getLatencyHistory();
+    const last = hist[hist.length - 1];
+    if (last && last.durationMs > 0) return last.durationMs;
+    const avg = hist.length > 0 ? Math.round(hist.reduce((s, e) => s + (e.durationMs || 0), 0) / hist.length) : 0;
+    return avg || 0;
+  } catch { return 0; }
 }
