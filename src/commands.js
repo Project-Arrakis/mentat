@@ -1,20 +1,20 @@
 import { SlashCommandBuilder } from "discord.js";
-import { readFileSync } from "node:fs";
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload } from "./format.js";
 import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed } from "./embedFormat.js";
 import { sendStatusCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
+import { writesEnabled } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
 
-// Group → subcommand → handler config
+// Group -> subcommand -> handler config
 // Each group can have up to 25 subcommands; we have 6 groups with room for many more.
 
-export function buildDuneCommand() {
-  return new SlashCommandBuilder()
+export function buildDuneCommand({ includeWriteGroup = false } = {}) {
+  const builder = new SlashCommandBuilder()
     .setName("dune")
     .setDescription("Dune server operations and observability.")
 
@@ -67,42 +67,47 @@ export function buildDuneCommand() {
       .addSubcommand((c) => c.setName("version").setDescription("Show Dune stack version."))
       .addSubcommand((c) => c.setName("servers").setDescription("List game servers."))
       .addSubcommand((c) => c.setName("ports").setDescription("Show network port and listener status."))
-      .addSubcommand((c) => c.setName("db").setDescription("Show database status and health.")))
+      .addSubcommand((c) => c.setName("db").setDescription("Show database status and health.")));
 
-    // ── write group ── (disabled by default, requires upstream adapter)
-    .addSubcommandGroup((g) => g.setName("write").setDescription("Write commands — disabled until upstream adapter approved.")
-      .addSubcommand((c) => c.setName("maintenance-note").setDescription("Set a maintenance note.")
-        .addStringOption((o) => o.setName("note").setDescription("Maintenance note text").setRequired(true).setMaxLength(500)))
-      .addSubcommand((c) => c.setName("maintenance-window").setDescription("Set a maintenance window.")
-        .addStringOption((o) => o.setName("start").setDescription("Start time (ISO 8601)").setRequired(true))
-        .addIntegerOption((o) => o.setName("duration").setDescription("Duration in minutes").setRequired(true).setMinValue(1).setMaxValue(1440)))
-      .addSubcommand((c) => c.setName("alert-channel").setDescription("Set alert notification channel.")
-        .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
-      .addSubcommand((c) => c.setName("alert-threshold").setDescription("Set alert thresholds.")
-        .addStringOption((o) => o.setName("metric").setDescription("Metric").setRequired(true))
-        .addStringOption((o) => o.setName("condition").setDescription("Condition (lt/gt/eq)").setRequired(true))
-        .addIntegerOption((o) => o.setName("value").setDescription("Threshold value").setRequired(true)))
-      .addSubcommand((c) => c.setName("digest-schedule").setDescription("Set digest schedule interval.")
-        .addIntegerOption((o) => o.setName("minutes").setDescription("Interval in minutes").setRequired(true).setMinValue(5).setMaxValue(1440)))
-      .addSubcommand((c) => c.setName("post-schedule").setDescription("Set scheduled post type.")
-        .addStringOption((o) => o.setName("type").setDescription("status/status-summary/readiness/services/none").setRequired(true)))
-      .addSubcommand((c) => c.setName("add-channel").setDescription("Add channel for scheduled posts.")
-        .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
-      .addSubcommand((c) => c.setName("remove-channel").setDescription("Remove channel from scheduled posts.")
-        .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
-      .addSubcommand((c) => c.setName("backup").setDescription("Create a database backup.")
-        .addStringOption((o) => o.setName("label").setDescription("Backup label").setRequired(true).setMaxLength(100)))
-      .addSubcommand((c) => c.setName("restart").setDescription("Restart a game service.")
-        .addStringOption((o) => o.setName("service").setDescription("Service name").setRequired(true))
-        .addStringOption((o) => o.setName("reason").setDescription("Reason for restart").setRequired(true).setMaxLength(200)))
-      .addSubcommand((c) => c.setName("update").setDescription("Trigger a game or server update.")
-        .addStringOption((o) => o.setName("type").setDescription("Update type (game/steamcmd/self)").setRequired(true)))
-      .addSubcommand((c) => c.setName("cache").setDescription("Clear server caches.")
-        .addStringOption((o) => o.setName("type").setDescription("Cache type (steam/maps/derived)").setRequired(true))));
+  // ── write group ── conditionally appended, requires DUNE_DISCORD_WRITES_ENABLED=true
+  if (includeWriteGroup) {
+    builder.addSubcommandGroup((g) =>
+      g.setName("write").setDescription("Write commands — gated behind DUNE_DISCORD_WRITES_ENABLED.")
+        .addSubcommand((c) => c.setName("maintenance-note").setDescription("Set a maintenance note.")
+          .addStringOption((o) => o.setName("note").setDescription("Maintenance note text").setRequired(true).setMaxLength(500)))
+        .addSubcommand((c) => c.setName("maintenance-window").setDescription("Set a maintenance window.")
+          .addStringOption((o) => o.setName("start").setDescription("Start time (ISO 8601)").setRequired(true))
+          .addIntegerOption((o) => o.setName("duration").setDescription("Duration in minutes").setRequired(true).setMinValue(1).setMaxValue(1440)))
+        .addSubcommand((c) => c.setName("alert-channel").setDescription("Set alert notification channel.")
+          .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
+        .addSubcommand((c) => c.setName("alert-threshold").setDescription("Set alert thresholds.")
+          .addStringOption((o) => o.setName("metric").setDescription("Metric").setRequired(true))
+          .addStringOption((o) => o.setName("condition").setDescription("Condition (lt/gt/eq)").setRequired(true))
+          .addIntegerOption((o) => o.setName("value").setDescription("Threshold value").setRequired(true)))
+        .addSubcommand((c) => c.setName("digest-schedule").setDescription("Set digest schedule interval.")
+          .addIntegerOption((o) => o.setName("minutes").setDescription("Interval in minutes").setRequired(true).setMinValue(5).setMaxValue(1440)))
+        .addSubcommand((c) => c.setName("post-schedule").setDescription("Set scheduled post type.")
+          .addStringOption((o) => o.setName("type").setDescription("status/status-summary/readiness/services/none").setRequired(true)))
+        .addSubcommand((c) => c.setName("add-channel").setDescription("Add channel for scheduled posts.")
+          .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
+        .addSubcommand((c) => c.setName("remove-channel").setDescription("Remove channel from scheduled posts.")
+          .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
+        .addSubcommand((c) => c.setName("backup").setDescription("Create a database backup.")
+          .addStringOption((o) => o.setName("label").setDescription("Backup label").setRequired(true).setMaxLength(100)))
+        .addSubcommand((c) => c.setName("restart").setDescription("Restart a game service.")
+          .addStringOption((o) => o.setName("service").setDescription("Service name").setRequired(true))
+          .addStringOption((o) => o.setName("reason").setDescription("Reason for restart").setRequired(true).setMaxLength(200)))
+        .addSubcommand((c) => c.setName("update").setDescription("Trigger a game or server update.")
+          .addStringOption((o) => o.setName("type").setDescription("Update type (game/steamcmd/self)").setRequired(true)))
+        .addSubcommand((c) => c.setName("cache").setDescription("Clear server caches.")
+          .addStringOption((o) => o.setName("type").setDescription("Cache type (steam/maps/derived)").setRequired(true))));
+  }
+
+  return builder;
 }
 
-export function commandDefinitions() {
-  return [buildDuneCommand().toJSON()];
+export function commandDefinitions({ includeWriteGroup = false } = {}) {
+  return [buildDuneCommand({ includeWriteGroup }).toJSON()];
 }
 
 export async function executeDuneCommand(interaction, adapterClient, config) {
