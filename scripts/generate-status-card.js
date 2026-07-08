@@ -27,6 +27,9 @@ const W = 1200, H = 640;
 const PAD = 40;
 const CARD_TOP = 184, CARD_BOT = 576;
 
+// Faction colors: Atreides (blue-pass), Harkonnen (red-fail), Fremen (gold-warn)
+const ATREIDES = "#3b82f6", HARKONNEN = "#ef4444", FREMEN = "#f59e0b";
+
 export async function generateStatusCard({ title, overall, region, mode, population, maps = [], services = 0, latency = 0, quote = "" } = {}) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
@@ -57,7 +60,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   ctx.font = "bold 16px \"Ubuntu Bold\"";
   const badge = overall || "UNKNOWN";
   const bw = ctx.measureText(badge).width + 24;
-  const bc = overall === "READY" ? "#6eeb83" : overall === "ISSUE" ? "#fbbf24" : "#f87171";
+  const bc = overall === "READY" ? ATREIDES : overall === "ISSUE" ? FREMEN : HARKONNEN;
   ctx.fillStyle = bc;
   roundRect(ctx, cx + cw - 24 - bw, cy + 20, bw, 26, 13, true, false);
   ctx.fillStyle = "#ffffff";
@@ -68,6 +71,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     { label: "PLAYERS", value: population || "—" },
     { label: "REGION", value: region || "—" },
     { label: "MODE", value: mode || "—" },
+    { label: "LATENCY", value: latency ? `${latency}ms` : "—" },
     { label: "SERVICES", value: String(services) },
   ];
   const statY = cy + 74;
@@ -97,7 +101,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   ctx.fillText("ACTIVE MAPS", cx + 24, mapY + 14);
 
   const mh = 34, mg = 6, maxM = Math.min(maps.length, 4);
-  const fcs = ["#4ade80", "#f87171", "#fbbf24", "#a06839"];
+  const fcs = [ATREIDES, HARKONNEN, FREMEN, "#a06839"];
   maps.slice(0, maxM).forEach((m, i) => {
     const my = mapY + 24 + i * (mh + mg);
     ctx.fillStyle = "rgba(255,255,255,0.05)";
