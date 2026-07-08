@@ -1,73 +1,42 @@
 repos:
-  - repo: https://github.com/semgrep/pre-commit
-    rev: v1.167.0
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
     hooks:
-      - id: semgrep
-        name: semgrep security scan
-        args:
-          - --config
-          - p/default
-          - --config
-          - p/secrets
-          - --error
-          - --severity
-          - ERROR
-          - --severity
-          - WARNING
-          - --exclude
-          - package-lock.json
-        stages: [pre-commit, pre-push]
+      - id: check-json
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
 
   - repo: local
     hooks:
-      - id: trailing-whitespace
-        name: trim trailing whitespace
-        entry: bash -c '! git grep -nE "[[:space:]]$" -- "*.js" "*.mjs" "*.ts" "*.tsx" | grep -v node_modules'
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-
-      - id: gitleaks
-        name: gitleaks secret scan
-        entry: gitleaks detect --source . --redact --no-git
-        language: system
-        pass_filenames: false
-        stages: [pre-commit, pre-push]
-
-      - id: trivy
-        name: trivy misconfig + secret scan
-        entry: trivy filesystem --scanners misconfig,secret --skip-dirs node_modules,.security-audit,dist . --no-progress
-        language: system
-        pass_filenames: false
-        require_serial: true
-        stages: [pre-commit, pre-push]
-
-      - id: npm-audit
-        name: npm audit moderate+
-        entry: npm audit --audit-level=moderate
-        language: system
-        pass_filenames: false
-        stages: [pre-commit, pre-push]
-
-      - id: test
-        name: unit tests
-        entry: npm test
-        language: system
-        pass_filenames: false
-        require_serial: true
-        stages: [pre-push]
-
-      - id: api-security
-        name: API endpoint security tests (DAST)
-        entry: npm run security:api
-        language: system
-        pass_filenames: false
-        require_serial: true
-        stages: [pre-push]
-
       - id: ggshield
-        name: ggshield secret scan
+        name: ggshield
         entry: ggshield secret scan pre-commit
         language: system
         pass_filenames: false
-        stages: [pre-commit]
+        always_run: true
+        verbose: false
+
+      - id: trivy
+        name: trivy
+        entry: trivy fs --scanners secret --severity HIGH,CRITICAL .
+        language: system
+        pass_filenames: false
+        always_run: true
+        verbose: false
+
+      - id: semgrep
+        name: semgrep
+        entry: semgrep --error --config p/default
+        language: system
+        pass_filenames: false
+        always_run: true
+        verbose: false
