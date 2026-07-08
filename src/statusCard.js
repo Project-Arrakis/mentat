@@ -9,7 +9,7 @@ const QUOTES = [
   "He who controls the spice controls the universe.",
 ];
 
-export async function sendStatusCard({ interaction, statusData, title, quote } = {}) {
+export async function sendStatusCard({ interaction, statusData, title, quote, latency } = {}) {
   const r = statusData?.result || statusData || {};
   const maps = (Array.isArray(r.maps) ? r.maps : []).map(m => ({
     name: m.name || "?",
