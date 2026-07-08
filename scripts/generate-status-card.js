@@ -25,7 +25,7 @@ async function loadBanner() {
 
 const W = 1200, H = 640;
 const PAD = 40;
-const CARD_TOP = 200, CARD_BOT = 590;
+const CARD_TOP = 150, CARD_BOT = 540;
 
 export async function generateStatusCard({ title, overall, region, mode, population, maps = [], services = 0, latency = 0, quote = "" } = {}) {
   const canvas = createCanvas(W, H);
