@@ -39,9 +39,10 @@ async function getLatestLatency() {
   try {
     const { getLatencyHistory } = await import("./adapterClient.js");
     const hist = getLatencyHistory();
-    const last = hist[hist.length - 1];
-    if (last && last.durationMs > 0) return last.durationMs;
-    const avg = hist.length > 0 ? Math.round(hist.reduce((s, e) => s + (e.durationMs || 0), 0) / hist.length) : 0;
-    return avg || 0;
+    // Skip the most recent entry if it's the status call that triggered this card
+    for (let i = hist.length - 1; i >= 0; i--) {
+      if (hist[i].durationMs > 0 && hist[i].status === 200) return hist[i].durationMs;
+    }
+    return 0;
   } catch { return 0; }
 }
