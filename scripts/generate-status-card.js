@@ -51,7 +51,7 @@ const COLORS = {
 
 const W = 1200, H = 640;
 const PAD = 36;
-const TOP = 290; // Title just above the golden header line (360px)
+const TOP = 80; // Content starts after accent bar — background is the clean content zone
 
 export async function generateStatusCard({ title, overall, region, mode, population, maps = [], services = 0, latency = 0, quote = "" } = {}) {
   const canvas = createCanvas(W, H);
@@ -67,8 +67,8 @@ export async function generateStatusCard({ title, overall, region, mode, populat
 
     // Gradient overlay — heavier at top, fading to bottom for readability
     const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, "rgba(0,0,0,0.50)");
-    grad.addColorStop(0.3, "rgba(0,0,0,0.35)");
+    grad.addColorStop(0, "rgba(0,0,0,0.25)");
+    grad.addColorStop(0.3, "rgba(0,0,0,0.15)");
     grad.addColorStop(0.7, "rgba(0,0,0,0.20)");
     grad.addColorStop(1, "rgba(0,0,0,0.40)");
     ctx.fillStyle = grad;
@@ -145,7 +145,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
 
   const mapBarH = 34;
   const mapGap = 6;
-  const maxMaps = Math.min(maps.length, 3);
+  const maxMaps = Math.min(maps.length, 5);
   const factionColors = [COLORS.atreides, COLORS.harkonnen, COLORS.fremen];
 
   maps.slice(0, maxMaps).forEach((m, i) => {
@@ -167,7 +167,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   });
 
   // Footer
-  const footerY = 580;
+  const footerY = H - 36;
   drawText(`Thumper · ${quote || "The spice must flow."}`, PAD + 30, footerY, "12px Ubuntu", COLORS.muted);
 
   return canvas;
