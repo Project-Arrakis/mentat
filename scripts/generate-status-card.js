@@ -51,7 +51,7 @@ const COLORS = {
 
 const W = 1200, H = 640;
 const PAD = 36;
-const TOP = 80; // Content starts after accent bar — background is the clean content zone
+const TOP = 195; // Green box in original maps to y≈200 in canvas
 
 export async function generateStatusCard({ title, overall, region, mode, population, maps = [], services = 0, latency = 0, quote = "" } = {}) {
   const canvas = createCanvas(W, H);
@@ -167,7 +167,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   });
 
   // Footer
-  const footerY = H - 36;
+  const footerY = 590;
   drawText(`Thumper · ${quote || "The spice must flow."}`, PAD + 30, footerY, "12px Ubuntu", COLORS.muted);
 
   return canvas;
