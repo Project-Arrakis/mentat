@@ -68,7 +68,6 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     { label: "PLAYERS", value: population || "—" },
     { label: "REGION", value: region || "—" },
     { label: "MODE", value: mode || "—" },
-    { label: "LATENCY", value: latency ? `${latency}ms` : "—" },
     { label: "SERVICES", value: String(services) },
   ];
   const statY = cy + 74;
@@ -155,7 +154,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     population: "0/60", maps: [
       { name: "Survival_1", state: "READY", uptime: "Up 18h" },
       { name: "Overmap", state: "READY", uptime: "Up 18h" },
-    ], services: 10, latency: 12, quote: "The spice must flow."
+    ], services: 10,  quote: "The spice must flow."
   });
   writeFileSync("/tmp/status-card-test.png", c.toBuffer("image/png"));
   console.log("Test card saved");
