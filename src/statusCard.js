@@ -9,13 +9,23 @@ const QUOTES = [
   "He who controls the spice controls the universe.",
 ];
 
-export async function sendStatusCard({ interaction, statusData, title, quote, latency } = {}) {
+export async function sendStatusCard({ interaction, statusData, title, quote, adapterClient } = {}) {
   const r = statusData?.result || statusData || {};
   const maps = (Array.isArray(r.maps) ? r.maps : []).map(m => ({
     name: m.name || "?",
     state: m.state || m.status || "UNKNOWN",
     uptime: m.uptime || ""
   }));
+
+  // Measure real latency via a quick health ping
+  let latency = 0;
+  if (adapterClient) {
+    try {
+      const start = Date.now();
+      await adapterClient.health();
+      latency = Date.now() - start;
+    } catch { latency = 0; }
+  }
 
   const canvas = await generateStatusCard({
     title: title || r.title || "Server",
@@ -25,7 +35,7 @@ export async function sendStatusCard({ interaction, statusData, title, quote, la
     population: r.population || "—",
     maps,
     services: Array.isArray(r.services) ? r.services.length : 0,
-    latency: latency || await getLatestLatency(),
+    latency,
     quote: quote || QUOTES[Math.floor(Math.random() * QUOTES.length)]
   });
 
@@ -33,16 +43,4 @@ export async function sendStatusCard({ interaction, statusData, title, quote, la
   const attachment = new AttachmentBuilder(buffer, { name: "status-card.png" });
 
   await interaction.editReply({ files: [attachment], embeds: [] });
-}
-
-async function getLatestLatency() {
-  try {
-    const { getLatencyHistory } = await import("./adapterClient.js");
-    const hist = getLatencyHistory();
-    // Skip the most recent entry if it's the status call that triggered this card
-    for (let i = hist.length - 1; i >= 0; i--) {
-      if (hist[i].durationMs > 0 && hist[i].status === 200) return hist[i].durationMs;
-    }
-    return 0;
-  } catch { return 0; }
 }
