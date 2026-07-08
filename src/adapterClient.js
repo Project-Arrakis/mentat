@@ -47,6 +47,8 @@ export class AdapterClient {
   servers(actor) { return this.request("servers", actor); }
   ports(actor) { return this.request("ports", actor); }
   db(actor) { return this.request("db", actor); }
+  writeExecute(actor, body) { return this.request("write-execute", actor, body); }
+  writePreview(actor, body) { return this.request("write-preview", actor, body); }
 
   async request(route, actor, extra = undefined) {
     const path = this.config.adapter.paths[route];

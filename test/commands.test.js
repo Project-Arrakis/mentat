@@ -46,7 +46,7 @@ test("buildDuneCommand uses subcommand groups", () => {
   const groups = cmd.options.filter(o => o.type === 2); // SUB_COMMAND_GROUP = 2
   assert.ok(groups.length >= 6, `expected 6+ groups, got ${groups.length}`);
   const names = groups.map(g => g.name).sort();
-  assert.deepEqual(names, ["admin", "core", "data", "infra", "ops", "server"]);
+  assert.deepEqual(names, ["admin", "core", "data", "infra", "ops", "server", "write"]);
 });
 
 test("extractRoleIds supports discord.js role cache shape", () => {
