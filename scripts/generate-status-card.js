@@ -123,10 +123,10 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     ctx.fillText(st, cx + cw - 42 - sw / 2 - ctx.measureText(st).width / 2, my + 22);
   });
 
-  // ── Footer ──
-  ctx.fillStyle = "#b8956e";
+  // ── Footer (inside card panel) ──
+  ctx.fillStyle = "#ffffff";
   ctx.font = "12px Ubuntu";
-  ctx.fillText(`Thumper · ${quote || "The spice must flow."}`, cx + 24, H - 30);
+  ctx.fillText(`Thumper · ${quote || "The spice must flow."}`, cx + 24, CARD_BOT - 20);
 
   return canvas;
 }
