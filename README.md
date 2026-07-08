@@ -1,173 +1,132 @@
-# Dune Awakening Self-Host Discord Bot
+# Arrakis Control Plane — Dune Discord Bot
 
-Read-only Discord companion for Dune Awakening Self-Host Docker.
+> *"A beginning is a very delicate time."*
 
-The bot runs outside the main console repo and talks only to the console's
-disabled-by-default, bearer-token protected Discord adapter API. It does not
-mount the Docker socket, connect to the database, read game files, or execute
-console commands.
+Your Dune Awakening server is a living world — players, maps, resources,
+economies — all pulsing to the rhythm of the deep desert. But you cannot stand
+at the console every hour. You need eyes that never close. You need a watcher
+that speaks the old tongue and warns your tribe when the sand shifts.
 
-There is no shared public bot. Each operator registers a Discord application,
-keeps their own bot token, and connects the bot to their own WebUI adapter.
+**Thumper** is that watcher.
+
+Named for the Fremen device that calls the great worms with a steady beat, this
+bot hammers the data streams of your server and brings them to Discord — status
+cards, population counts, map readiness, backup lists, combat stats, and more.
+It posts scheduled updates. It forwards in-game announcements. It lets your
+moderators speak to the game and your admins diagnose from anywhere.
+
+And like any Fremen tool, it is built for survival: read-only by default,
+bearer-token protected, secrets never exposed, no Docker socket, no database
+access, no shell commands. The spice must flow — safely.
+
+---
+
+## Quick Start
+
+```bash
+git clone https://github.com/yacketrj/dune-awakening-selfhost-discordbot.git
+cd dune-awakening-selfhost-discordbot
+cp .env.example .env   # fill in DISCORD_BOT_TOKEN, DISCORD_CLIENT_ID, etc.
+npm ci --omit=dev
+npm run register
+npm start
+```
+
+**New to all this?** Start here:
+- [Admin Guide](docs/admin-guide.md) — 12-step setup for first-time server owners
+- [User Guide](docs/user-guide.md) — plain-English explanation of every command
+- [FAQ](docs/faq.md) — 25 common questions answered
+- [Troubleshooting](docs/troubleshooting.md) — error → fix table
+
+**Already running?** See the [Configuration Reference](docs/configuration.md).
+
+---
+
+## Features
+
+- **25 slash commands** across 6 groups — core, server, data, ops, admin, infra
+- **Canvas status cards** — 1200×640 rendered PNG with Dune Rise typeface
+- **Rich Discord embeds** — emoji indicators, faction colors, structured fields
+- **Scheduled updates** — server status posted to your channel every 30 minutes
+- **Diagnostic mode** — admins get full CLI-style output on status/readiness
+- **Game → Discord bridge** — in-game announcements forwarded to your server
+- **Discord → Game bridge** — moderators can broadcast to all players
+- **OPS observability** — 9 operational data domains from the OPS addon
+- **Role-based access** — observer roles for members, admin for operators
+- **File-based secrets** — tokens never in shell history, never in Docker env
+- **Zero-permission addon** — WebUI panel with no backend access
+- **Thumper quotes** — random Dune wisdom in every embed footer
 
 ## Commands
 
-The bot uses Discord subcommand groups. Type `/dune` and select a group:
+Type `/dune` and select a group:
 
-### `core` — Bot Information
-`about` · `ping` · `help`
+| Group | Description | Commands |
+|-------|-------------|----------|
+| `core` | Bot information | `about` `ping` `help` |
+| `server` | Game server health | `health` `status` `summary` `readiness` `services` |
+| `data` | Game data | `population` `backups` `maps` |
+| `ops` | Observability (addon) | `activity` `combat` `resources` `economy` `inventory` `location` `soc` `prometheus` `dashboard` |
+| `admin` | Administration | `doctor` `cooldowns` `latency` `events` `broadcast` |
+| `infra` | Infrastructure | `version` `servers` `ports` `db` |
 
-### `server` — Game Server Health
-`health` · `status` · `summary` · `readiness` · `services`
+> Add `diagnostic:true` to `/dune server status` or `/dune server readiness` for full CLI output (admins only).
 
-> **Pro tip:** Add `diagnostic:true` to `/dune server status` or
-> `/dune server readiness` for detailed CLI-style output (admins only).
+## Documentation
 
-### `data` — Game Data
-`population` · `backups` · `maps`
+### For Everyone
+- [User Guide](docs/user-guide.md) — how to use every command
+- [FAQ](docs/faq.md) — common questions answered
+- [Troubleshooting](docs/troubleshooting.md) — error messages and fixes
 
-### `ops` — Operational Observability (requires OPS addon)
-`activity` · `combat` · `resources` · `economy` · `inventory` ·
-`location` · `soc` · `prometheus` · `dashboard`
+### For Server Owners
+- [Admin Guide](docs/admin-guide.md) — set up the bot on your server
+- [Configuration Reference](docs/configuration.md) — all environment variables and settings
+- [Discord Setup](docs/discord-setup.md) — Discord app creation and OAuth2
+- [Installation Guide](docs/installation-guide.md) — advanced Docker/Node deployment
 
-### `admin` — Administration (restricted)
-`doctor` · `cooldowns` · `latency` · `events` · `broadcast`
+### For Developers
+- [Architecture](docs/architecture.md) — system design and integration points
+- [Security Model](docs/security-model.md) — RBAC, secrets, threat model
+- [API Security Testing](docs/api-security-testing.md) — DAST scans and gate enforcement
+- [Cutting PRs](docs/cutting-prs.md) — upstream PR process and staging
+- [Release Process](docs/release-process.md) — versioning, changelog, release gates
+- [Full Release Roadmap](docs/full-release-roadmap.md) — multi-train release plan
 
-### `infra` — Infrastructure
-`version` · `servers` · `ports` · `db`
+## Security
 
-**25 commands total** across 6 groups. See the [User Guide](docs/user-guide.md)
-for a plain-English description of each command.
+| Gate | Tool | Frequency |
+|------|------|-----------|
+| SAST | Semgrep | pre-commit |
+| Secrets | Gitleaks | pre-commit |
+| Misconfig | Trivy | pre-commit |
+| Dependencies | npm audit | pre-commit |
+| Cloud secrets | ggshield | pre-commit |
+| Unit tests | node:test | pre-push |
+| API DAST | security:api | pre-push |
+| Image scan | Trivy image | release gates |
+| Doc validation | validate:docs | release gates |
 
-## Setup
+`npm run check` runs unit tests, release metadata validation, addon packaging, and SBOM generation. `npm run release:gates` runs the full 9-step suite.
 
-See `INSTALL.md` for the full install path.
+See [Security Gates](docs/security-gates.md) for details.
 
-Short version:
+## Roadmap
 
-1. Run `npm install`.
-2. Copy `.env.example` to `.env`.
-3. Set `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DUNE_CONSOLE_API_URL`, and
-   `DUNE_DISCORD_ADAPTER_TOKEN`.
-4. Set at least one RBAC principal, usually `DISCORD_OBSERVER_ROLE_IDS` or
-   `DISCORD_ADMIN_ROLE_IDS`.
-5. Optional: set `DISCORD_GUILD_ID` while testing so commands register quickly.
-6. Run `npm run register`.
-7. Run `npm start`.
+- **R1.0.0–R1.5.0** (current) — Read-only maturity. 25 commands, subcommand groups, canvas cards. ✅ Complete.
+- **R2.0.0** — Write-safety foundation. Disabled by default. Framework staged.
+- **R2.x** — Low-risk admin writes (maintenance, notifications, schedule).
+- **R3.0.0** — Operational writes (backup, restart, update, cache).
+- **R4.0.0+** — Highest-risk operations (player moderation, restore).
 
-Docker users can start from `docker-compose.example.yml`, which keeps the root
-filesystem read-only and uses a local healthcheck state file under `/tmp`.
+See [Full Release Roadmap](docs/full-release-roadmap.md) for gates and entry criteria.
+The detailed R1.x to R2.x cadence and entry criteria live in [docs/r1-r2-release-roadmap.md](docs/r1-r2-release-roadmap.md).
+Release candidates are gated by the [v1.0.0 Promotion Checklist](docs/v1.0.0-promotion-checklist.md).
+The latest readiness security review is recorded at [docs/security-review-2026-07-03.md](docs/security-review-2026-07-03.md).
 
-## Security Gates
+See the [Release Process](docs/release-process.md) for versioning, changelog, and release gate procedures.
 
-Pull requests are expected to pass unit tests, npm audit, Semgrep, Gitleaks,
-Trivy filesystem scanning, dependency review, SBOM generation, Docker image
-build, and Trivy image scanning before merge. See `docs/security-gates.md`.
+## Sources
 
-`npm run check` runs unit tests, addon package validation, and SBOM generation.
-
-## Releases
-
-Release notes live under `docs/releases/`, and the project changelog lives in
-`CHANGELOG.md`. The release process is documented in `docs/release-process.md`.
-Post-publication release evidence lives under `docs/release-evidence/`.
-The production release plan for the read-only `R1.0.0` target is documented in
-`docs/production-release-plan.md`. The larger release-train roadmap toward a
-full-featured bot is documented in `docs/full-release-roadmap.md`. The detailed
-`R1.x` to `R2.x` cadence and gates live in `docs/r1-r2-release-roadmap.md`.
-
-Tagged releases publish checksummed addon and SBOM artifacts:
-
-- `discord-readonly-bot-v<version>.tar.gz`
-- `discord-readonly-bot-v<version>.tar.gz.sha256`
-- `dune-awakening-selfhost-discordbot.cdx.json`
-- `dune-awakening-selfhost-discordbot.cdx.json.sha256`
-
-Verify checksum files before installing or redistributing release artifacts.
-Release-candidate tags such as `v0.1.1-rc.1` are published as GitHub
-prereleases and should be treated as validation candidates, not the default
-stable operator release.
-
-## Public Readiness
-
-Before publishing releases or opening a deployment to a wider audience, review:
-
-- `CHANGELOG.md`
-- `SECURITY.md`
-- `INSTALL.md`
-- `USAGE.md`
-- `SUPPORT.md`
-- `docs/discord-setup.md`
-- `docs/user-guide.md`
-- `docs/admin-guide.md`
-- `docs/faq.md`
-- `docs/troubleshooting.md`
-- `docs/configuration.md`
-- `docs/networking.md`
-- `docs/operator-validation.md`
-- `docs/adapter-contract.md`
-- `docs/dependency-management.md`
-- `docs/full-release-roadmap.md`
-- `docs/public-readiness.md`
-- `docs/pr-transparency-template.md`
-- `docs/production-release-plan.md`
-- `docs/r1-r2-release-roadmap.md`
-- `docs/release-process.md`
-- `docs/release-evidence/v1.0.0-rc.1.md`
-- `docs/releases/v0.1.0.md`
-- `docs/security-review-2026-07-03.md`
-- `docs/soc2-alignment.md`
-- `docs/upstream-write-adapter-rfc.md`
-- `docs/upstream-source.md`
-- `docs/v1.0.0-promotion-checklist.md`
-
-## Configuration
-
-See `docs/configuration.md` for the complete environment variable list.
-
-Endpoint paths and methods are configurable. The defaults match the current
-read-only adapter:
-
-- `GET /api/integrations/discord/health`
-- `POST /api/integrations/discord/status`
-- `POST /api/integrations/discord/readiness`
-- `POST /api/integrations/discord/services`
-
-Set `DUNE_ADAPTER_*_PATH` or `DUNE_ADAPTER_*_METHOD` values if the upstream
-release uses different routes.
-
-## RBAC
-
-RBAC defaults to `DISCORD_RBAC_MODE=restricted`. In restricted mode the bot
-refuses to start until at least one role or user allow-list is configured.
-
-- `DISCORD_ADMIN_ROLE_IDS` can use every current read-only command.
-- `DISCORD_OBSERVER_ROLE_IDS` can use every current read-only command.
-- `DISCORD_ABOUT_ROLE_IDS`, `DISCORD_PING_ROLE_IDS`, `DISCORD_HEALTH_ROLE_IDS`,
-  `DISCORD_STATUS_ROLE_IDS`, `DISCORD_STATUS_SUMMARY_ROLE_IDS`,
-  `DISCORD_READINESS_ROLE_IDS`, and `DISCORD_SERVICES_ROLE_IDS` grant a single
-  command.
-- `DISCORD_ALLOWED_USER_IDS` is an explicit user allow-list for operational
-  break-glass cases.
-- `DISCORD_RBAC_MODE=open` is available for local testing only.
-
-## Addon Boundary
-
-The `addon/` folder contains a zero-permission UI panel. It is optional and is
-only meant to point console users at setup help. The bot runtime stays separate.
-Release packages can be built with `npm run package:addon`; the script refuses
-non-zero addon permissions and writes a SHA-256 checksum next to the artifact.
-
-See `docs/architecture.md` and `docs/upstream-integration.md` for the design.
-
-## Usage and Operations
-
-- `USAGE.md` covers command behavior, RBAC, and troubleshooting.
-- `docs/verification.md` covers smoke tests and regression checks.
-- `docs/operator-validation.md` covers R1.1 operator smoke evidence.
-- `docs/dependency-management.md` covers Dependabot, dependency review, SBOMs,
-  and finding handling.
-- `docs/security-review-2026-07-03.md` records the latest read-only production
-  readiness security review.
-- `docs/non-readonly-roadmap.md` covers the security bar for any future write
-  capabilities.
+- [Discord Developer Portal](https://discord.com/developers/applications)
+- [Dune Awakening Self-Host Docker](https://github.com/Red-Blink/dune-awakening-selfhost-docker)

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload } from "./format.js";
-import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed } from "./embedFormat.js";
+import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed } from "./embedFormat.js";
 import { sendStatusCard } from "./statusCard.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory } from "./adapterClient.js";
@@ -21,7 +21,8 @@ export function buildDuneCommand() {
     .addSubcommandGroup((g) => g.setName("core").setDescription("Bot information and help.")
       .addSubcommand((c) => c.setName("about").setDescription("Show safe bot and adapter metadata."))
       .addSubcommand((c) => c.setName("ping").setDescription("Measure Discord and adapter latency."))
-      .addSubcommand((c) => c.setName("help").setDescription("Show available commands for your role.")))
+      .addSubcommand((c) => c.setName("help").setDescription("Show available commands for your role."))
+      .addSubcommand((c) => c.setName("setup").setDescription("How to add this bot to your own Discord server.")))
 
     // ── server group ──
     .addSubcommandGroup((g) => g.setName("server").setDescription("Server health, status, and services.")
@@ -111,6 +112,8 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       payload = await pingPayload(adapterClient, actor, deferReplyMs);
     } else if (key === "core:help") {
       payload = helpPayload(config, interaction);
+    } else if (key === "core:setup") {
+      payload = setupPayload(config, interaction);
     }
     // ── server group ──
     else if (key === "server:health") {
@@ -187,6 +190,8 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
     let embed;
     if (subcommand === "about") {
       embed = formatGenericEmbed(payload, "about");
+    } else if (subcommand === "setup") {
+      embed = formatSetupEmbed(payload);
     } else if (subcommand === "ping") {
       embed = formatPingEmbed(payload);
     } else if (subcommand === "health") {
@@ -306,11 +311,21 @@ export function populationPayload(p) { const r = p?.result || {}; return { ok: p
 
 export function backupPayload(b) { const list = Array.isArray(b?.result?.backups) ? b.result.backups.slice(0, 10) : []; return { ok: b?.ok === true, count: list.length, backups: list.map(x => ({ name: x.name || "unknown", date: x.date || x.createdAt || "unknown", size: x.size || "unknown" })) }; }
 
+function setupPayload(config, interaction) {
+  const clientId = process.env.DISCORD_CLIENT_ID || config?.discord?.clientId || "";
+  const guildId = interaction?.guildId || "";
+  const inviteUrl = clientId
+    ? `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot%20applications.commands`
+    : "*(Client ID not configured — ask the bot host for the invite link)*";
+  return { ok: true, clientId, guildId, inviteUrl };
+}
+
 function helpPayload(config, interaction) {
   const all = [
     { name: "core:about", desc: "Show safe bot and adapter metadata.", role: "observer" },
     { name: "core:ping", desc: "Measure Discord and adapter latency.", role: "observer" },
     { name: "core:help", desc: "Show available commands for your role.", role: "observer" },
+    { name: "core:setup", desc: "How to add this bot to your own Discord server.", role: "observer" },
     { name: "server:health", desc: "Check the console Discord adapter.", role: "observer" },
     { name: "server:status", desc: "Show high-level server status.", role: "observer" },
     { name: "server:summary", desc: "Show compact aggregate server status.", role: "observer" },

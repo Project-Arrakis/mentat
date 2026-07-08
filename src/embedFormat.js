@@ -469,3 +469,43 @@ export function formatDbEmbed(payload) {
     fields: [{ name: "Checks", value: String(items.length), inline: true }]
   });
 }
+
+export function formatSetupEmbed(setup) {
+  const inviteUrl = setup?.inviteUrl || "";
+  const clientId = setup?.clientId || "?";
+  const guildId = setup?.guildId || "";
+
+  return duneEmbed({
+    title: "🔧 Add This Bot to Your Server",
+    color: "spice",
+    description: [
+      "**Host your own Dune Discord Bot.** Follow these steps to get the bot",
+      "running on your server with full read-only monitoring.\n",
+      "### 📋 Step 1: Invite the Bot",
+      `Use this link to invite the bot to your server:`,
+      `\`\`\`${inviteUrl}\`\`\``,
+      `**Scopes:** \`bot\` + \`applications.commands\`  ·  **Permissions:** \`0\``,
+      "",
+      "### 🏷️ Step 2: Create Roles",
+      "The bot uses Discord roles to control access. Create these roles:",
+      "• **Dune Observer** — can use all read-only commands",
+      "• **Dune Admin** — can use admin commands and diagnostics",
+      "",
+      "### 📐 Step 3: Find Your Role & Guild IDs",
+      "1. **Enable Developer Mode:** Settings → Advanced → Developer Mode ON",
+      "2. **Right-click your server icon** → Copy Server ID",
+      "3. **Right-click each role** → Copy Role ID",
+      `Your guild ID${guildId ? " is `" + guildId + "`" : ": *(run this command in a server to see it)*"}`,
+      "",
+      "### ⚙️ Step 4: Configure the Bot",
+      "Add these values to your \`.env\` file:",
+      "```bash",
+      "DISCORD_OBSERVER_ROLE_IDS=your-observer-role-id",
+      "DISCORD_ADMIN_ROLE_IDS=your-admin-role-id",
+      "DISCORD_GUILD_ID=" + (guildId || "your-server-id"),
+      "```",
+      "",
+      "📖 **Full documentation:** [Admin Guide](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/blob/main/docs/admin-guide.md)"
+    ].join("\n").slice(0, 2048)
+  });
+}
