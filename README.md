@@ -12,15 +12,32 @@ keeps their own bot token, and connects the bot to their own WebUI adapter.
 
 ## Commands
 
-Register one `/dune` slash command with these subcommands:
+The bot uses Discord subcommand groups. Type `/dune` and select a group:
 
-- `/dune about` shows safe bot and adapter metadata.
-- `/dune ping` measures Discord defer timing and adapter health latency.
-- `/dune health` checks the Discord adapter health endpoint.
-- `/dune status` shows the high-level server status payload.
-- `/dune status-summary` shows compact aggregate status for lower-noise posts.
-- `/dune readiness` shows readiness/preflight state.
-- `/dune services` shows service state from the adapter.
+### `core` — Bot Information
+`about` · `ping` · `help`
+
+### `server` — Game Server Health
+`health` · `status` · `summary` · `readiness` · `services`
+
+> **Pro tip:** Add `diagnostic:true` to `/dune server status` or
+> `/dune server readiness` for detailed CLI-style output (admins only).
+
+### `data` — Game Data
+`population` · `backups` · `maps`
+
+### `ops` — Operational Observability (requires OPS addon)
+`activity` · `combat` · `resources` · `economy` · `inventory` ·
+`location` · `soc` · `prometheus` · `dashboard`
+
+### `admin` — Administration (restricted)
+`doctor` · `cooldowns` · `latency` · `events` · `broadcast`
+
+### `infra` — Infrastructure
+`version` · `servers` · `ports` · `db`
+
+**25 commands total** across 6 groups. See the [User Guide](docs/user-guide.md)
+for a plain-English description of each command.
 
 ## Setup
 
@@ -81,6 +98,11 @@ Before publishing releases or opening a deployment to a wider audience, review:
 - `USAGE.md`
 - `SUPPORT.md`
 - `docs/discord-setup.md`
+- `docs/user-guide.md`
+- `docs/admin-guide.md`
+- `docs/faq.md`
+- `docs/troubleshooting.md`
+- `docs/configuration.md`
 - `docs/networking.md`
 - `docs/operator-validation.md`
 - `docs/adapter-contract.md`
