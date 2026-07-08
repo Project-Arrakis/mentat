@@ -57,7 +57,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   ctx.fillText(title || "Server", cx + 24, cy + 44);
 
   ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 16px \"Ubuntu Bold\"";
+  ctx.font = "18px \"Dune Rise\"";
   const badge = overall || "UNKNOWN";
   const bw = ctx.measureText(badge).width + 24;
   const bc = overall === "READY" ? ATREIDES : overall === "ISSUE" ? FREMEN : HARKONNEN;
@@ -79,7 +79,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   stats.forEach((s, i) => {
     const sx = cx + 12 + i * statW;
     ctx.fillStyle = "#b8956e";
-    ctx.font = "bold 11px \"Ubuntu Bold\"";
+    ctx.font = "12px \"Dune Rise\"";
     ctx.fillText(s.label, sx, statY + 14);
     ctx.fillStyle = "#ffffff";
     ctx.font = "14px \"Dune Rise\"";
@@ -97,7 +97,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   // ── Maps ──
   const mapY = statY + 80;
   ctx.fillStyle = "#a06839";
-  ctx.font = "bold 11px \"Ubuntu Bold\"";
+  ctx.font = "12px \"Dune Rise\"";
   ctx.fillText("ACTIVE MAPS", cx + 24, mapY + 14);
 
   const mh = 34, mg = 6, maxM = Math.min(maps.length, 4);
@@ -113,7 +113,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
 
     if (m.uptime) {
       ctx.fillStyle = "#b8956e";
-      ctx.font = "12px Ubuntu";
+      ctx.font = "12px \"Dune Rise\"";
       ctx.fillText(m.uptime, cx + 240, my + 24);
     }
 
@@ -122,13 +122,13 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     ctx.fillStyle = fcs[i % fcs.length];
     roundRect(ctx, cx + cw - 42 - sw, my + 6, sw, 22, 11, true, false);
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 11px \"Ubuntu Bold\"";
+    ctx.font = "12px \"Dune Rise\"";
     ctx.fillText(st, cx + cw - 42 - sw / 2 - ctx.measureText(st).width / 2, my + 22);
   });
 
   // ── Footer (inside card panel) ──
   ctx.fillStyle = "#ffffff";
-  ctx.font = "12px Ubuntu";
+  ctx.font = "12px \"Dune Rise\"";
   ctx.fillText(`Thumper · ${quote || "The spice must flow."}`, cx + 24, CARD_BOT - 20);
 
   return canvas;
