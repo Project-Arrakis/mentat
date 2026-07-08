@@ -2,7 +2,6 @@ import { createCanvas, GlobalFonts, loadImage, Image } from "@napi-rs/canvas";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Register bundled fonts
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS = join(__dirname, "..", "assets");
 
@@ -15,204 +14,149 @@ try {
   GlobalFonts.registerFromPath("/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf", "Ubuntu Bold");
 }
 
-// Cache the background image
 let BANNER = null;
 async function loadBanner() {
   if (!BANNER) {
-    try {
-      BANNER = await loadImage(join(ASSETS, "status-bg.png"));
-    } catch {
-      try {
-        BANNER = await loadImage(join(ASSETS, "bot-banner.png"));
-      } catch {
-        BANNER = new Image();
-      }
-    }
+    try { BANNER = await loadImage(join(ASSETS, "status-bg.png")); }
+    catch { BANNER = new Image(); }
   }
   return BANNER;
 }
 
-// Dune palette — warm amber/desert, tuned for the new background
-const COLORS = {
-  bg: "#0c0a06",
-  cardBg: "rgba(28,21,16,0.70)",
-  accent: "#a06839",
-  text: "#ecd5b5",
-  muted: "#b8956e",
-  success: "#6eeb83",
-  warning: "#fbbf24",
-  error: "#f87171",
-  atreides: "#4ade80",
-  harkonnen: "#f87171",
-  fremen: "#fbbf24",
-  border: "#4a321c",
-  fieldBg: "rgba(255,255,255,0.05)",
-};
-
 const W = 1200, H = 640;
-const PAD = 36;
-const TOP = 195; // Green box in original maps to y≈200 in canvas
+const PAD = 40;
+const CARD_TOP = 200, CARD_BOT = 590;
 
 export async function generateStatusCard({ title, overall, region, mode, population, maps = [], services = 0, latency = 0, quote = "" } = {}) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
 
-  // Banner background — fills the entire canvas, no card body rectangle
-  const banner = await loadBanner();
-  if (banner.width > 0) {
-    const scale = Math.max(W / banner.width, H / banner.height);
-    const sw = banner.width * scale;
-    const sh = banner.height * scale;
-    ctx.drawImage(banner, (W - sw) / 2, (H - sh) / 2, sw, sh);
-
-    // Gradient overlay — heavier at top, fading to bottom for readability
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, "rgba(0,0,0,0.25)");
-    grad.addColorStop(0.3, "rgba(0,0,0,0.15)");
-    grad.addColorStop(0.7, "rgba(0,0,0,0.20)");
-    grad.addColorStop(1, "rgba(0,0,0,0.40)");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
-
-  } else {
-    ctx.fillStyle = COLORS.bg;
-    ctx.fillRect(0, 0, W, H);
+  // Background image fills canvas
+  const bg = await loadBanner();
+  if (bg.width > 0) {
+    const s = Math.max(W / bg.width, H / bg.height);
+    ctx.drawImage(bg, (W - bg.width * s) / 2, (H - bg.height * s) / 2, bg.width * s, bg.height * s);
   }
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.fillRect(0, 0, W, H);
 
-  // No card body — text sits directly on the background
-  // Text shadow helper for readability against the varying background
-  function drawText(text, x, y, font, color, shadow = true) {
-    ctx.font = font;
-    if (shadow) {
-      ctx.fillStyle = "rgba(0,0,0,0.6)";
-      ctx.fillText(text, x + 2, y + 2);
-    }
-    ctx.fillStyle = color;
-    ctx.fillText(text, x, y);
-  }
+  // ── Card panel inside the green box zone ──
+  const cx = PAD, cy = CARD_TOP, cw = W - PAD * 2, ch = CARD_BOT - CARD_TOP;
+  ctx.fillStyle = "rgba(15,12,8,0.85)";
+  roundRect(ctx, cx, cy, cw, ch, 12, true, false);
+  ctx.strokeStyle = "rgba(160,104,57,0.4)";
+  ctx.lineWidth = 1;
+  roundRect(ctx, cx, cy, cw, ch, 12, false, true);
 
-  function drawTextBold(text, x, y, font, color) {
-    drawText(text, x, y, font, color, true);
-  }
+  // ── Title row ──
+  ctx.fillStyle = "#a06839";
+  ctx.font = "32px \"Dune Rise\"";
+  ctx.fillText(title || "Server", cx + 24, cy + 44);
 
-  // Accent bar at top
-  ctx.fillStyle = COLORS.accent;
-  roundRect(ctx, PAD + 10, PAD + 10, W - 2 * (PAD + 10), 3, 8, true, false);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 16px \"Ubuntu Bold\"";
+  const badge = overall || "UNKNOWN";
+  const bw = ctx.measureText(badge).width + 24;
+  const bc = overall === "READY" ? "#6eeb83" : overall === "ISSUE" ? "#fbbf24" : "#f87171";
+  ctx.fillStyle = bc;
+  roundRect(ctx, cx + cw - 24 - bw, cy + 20, bw, 26, 13, true, false);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(badge, cx + cw - 24 - bw / 2 - ctx.measureText(badge).width / 2, cy + 40);
 
-  // Title — Dune Rise, amber accent color
-  drawTextBold(`${title || "Server Status"}`, PAD + 30, TOP + 22, "34px Dune Rise", COLORS.accent);
-
-  // Status badge
-  const badgeColor = overall === "READY" ? COLORS.success : overall === "ISSUE" ? COLORS.warning : COLORS.error;
-  ctx.fillStyle = badgeColor;
-  const badgeText = overall || "UNKNOWN";
-  const badgeW = ctx.measureText(badgeText).width + 28;
-  roundRect(ctx, W - PAD - 30 - badgeW, TOP - 8, badgeW, 32, 16, true, false);
-  drawText(badgeText, W - PAD - 30 - badgeW / 2 - ctx.measureText(badgeText).width / 2, TOP + 16, "bold 16px Ubuntu Bold", "#ffffff", false);
-
-  // Stats row — icons with data
+  // ── Stats row ──
   const stats = [
-    { icon: "👥", label: "Players", value: population || "—" },
-    { icon: "🌎", label: "Region", value: region || "—" },
-    { icon: "🎮", label: "Mode", value: mode || "—" },
-    { icon: "📡", label: "Latency", value: latency ? `${latency}ms` : "—" },
-    { icon: "⚙️", label: "Services", value: String(services) },
+    { label: "PLAYERS", value: population || "—" },
+    { label: "REGION", value: region || "—" },
+    { label: "MODE", value: mode || "—" },
+    { label: "LATENCY", value: latency ? `${latency}ms` : "—" },
+    { label: "SERVICES", value: String(services) },
   ];
-
-  const statY = TOP + 60;
-  const statW = (W - PAD * 2 - 60) / stats.length;
-
+  const statY = cy + 74;
+  const statW = cw / stats.length;
   stats.forEach((s, i) => {
-    const sx = PAD + 30 + i * statW;
-    ctx.font = "28px Ubuntu Bold";
-    drawText(s.icon, sx, statY + 28, "28px Ubuntu Bold", COLORS.text, false);
-    drawText(s.label, sx + 36, statY + 16, "bold 13px Ubuntu Bold", COLORS.muted);
-    drawTextBold(s.value, sx + 36, statY + 42, "19px Dune Rise", COLORS.text);
+    const sx = cx + 12 + i * statW;
+    ctx.fillStyle = "#b8956e";
+    ctx.font = "bold 11px \"Ubuntu Bold\"";
+    ctx.fillText(s.label, sx, statY + 14);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "22px \"Dune Rise\"";
+    ctx.fillText(s.value, sx, statY + 42);
   });
 
-  // Separator line
-  ctx.strokeStyle = COLORS.border;
+  // ── Separator ──
+  ctx.strokeStyle = "rgba(160,104,57,0.3)";
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(PAD + 20, statY + 80);
-  ctx.lineTo(W - PAD - 20, statY + 80);
+  ctx.moveTo(cx + 20, statY + 62);
+  ctx.lineTo(cx + cw - 20, statY + 62);
   ctx.stroke();
 
-  // Maps section header
-  let mapY = statY + 110;
-  drawText("ACTIVE MAPS", PAD + 30, mapY - 12, "bold 12px Ubuntu Bold", COLORS.accent);
-  mapY += 10;
+  // ── Maps ──
+  const mapY = statY + 80;
+  ctx.fillStyle = "#a06839";
+  ctx.font = "bold 11px \"Ubuntu Bold\"";
+  ctx.fillText("ACTIVE MAPS", cx + 24, mapY + 14);
 
-  const mapBarH = 34;
-  const mapGap = 6;
-  const maxMaps = Math.min(maps.length, 5);
-  const factionColors = [COLORS.atreides, COLORS.harkonnen, COLORS.fremen];
+  const mh = 34, mg = 6, maxM = Math.min(maps.length, 4);
+  const fcs = ["#4ade80", "#f87171", "#fbbf24", "#a06839"];
+  maps.slice(0, maxM).forEach((m, i) => {
+    const my = mapY + 24 + i * (mh + mg);
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    roundRect(ctx, cx + 20, my, cw - 40, mh, 6, true, false);
 
-  maps.slice(0, maxMaps).forEach((m, i) => {
-    const my = mapY + i * (mapBarH + mapGap);
-    const barColor = factionColors[i % 3];
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "16px \"Dune Rise\"";
+    ctx.fillText(m.name || "?", cx + 42, my + 24);
 
-    ctx.fillStyle = COLORS.fieldBg;
-    roundRect(ctx, PAD + 20, my, W - PAD * 2 - 40, mapBarH, 6, true, false);
+    if (m.uptime) {
+      ctx.fillStyle = "#b8956e";
+      ctx.font = "12px Ubuntu";
+      ctx.fillText(m.uptime, cx + 240, my + 24);
+    }
 
-    drawTextBold(`${m.name || "?"}`, PAD + 42, my + 26, "15px Dune Rise", COLORS.text);
-    if (m.uptime) drawText(m.uptime, PAD + 260, my + 26, "13px Ubuntu", COLORS.muted);
-
-    const stateText = m.state || m.status || "UNKNOWN";
-    const sw = ctx.measureText(stateText).width + 20;
-    const sx = W - PAD - 60 - sw;
-    ctx.fillStyle = barColor;
-    roundRect(ctx, sx, my + 8, sw, 22, 11, true, false);
-    drawText(stateText, sx + 10, my + 24, "bold 12px Ubuntu Bold", "#ffffff", false);
+    const st = m.state || m.status || "?";
+    const sw = ctx.measureText(st).width + 18;
+    ctx.fillStyle = fcs[i % fcs.length];
+    roundRect(ctx, cx + cw - 42 - sw, my + 6, sw, 22, 11, true, false);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 11px \"Ubuntu Bold\"";
+    ctx.fillText(st, cx + cw - 42 - sw / 2 - ctx.measureText(st).width / 2, my + 22);
   });
 
-  // Footer
-  const footerY = 590;
-  drawText(`Thumper · ${quote || "The spice must flow."}`, PAD + 30, footerY, "12px Ubuntu", COLORS.muted);
+  // ── Footer ──
+  ctx.fillStyle = "#b8956e";
+  ctx.font = "12px Ubuntu";
+  ctx.fillText(`Thumper · ${quote || "The spice must flow."}`, cx + 24, H - 30);
 
   return canvas;
 }
 
-function roundRect(ctx, x, y, w, h, r = 0, fill = false, stroke = false) {
-  if (typeof r === "object") {
-    r = { tl: r.tl || 0, tr: r.tr || 0, br: r.br || 0, bl: r.bl || 0 };
-  } else {
-    r = { tl: r, tr: r, br: r, bl: r };
-  }
+function roundRect(ctx, x, y, w, h, r, fill, stroke) {
+  if (typeof r === "object") r = r.tl || r.tr || r.br || r.bl || 0;
   ctx.beginPath();
-  ctx.moveTo(x + r.tl, y);
-  ctx.lineTo(x + w - r.tr, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r.tr);
-  ctx.lineTo(x + w, y + h - r.br);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r.br, y + h);
-  ctx.lineTo(x + r.bl, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r.bl);
-  ctx.lineTo(x, y + r.tl);
-  ctx.quadraticCurveTo(x, y, x + r.tl, y);
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
   ctx.closePath();
   if (fill) ctx.fill();
   if (stroke) ctx.stroke();
 }
 
-// Quick test if run directly
 import { writeFileSync } from "node:fs";
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const canvas = await generateStatusCard({
-    title: "Tabr-Tau",
-    overall: "READY",
-    region: "North America",
-    mode: "public",
-    population: "0/60",
-    maps: [
-      { name: "Survival_1", state: "READY", uptime: "Up 18 hours" },
-      { name: "Overmap", state: "READY", uptime: "Up 18 hours" },
-      { name: "SH_Arrakeen", state: "INACTIVE" },
-      { name: "SH_HarkoVillage", state: "INACTIVE" },
-    ],
-    services: 10,
-    latency: 12,
-    quote: "The spice must flow."
+  const c = await generateStatusCard({
+    title: "Tabr-Tau", overall: "READY", region: "North America", mode: "public",
+    population: "0/60", maps: [
+      { name: "Survival_1", state: "READY", uptime: "Up 18h" },
+      { name: "Overmap", state: "READY", uptime: "Up 18h" },
+    ], services: 10, latency: 12, quote: "The spice must flow."
   });
-  writeFileSync("/tmp/status-card-test.png", canvas.toBuffer("image/png"));
-  console.log("Test card saved to /tmp/status-card-test.png");
+  writeFileSync("/tmp/status-card-test.png", c.toBuffer("image/png"));
+  console.log("Test card saved");
 }
