@@ -2,6 +2,30 @@
 
 Every environment variable, role mapping, and feature flag for the Dune Discord Bot.
 
+## Quick Start (Minimal Configuration)
+
+For first-time setup, you only need these 4 values:
+
+```bash
+DISCORD_BOT_TOKEN=           # From Discord Developer Portal → Bot → Token
+DISCORD_CLIENT_ID=            # From Discord Developer Portal → General Information  
+DUNE_CONSOLE_API_URL=http://localhost:8088  # Your console WebUI address
+DUNE_DISCORD_ADAPTER_TOKEN=   # Must match console's bot-api-token.txt
+```
+
+**Security tip:** Use file-based secrets instead of raw tokens:
+```bash
+DISCORD_BOT_TOKEN_FILE=/app/secrets/discord-bot-token.txt
+DUNE_DISCORD_ADAPTER_TOKEN_FILE=/app/secrets/adapter-token.txt
+```
+
+For Docker users, mount the secrets directory as a read-only volume:
+```bash
+docker run ... -v /host/secrets:/app/secrets:ro ...
+```
+
+See the [Admin Guide](admin-guide.md) for a step-by-step setup walkthrough.
+
 ---
 
 ## Required Environment Variables
