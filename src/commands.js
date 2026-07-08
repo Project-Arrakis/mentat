@@ -122,7 +122,7 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       payload = await adapterClient.status(actor, diagnostic);
       if (!diagnostic) {
         const statusData = payload?.result || payload || {};
-        await sendStatusCard({ interaction, statusData: payload, title: statusData.title });
+        await sendStatusCard({ interaction, statusData: payload, title: statusData.title, adapterClient });
         applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
         return true;
       }
