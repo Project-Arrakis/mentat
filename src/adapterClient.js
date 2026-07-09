@@ -49,6 +49,15 @@ export class AdapterClient {
   db(actor) { return this.request("db", actor); }
   writeExecute(actor, body) { return this.request("write-execute", actor, body); }
   writePreview(actor, body) { return this.request("write-preview", actor, body); }
+  playerLink(actor, characterName) { return this.request("players-link", actor, { characterName }); }
+  playerUnlink(actor) { return this.request("players-unlink", actor); }
+  whoami(actor) { return this.request("players-me", actor); }
+  playerInventory(actor) { return this.request("players-inventory", actor); }
+  playerInventorySearch(actor, query) { return this.request("players-inventory-search", actor, { query }); }
+  playerStorage(actor, scope) { return this.request("players-storage", actor, { scope }); }
+  playerFind(actor, query, scope) { return this.request("players-find", actor, { query, scope }); }
+  guildStorage(actor) { return this.request("guild-storage", actor); }
+  guildFind(actor, query) { return this.request("guild-find", actor, { query }); }
 
   async request(route, actor, extra = undefined) {
     const path = this.config.adapter.paths[route];

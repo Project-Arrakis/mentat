@@ -313,6 +313,127 @@ export function formatMapsEmbed(maps) {
   });
 }
 
+// ── Inventory ──
+export function formatInventoryEmbed(payload) {
+  if (!payload?.ok) {
+    return duneEmbed({
+      title: "📦 Inventory",
+      color: "warning",
+      description: payload?.error || "Could not load inventory.",
+      fields: [
+        { name: "💡 Tip", value: "Use `/dune data link <character-name>` first to link your Discord to your game character." }
+      ]
+    });
+  }
+  const name = payload?.characterName || "Unknown";
+  const items = payload?.rows || payload?.items || [];
+  const total = payload?.count ?? payload?.totalItems ?? items.length;
+  const desc = items.length === 0
+    ? "*No items in inventory*"
+    : items.slice(0, 25).map((item, i) => {
+        const id = item.templateId || "Unknown";
+        const qty = item.stackSize || 0;
+        const qual = item.qualityLevel ? ` Q${item.qualityLevel}` : "";
+        return `\`${id}\` ×${qty}${qual}`;
+      }).join("\n") + (items.length > 25 ? `\n\n*...and ${items.length - 25} more*` : "");
+  return duneEmbed({
+    title: `📦 ${name}'s Inventory`,
+    color: "sand",
+    description: desc.slice(0, 2048),
+    fields: [
+      { name: "📊 Total Items", value: String(total), inline: true }
+    ]
+  });
+}
+
+export function formatStorageEmbed(payload) {
+  const groups = payload?.groups || {};
+  const totalContainers = payload?.totalContainers || 0;
+  const totalItems = payload?.totalItems || 0;
+  const scope = payload?.scope || "owned";
+  const scopeLabel = scope === "guild" ? "Guild" : "Owned";
+  const desc = Object.keys(groups).length === 0
+    ? `*No ${scope} storage containers found*`
+    : Object.entries(groups).map(([map, containers]) => {
+        return `**${map}** (${containers.length})\n` +
+          containers.map(c => `  📦 \`${c.name}\` — ${c.itemCount} items`).join("\n");
+      }).join("\n\n");
+  return duneEmbed({
+    title: `🗄️ ${scopeLabel} Storage`,
+    color: "sand",
+    description: desc.slice(0, 2048),
+    fields: [
+      { name: "📦 Containers", value: String(totalContainers), inline: true },
+      { name: "📊 Items", value: String(totalItems), inline: true }
+    ]
+  });
+}
+
+export function formatFindEmbed(payload) {
+  const query = payload?.query || "";
+  const matches = payload?.matches || [];
+  const totalContainers = payload?.totalContainers || 0;
+  const totalStacks = payload?.totalItemStacks || 0;
+  const desc = matches.length === 0
+    ? `*No items matching "${query}" found*`
+    : matches.map(m => {
+        return `**${m.containerName}** (${m.map || "Unknown"})\n` +
+          (m.items || []).map(i => `  \`${i.templateId}\` ×${i.stackSize || 0}${i.qualityLevel ? ` Q${i.qualityLevel}` : ""}`).join("\n");
+      }).join("\n\n");
+  return duneEmbed({
+    title: `🔍 Search: "${query}"`,
+    color: matches.length > 0 ? "success" : "warning",
+    description: desc.slice(0, 2048),
+    fields: [
+      { name: "📦 Containers", value: String(totalContainers), inline: true },
+      { name: "📊 Stacks", value: String(totalStacks), inline: true }
+    ]
+  });
+}
+
+// ── Link / Identity ──
+export function formatLinkEmbed(payload) {
+  if (!payload?.ok) {
+    return duneEmbed({
+      title: "🔗 Link Failed",
+      color: "error",
+      description: payload?.error || "Unknown error"
+    });
+  }
+  return duneEmbed({
+    title: "🔗 Character Linked",
+    color: "success",
+    description: `Linked as **${payload?.characterName || payload?.linked || "Unknown"}**.\nUse \`/dune data inventory\` to view your inventory.`
+  });
+}
+
+export function formatUnlinkEmbed(payload) {
+  return duneEmbed({
+    title: "🔗 Unlinked",
+    color: "sand",
+    description: payload?.message || "Your Discord is no longer linked to a game character."
+  });
+}
+
+export function formatWhoamiEmbed(payload) {
+  if (!payload?.linked) {
+    return duneEmbed({
+      title: "🔗 Not Linked",
+      color: "warning",
+      description: "You are not linked to a game character.\nUse `/dune data link <name>` to link."
+    });
+  }
+  return duneEmbed({
+    title: "🔗 Player Identity",
+    color: "success",
+    description: `Character: **${payload?.characterName || "Unknown"}**`,
+    fields: [
+      { name: "🟢 Status", value: payload?.onlineStatus || "Offline", inline: true },
+      { name: "🆔 ID", value: payload?.controllerId || "?", inline: true }
+    ]
+  });
+}
+
 // ── Cooldowns ──
 export function formatCooldownsEmbed(stats) {
   const entries = stats?.entries || [];
