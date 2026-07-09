@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+      - "feature/**"
+      - "fix/**"
   workflow_dispatch:
   schedule:
     - cron: "17 9 * * 1"
