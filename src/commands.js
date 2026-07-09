@@ -2,7 +2,7 @@ import { SlashCommandBuilder } from "discord.js";
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload } from "./format.js";
-import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed } from "./embedFormat.js";
+import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed } from "./embedFormat.js";
 import { sendStatusCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { writesEnabled } from "./writes.js";
@@ -36,10 +36,23 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("services").setDescription("Show service container state.")))
 
     // ── data group ──
-    .addSubcommandGroup((g) => g.setName("data").setDescription("Server population, backups, and map information.")
+    .addSubcommandGroup((g) => g.setName("data").setDescription("Server population, backups, map, inventory, and storage.")
       .addSubcommand((c) => c.setName("population").setDescription("Show aggregate player count and server population."))
       .addSubcommand((c) => c.setName("backups").setDescription("List recent backup metadata (read-only)."))
-      .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime.")))
+      .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime."))
+      .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character.")
+        .addStringOption((o) => o.setName("character").setDescription("Your character name").setRequired(true)))
+      .addSubcommand((c) => c.setName("unlink").setDescription("Unlink your Discord from your game character."))
+      .addSubcommand((c) => c.setName("whoami").setDescription("Show your linked game character info."))
+      .addSubcommand((c) => c.setName("inventory").setDescription("View your personal inventory.")
+        .addStringOption((o) => o.setName("search").setDescription("Filter by item name (optional)")))
+      .addSubcommand((c) => c.setName("storage").setDescription("View your storage containers grouped by map.")
+        .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
+          .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" })))
+      .addSubcommand((c) => c.setName("find").setDescription("Search for items across your containers.")
+        .addStringOption((o) => o.setName("query").setDescription("Item name to search for").setRequired(true))
+        .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
+          .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" }))))
 
     // ── ops group ──
     .addSubcommandGroup((g) => g.setName("ops").setDescription("Operational observability from the OPS addon.")
@@ -179,6 +192,28 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       const status = await adapterClient.status(actor);
       payload = { maps: status?.result?.maps || [] };
     }
+    else if (key === "data:link") {
+      const characterName = interaction.options.getString("character");
+      payload = await adapterClient.playerLink(actor, characterName);
+    } else if (key === "data:unlink") {
+      payload = await adapterClient.playerUnlink(actor);
+    } else if (key === "data:whoami") {
+      payload = await adapterClient.whoami(actor);
+    } else if (key === "data:inventory") {
+      const search = interaction.options.getString("search");
+      if (search) {
+        payload = await adapterClient.playerInventorySearch(actor, search);
+      } else {
+        payload = await adapterClient.playerInventory(actor);
+      }
+    } else if (key === "data:storage") {
+      const scope = interaction.options.getString("scope") || "owned";
+      payload = await adapterClient.playerStorage(actor, scope);
+    } else if (key === "data:find") {
+      const query = interaction.options.getString("query");
+      const scope = interaction.options.getString("scope") || "owned";
+      payload = await adapterClient.playerFind(actor, query, scope);
+    }
     // ── ops group ──
     else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
       const route = opsRouteFor(subcommand);
@@ -249,6 +284,18 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       embed = formatBackupsEmbed(payload);
     } else if (subcommand === "maps") {
       embed = formatMapsEmbed(payload);
+    } else if (subcommand === "link") {
+      embed = formatLinkEmbed(payload);
+    } else if (subcommand === "unlink") {
+      embed = formatUnlinkEmbed(payload);
+    } else if (subcommand === "whoami") {
+      embed = formatWhoamiEmbed(payload);
+    } else if (subcommand === "inventory") {
+      embed = formatInventoryEmbed(payload);
+    } else if (subcommand === "storage") {
+      embed = formatStorageEmbed(payload);
+    } else if (subcommand === "find") {
+      embed = formatFindEmbed(payload);
     } else if (subcommand === "doctor") {
       embed = formatDoctorEmbed(payload);
     } else if (subcommand === "cooldowns") {
