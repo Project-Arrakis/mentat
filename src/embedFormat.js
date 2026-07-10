@@ -1,16 +1,15 @@
 import { EmbedBuilder } from "discord.js";
 
-// Frank Herbert's Dune (1965): Source of Truth
-// Atreides: Green & Black banner, red hawk crest
-// Harkonnen: Blue Griffin banner (Baron wears dark blue lined with scarlet)
-// Fremen: Desert culture, blue-within-blue spice eyes
-// Spice Melange: Cinnamon-colored powder, smells of cinnamon
+// Atreides: Green & Gold — Nobility, Honor, Nature
+// Harkonnen: Red & Black — Ruthlessness, Ambition, Power
+// Fremen: Spice Blue — Desert, Melange, Blue-within-Blue Eyes
+// Default (unchosen): Violet — Raw Spice
 const DUNE_COLORS = {
   spice: 0x2563eb,
   sand: 0xC2A44E,
   desert: 0x8B6914,
   atreides: 0x16a34a,
-  harkonnen: 0x1e3a5f,
+  harkonnen: 0xef4444,
   fremen: 0x2563eb,
   success: 0x2ECC71,
   warning: 0xF39C12,
