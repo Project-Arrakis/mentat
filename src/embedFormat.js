@@ -1,14 +1,17 @@
 import { EmbedBuilder } from "discord.js";
 
+// Frank Herbert's Dune (1965): Source of Truth
+// Atreides: Green & Black banner, red hawk crest
+// Harkonnen: Blue Griffin banner (Baron wears dark blue lined with scarlet)
+// Fremen: Desert culture, blue-within-blue spice eyes
+// Spice Melange: Cinnamon-colored powder, smells of cinnamon
 const DUNE_COLORS = {
   spice: 0x2563eb,
   sand: 0xC2A44E,
   desert: 0x8B6914,
-  blue: 0x1E90FF,
-  deep: 0x4A3728,
-  atreides: 0x3b82f6,
-  harkonnen: 0xef4444,
-  fremen: 0xf59e0b,
+  atreides: 0x16a34a,
+  harkonnen: 0x1e3a5f,
+  fremen: 0x2563eb,
   success: 0x2ECC71,
   warning: 0xF39C12,
   error: 0xE74C3C,
@@ -45,20 +48,20 @@ const FACTION_QUOTES = {
     "Paul Atreides showed us: the sleeper must awaken.",
   ],
   harkonnen: [
+    "The blue griffin watches from Giedi Prime. Nothing escapes its gaze.",
     "He who controls the spice controls the universe.",
     "Power is not given. It is taken.",
-    "The Baron watches. The Baron waits. The Baron always wins.",
-    "Mercy is weakness. Strength is survival.",
+    "The Baron's robe is dark blue, lined with scarlet — just as our patience is lined with ambition.",
+    "Mercy is a weakness we cannot afford.",
     "Fear will keep the local systems in line.",
     "The Harkonnens do not negotiate. We conquer.",
     "Glory is fleeting, but power is eternal.",
+    "The blue griffin's claws reach across the Imperium.",
     "Obey or be destroyed. There is no third option.",
-    "The weak deserve nothing but the heel of our boot.",
     "Resources exist to be extracted. Planets exist to be ruled.",
-    "The Baron's spies see everything. The Baron's hand reaches everywhere.",
     "Giedi Prime's factories never sleep. Neither does our ambition.",
     "A Harkonnen never forgives. A Harkonnen never forgets.",
-    "The black sun rises over every world we touch.",
+    "The Baron's spies see everything. The Baron's hand reaches everywhere.",
     "Let them hate — so long as they fear.",
     "Victory is celebrated. Defeat is punished. This is the way of Giedi Prime.",
   ],
