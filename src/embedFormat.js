@@ -1,11 +1,14 @@
 import { EmbedBuilder } from "discord.js";
 
 const DUNE_COLORS = {
-  spice: 0xD4A03C,
+  spice: 0x2563eb,
   sand: 0xC2A44E,
   desert: 0x8B6914,
   blue: 0x1E90FF,
   deep: 0x4A3728,
+  atreides: 0x3b82f6,
+  harkonnen: 0xef4444,
+  fremen: 0xf59e0b,
   success: 0x2ECC71,
   warning: 0xF39C12,
   error: 0xE74C3C,
@@ -86,6 +89,13 @@ const FACTION_QUOTES = {
 function randomQuote(faction) {
   const quotes = FACTION_QUOTES[faction] || ARRAKIS_TERMS;
   return quotes[Math.floor(Math.random() * quotes.length)];
+}
+
+function factionColor(faction) {
+  if (faction === "atreides") return "atreides";
+  if (faction === "harkonnen") return "harkonnen";
+  if (faction === "fremen") return "fremen";
+  return "spice";
 }
 
 const MAX_RANGED_AUGMENTS = 3;
@@ -414,7 +424,7 @@ export function formatInventoryEmbed(payload) {
       }).join("\n") + (items.length > 25 ? `\n\n*...and ${items.length - 25} more*` : "");
   return duneEmbed({
     title: `📦 ${name}'s Inventory`,
-    color: "sand",
+    color: "spice",
     description: desc.slice(0, 2048),
     fields: [
       { name: "📊 Total Items", value: String(total), inline: true }
@@ -436,7 +446,7 @@ export function formatStorageEmbed(payload) {
       }).join("\n\n");
   return duneEmbed({
     title: `🗄️ ${scopeLabel} Storage`,
-    color: "sand",
+    color: "spice",
     description: desc.slice(0, 2048),
     fields: [
       { name: "📦 Containers", value: String(totalContainers), inline: true },
@@ -486,7 +496,7 @@ export function formatLinkEmbed(payload) {
 export function formatUnlinkEmbed(payload) {
   return duneEmbed({
     title: "🔗 Unlinked",
-    color: "sand",
+    color: "spice",
     description: payload?.message || "Your Discord is no longer linked to a game character."
   });
 }
