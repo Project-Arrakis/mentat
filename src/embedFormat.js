@@ -331,9 +331,9 @@ export function formatInventoryEmbed(payload) {
   const desc = items.length === 0
     ? "*No items in inventory*"
     : items.slice(0, 25).map((item, i) => {
-        const id = item.templateId || "Unknown";
-        const qty = item.stackSize || 0;
-        const qual = item.qualityLevel ? ` Q${item.qualityLevel}` : "";
+        const id = item.template_id || item.templateId || "Unknown";
+        const qty = item.stack_size || item.stackSize || 0;
+        const qual = item.quality_level || item.qualityLevel ? ` Q${item.quality_level || item.qualityLevel}` : "";
         return `\`${id}\` ×${qty}${qual}`;
       }).join("\n") + (items.length > 25 ? `\n\n*...and ${items.length - 25} more*` : "");
   return duneEmbed({
@@ -378,7 +378,7 @@ export function formatFindEmbed(payload) {
     ? `*No items matching "${query}" found*`
     : matches.map(m => {
         return `**${m.containerName}** (${m.map || "Unknown"})\n` +
-          (m.items || []).map(i => `  \`${i.templateId}\` ×${i.stackSize || 0}${i.qualityLevel ? ` Q${i.qualityLevel}` : ""}`).join("\n");
+          (m.items || []).map(i => `  \`${i.template_id || i.templateId}\` ×${i.stack_size || i.stackSize || 0}${(i.quality_level || i.qualityLevel) ? ` Q${i.quality_level || i.qualityLevel}` : ""}`).join("\n");
       }).join("\n\n");
   return duneEmbed({
     title: `🔍 Search: "${query}"`,
