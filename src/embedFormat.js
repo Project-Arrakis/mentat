@@ -24,6 +24,16 @@ const ARRAKIS_TERMS = [
   "Survival is the ability to swim in strange water."
 ];
 
+const MAX_RANGED_AUGMENTS = 3;
+const MAX_MELEE_AUGMENTS = 3;
+const MAX_ARMOR_AUGMENTS = 2;
+
+function augmentMax(item) {
+  const name = (item.displayName || item.template_id || item.templateId || "").toString();
+  if (/chest|armor|guard|garment|helmet|boots|gloves|suit/i.test(name)) return MAX_ARMOR_AUGMENTS;
+  return MAX_RANGED_AUGMENTS;
+}
+
 export function duneEmbed({ title, color = "spice", description, fields = [], timestamp = true } = {}) {
   const embed = new EmbedBuilder()
     .setTitle(title)
@@ -337,7 +347,7 @@ export function formatInventoryEmbed(payload) {
         const grade = g > 0 ? ` G${g}` : "";
         const stats = item.stats || {};
         const augs = stats.FCustomizationStats?.[0] || [];
-        const augNote = Array.isArray(augs) && augs.length > 0 ? ` [${augs.length}]` : "";
+        const augNote = Array.isArray(augs) && augs.length > 0 ? ` [${augs.length}/${augmentMax(item)}]` : "";
         return `\`${id}\` ×${qty}${grade}${augNote}`;
       }).join("\n") + (items.length > 25 ? `\n\n*...and ${items.length - 25} more*` : "");
   return duneEmbed({
