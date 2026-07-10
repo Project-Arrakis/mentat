@@ -333,10 +333,12 @@ export function formatInventoryEmbed(payload) {
     : items.slice(0, 25).map((item, i) => {
         const id = item.displayName || item.template_id || item.templateId || "Unknown";
         const qty = item.stack_size || item.stackSize || 0;
-        const q = Number(item.quality_level || item.qualityLevel || 0);
-        const qual = q > 0 ? ` Q${q}` : "";
-        return `\`${id}\` ×${qty}${qual}`;
-        return `\`${id}\` ×${qty}${qual}`;
+        const g = Number(item.quality_level || item.qualityLevel || 0);
+        const grade = g > 0 ? ` G${g}` : "";
+        const stats = item.stats || {};
+        const augs = stats.FCustomizationStats?.[0] || [];
+        const augNote = Array.isArray(augs) && augs.length > 0 ? ` [${augs.length}]` : "";
+        return `\`${id}\` ×${qty}${grade}${augNote}`;
       }).join("\n") + (items.length > 25 ? `\n\n*...and ${items.length - 25} more*` : "");
   return duneEmbed({
     title: `📦 ${name}'s Inventory`,
@@ -380,7 +382,7 @@ export function formatFindEmbed(payload) {
     ? `*No items matching "${query}" found*`
     : matches.map(m => {
         return `**${m.containerName}** (${m.map || "Unknown"})\n` +
-          (m.items || []).map(i => `  \`${i.displayName || i.template_id || i.templateId}\` ×${i.stack_size || i.stackSize || 0}${Number(i.quality_level || i.qualityLevel || 0) > 0 ? ` Q${Number(i.quality_level || i.qualityLevel || 0)}` : ""}`).join("\n");
+          (m.items || []).map(i => `  \`${i.displayName || i.template_id || i.templateId}\` ×${i.stack_size || i.stackSize || 0}${Number(i.quality_level || i.qualityLevel || 0) > 0 ? ` G${Number(i.quality_level || i.qualityLevel || 0)}` : ""}`).join("\n");
       }).join("\n\n");
   return duneEmbed({
     title: `🔍 Search: "${query}"`,
