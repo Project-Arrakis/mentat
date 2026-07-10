@@ -102,12 +102,14 @@ export function duneEmbed({ title, color = "spice", description, fields = [], ti
   const embed = new EmbedBuilder()
     .setTitle(title)
     .setColor(DUNE_COLORS[color] || DUNE_COLORS.spice)
-    .setFooter({ text: `Thumper · ${randomQuote(faction)}` });
+    .setFooter({ text: "Dune Awakening · Self-Host Discord Bot" });
   if (description) embed.setDescription(description);
   if (timestamp) embed.setTimestamp();
   for (const field of fields) {
     embed.addFields({ name: field.name, value: String(field.value).slice(0, 1024), inline: field.inline ?? false });
   }
+  const quote = randomQuote(faction);
+  embed.addFields({ name: " ", value: `*"${quote}"*`, inline: false });
   return embed;
 }
 
