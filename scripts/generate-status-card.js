@@ -30,9 +30,19 @@ const CARD_TOP = 184, CARD_BOT = 576;
 // Faction colors: Atreides (blue-pass), Harkonnen (red-fail), Fremen (gold-warn)
 const ATREIDES = "#3b82f6", HARKONNEN = "#ef4444", FREMEN = "#f59e0b";
 
-export async function generateStatusCard({ title, overall, region, mode, population, maps = [], services = 0, latency = 0, quote = "" } = {}) {
+export async function generateStatusCard({ title, overall, region, mode, population, maps = [], services = 0, latency = 0, quote = "", faction } = {}) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
+
+  // Faction-based color scheme
+  const FACTION_COLORS = {
+    atreides: { primary: "#3b82f6", secondary: "#1e40af", accent: "#60a5fa" },
+    harkonnen: { primary: "#ef4444", secondary: "#991b1b", accent: "#f87171" },
+    fremen: { primary: "#f59e0b", secondary: "#92400e", accent: "#fbbf24" },
+    default: { primary: "#a06839", secondary: "#8b6914", accent: "#c2a44e" }
+  };
+
+  const colors = FACTION_COLORS[faction] || FACTION_COLORS.default;
 
   // Background image fills canvas
   const bg = await loadBanner();
@@ -47,12 +57,12 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   const cx = PAD, cy = CARD_TOP, cw = W - PAD * 2, ch = CARD_BOT - CARD_TOP;
   ctx.fillStyle = "rgba(15,12,8,0.85)";
   roundRect(ctx, cx, cy, cw, ch, 12, true, false);
-  ctx.strokeStyle = "rgba(160,104,57,0.4)";
+  ctx.strokeStyle = colors.accent + "66";
   ctx.lineWidth = 1;
   roundRect(ctx, cx, cy, cw, ch, 12, false, true);
 
   // ── Title row ──
-  ctx.fillStyle = "#a06839";
+  ctx.fillStyle = colors.primary;
   ctx.font = "32px \"Dune Rise\"";
   ctx.fillText(title || "Server", cx + 24, cy + 44);
 
@@ -60,7 +70,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   ctx.font = "18px \"Dune Rise\"";
   const badge = overall || "UNKNOWN";
   const bw = ctx.measureText(badge).width + 24;
-  const bc = overall === "READY" ? ATREIDES : overall === "ISSUE" ? FREMEN : HARKONNEN;
+  const bc = overall === "READY" ? colors.primary : overall === "ISSUE" ? colors.accent : colors.secondary;
   ctx.fillStyle = bc;
   roundRect(ctx, cx + cw - 24 - bw, cy + 20, bw, 26, 13, true, false);
   ctx.fillStyle = "#ffffff";
@@ -78,7 +88,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   const statW = cw / stats.length;
   stats.forEach((s, i) => {
     const sx = cx + 12 + i * statW;
-    ctx.fillStyle = "#b8956e";
+    ctx.fillStyle = colors.accent;
     ctx.font = "12px \"Dune Rise\"";
     ctx.fillText(s.label, sx, statY + 14);
     ctx.fillStyle = "#ffffff";
@@ -87,7 +97,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   });
 
   // ── Separator ──
-  ctx.strokeStyle = "rgba(160,104,57,0.3)";
+  ctx.strokeStyle = colors.accent + "4D";
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(cx + 20, statY + 62);
@@ -96,12 +106,12 @@ export async function generateStatusCard({ title, overall, region, mode, populat
 
   // ── Maps ──
   const mapY = statY + 80;
-  ctx.fillStyle = "#a06839";
+  ctx.fillStyle = colors.primary;
   ctx.font = "12px \"Dune Rise\"";
   ctx.fillText("ACTIVE MAPS", cx + 24, mapY + 14);
 
   const mh = 34, mg = 6, maxM = Math.min(maps.length, 4);
-  const fcs = [ATREIDES, HARKONNEN, FREMEN, "#a06839"];
+  const fcs = [colors.primary, colors.secondary, colors.accent, colors.primary];
   maps.slice(0, maxM).forEach((m, i) => {
     const my = mapY + 24 + i * (mh + mg);
     ctx.fillStyle = "rgba(255,255,255,0.05)";

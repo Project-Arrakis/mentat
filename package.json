@@ -19,12 +19,15 @@
     "smoke:adapter": "node scripts/operator-smoke.js",
     "sbom": "node scripts/generate-sbom.js",
     "validate:operator": "node scripts/validate-operator.js",
-    "test": "node --test",
+    "test": "node --test && node test/discord-bot-test-harness.js",
+    "test:harness": "node test/discord-bot-test-harness.js",
     "check": "npm test && npm run release:check && npm run package:addon && npm run sbom",
     "compat:check": "node scripts/check-compatibility.js",
     "security:api": "node scripts/api-security-test.js",
     "validate:docs": "node scripts/validate-docs.js",
-    "security:check": "bash scripts/security-check-notify.sh"
+    "security:check": "bash scripts/security-check-notify.sh",
+    "coverage": "c8 --reporter=text --reporter=lcov --exclude=\"test/**\" --exclude=\"node_modules/**\" --exclude=\"scripts/**\" node --test test/*.test.js",
+    "coverage:check": "c8 --reporter=text --reporter=lcov --exclude=\"test/**\" --exclude=\"node_modules/**\" --exclude=\"scripts/**\" --lines=70 --functions=70 --branches=60 --statements=70 node --test test/*.test.js"
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.2",
@@ -32,5 +35,8 @@
   },
   "overrides": {
     "undici": "6.27.0"
+  },
+  "devDependencies": {
+    "c8": "^11.0.0"
   }
 }

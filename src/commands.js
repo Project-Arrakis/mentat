@@ -2,7 +2,7 @@ import { SlashCommandBuilder } from "discord.js";
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload } from "./format.js";
-import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed } from "./embedFormat.js";
+import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed } from "./embedFormat.js";
 import { sendStatusCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { writesEnabled } from "./writes.js";
@@ -33,16 +33,22 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("summary").setDescription("Show compact aggregate server status."))
       .addSubcommand((c) => c.setName("readiness").setDescription("Show readiness and preflight state.")
         .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin-only: detailed readiness checks.")))
-      .addSubcommand((c) => c.setName("services").setDescription("Show service container state.")))
+      .addSubcommand((c) => c.setName("readiness-detail").setDescription("Show grouped readiness detail with issues."))
+      .addSubcommand((c) => c.setName("services").setDescription("Show service container state."))
+      .addSubcommand((c) => c.setName("services-detail").setDescription("Show detailed service state with logs.")))
 
     // ── data group ──
     .addSubcommandGroup((g) => g.setName("data").setDescription("Server population, backups, map, inventory, and storage.")
       .addSubcommand((c) => c.setName("population").setDescription("Show aggregate player count and server population."))
       .addSubcommand((c) => c.setName("backups").setDescription("List recent backup metadata (read-only)."))
       .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime."))
+      .addSubcommand((c) => c.setName("maintenance").setDescription("Show maintenance window metadata (read-only)."))
       .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character.")
         .addStringOption((o) => o.setName("character").setDescription("Your character name").setRequired(true)))
       .addSubcommand((c) => c.setName("unlink").setDescription("Unlink your Discord from your game character."))
+      .addSubcommand((c) => c.setName("faction").setDescription("Set your faction for themed embeds.")
+        .addStringOption((o) => o.setName("name").setDescription("atreides, harkonnen, or fremen").setRequired(true)
+          .addChoices({ name: "Atreides", value: "atreides" }, { name: "Harkonnen", value: "harkonnen" }, { name: "Fremen", value: "fremen" })))
       .addSubcommand((c) => c.setName("whoami").setDescription("Show your linked game character info."))
       .addSubcommand((c) => c.setName("inventory").setDescription("View your personal inventory.")
         .addStringOption((o) => o.setName("search").setDescription("Filter by item name (optional)")))
@@ -180,8 +186,15 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       payload = statusSummaryPayload(await adapterClient.status(actor));
     } else if (key === "server:readiness") {
       payload = await adapterClient.readiness(actor, diagnostic);
+    } else if (key === "server:readiness-detail") {
+      payload = await adapterClient.readiness(actor, true);
     } else if (key === "server:services") {
       payload = await adapterClient.services(actor);
+    } else if (key === "server:services-detail") {
+      const services = await adapterClient.services(actor);
+      const logs = await adapterClient.logs(actor);
+      const mapState = await adapterClient.mapState(actor);
+      payload = { services, logs, mapState };
     }
     // ── data group ──
     else if (key === "data:population") {
@@ -191,12 +204,17 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
     } else if (key === "data:maps") {
       const status = await adapterClient.status(actor);
       payload = { maps: status?.result?.maps || [] };
+    } else if (key === "data:maintenance") {
+      payload = await adapterClient.maintenance(actor);
     }
     else if (key === "data:link") {
       const characterName = interaction.options.getString("character");
       payload = await adapterClient.playerLink(actor, characterName);
     } else if (key === "data:unlink") {
       payload = await adapterClient.playerUnlink(actor);
+    } else if (key === "data:faction") {
+      const faction = interaction.options.getString("name");
+      payload = await adapterClient.playerFaction(actor, faction);
     } else if (key === "data:whoami") {
       payload = await adapterClient.whoami(actor);
     } else if (key === "data:inventory") {
@@ -278,6 +296,12 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       embed = formatStatusEmbed(payload, "summary");
     } else if (subcommand === "readiness") {
       embed = diagnostic ? formatReadinessDetailEmbed(payload) : formatGenericEmbed(payload, "readiness");
+    } else if (subcommand === "readiness-detail") {
+      embed = formatReadinessDetailEmbed(payload);
+    } else if (subcommand === "services-detail") {
+      embed = formatServicesDetailEmbed(payload);
+    } else if (subcommand === "maintenance") {
+      embed = formatMaintenanceEmbed(payload);
     } else if (subcommand === "population") {
       embed = formatPopulationEmbed(payload);
     } else if (subcommand === "backups") {

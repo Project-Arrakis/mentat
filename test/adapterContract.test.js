@@ -30,6 +30,21 @@ const UPSTREAM_CONTRACT = Object.freeze({
     path: "/api/integrations/discord/population",
     fixture: "population.json"
   },
+  logs: {
+    method: "POST",
+    path: "/api/integrations/discord/logs",
+    fixture: "ops.json"
+  },
+  "map-state": {
+    method: "POST",
+    path: "/api/integrations/discord/map-state",
+    fixture: "ops.json"
+  },
+  maintenance: {
+    method: "POST",
+    path: "/api/integrations/discord/maintenance",
+    fixture: "ops.json"
+  },
   backups: {
     method: "GET",
     path: "/api/integrations/discord/backups/list",
@@ -63,6 +78,7 @@ const UPSTREAM_CONTRACT = Object.freeze({
   "players-link": { method: "POST", path: "/api/integrations/discord/players/link", fixture: "ops.json" },
   "players-unlink": { method: "POST", path: "/api/integrations/discord/players/unlink", fixture: "ops.json" },
   "players-me": { method: "POST", path: "/api/integrations/discord/players/me", fixture: "ops.json" },
+  "players-faction": { method: "POST", path: "/api/integrations/discord/players/faction", fixture: "ops.json" },
   "players-inventory": { method: "POST", path: "/api/integrations/discord/players/inventory", fixture: "ops.json" },
   "players-inventory-search": { method: "POST", path: "/api/integrations/discord/players/inventory-search", fixture: "ops.json" },
   "players-storage": { method: "POST", path: "/api/integrations/discord/players/storage", fixture: "ops.json" },

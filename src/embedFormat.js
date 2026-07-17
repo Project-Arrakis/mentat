@@ -111,9 +111,10 @@ function augmentMax(item) {
 }
 
 export function duneEmbed({ title, color = "spice", description, fields = [], timestamp = true, faction } = {}) {
+  const embedColor = faction ? (DUNE_COLORS[faction] || DUNE_COLORS[color] || DUNE_COLORS.spice) : (DUNE_COLORS[color] || DUNE_COLORS.spice);
   const embed = new EmbedBuilder()
     .setTitle(title)
-    .setColor(DUNE_COLORS[color] || DUNE_COLORS.spice)
+    .setColor(embedColor)
     .setFooter({ text: "Dune Awakening · Self-Host Discord Bot" });
   if (description) embed.setDescription(description);
   if (timestamp) embed.setTimestamp();
@@ -588,6 +589,69 @@ export function formatReadinessDetailEmbed(payload) {
       { name: "✅ Ready", value: ready ? "Yes" : "No", inline: true },
       { name: "⚠️ Issues", value: String(issues.length), inline: true },
     ]
+  });
+}
+
+export function formatServicesDetailEmbed(payload) {
+  const services = payload?.services?.result?.services || [];
+  const logs = payload?.logs?.logs || [];
+  const mapState = payload?.mapState?.mapState || "";
+
+  const down = services.filter(s => s.status !== "up" && s.status !== "running");
+  const desc = down.length === 0
+    ? "🟢 **All services healthy**"
+    : `🔴 **${down.length} service(s) unhealthy**`;
+
+  const fields = [
+    { name: "📊 Total Services", value: String(services.length), inline: true },
+    { name: "✅ Healthy", value: String(services.length - down.length), inline: true },
+    { name: "❌ Unhealthy", value: String(down.length), inline: true },
+  ];
+
+  if (down.length > 0) {
+    fields.push({
+      name: "⚠️ Unhealthy Services",
+      value: down.slice(0, 10).map(s => `• ${s.name || "?"}: ${s.status || "DOWN"}`).join("\n"),
+      inline: false
+    });
+  }
+
+  if (logs.length > 0) {
+    fields.push({
+      name: "📜 Recent Logs",
+      value: logs.slice(-10).join("\n").slice(0, 1024),
+      inline: false
+    });
+  }
+
+  if (mapState) {
+    fields.push({
+      name: "🗺️ Map State",
+      value: mapState.slice(0, 1024),
+      inline: false
+    });
+  }
+
+  return duneEmbed({
+    title: "🔧 Services Detail",
+    color: down.length === 0 ? "success" : "error",
+    description: desc,
+    fields
+  });
+}
+
+export function formatMaintenanceEmbed(payload) {
+  const maintenance = payload?.maintenance || "";
+  const hasMaintenance = maintenance && maintenance.trim().length > 0;
+
+  const desc = hasMaintenance
+    ? "🔧 **Maintenance window active**"
+    : "✅ **No maintenance scheduled**";
+
+  return duneEmbed({
+    title: "🛠️ Maintenance Status",
+    color: hasMaintenance ? "warning" : "success",
+    description: `${desc}\n\n${maintenance.slice(0, 2048)}`
   });
 }
 

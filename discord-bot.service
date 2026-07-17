@@ -1,0 +1,17 @@
+[Unit]
+Description=Dune Awakening Discord Bot
+After=network.target
+
+[Service]
+Type=simple
+User=darkdante
+WorkingDirectory=/home/darkdante/dune-awakening-selfhost-discordbot
+EnvironmentFile=/home/darkdante/dune-awakening-selfhost-discordbot/.env
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/darkdante/dune-awakening-selfhost-discordbot/logs/bot.log
+StandardError=append:/home/darkdante/dune-awakening-selfhost-discordbot/logs/bot.log
+
+[Install]
+WantedBy=multi-user.target
