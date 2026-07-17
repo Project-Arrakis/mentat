@@ -40,3 +40,11 @@ repos:
         pass_filenames: false
         always_run: true
         verbose: false
+
+      - id: discord-bot-tests
+        name: Discord Bot Test Harness
+        entry: node test/discord-bot-test-harness.js
+        language: system
+        pass_filenames: false
+        always_run: true
+        verbose: true

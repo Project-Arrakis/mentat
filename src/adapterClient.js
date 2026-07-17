@@ -33,6 +33,9 @@ export class AdapterClient {
   services(actor) { return this.request("services", actor); }
   population(actor) { return this.request("population", actor); }
   backups(actor) { return this.request("backups", actor); }
+  logs(actor) { return this.request("logs", actor); }
+  mapState(actor) { return this.request("map-state", actor); }
+  maintenance(actor) { return this.request("maintenance", actor); }
   opsActivity(actor) { return this.request("ops-activity", actor); }
   opsCombat(actor) { return this.request("ops-combat", actor); }
   opsResources(actor) { return this.request("ops-resources", actor); }
@@ -52,6 +55,7 @@ export class AdapterClient {
   playerLink(actor, characterName) { return this.request("players-link", actor, { characterName }); }
   playerUnlink(actor) { return this.request("players-unlink", actor); }
   whoami(actor) { return this.request("players-me", actor); }
+  playerFaction(actor, faction) { return this.request("players-faction", actor, { faction }); }
   playerInventory(actor) { return this.request("players-inventory", actor); }
   playerInventorySearch(actor, query) { return this.request("players-inventory-search", actor, { query }); }
   playerStorage(actor, scope) { return this.request("players-storage", actor, { scope }); }
