@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# cut-release.sh — Cut a release for the Dune Discord bot.
+# cut-release.sh — Cut an Arrakis Control Panel release.
 #
 # Usage:
-#   bash scripts/cut-release.sh <version>          # e.g. v1.5.0
+#   bash scripts/cut-release.sh <version>           # e.g. v1.5.0
 #   bash scripts/cut-release.sh <version> --dry-run # validate only, no tag push
 #
 # Preconditions:
@@ -160,14 +160,14 @@ cut_release() {
   echo -e "${GREEN}============================================${NC}"
   echo -e "${GREEN}  Release $VERSION cut and pushed.${NC}"
   echo -e "${GREEN}  GitHub Release workflow should trigger automatically.${NC}"
-  echo -e "${GREEN}  Monitor: https://github.com/yacketrj/dune-awakening-selfhost-discordbot/actions${NC}"
+  echo -e "${GREEN}  Monitor: https://github.com/yacketrj/Arrakis-Control-Panel/actions${NC}"
   echo -e "${GREEN}============================================${NC}"
 }
 
 main() {
   parse_args "$@"
 
-  echo -e "${YELLOW}=== Cutting release $VERSION ===${NC}"
+  echo -e "${YELLOW}=== Cutting Arrakis Control Panel release $VERSION ===${NC}"
   if [[ "$DRY_RUN" == "true" ]]; then
     echo -e "${YELLOW}=== DRY RUN MODE ===${NC}"
   fi
