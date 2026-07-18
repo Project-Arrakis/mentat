@@ -2,14 +2,14 @@
 
 ## Overview
 
-The Discord bot lives in its own repository so the Dune console remains the
-safety boundary. Version 1 is read-only. It uses Discord slash commands to ask
-the console adapter for health, ping, status, status summary, readiness, and
+Arrakis Control Panel lives in its own repository so the Dune console remains
+the safety boundary. Version 1 is read-only. It uses Discord slash commands to
+ask the console adapter for health, ping, status, status summary, readiness, and
 service state.
 
-The bot does not need Docker socket access, database credentials, shell access,
-or mounted game files. It only needs the disabled-by-default, bearer-token
-protected adapter API.
+Arrakis Control Panel does not need Docker socket access, database credentials,
+shell access, or mounted game files. It only needs the disabled-by-default,
+bearer-token protected adapter API.
 
 ## Runtime Flow
 
@@ -17,16 +17,16 @@ Runtime flow:
 
 1. A Discord user runs `/dune ping`, `/dune health`, `/dune status`,
    `/dune status-summary`, `/dune readiness`, or `/dune services`.
-2. The bot checks restricted-by-default command RBAC.
-3. The bot sends a bearer-token authenticated request to the configured console
+2. Arrakis Control Panel checks restricted-by-default command RBAC.
+3. It sends a bearer-token authenticated request to the configured console
    adapter endpoint.
 4. The console adapter returns JSON.
-5. The bot redacts credential-shaped keys, bounds the Discord message length,
-   and posts the response.
+5. Arrakis Control Panel redacts credential-shaped keys, bounds the Discord
+   message length, and posts the response.
 
 ```mermaid
 flowchart LR
-  User["Discord user"] --> Bot["Discord bot runtime"]
+  User["Discord user"] --> Bot["Arrakis Control Panel"]
   Bot --> Guard["Command RBAC"]
   Guard --> Client["Adapter client"]
   Client --> Adapter["Console Discord adapter API"]
@@ -41,8 +41,8 @@ flowchart LR
   formatting, deployment docs, and tests.
 - Console repository owns the read-only adapter API and any internal decisions
   about how health/status/readiness/services are gathered.
-- The bot never calls Docker, never connects to the Dune database, and never
-  executes console commands.
+- Arrakis Control Panel never calls Docker, never connects to the Dune database,
+  and never executes console commands.
 
 ## Adapter Contract
 
@@ -69,7 +69,8 @@ minimal actor context:
 }
 ```
 
-The bot accepts JSON from the adapter and does not depend on console internals.
+Arrakis Control Panel accepts JSON from the adapter and does not depend on
+console internals.
 
 ## Security Controls
 
