@@ -1,4 +1,8 @@
-# Arrakis Control Plane — Dune Discord Bot
+# Arrakis Control Panel
+
+Self-hosted Discord control panel for Dune: Awakening servers, with secure status dashboards, alerts, observability, RBAC, and adapter-based administration.
+
+> **Compatibility:** Existing `/dune` commands, `DUNE_*` environment variables, addon IDs, and runtime API paths remain unchanged.
 
 > *"A beginning is a very delicate time."*
 
@@ -24,8 +28,8 @@ access, no shell commands. The spice must flow — safely.
 ## Quick Start
 
 ```bash
-git clone https://github.com/yacketrj/dune-awakening-selfhost-discordbot.git
-cd dune-awakening-selfhost-discordbot
+git clone https://github.com/yacketrj/Arrakis-Control-Panel.git
+cd Arrakis-Control-Panel
 cp .env.example .env   # fill in DISCORD_BOT_TOKEN, DISCORD_CLIENT_ID, etc.
 npm ci --omit=dev
 npm run register
