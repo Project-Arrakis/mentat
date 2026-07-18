@@ -2,7 +2,7 @@
 
 **Version**: v2.0.0
 **Branch**: `release/v2.0.0`
-**PR**: [#49](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/49)
+**PR**: [#49](https://github.com/yacketrj/Arrakis-Control-Panel/pull/49)
 **State**: Open (planning only)
 
 ## Scope
