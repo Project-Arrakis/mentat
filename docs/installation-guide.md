@@ -1,14 +1,14 @@
-# Installation Guide — Dune Discord Bot
+# Installation Guide — Arrakis Control Panel
 
-Add the Dune Discord Bot to your server and deploy it alongside the Dune
+Add Arrakis Control Panel to your server and deploy it alongside the Dune
 Awakening Selfhost Docker Console.
 
 ## Quick Start
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/yacketrj/dune-awakening-selfhost-discordbot.git
-cd dune-awakening-selfhost-discordbot
+git clone https://github.com/yacketrj/Arrakis-Control-Panel.git
+cd Arrakis-Control-Panel
 
 # 2. Copy and edit the environment file
 cp .env.example .env
@@ -39,7 +39,7 @@ npm start
 
 1. Go to [discord.com/developers/applications](https://discord.com/developers/applications)
 2. Click **New Application**
-3. Name it (e.g., "Dune Server Status")
+3. Name it (e.g., "Arrakis Control Panel")
 4. Go to the **Bot** tab in the left sidebar
 5. Click **Add Bot** → **Yes, do it!**
 6. Under the **Token** section, click **Reset Token** → **Copy**
@@ -101,14 +101,14 @@ Create the bot API token file:
 echo -n "your-secure-random-token" > /path/to/secrets/bot-api-token.txt
 ```
 
-This token is what the Discord bot uses to authenticate against the console
+This token is what Arrakis Control Panel uses to authenticate against the console
 adapter. It must match `DUNE_DISCORD_ADAPTER_TOKEN` on the bot side.
 
 ---
 
 ## Step 4: Configure the Bot Environment
 
-Create a `.env` file in the bot's working directory. Copy `.env.example` and
+Create a `.env` file in the project's working directory. Copy `.env.example` and
 fill in your values:
 
 ```bash
@@ -180,13 +180,13 @@ npm start
 
 ```bash
 # Build the image
-docker build -t dune-discord-bot .
+docker build -t arrakis-control-panel .
 
 # Run with .env
-docker run -d --name dune-discord-bot \
+docker run -d --name arrakis-control-panel \
   --env-file .env \
   --restart unless-stopped \
-  dune-discord-bot
+  arrakis-control-panel
 ```
 
 ### Option C: Docker Compose (alongside the console)
@@ -195,10 +195,10 @@ docker run -d --name dune-discord-bot \
 # docker-compose.override.yml
 services:
   discord-bot:
-    image: dune-discord-bot
-    build: ./dune-awakening-selfhost-discordbot
+    image: arrakis-control-panel
+    build: ./Arrakis-Control-Panel
     restart: unless-stopped
-    env_file: ./dune-awakening-selfhost-discordbot/.env
+    env_file: ./Arrakis-Control-Panel/.env
     networks:
       - dune-net
 ```
@@ -216,7 +216,7 @@ services:
    ```
 5. Verify the bot container is healthy:
    ```bash
-   docker ps --filter name=dune-discord-bot
+   docker ps --filter name=arrakis-control-panel
    ```
 
 ### Troubleshooting
@@ -243,9 +243,9 @@ npm start
 
 For Docker:
 ```bash
-docker build -t dune-discord-bot .
-docker stop dune-discord-bot && docker rm dune-discord-bot
-docker run -d --name dune-discord-bot --env-file .env --restart unless-stopped dune-discord-bot
+docker build -t arrakis-control-panel .
+docker stop arrakis-control-panel && docker rm arrakis-control-panel
+docker run -d --name arrakis-control-panel --env-file .env --restart unless-stopped arrakis-control-panel
 ```
 
 ## Sources
