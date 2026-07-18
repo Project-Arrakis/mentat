@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>RFC — Dune Discord Bot &amp; Adapter Release Roadmap</title>
+<title>RFC — Arrakis Control Panel &amp; Adapter Release Roadmap</title>
 <style>
-@page { size: letter; margin: 0.75in 1in; @bottom-center { content: "RFC — Dune Discord Bot Roadmap — Page " counter(page) " of " counter(pages); font-size: 9px; color: #555; }}
+@page { size: letter; margin: 0.75in 1in; @bottom-center { content: "RFC — Arrakis Control Panel Roadmap — Page " counter(page) " of " counter(pages); font-size: 9px; color: #555; }}
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; font-size: 11pt; line-height: 1.5; color: #1a1a2e; }
 .cover { text-align: center; padding: 120px 0 60px; page-break-after: always; }
@@ -33,38 +33,38 @@ th { background: #002868; color: #fff; }
 
 <div class="cover">
   <h1>Request for Comment</h1>
-  <h2>Dune Discord Bot &amp; Adapter<br>Multi-Train Release Roadmap</h2>
+  <h2>Arrakis Control Panel &amp; Adapter<br>Multi-Train Release Roadmap</h2>
   <p class="meta">
     <strong>Status:</strong> Draft<br>
     <strong>Date:</strong> 2026-07-04<br>
-    <strong>Authors:</strong> Dune Awakening Selfhost Contributors<br>
-    <strong>Repository:</strong> yacketrj/dune-awakening-selfhost-discordbot<br>
+    <strong>Authors:</strong> Arrakis Control Panel Contributors<br>
+    <strong>Repository:</strong> yacketrj/Arrakis-Control-Panel<br>
     <strong>Core Adapter:</strong> Red-Blink/dune-awakening-selfhost-docker
   </p>
 </div>
 
 <div class="header">
-  <div class="title">RFC — Dune Discord Bot Multi-Train Release Roadmap</div>
+  <div class="title">RFC — Arrakis Control Panel Multi-Train Release Roadmap</div>
   <div class="number">2026-07-04 &bull; Draft</div>
 </div>
 
 <h1>1. Abstract</h1>
 
-<p>This RFC defines a multi-train release roadmap for the Dune Awakening
-Selfhost Discord Bot and its companion WebUI adapter. The roadmap delivers
-read-only operational visibility first, write-safety foundation second, and
-controlled game-facing operations only after lower-risk trains are proven in
-production.</p>
+<p>This RFC defines a multi-train release roadmap for Arrakis Control Panel and
+its companion WebUI adapter. The roadmap delivers read-only operational
+visibility first, write-safety foundation second, and controlled game-facing
+operations only after lower-risk trains are proven in production.</p>
 
-<p>The bot operates as an external companion to the Dune Docker Console WebUI.
-All commands go through a bearer-token protected adapter API. At no point does
-the bot access the Docker socket, Postgres database, game files, or shell
-commands directly.</p>
+<p>Arrakis Control Panel operates as an external companion to the Dune Docker
+Console WebUI. All commands go through a bearer-token protected adapter API. At
+no point does it access the Docker socket, Postgres database, game files, or
+shell commands directly.</p>
 
 <h1>2. Motivation</h1>
 
 <p>Operators and server administrators need a safe way to monitor and manage
-their Dune Awakening dedicated servers through Discord. The bot must:</p>
+their Dune Awakening dedicated servers through Discord. Arrakis Control Panel
+must:</p>
 
 <ul>
   <li>Provide read-only operational visibility (server status, readiness, services, population).</li>
@@ -83,7 +83,7 @@ their Dune Awakening dedicated servers through Discord. The bot must:</p>
   <li><strong>Write paths disabled by default.</strong> Every write command requires DUNE_DISCORD_WRITES_ENABLED=true and write-specific RBAC that observer roles do not inherit.</li>
   <li><strong>Confirmation cannot be bypassed.</strong> Write commands require explicit confirmation with action, target, and risk displayed.</li>
   <li><strong>All output is bounded, redacted, and role-gated.</strong> PII, secrets, internal IPs, Steam IDs, Funcom IDs, and credentials are redacted before Discord output.</li>
-  <li><strong>No direct infrastructure access.</strong> The bot never mounts the Docker socket, writes to Postgres, stores secrets in addon files, or executes shell commands.</li>
+  <li><strong>No direct infrastructure access.</strong> Arrakis Control Panel never mounts the Docker socket, writes to Postgres, stores secrets in addon files, or executes shell commands.</li>
   <li><strong>Zero-permission addon.</strong> The WebUI addon is a static pointer with no backend access.</li>
 </ol>
 
@@ -155,7 +155,7 @@ their Dune Awakening dedicated servers through Discord. The bot must:</p>
 </ul>
 
 <div class="footer">
-  RFC — Dune Discord Bot Roadmap &bull; Draft 2026-07-04 &bull; No upstream PRs created &bull; All work is local feature branches staged in releases/
+  RFC — Arrakis Control Panel Roadmap &bull; Draft 2026-07-04 &bull; No upstream PRs created &bull; All work is local feature branches staged in releases/
 </div>
 
 </body>
