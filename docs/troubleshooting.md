@@ -12,15 +12,15 @@ but the bot wasn't there to answer it.
 **How to fix:**
 1. Check if the Docker container is running:
    ```bash
-   docker ps | grep dune-discord-bot
+   docker ps | grep arrakis-control-panel
    ```
 2. If not running, start it:
    ```bash
-   docker start dune-discord-bot
+   docker start arrakis-control-panel
    ```
 3. If it crashes immediately, check the logs:
    ```bash
-   docker logs dune-discord-bot
+   docker logs arrakis-control-panel
    ```
 
 ---
@@ -35,7 +35,7 @@ but the bot wasn't there to answer it.
    or `DISCORD_ADMIN_ROLE_IDS` in the `.env` file
 3. The bot needs to be restarted after changing `.env`:
    ```bash
-   docker restart dune-discord-bot
+   docker restart arrakis-control-panel
    ```
 
 ---
@@ -86,7 +86,7 @@ docker compose -f docker-compose.web.yml up -d --build redblink-dune-docker-cons
 2. Or check that `DISCORD_BOT_TOKEN_FILE` points to a valid file
 3. For Docker, verify the secrets volume is mounted:
    ```bash
-   docker inspect dune-discord-bot | grep -A5 Mounts
+   docker inspect arrakis-control-panel | grep -A5 Mounts
    ```
 
 ---
@@ -105,7 +105,7 @@ Global commands can take up to 1 hour to propagate. If it's been longer:
 1. Run `npm run register` again
 2. Check the bot logs for errors:
    ```bash
-   docker logs dune-discord-bot | grep register
+   docker logs arrakis-control-panel | grep register
    ```
 
 ---
@@ -163,7 +163,7 @@ Then only use guild-scoped registration going forward.
 **How to fix:**
 Check the logs for the specific error:
 ```bash
-docker logs dune-discord-bot
+docker logs arrakis-control-panel
 ```
 
 Common causes:
@@ -194,7 +194,7 @@ Either:
 3. The first post fires immediately on startup, then every interval after
 4. Check bot logs:
    ```bash
-   docker logs dune-discord-bot | grep scheduler
+   docker logs arrakis-control-panel | grep scheduler
    ```
 
 ---
@@ -225,7 +225,7 @@ git commit --no-verify
 1. Check the [FAQ](faq.md) for common questions
 2. See the [Admin Guide](admin-guide.md) for setup instructions
 3. Review the [Configuration Reference](configuration.md) for all settings
-4. Open an issue at [github.com/yacketrj/dune-awakening-selfhost-discordbot](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/issues)
+4. Open an issue at [github.com/yacketrj/Arrakis-Control-Panel](https://github.com/yacketrj/Arrakis-Control-Panel/issues)
 
 ## Sources
 
