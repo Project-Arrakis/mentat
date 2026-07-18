@@ -1,11 +1,11 @@
-# Security Policy
+# Arrakis Control Panel Security Policy
 
 ## Supported Versions
 
-The project is pre-1.0. Security fixes land on `main` first and are released by
-tagging the next patch or minor version after the normal PR and security-gate
-process completes. Operators should run the latest GitHub Release or the current
-`main` branch only when they intentionally want unreleased changes.
+Security fixes land on `main` first and are released by tagging the next patch
+or minor version after the normal PR and security-gate process completes.
+Operators should run the latest GitHub Release or the current `main` branch only
+when they intentionally want unreleased changes.
 
 ## Reporting a Vulnerability
 
@@ -30,14 +30,14 @@ If a Discord bot token or Dune adapter token is exposed:
 
 1. Rotate the exposed Discord bot token in the Discord Developer Portal.
 2. Rotate the Dune WebUI Discord adapter bearer token.
-3. Restart the bot and WebUI services with the new values.
+3. Restart Arrakis Control Panel and the WebUI services with the new values.
 4. Remove the leaked value from configuration files, logs, screenshots, and
    shell history where possible.
 5. Treat the old token as compromised even if no abuse is visible.
 
 ## Security Scope
 
-In v1, the bot is read-only and must not:
+In v1, Arrakis Control Panel is read-only and must not:
 
 - mount the Docker socket
 - connect directly to a database
