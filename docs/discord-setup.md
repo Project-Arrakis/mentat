@@ -1,10 +1,10 @@
-# Discord Setup
+# Discord Setup for Arrakis Control Panel
 
 ## Overview
 
-Each install should use its own Discord application. Do not use a shared public
-bot. Keeping the bot user-owned keeps Discord access, bot tokens, and WebUI
-adapter tokens under the operator's control.
+Each Arrakis Control Panel installation should use its own Discord application.
+Do not use a shared public bot. Keeping the bot user-owned keeps Discord access,
+bot tokens, and WebUI adapter tokens under the operator's control.
 
 ## Required Discord Model
 
@@ -15,23 +15,25 @@ Use one Discord application per deployment or admin group:
 3. Copy the bot token into local secrets management.
 4. Invite the bot to the target Discord server.
 5. Register the slash commands with `npm run register`.
-6. Run the bot beside the WebUI or on a trusted private network.
+6. Run Arrakis Control Panel beside the WebUI or on a trusted private network.
 
 ## OAuth2 Scopes
 
-Use only the scopes required for this bot:
+Use only the scopes required for Arrakis Control Panel:
 
 - `bot`
 - `applications.commands`
 
-Discord uses OAuth2 scopes to decide what an application can do. This bot needs
-the bot identity and slash commands only; it does not need user OAuth tokens.
+Discord uses OAuth2 scopes to decide what an application can do. Arrakis Control
+Panel needs the bot identity and slash commands only; it does not need user OAuth
+tokens.
 
 ## Bot Permissions
 
 Start with permissions integer `0` for v1 slash-command interaction responses.
 
-Do not grant broad server permissions. The current bot does not need:
+Do not grant broad server permissions. Arrakis Control Panel does not currently
+need:
 
 - Administrator
 - Manage Server
@@ -54,8 +56,8 @@ gateway intents for v1:
 - Message Content
 
 Discord requires privileged intents to be enabled separately in the Developer
-Portal, and they should only be enabled when a bot requires them. This bot does
-not require them for the current read-only slash command flow.
+Portal. Arrakis Control Panel does not require them for the current read-only
+slash-command flow.
 
 ## Command Registration
 
