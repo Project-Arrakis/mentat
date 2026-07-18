@@ -1,0 +1,165 @@
+name: One-time Arrakis Control Panel rename
+
+on:
+  push:
+    branches:
+      - agent/rename-arrakis-control-panel
+
+permissions:
+  contents: write
+
+jobs:
+  rename:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Apply project rename
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import json
+          import subprocess
+
+          repo = Path('.')
+          tracked = subprocess.check_output(['git', 'ls-files', '-z']).split(b'\0')
+
+          replacements = [
+              ('dune-awakening-selfhost-discordbot', 'arrakis-control-panel'),
+              ('Dune Awakening · Self-Host Discord Bot', 'Arrakis Control Panel'),
+              ('Dune Awakening Self-Host Discord Bot', 'Arrakis Control Panel'),
+              ('Dune Discord Bot', 'Arrakis Control Panel'),
+              ('Discord Read-Only Bot', 'Arrakis Control Panel'),
+              ('Arrakis Control Plane', 'Arrakis Control Panel'),
+              ('Arrakis Control Panel — Arrakis Control Panel', 'Arrakis Control Panel'),
+              ('github.com/yacketrj/arrakis-control-panel', 'github.com/yacketrj/Arrakis-Control-Panel'),
+              ('git@github.com:yacketrj/arrakis-control-panel.git', 'git@github.com:yacketrj/Arrakis-Control-Panel.git'),
+              ('cd arrakis-control-panel', 'cd Arrakis-Control-Panel'),
+              ('./arrakis-control-panel', './Arrakis-Control-Panel'),
+          ]
+
+          for raw in tracked:
+              if not raw:
+                  continue
+              path = repo / raw.decode('utf-8')
+              try:
+                  text = path.read_text(encoding='utf-8')
+              except (UnicodeDecodeError, OSError):
+                  continue
+              updated = text
+              for old, new in replacements:
+                  updated = updated.replace(old, new)
+              if updated != text:
+                  path.write_text(updated, encoding='utf-8')
+
+          package_path = repo / 'package.json'
+          package = json.loads(package_path.read_text(encoding='utf-8'))
+          package['name'] = 'arrakis-control-panel'
+          package['description'] = 'Self-hosted Discord control panel for Dune Awakening server operations.'
+          package_path.write_text(json.dumps(package, indent=2) + '\n', encoding='utf-8')
+
+          lock_path = repo / 'package-lock.json'
+          lock = json.loads(lock_path.read_text(encoding='utf-8'))
+          lock['name'] = 'arrakis-control-panel'
+          if '' in lock.get('packages', {}):
+              lock['packages']['']['name'] = 'arrakis-control-panel'
+          lock_path.write_text(json.dumps(lock, indent=2) + '\n', encoding='utf-8')
+
+          addon_path = repo / 'addon/addon.json'
+          addon = json.loads(addon_path.read_text(encoding='utf-8'))
+          addon['name'] = 'Arrakis Control Panel'
+          addon['description'] = 'Zero-permission setup panel for the external Arrakis Control Panel service.'
+          addon['author'] = 'Arrakis Control Panel contributors'
+          addon.setdefault('entry', {})['navigation'] = 'Arrakis Control Panel'
+          addon_path.write_text(json.dumps(addon, indent=2) + '\n', encoding='utf-8')
+
+          readme_path = repo / 'README.md'
+          readme = readme_path.read_text(encoding='utf-8')
+          intro = (
+              '# Arrakis Control Panel\n\n'
+              'Self-hosted Discord control panel for Dune: Awakening servers, with secure status dashboards, alerts, observability, RBAC, and adapter-based administration.\n\n'
+              '> **Compatibility:** Existing `/dune` commands, `DUNE_*` environment variables, addon IDs, and runtime API paths remain unchanged.\n\n'
+          )
+          if readme.startswith('# Arrakis Control Panel\n\n'):
+              remainder = readme[len('# Arrakis Control Panel\n\n'):]
+              if not remainder.startswith('Self-hosted Discord control panel for Dune: Awakening servers'):
+                  readme = intro + remainder
+          readme_path.write_text(readme, encoding='utf-8')
+
+          admin_path = repo / 'docs/admin-guide.md'
+          admin = admin_path.read_text(encoding='utf-8')
+          admin = admin.replace('# Admin Guide — Setting Up the Bot on Your Server', '# Admin Guide — Setting Up Arrakis Control Panel')
+          admin_path.write_text(admin, encoding='utf-8')
+
+          commands_path = repo / 'src/commands.js'
+          commands = commands_path.read_text(encoding='utf-8')
+          commands = commands.replace('bot: { name: "arrakis-control-panel"', 'bot: { name: "Arrakis Control Panel"')
+          commands_path.write_text(commands, encoding='utf-8')
+
+          release_path = repo / 'docs/release-process.md'
+          release = release_path.read_text(encoding='utf-8')
+          release = release.replace(
+              'Releases are cut from the private repository\n`yacketrj/Arrakis-Control-Panel`.',
+              'Releases are cut from the public repository\n`yacketrj/Arrakis-Control-Panel`.'
+          )
+          release_path.write_text(release, encoding='utf-8')
+
+          gates_path = repo / 'docs/security-gates.md'
+          gates = gates_path.read_text(encoding='utf-8').replace('in this private-repo setup', 'in this repository setup')
+          gates_path.write_text(gates, encoding='utf-8')
+
+          config_path = repo / 'docs/configuration.md'
+          config = config_path.read_text(encoding='utf-8')
+          config = config.replace(
+              '| `DUNE_SCHEDULER_INTERVAL_MS` | `1800000) |',
+              '| `DUNE_SCHEDULER_INTERVAL_MS` | `1800000` | Scheduler interval in milliseconds (30 minutes default) |'
+          )
+          config_path.write_text(config, encoding='utf-8')
+
+          changelog_path = repo / 'CHANGELOG.md'
+          changelog = changelog_path.read_text(encoding='utf-8')
+          marker = '### Fixed\n\n- (reserved for future changes)'
+          changed = (
+              '### Changed\n\n'
+              '- Renamed the project and user-facing branding to **Arrakis Control Panel**.\n'
+              '- Updated repository URLs, package metadata, release artifacts, addon labels, Discord output, and current documentation.\n\n'
+          )
+          if 'Renamed the project and user-facing branding to **Arrakis Control Panel**.' not in changelog:
+              changelog = changelog.replace(marker, changed + marker, 1)
+          changelog_path.write_text(changelog, encoding='utf-8')
+
+          workflow = repo / '.github/workflows/rename-arrakis-control-panel.yml'
+          if workflow.exists():
+              workflow.unlink()
+          PY
+
+      - name: Verify legacy names are removed
+        shell: bash
+        run: |
+          if git grep -n -E 'dune-awakening-selfhost-discordbot|Arrakis Control Plane|Dune Discord Bot|Discord Read-Only Bot'; then
+            echo 'Legacy project-name references remain.' >&2
+            exit 1
+          fi
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests and documentation validation
+        run: |
+          npm run check
+          npm run validate:docs
+
+      - name: Commit rename
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Rename project to Arrakis Control Panel'
+          git push origin HEAD:agent/rename-arrakis-control-panel
