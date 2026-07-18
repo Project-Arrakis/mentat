@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
   "id": "discord-readonly-bot",
-  "name": "Discord Read-Only Bot",
-  "description": "Zero-permission setup panel for the external Dune Discord bot.",
-  "author": "dune-awakening-selfhost-discordbot contributors",
+  "name": "Arrakis Control Panel",
+  "description": "Zero-permission setup panel for the external Arrakis Control Panel service.",
+  "author": "Arrakis Control Panel contributors",
   "version": "0.1.0",
   "type": "ui",
-  "sourceUrl": "https://github.com/yacketrj/dune-awakening-selfhost-discordbot",
-  "downloadUrl": "https://github.com/yacketrj/dune-awakening-selfhost-discordbot/releases/download/v0.1.0/discord-readonly-bot-addon.zip",
+  "sourceUrl": "https://github.com/yacketrj/Arrakis-Control-Panel",
+  "downloadUrl": "https://github.com/yacketrj/Arrakis-Control-Panel/releases/download/v0.1.0/discord-readonly-bot-addon.zip",
   "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "permissions": []
 }
