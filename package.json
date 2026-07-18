@@ -2,7 +2,11 @@
   "name": "dune-awakening-selfhost-discordbot",
   "version": "1.5.0",
   "private": true,
-  "description": "Read-only Discord bot for Dune Awakening Self-Host Docker.",
+  "description": "Arrakis Control Panel: a self-hosted Discord control panel for Dune Awakening server operations.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yacketrj/Arrakis-Control-Panel.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=20.18.0"
