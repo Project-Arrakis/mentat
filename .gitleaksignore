@@ -12,6 +12,6 @@ docs/security-audit/2026-07-04-comprehensive-security-audit.md:generic-api-key:7
 .env
 secrets/
 .env:discord-api-token:7
-/home/darkdante/dune-awakening-selfhost-discordbot/.env:discord-api-token:7
-/home/darkdante/dune-awakening-selfhost-discordbot/test/fixtures/write-adapter/requests/execute-maintenance-note.json:generic-api-key:3
+/home/darkdante/Arrakis-Control-Panel/.env:discord-api-token:7
+/home/darkdante/Arrakis-Control-Panel/test/fixtures/write-adapter/requests/execute-maintenance-note.json:generic-api-key:3
 docs/rw-adapter-contract.md:generic-api-key:88
