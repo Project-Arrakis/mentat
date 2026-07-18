@@ -41,7 +41,7 @@ test: add writeHandler disabled/auth/confirmation tests
 # All tests
 npm test                         # 153 unit tests
 
-# Specific tests  
+# Specific tests
 node --test test/commands.test.js
 node --test test/writeHandler.test.js
 
