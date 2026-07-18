@@ -31,14 +31,14 @@ case "$EVENT" in
     ICON="📬"
     TITLE="PR Created"
     BODY="**${BRANCH}** → main"
-    DETAILS="[PR #${PR}](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/${PR})"
+    DETAILS="[PR #${PR}](https://github.com/yacketrj/Arrakis-Control-Panel/pull/${PR})"
     COLOR=15105570  # orange
     ;;
   pr-merged)
     ICON="✅"
     TITLE="PR Merged"
     BODY="**${BRANCH}** → main"
-    DETAILS="[PR #${PR}](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/${PR}) merged by ${who}"
+    DETAILS="[PR #${PR}](https://github.com/yacketrj/Arrakis-Control-Panel/pull/${PR}) merged by ${who}"
     COLOR=3066993  # green
     ;;
   deploy)
