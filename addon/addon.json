@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
   "id": "discord-readonly-bot",
-  "name": "Discord Read-Only Bot",
-  "description": "Zero-permission setup panel for the external Dune Discord bot.",
-  "author": "dune-awakening-selfhost-discordbot contributors",
+  "name": "Arrakis Control Panel",
+  "description": "Zero-permission setup panel for the external Arrakis Control Panel service.",
+  "author": "Arrakis Control Panel contributors",
   "version": "1.5.0",
   "type": "ui",
   "entry": {
-    "navigation": "Discord Bot",
+    "navigation": "Arrakis Control Panel",
     "path": "web/index.html"
   },
   "permissions": []
