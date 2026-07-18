@@ -3,3 +3,15 @@
 {"level":"info","event":"discord.ready","time":"2026-07-17T19:52:56.094Z","fields":{"botUserId":"1516816812006969494"}}
 (node:70780) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
 (Use `node --trace-warnings ...` to show where the warning was created)
+{"level":"info","event":"process.shutdown","time":"2026-07-17T22:52:24.079Z","fields":{"signal":"SIGTERM"}}
+{"level":"info","event":"discord.ready","time":"2026-07-17T22:52:26.724Z","fields":{"botUserId":"1516816812006969494"}}
+(node:219895) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"level":"info","event":"process.shutdown","time":"2026-07-18T00:26:35.063Z","fields":{"signal":"SIGTERM"}}
+{"level":"info","event":"discord.ready","time":"2026-07-18T00:26:37.370Z","fields":{"botUserId":"1516816812006969494"}}
+(node:682799) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"level":"info","event":"process.shutdown","time":"2026-07-18T00:43:39.020Z","fields":{"signal":"SIGTERM"}}
+{"level":"info","event":"discord.ready","time":"2026-07-18T00:43:41.338Z","fields":{"botUserId":"1516816812006969494"}}
+(node:798604) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
+(Use `node --trace-warnings ...` to show where the warning was created)
