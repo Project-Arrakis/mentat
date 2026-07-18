@@ -5,7 +5,7 @@
 set -euo pipefail
 
 BRANCH="${1:-$(git rev-parse --abbrev-ref HEAD)}"
-REPO="yacketrj/dune-awakening-selfhost-discordbot"
+REPO="yacketrj/Arrakis-Control-Panel"
 
 echo "=== Checking CI status for $BRANCH ==="
 echo ""
