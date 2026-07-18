@@ -36,8 +36,8 @@ Discord should show one `/dune` command with `about`, `ping`, `health`,
 3. Run `npm start`.
 4. Execute `/dune health` in Discord.
 
-The bot should return adapter health JSON without leaking token, authorization,
-password, secret, or API key fields.
+Arrakis Control Panel should return adapter health JSON without leaking token,
+authorization, password, secret, or API key fields.
 
 ## Adapter Contract Fixtures
 
@@ -59,7 +59,7 @@ npm run mock:adapter
 ```
 
 By default it listens on `127.0.0.1:8095` and accepts the local-only token
-`local-adapter-token`. To point the bot at it, use:
+`local-adapter-token`. To point Arrakis Control Panel at it, use:
 
 ```bash
 DUNE_CONSOLE_API_URL=http://127.0.0.1:8095
@@ -88,7 +88,8 @@ npm run package:addon
 ```
 
 The command should create `dist/discord-readonly-bot-v<version>.tar.gz` and a
-matching `.sha256` file. It must fail if the optional addon manifest gains
+matching `.sha256` file. The addon ID and archive prefix remain unchanged for
+compatibility. Packaging must fail if the optional addon manifest gains
 permissions or unsafe entry paths.
 
 ## SBOM
@@ -97,7 +98,7 @@ permissions or unsafe entry paths.
 npm run sbom
 ```
 
-The command should create `dist/dune-awakening-selfhost-discordbot.cdx.json`
+The command should create `dist/arrakis-control-panel.cdx.json`
 and a matching `.sha256` file from `package-lock.json`.
 
 ## Release Artifact Checksums
@@ -107,7 +108,7 @@ After `npm run check`, verify local release artifact checksums with:
 ```bash
 cd dist
 sha256sum -c discord-readonly-bot-v1.5.0.tar.gz.sha256
-sha256sum -c dune-awakening-selfhost-discordbot.cdx.json.sha256
+sha256sum -c arrakis-control-panel.cdx.json.sha256
 ```
 
 ## Regression Checklist
