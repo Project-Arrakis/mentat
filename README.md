@@ -2,7 +2,7 @@
 
 Self-hosted Discord control panel for Dune: Awakening servers, with secure status dashboards, alerts, observability, RBAC, and adapter-based administration.
 
-> **Compatibility:** Existing `/dune` commands, `DUNE_*` environment variables, addon IDs, and runtime API paths remain unchanged.
+> **Compatibility:** Existing `/dune` commands, `DUNE_*` environment variables, addon IDs, runtime API paths, and historical release identifiers remain unchanged.
 
 > *"A beginning is a very delicate time."*
 
@@ -11,13 +11,12 @@ economies — all pulsing to the rhythm of the deep desert. But you cannot stand
 at the console every hour. You need eyes that never close. You need a watcher
 that speaks the old tongue and warns your tribe when the sand shifts.
 
-**Thumper** is that watcher.
+**ACP** is that watcher.
 
-Named for the Fremen device that calls the great worms with a steady beat, this
-bot hammers the data streams of your server and brings them to Discord — status
+This bot watches over the data streams of your server and brings them to Discord — status
 cards, population counts, map readiness, backup lists, combat stats, and more.
 It posts scheduled updates. It forwards in-game announcements. It lets your
-moderators speak to the game and your admins diagnose from anywhere.
+moderators speak to the game, and your admins diagnose from anywhere.
 
 And like any Fremen tool, it is built for survival: read-only by default,
 bearer-token protected, secrets never exposed, no Docker socket, no database
@@ -59,7 +58,7 @@ npm start
 - **Role-based access** — observer roles for members, admin for operators
 - **File-based secrets** — tokens never in shell history, never in Docker env
 - **Zero-permission addon** — WebUI panel with no backend access
-- **Thumper quotes** — random Dune wisdom in every embed footer
+- **Dune quotes** — random lore-inspired wisdom in every embed footer
 
 ## Commands
 
