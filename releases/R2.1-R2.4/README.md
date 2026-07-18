@@ -6,10 +6,10 @@ Low-impact metadata and notification writes. One command family per PR.
 
 | Version | PR | Branch | Scope |
 |---------|----|--------|-------|
-| v2.1.0 | [#57](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/57) | `release/v2.1.0` | Maintenance note set, maintenance window set |
-| v2.2.0 | [#58](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/58) | `release/v2.2.0` | Discord notification configuration set |
-| v2.3.0 | [#59](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/59) | `release/v2.3.0` | Bot-owned scheduled post configuration |
-| v2.4.0 | [#60](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/60) | `release/v2.4.0` | R3 readiness review |
+| v2.1.0 | [#57](https://github.com/yacketrj/Arrakis-Control-Panel/pull/57) | `release/v2.1.0` | Maintenance note set, maintenance window set |
+| v2.2.0 | [#58](https://github.com/yacketrj/Arrakis-Control-Panel/pull/58) | `release/v2.2.0` | Discord notification configuration set |
+| v2.3.0 | [#59](https://github.com/yacketrj/Arrakis-Control-Panel/pull/59) | `release/v2.3.0` | Bot-owned scheduled post configuration |
+| v2.4.0 | [#60](https://github.com/yacketrj/Arrakis-Control-Panel/pull/60) | `release/v2.4.0` | R3 readiness review |
 
 ## Required Controls (per PR)
 
