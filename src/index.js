@@ -6,6 +6,7 @@ import { loadConfig } from "./config.js";
 import { startHealthState } from "./healthState.js";
 import { logError, logInfo } from "./logger.js";
 import { startScheduler } from "./scheduler.js";
+import { alertSubscriber } from "./notifications.js";
 
 const config = loadConfig();
 const adapterClient = new AdapterClient(config);
@@ -15,6 +16,7 @@ const healthState = startHealthState({
 });
 let scheduler = { active: false, stop() {} };
 let announcementBridge = { active: false, stop() {} };
+let alerts = { active: false, stop() {} };
 
 client.once(Events.ClientReady, (readyClient) => {
   healthState.markReady();
@@ -48,6 +50,36 @@ client.once(Events.ClientReady, (readyClient) => {
       pollIntervalMs: annConfig.pollIntervalMs
     });
   }
+
+  // Wire up alert subscriber if configured
+  const alertChannelId = process.env.DUNE_ALERT_CHANNEL_ID;
+  if (alertChannelId) {
+    const alertIntervalMs = Number.parseInt(process.env.DUNE_ALERT_INTERVAL_MS || "300000", 10) || 300000;
+    const alertSub = alertSubscriber({
+      adapterClient,
+      client,
+      channelId: alertChannelId,
+      onError: (error) => logError("alerts.failed", error)
+    });
+
+    const readinessTimer = setInterval(() => alertSub.checkReadiness(), alertIntervalMs);
+    const servicesTimer = setInterval(() => alertSub.checkServices(), alertIntervalMs);
+    readinessTimer.unref?.();
+    servicesTimer.unref?.();
+
+    alerts = {
+      active: true,
+      stop() {
+        clearInterval(readinessTimer);
+        clearInterval(servicesTimer);
+      }
+    };
+
+    logInfo("alerts.started", {
+      channel: alertChannelId,
+      intervalMs: alertIntervalMs
+    });
+  }
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -61,8 +93,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, async () => {
     logInfo("process.shutdown", { signal });
-    scheduler.stop();
+    if (scheduler && typeof scheduler.stop === "function") {
+      scheduler.stop();
+    }
     announcementBridge.stop();
+    alerts.stop();
     await client.destroy();
     healthState.stop();
     process.exit(0);

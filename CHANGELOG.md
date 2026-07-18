@@ -25,13 +25,6 @@ work begins. Comprehensive security review and owner approval gate for
 transitioning to R2 planning.
 
 ### Added
-### Fixed
-
-- (reserved for future changes)
-
-### Removed
-
-- (reserved for future changes)
 
 - Comprehensive security review covering all read-only surfaces.
 - STRIDE re-review for accumulated R1.x changes.
@@ -40,6 +33,14 @@ transitioning to R2 planning.
 - Upstream compatibility evidence freeze for R1.5 baseline.
 - R2 entry criteria assessment checklist.
 - Owner approval documentation for R2 planning commencement.
+
+### Fixed
+
+- (reserved for future changes)
+
+### Removed
+
+- (reserved for future changes)
 
 ### Changed
 

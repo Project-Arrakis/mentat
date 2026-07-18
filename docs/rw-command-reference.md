@@ -235,7 +235,7 @@ All parameters must be validated on the bot side before sending to the adapter:
 Every command must handle these error modes:
 
 1. **Adapter timeout** (no response in 8s) → "Write adapter did not respond"
-2. **Adapter 403** → "Not authorized for this action"  
+2. **Adapter 403** → "Not authorized for this action"
 3. **Adapter 409** (idempotency collision) → "This action was already executed"
 4. **Adapter 400** (validation) → "Invalid parameters: {details}"
 5. **Adapter 500** (execution failure) → "Action failed: {details}"
