@@ -7,7 +7,7 @@ import { sendStatusCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { writesEnabled } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
-import { getLatencyHistory } from "./adapterClient.js";
+import { getLatencyHistory, isRouteMissing, routeStatus, UNMERGED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
 
 // Group -> subcommand -> handler config
@@ -344,7 +344,16 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       await interaction.editReply(formatPayload(`Dune ${key}`, payload));
     }
   } catch (error) {
-    await interaction.editReply(formatError(error));
+    // Provide better error messages for unmerged routes
+    if (error instanceof Error && UNMERGED_ROUTES.has(error.route)) {
+      const routeName = error.route.replace(/-/g, " ");
+      await interaction.editReply(formatError(new Error(
+        `${routeName} is implemented in feature/discord-player-inventory but not yet merged to upstream. ` +
+        `Apply the branch to your console to enable this command.`
+      )));
+    } else {
+      await interaction.editReply(formatError(error));
+    }
   }
 
   applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });

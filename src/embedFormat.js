@@ -16,6 +16,20 @@ const DUNE_COLORS = {
   error: 0xE74C3C,
 };
 
+// ── Value formatting helpers ──
+function fmt(val) {
+  if (val === null || val === undefined) return "—";
+  if (typeof val === "boolean") return val ? "✅ Yes" : "❌ No";
+  if (typeof val === "number") return val < 10000 ? `\`${val.toLocaleString()}\`` : `\`${(val / 1000).toFixed(1)}k\``;
+  const s = String(val).trim();
+  if (!s) return "—";
+  return `\`${s}\``;
+}
+
+function fmtBool(val) { return val ? "✅ Yes" : "❌ No"; }
+function fmtCount(val) { return `\`${val ?? 0}\``; }
+function fmtStatus(val) { return val ? "🟢 Enabled" : "🔒 Disabled"; }
+
 const ARRAKIS_TERMS = [
   "The spice must flow.",
   "Fear is the mind-killer.",
@@ -139,11 +153,11 @@ export function formatHealthEmbed(health) {
     color: health?.ok === true ? "success" : "error",
     description: health?.ok === true ? "🟢 **Healthy** — adapter is responding" : "🔴 **Unhealthy** — check console",
     fields: [
-      { name: "📡 Service", value: health?.service || "dune-console-discord-adapter", inline: true },
-      { name: "🔒 Read-Only", value: health?.readOnly ? "✅ Yes" : "❌ No", inline: true },
-      { name: "✍️ Writes", value: health?.writesEnabled ? "⚠️ Enabled" : "🔒 Disabled", inline: true },
-      { name: "🟢 Live Routes", value: String(health?.liveRoutes?.length || 0), inline: true },
-      { name: "📋 Planned", value: String(health?.plannedRoutes?.length || 0), inline: true },
+      { name: "📡 Service", value: fmt(health?.service), inline: true },
+      { name: "🔒 Read-Only", value: fmtBool(health?.readOnly), inline: true },
+      { name: "✍️ Writes", value: fmtStatus(health?.writesEnabled), inline: true },
+      { name: "🟢 Live Routes", value: fmtCount(health?.liveRoutes?.length), inline: true },
+      { name: "📋 Planned Routes", value: fmtCount(health?.plannedRoutes?.length), inline: true },
     ]
   });
 }
@@ -155,9 +169,9 @@ export function formatPingEmbed(ping) {
     color: ping?.ok === true ? "success" : "error",
     description: ping?.ok === true ? "🟢 **Connected**" : "🔴 **Failed**",
     fields: [
-      { name: "💬 Discord", value: `${ping?.discord?.deferReplyMs || 0}ms`, inline: true },
-      { name: "🔄 Adapter", value: `${ping?.adapter?.roundTripMs || 0}ms`, inline: true },
-      { name: "📍 Route", value: ping?.adapter?.route || "health", inline: true },
+      { name: "💬 Discord", value: `\`${ping?.discord?.deferReplyMs || 0}ms\``, inline: true },
+      { name: "🔄 Adapter", value: `\`${ping?.adapter?.roundTripMs || 0}ms\``, inline: true },
+      { name: "📍 Route", value: fmt(ping?.adapter?.route), inline: true },
     ]
   });
 }
@@ -175,9 +189,9 @@ export function formatStatusEmbed(payload, subcommand) {
     color: overall === "READY" ? "success" : overall === "ISSUE" ? "warning" : "error",
     description: `### ${overall === "READY" ? "🟢 READY" : overall === "ISSUE" ? "🟡 ISSUE" : "🔴 DOWN"}${r.title ? ` — *${r.title}*` : ""}`,
     fields: [
-      { name: "🌎 Region", value: r.region || "—", inline: true },
-      { name: "🎮 Mode", value: r.mode || "—", inline: true },
-      { name: "👥 Population", value: r.population || "—", inline: true },
+      { name: "🌎 Region", value: fmt(r.region), inline: true },
+      { name: "🎮 Mode", value: fmt(r.mode), inline: true },
+      { name: "👥 Population", value: fmt(r.population), inline: true },
       { name: "🗺️ Maps", value: mapStr, inline: false },
     ]
   });
@@ -212,7 +226,7 @@ export function formatStatusDetailEmbed(payload) {
     color: "warning",
     description: "*(Full diagnostic output not available — adapter must support diagnostic mode)*",
     fields: [
-      { name: "Overall", value: r.overall || "UNKNOWN", inline: true },
+      { name: "Overall", value: fmt(r.overall), inline: true },
       { name: "Maps", value: maps.map(m => `${m.state === "READY" ? "🟢" : "🔴"} ${m.name}`).join("\n") || "—", inline: false },
     ]
   });
@@ -271,8 +285,8 @@ export function formatPopulationEmbed(population) {
     color: "spice",
     description: `### **${online}** / **${total}** players online`,
     fields: [
-      { name: "🔒 Aggregate", value: population?.aggregate ? "✅ Yes" : "⚠️ Detail exposed", inline: true },
-      { name: "🔐 Details", value: population?.detailsSuppressed ? "Suppressed" : "Exposed", inline: true },
+      { name: "🔒 Aggregate", value: fmtBool(population?.aggregate), inline: true },
+      { name: "🔐 Details", value: population?.detailsSuppressed ? "🔒 Suppressed" : "⚠️ Exposed", inline: true },
     ]
   });
 }
@@ -287,7 +301,7 @@ export function formatBackupsEmbed(backups) {
     title: "💾 Recent Backups",
     color: list.length > 0 ? "success" : "warning",
     description: desc.slice(0, 2048),
-    fields: [{ name: "📦 Total", value: String(list.length), inline: true }]
+    fields: [{ name: "📦 Total", value: fmtCount(list.length), inline: true }]
   });
 }
 
@@ -356,9 +370,7 @@ export function formatGenericEmbed(payload, title) {
 }
 
 function formatValue(val) {
-  if (typeof val === "boolean") return val ? "✅ Yes" : "❌ No";
-  if (typeof val === "number") return val < 10000 ? val.toLocaleString() : `${(val / 1000).toFixed(1)}k`;
-  return String(val).slice(0, 900);
+  return fmt(val);
 }
 
 // ── Doctor ──
@@ -394,7 +406,7 @@ export function formatMapsEmbed(maps) {
     title: "🗺️ Active Maps",
     color: list.some(m => (m.state || m.status) !== "READY") ? "warning" : "success",
     description: desc.slice(0, 2048),
-    fields: [{ name: "🌍 Maps", value: String(list.length), inline: true }]
+    fields: [{ name: "🌍 Total Maps", value: fmtCount(list.length), inline: true }]
   });
 }
 
@@ -430,7 +442,7 @@ export function formatInventoryEmbed(payload) {
     color: "spice",
     description: desc.slice(0, 2048),
     fields: [
-      { name: "📊 Total Items", value: String(total), inline: true }
+      { name: "📊 Total Items", value: fmtCount(total), inline: true }
     ]
   });
 }
@@ -452,8 +464,8 @@ export function formatStorageEmbed(payload) {
     color: "spice",
     description: desc.slice(0, 2048),
     fields: [
-      { name: "📦 Containers", value: String(totalContainers), inline: true },
-      { name: "📊 Items", value: String(totalItems), inline: true }
+      { name: "📦 Containers", value: fmtCount(totalContainers), inline: true },
+      { name: "📊 Items", value: fmtCount(totalItems), inline: true }
     ]
   });
 }
@@ -474,8 +486,8 @@ export function formatFindEmbed(payload) {
     color: matches.length > 0 ? "success" : "warning",
     description: desc.slice(0, 2048),
     fields: [
-      { name: "📦 Containers", value: String(totalContainers), inline: true },
-      { name: "📊 Stacks", value: String(totalStacks), inline: true }
+      { name: "📦 Containers", value: fmtCount(totalContainers), inline: true },
+      { name: "📊 Stacks", value: fmtCount(totalStacks), inline: true }
     ]
   });
 }
@@ -517,8 +529,8 @@ export function formatWhoamiEmbed(payload) {
     color: "success",
     description: `Character: **${payload?.characterName || "Unknown"}**`,
     fields: [
-      { name: "🟢 Status", value: payload?.onlineStatus || "Offline", inline: true },
-      { name: "🆔 ID", value: payload?.controllerId || "?", inline: true }
+      { name: "🟢 Status", value: fmt(payload?.onlineStatus), inline: true },
+      { name: "🆔 ID", value: fmt(payload?.controllerId), inline: true }
     ]
   });
 }
@@ -533,7 +545,7 @@ export function formatCooldownsEmbed(stats) {
     title: "⏱️ Active Cooldowns",
     color: entries.length > 0 ? "warning" : "success",
     description: desc.slice(0, 2048),
-    fields: [{ name: "🔢 Active", value: String(entries.length), inline: true }]
+    fields: [{ name: "🔢 Active", value: fmtCount(entries.length), inline: true }]
   });
 }
 
@@ -552,8 +564,8 @@ export function formatLatencyEmbed(history) {
     color: avg < 200 ? "success" : avg < 1000 ? "warning" : "error",
     description: `**Avg: ${avg}ms** over ${entries.length} requests\n${desc}`.slice(0, 2048),
     fields: [
-      { name: "🔢 Requests", value: String(entries.length), inline: true },
-      { name: "⏱️ Average", value: `${avg}ms`, inline: true },
+      { name: "🔢 Requests", value: fmtCount(entries.length), inline: true },
+      { name: "⏱️ Average", value: `\`${avg}ms\``, inline: true },
     ]
   });
 }
@@ -568,7 +580,7 @@ export function formatEventsEmbed(incidents) {
     title: "📋 Incident Log",
     color: entries.length > 0 ? "warning" : "success",
     description: desc.slice(0, 2048),
-    fields: [{ name: "📝 Incidents", value: String(entries.length), inline: true }]
+    fields: [{ name: "📝 Incidents", value: fmtCount(entries.length), inline: true }]
   });
 }
 
@@ -586,8 +598,8 @@ export function formatReadinessDetailEmbed(payload) {
     color: ready ? "success" : "error",
     description: `### ${desc}\n${issues.slice(0, 15).map(i => `• ${i}`).join("\n")}`.slice(0, 2048),
     fields: [
-      { name: "✅ Ready", value: ready ? "Yes" : "No", inline: true },
-      { name: "⚠️ Issues", value: String(issues.length), inline: true },
+      { name: "✅ Ready", value: fmtBool(ready), inline: true },
+      { name: "⚠️ Issues", value: fmtCount(issues.length), inline: true },
     ]
   });
 }
@@ -603,9 +615,9 @@ export function formatServicesDetailEmbed(payload) {
     : `🔴 **${down.length} service(s) unhealthy**`;
 
   const fields = [
-    { name: "📊 Total Services", value: String(services.length), inline: true },
-    { name: "✅ Healthy", value: String(services.length - down.length), inline: true },
-    { name: "❌ Unhealthy", value: String(down.length), inline: true },
+    { name: "📊 Total Services", value: fmtCount(services.length), inline: true },
+    { name: "✅ Healthy", value: fmtCount(services.length - down.length), inline: true },
+    { name: "❌ Unhealthy", value: fmtCount(down.length), inline: true },
   ];
 
   if (down.length > 0) {
@@ -673,8 +685,8 @@ export function formatServersEmbed(payload) {
     color: running.length > 0 ? "success" : "warning",
     description: desc.slice(0, 2048),
     fields: [
-      { name: "🗺️ Total", value: String(partitions.length), inline: true },
-      { name: "🟢 Ready", value: String(running.length), inline: true }
+      { name: "🗺️ Total", value: fmtCount(partitions.length), inline: true },
+      { name: "🟢 Ready", value: fmtCount(running.length), inline: true }
     ]
   });
 }
@@ -722,7 +734,7 @@ export function formatPortsEmbed(payload) {
     title: "🔌 Network Ports",
     color: "spice",
     description: items.join("\n").slice(0, 2000) || "*No port data*",
-    fields: [{ name: "Listeners", value: String(items.length), inline: true }]
+    fields: [{ name: "🔢 Listeners", value: fmtCount(items.length), inline: true }]
   });
 }
 
@@ -739,7 +751,7 @@ export function formatDbEmbed(payload) {
     title: "🗄️ Database Status",
     color: items.some(l => l.includes("🔴") || l.includes("WARN")) ? "warning" : "success",
     description: items.join("\n").slice(0, 2000) || "*No database data*",
-    fields: [{ name: "Checks", value: String(items.length), inline: true }]
+    fields: [{ name: "🔢 Checks", value: fmtCount(items.length), inline: true }]
   });
 }
 

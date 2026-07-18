@@ -8,6 +8,44 @@ export class AdapterHttpError extends Error {
   }
 }
 
+// Routes that are live in upstream main with real data.
+export const LIVE_ROUTES = new Set([
+  "health", "status", "readiness", "services", "population",
+  "version", "servers", "ports", "db",
+  "logs", "map-state", "maintenance"
+]);
+
+// Routes that exist in upstream but return "planned" stubs or placeholder data.
+export const PLANNED_ROUTES = new Set([
+  "backups", "announcements",
+  "ops-activity", "ops-combat", "ops-resources", "ops-economy",
+  "ops-inventory", "ops-location", "ops-soc", "ops-prometheus", "ops-dashboard"
+]);
+
+// Routes implemented in feature/discord-player-inventory but NOT yet in upstream main.
+export const UNMERGED_ROUTES = new Set([
+  "players-link", "players-unlink", "players-me", "players-faction",
+  "players-inventory", "players-inventory-search", "players-storage", "players-find",
+  "guild-storage", "guild-find"
+]);
+
+// Routes that do NOT exist anywhere.
+export const MISSING_ROUTES = new Set([
+  "write-execute", "write-preview"
+]);
+
+export function isRouteLive(route) { return LIVE_ROUTES.has(route); }
+export function isRoutePlanned(route) { return PLANNED_ROUTES.has(route); }
+export function isRouteUnmerged(route) { return UNMERGED_ROUTES.has(route); }
+export function isRouteMissing(route) { return MISSING_ROUTES.has(route); }
+export function routeStatus(route) {
+  if (LIVE_ROUTES.has(route)) return "live";
+  if (PLANNED_ROUTES.has(route)) return "planned";
+  if (UNMERGED_ROUTES.has(route)) return "unmerged";
+  if (MISSING_ROUTES.has(route)) return "missing";
+  return "unknown";
+}
+
 const LATENCY_RING = [];
 const MAX_LATENCY_ENTRIES = 20;
 
