@@ -1,16 +1,16 @@
-# Install
+# Install Arrakis Control Panel
 
-This bot is a user-owned, read-only Discord companion for Dune Awakening
-Self-Host Docker. There is no shared hosted bot. Each operator creates their
-own Discord application, keeps their own tokens, and connects only to their own
-WebUI Discord adapter.
+Arrakis Control Panel is a user-owned, read-only Discord companion for Dune
+Awakening Self-Host Docker. There is no shared hosted service. Each operator
+creates their own Discord application, keeps their own tokens, and connects only
+to their own WebUI Discord adapter.
 
 ## Prerequisites
 
 - Node.js 20.18 or newer, or Docker with Docker Compose.
 - A Discord application and bot user.
 - A Dune WebUI deployment with the disabled-by-default Discord adapter enabled.
-- A private network path from the bot to the WebUI adapter.
+- A private network path from Arrakis Control Panel to the WebUI adapter.
 
 Do not expose the adapter publicly unless you also add TLS, firewall
 allow-lists, request limits, rate limits, and token rotation.
@@ -42,7 +42,8 @@ capabilities, and does not mount the Docker socket.
 docker compose -f docker-compose.example.yml up --build
 ```
 
-After the bot reaches Discord ready state, inspect the container healthcheck:
+After Arrakis Control Panel reaches Discord ready state, inspect the container
+healthcheck:
 
 ```bash
 docker inspect --format '{{json .State.Health}}' <container>
