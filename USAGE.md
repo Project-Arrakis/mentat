@@ -1,13 +1,13 @@
-# Usage
+# Using Arrakis Control Panel
 
-Register one `/dune` slash command. All current subcommands are read-only and
-pass through the WebUI Discord adapter.
+Arrakis Control Panel registers one `/dune` slash command. All current
+subcommands are read-only and pass through the WebUI Discord adapter.
 
 ## Commands
 
 | Command | Purpose | Adapter call |
 | --- | --- | --- |
-| `/dune about` | Shows safe bot and adapter metadata. | none |
+| `/dune about` | Shows safe Arrakis Control Panel and adapter metadata. | none |
 | `/dune ping` | Measures Discord defer timing and adapter health latency. | `GET /api/integrations/discord/health` |
 | `/dune health` | Shows adapter health. | `GET /api/integrations/discord/health` |
 | `/dune status` | Shows high-level server status. | `POST /api/integrations/discord/status` |
@@ -33,13 +33,14 @@ configured before startup succeeds.
 
 ## Data Handling
 
-The bot sends minimal actor context to `POST` adapter routes: Discord user ID,
-guild ID, channel ID, and role IDs. It does not send message content, Discord
-tokens, adapter tokens, or broader Discord profile data.
+Arrakis Control Panel sends minimal actor context to `POST` adapter routes:
+Discord user ID, guild ID, channel ID, and role IDs. It does not send message
+content, Discord tokens, adapter tokens, or broader Discord profile data.
 
-Before output reaches Discord or logs, the bot redacts credential-like fields,
-emails, Steam identifiers, Funcom identifiers, and explicit real-name fields.
-The project is not expected to process PCI/payment-card data.
+Before output reaches Discord or logs, Arrakis Control Panel redacts
+credential-like fields, emails, Steam identifiers, Funcom identifiers, and
+explicit real-name fields. The project is not expected to process
+PCI/payment-card data.
 
 ## Troubleshooting
 
@@ -49,7 +50,7 @@ For local adapter smoke testing without a live console:
 npm run mock:adapter
 ```
 
-Then point the bot at the mock:
+Then point Arrakis Control Panel at the mock:
 
 ```env
 DUNE_CONSOLE_API_URL=http://127.0.0.1:8095
