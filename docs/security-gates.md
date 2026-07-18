@@ -76,13 +76,13 @@ npm run check
 npm audit --audit-level=moderate
 semgrep scan --config p/default --config p/secrets --error --severity ERROR --severity WARNING --exclude node_modules --exclude .git --exclude package-lock.json .
 trivy fs --scanners vuln,misconfig --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --skip-dirs node_modules --skip-dirs .git .
-docker build -t dune-awakening-selfhost-discordbot:security .
-trivy image --scanners vuln,misconfig --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 dune-awakening-selfhost-discordbot:security
+docker build -t arrakis-control-panel:security .
+trivy image --scanners vuln,misconfig --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 arrakis-control-panel:security
 ```
 
 `npm run check` runs unit tests, release metadata validation, addon packaging
 validation, and SBOM generation. The SBOM command writes
-`dist/dune-awakening-selfhost-discordbot.cdx.json` and a matching `.sha256`
+`dist/arrakis-control-panel.cdx.json` and a matching `.sha256`
 checksum.
 
 Release metadata can be checked directly with:
@@ -111,6 +111,6 @@ it when adding command families or adapter capabilities:
 
 ## SARIF and GitHub Code Scanning
 
-SARIF upload is not a hard gate in this private-repo setup. GitHub Code Scanning
-for private repositories depends on GitHub Code Security being enabled. Scanner
-exit codes are the gate; SARIF upload can be added later for reporting.
+SARIF upload is not a hard gate in this repository setup. GitHub Code Scanning
+availability depends on repository settings. Scanner exit codes are the gate;
+SARIF upload can be added later for reporting.
