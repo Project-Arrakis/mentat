@@ -1,11 +1,11 @@
-# User Guide — Using the Dune Discord Bot
+# User Guide — Using Arrakis Control Panel
 
 This guide is for anyone who has the bot in their Discord server and wants to
 use it. You don't need to know anything about servers, Docker, or code.
 
 ## What This Bot Does
 
-The Arrakis Control Plane bot watches your Dune Awakening game server and
+Arrakis Control Panel watches your Dune Awakening game server and
 reports its health, status, and activity through Discord slash commands. Think
 of it like a dashboard that lives inside Discord — you type a command, and the
 bot tells you what's happening with the game server.
@@ -141,4 +141,4 @@ You don't need to do anything — these updates happen automatically.
 ## Sources
 
 - [Discord Slash Commands Guide](https://support.discord.com/hc/en-us/articles/1500000368501-Slash-Commands-FAQ)
-- [Dune Awakening Self-Host Discord Bot Repository](https://github.com/yacketrj/dune-awakening-selfhost-discordbot)
+- [Arrakis Control Panel Repository](https://github.com/yacketrj/Arrakis-Control-Panel)
