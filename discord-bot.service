@@ -1,17 +1,17 @@
 [Unit]
-Description=Dune Awakening Discord Bot
+Description=Arrakis Control Panel
 After=network.target
 
 [Service]
 Type=simple
 User=darkdante
-WorkingDirectory=/home/darkdante/dune-awakening-selfhost-discordbot
-EnvironmentFile=/home/darkdante/dune-awakening-selfhost-discordbot/.env
+WorkingDirectory=/home/darkdante/Arrakis-Control-Panel
+EnvironmentFile=/home/darkdante/Arrakis-Control-Panel/.env
 ExecStart=/usr/bin/node src/index.js
 Restart=always
 RestartSec=10
-StandardOutput=append:/home/darkdante/dune-awakening-selfhost-discordbot/logs/bot.log
-StandardError=append:/home/darkdante/dune-awakening-selfhost-discordbot/logs/bot.log
+StandardOutput=append:/home/darkdante/Arrakis-Control-Panel/logs/bot.log
+StandardError=append:/home/darkdante/Arrakis-Control-Panel/logs/bot.log
 
 [Install]
 WantedBy=multi-user.target
