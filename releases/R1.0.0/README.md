@@ -2,12 +2,13 @@
 
 **Version**: v1.0.0
 **Branch**: `release/v1.0.0`
-**PR**: [#43](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/43)
+**PR**: [#43](https://github.com/yacketrj/Arrakis-Control-Panel/pull/43)
 **State**: Open
 
 ## Scope
 
-Stable promotion of the read-only Discord bot from v1.0.0-rc.1 to v1.0.0.
+Stable promotion of the read-only Arrakis Control Panel release from
+v1.0.0-rc.1 to v1.0.0.
 
 ## Included Commands
 
