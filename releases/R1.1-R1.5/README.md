@@ -6,11 +6,11 @@ Read-only maturity releases that improve operator value without changing server 
 
 | Version | PR | Branch | Scope |
 |---------|----|--------|-------|
-| v1.1.0 | [#44](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/44) | `release/v1.1.0` | Operator validation: smoke tests, validation checklist, runtime verification |
-| v1.2.0 | [#45](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/45) | `release/v1.2.0` | Detail expansion: richer service detail, grouped readiness, aggregate player summary |
-| v1.3.0 | [#46](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/46) | `release/v1.3.0` | Notifications: scheduled status posts, readiness/service alerts, incident digests |
-| v1.4.0 | [#47](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/47) | `release/v1.4.0` | Compatibility hardening: drift detection, fixture refresh, enhanced route coverage |
-| v1.5.0 | [#48](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/48) | `release/v1.5.0` | R2 readiness review: comprehensive security review, R2 entry criteria documented |
+| v1.1.0 | [#44](https://github.com/yacketrj/Arrakis-Control-Panel/pull/44) | `release/v1.1.0` | Operator validation: smoke tests, validation checklist, runtime verification |
+| v1.2.0 | [#45](https://github.com/yacketrj/Arrakis-Control-Panel/pull/45) | `release/v1.2.0` | Detail expansion: richer service detail, grouped readiness, aggregate player summary |
+| v1.3.0 | [#46](https://github.com/yacketrj/Arrakis-Control-Panel/pull/46) | `release/v1.3.0` | Notifications: scheduled status posts, readiness/service alerts, incident digests |
+| v1.4.0 | [#47](https://github.com/yacketrj/Arrakis-Control-Panel/pull/47) | `release/v1.4.0` | Compatibility hardening: drift detection, fixture refresh, enhanced route coverage |
+| v1.5.0 | [#48](https://github.com/yacketrj/Arrakis-Control-Panel/pull/48) | `release/v1.5.0` | R2 readiness review: comprehensive security review, R2 entry criteria documented |
 
 ## Artifacts
 
