@@ -160,13 +160,14 @@ emergency repair approved by the repository owner.
 
 Each release should publish:
 
-- `arrakis-control-panel-vMAJOR.MINOR.PATCH.tar.gz`
-- `arrakis-control-panel-vMAJOR.MINOR.PATCH.tar.gz.sha256`
+- `discord-readonly-bot-vMAJOR.MINOR.PATCH.tar.gz`
+- `discord-readonly-bot-vMAJOR.MINOR.PATCH.tar.gz.sha256`
 - `arrakis-control-panel.cdx.json`
 - `arrakis-control-panel.cdx.json.sha256`
 
-The addon package must remain zero-permission. The SBOM must be generated from
-the committed `package-lock.json`.
+The addon ID and archive prefix remain unchanged for compatibility. The addon
+package must remain zero-permission. The SBOM must be generated from the
+committed `package-lock.json`.
 
 After a tag publishes, record post-publication evidence under
 `docs/release-evidence/vMAJOR.MINOR.PATCH*.md`. The evidence should include the
