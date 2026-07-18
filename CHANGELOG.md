@@ -10,9 +10,15 @@ change notes under `docs/changes/`.
 
 - (reserved for future changes)
 
+### Changed
+
+- Renamed the project and user-facing branding to **Arrakis Control Panel**.
+- Updated repository URLs, addon labels, release artifacts, deployment examples,
+  and current operator documentation.
+
 ### Fixed
 
-- (reserved for future changes)
+- Corrected the malformed `DUNE_SCHEDULER_INTERVAL_MS` row in the configuration reference.
 
 ### Removed
 
