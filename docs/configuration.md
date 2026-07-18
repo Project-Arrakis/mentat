@@ -1,6 +1,6 @@
 # Configuration Reference
 
-Every environment variable, role mapping, and feature flag for the Dune Discord Bot.
+Every environment variable, role mapping, and feature flag for Arrakis Control Panel.
 
 ## Quick Start (Minimal Configuration)
 
@@ -144,8 +144,8 @@ Controls scheduled status posts to Discord channels.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DUNE_POST_SCHEDULE_TYPE` | `none` | `none`, `status`, `status-summary`, `readiness`, `services` |
-| `DUNE_POST_ALLOWED_CHANNELS` | *(empty)* | Comma-separated Discord channel IDs for scheduled posts |
-| `DUNE_SCHEDULER_INTERVAL_MS` | `1800000) |
+| `DUNE_POST_ALLOWED_CHANNELS` | *(empty)* | Comma-separated channel IDs for scheduled posts |
+| `DUNE_SCHEDULER_INTERVAL_MS` | `1800000` | Scheduler interval in milliseconds (30 minutes default) |
 | `DUNE_POST_RATE_LIMIT_MS` | `600000` | Minimum time between posts per channel (10 min default) |
 
 **Example:**
