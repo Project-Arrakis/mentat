@@ -129,7 +129,10 @@ export function createSetupServer(config) {
         headers: { Authorization: `Bearer ${tokenData.access_token}` }
       });
       const guilds = await guildsRes.json();
-      const ownedGuilds = guilds.filter(g => (g.permissions & 0x20) === 0x20);
+      const ownedGuilds = guilds.filter(g => {
+        const perms = BigInt(g.permissions || 0);
+        return (perms & 0x8n) === 0x8n || (perms & 0x20n) === 0x20n;
+      });
 
       const userName = esc(user.global_name || user.username);
       const userId = esc(user.id);
@@ -178,11 +181,19 @@ export function createSetupServer(config) {
               <h2>Step 2: Console Connection</h2>
               <label for="consoleUrl">Console URL</label>
               <input type="url" name="consoleUrl" id="consoleUrl" placeholder="http://your-server:8088" required>
-              <div class="hint">Your Arrakis Control Panel console WebUI address</div>
+              <div class="hint">Your Dune Docker Console WebUI address</div>
 
               <label for="adapterToken">Adapter Token</label>
-              <input type="text" name="adapterToken" id="adapterToken" placeholder="your-adapter-token" required>
-              <div class="hint">Must match the token in your console's bot-api-token.txt</div>
+              <div style="display:flex;gap:8px;">
+                <input type="text" name="adapterToken" id="adapterToken" placeholder="your-adapter-token" required style="flex:1;">
+                <button type="button" onclick="generateToken()" style="margin:0;white-space:nowrap;font-size:0.85em;padding:8px 12px;">Generate</button>
+              </div>
+              <div class="hint">
+                <strong>Enable the adapter first:</strong> In your Docker <code>.env</code>, set:<br>
+                <code>DUNE_DISCORD_ADAPTER_ENABLED=true</code><br>
+                <code>DUNE_DISCORD_ADAPTER_TOKEN=&lt;your-token&gt;</code><br>
+                Then restart the console. Use the same token here.
+              </div>
             </div>
 
             <div class="card">
@@ -202,6 +213,12 @@ export function createSetupServer(config) {
           <script>
             function escHtml(str) {
               return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+            }
+            function generateToken() {
+              const bytes = new Uint8Array(32);
+              crypto.getRandomValues(bytes);
+              const token = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+              document.getElementById('adapterToken').value = token;
             }
             document.getElementById('setup-form').addEventListener('submit', async (e) => {
               e.preventDefault();
