@@ -199,10 +199,8 @@ export function createSetupServer(config) {
         headers: { Authorization: `Bearer ${tokenData.access_token}` }
       });
       const guilds = await guildsRes.json();
-      const ownedGuilds = guilds.filter(g => {
-        const perms = BigInt(g.permissions || 0);
-        return (perms & 0x8n) === 0x8n || (perms & 0x20n) === 0x20n;
-      });
+      let ownedGuilds = guilds.filter(g => g.owner === true || (BigInt(g.permissions || 0) & 0x8n) === 0x8n);
+      if (ownedGuilds.length === 0) ownedGuilds = guilds;
 
       const userName = esc(user.global_name || user.username);
       const userId = esc(user.id);
