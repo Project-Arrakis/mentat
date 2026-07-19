@@ -1,15 +1,20 @@
 import { SlashCommandBuilder } from "discord.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkgVersion = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")).version;
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload } from "./format.js";
 import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed } from "./embedFormat.js";
-import { sendStatusCard } from "./statusCard.js";
+import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { writesEnabled } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory, isRouteMissing, routeStatus, UNMERGED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
-import { getGuildRoles, getGuildSettings, incrementCommandCount } from "./database.js";
+import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
 
 // Group -> subcommand -> handler config
 // Each group can have up to 25 subcommands; we have 6 groups with room for many more.
@@ -182,7 +187,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = await adapterClient.status(actor, diagnostic, guildId);
       if (!diagnostic) {
         const statusData = payload?.result || payload || {};
-        await sendStatusCard({ interaction, statusData: payload, title: statusData.title, adapterClient, guildId });
+        await sendStatusCard({ interaction, statusData: payload, title: statusData.title, adapterClient, guildId, db });
         applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
         return true;
       }
@@ -242,6 +247,9 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       if (route) {
         const methodName = route.replace(/-(\w)/g, (_, c) => c.toUpperCase());
         payload = formatOpsPayload(subcommand, await adapterClient[methodName](actor, guildId));
+        await sendOpsCard({ interaction, payload, subcommand, adapterClient, guildId, db });
+        applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
+        return true;
       } else {
         payload = { ok: false, error: `Unknown OPS command: ${subcommand}` };
       }
@@ -338,26 +346,6 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatPortsEmbed(payload);
     } else if (subcommand === "db") {
       embed = formatDbEmbed(payload);
-    } else if (subcommand === "activity") {
-      embed = formatActivityEmbed(payload);
-    } else if (subcommand === "combat") {
-      embed = formatCombatEmbed(payload);
-    } else if (subcommand === "resources") {
-      embed = formatResourcesEmbed(payload);
-    } else if (subcommand === "economy") {
-      embed = formatEconomyEmbed(payload);
-    } else if (subcommand === "inventory" && group === "ops") {
-      embed = formatOpsInventoryEmbed(payload);
-    } else if (subcommand === "location") {
-      embed = formatLocationEmbed(payload);
-    } else if (subcommand === "soc") {
-      embed = formatSocEmbed(payload);
-    } else if (subcommand === "prometheus") {
-      embed = formatPrometheusEmbed(payload);
-    } else if (subcommand === "dashboard") {
-      embed = formatDashboardEmbed(payload);
-    } else if (subcommand === "announcements") {
-      embed = formatAnnouncementsEmbed(payload);
     } else {
       embed = formatGenericEmbed(payload, subcommand);
     }
@@ -470,7 +458,7 @@ export function statusSummaryPayload(status) {
 }
 
 export function aboutPayload(config) {
-  return { ok: true, bot: { name: "arrakis-control-panel", version: "1.5.0", readOnly: true, writesEnabled: false }, adapter: { origin: new URL(config.adapter.baseUrl).origin, timeoutMs: config.adapter.timeoutMs }, discord: { rbacMode: config.discord.rbac.mode, defaultEphemeral: config.discord.defaultEphemeral }, boundary: { dockerSocket: false, databaseDirect: false, gameFiles: false, shellCommands: false } };
+  return { ok: true, bot: { name: "arrakis-control-panel", version: pkgVersion, readOnly: true, writesEnabled: false }, adapter: { origin: new URL(config.adapter.baseUrl).origin, timeoutMs: config.adapter.timeoutMs }, discord: { rbacMode: config.discord.rbac.mode, defaultEphemeral: config.discord.defaultEphemeral }, boundary: { dockerSocket: false, databaseDirect: false, gameFiles: false, shellCommands: false } };
 }
 
 export function populationPayload(p) { const r = p?.result || {}; return { ok: p?.ok === true, online: r.onlinePlayers ?? "unknown", total: r.totalPlayers ?? "unknown", aggregate: r.aggregate ?? true, detailsSuppressed: r.detailsSuppressed ?? true }; }

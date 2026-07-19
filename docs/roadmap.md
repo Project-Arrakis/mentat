@@ -210,8 +210,8 @@ Required release path:
 
 Current release state:
 
-- Latest bot stable release: `v1.5.0`
-- Latest release candidate validated: `v1.0.0-rc.1`
+- Latest bot stable release: `v0.1.1`
+- Latest release candidate validated: `v1.0.0-rc.2`
 - Next stable target: `v1.0.0` after the promotion checklist in
   `docs/v1.0.0-promotion-checklist.md` is satisfied
 - Latest upstream stable baseline: `v1.3.60`
