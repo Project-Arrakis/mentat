@@ -257,11 +257,33 @@ their inventory and storage. No additional setup is needed — this works
 automatically once the bot is connected to the console.
 
 Players use these commands:
-- `/dune player link <character-name>` — Link their account
-- `/dune player me` — Check their linked character
-- `/dune player inventory` — View their inventory
-- `/dune player storage` — View their storage
-- `/dune player find <item>` — Search for items
+- `/dune data link <character-name>` — Link their account
+- `/dune data unlink` — Remove their character link
+- `/dune data whoami` — Check their linked character
+- `/dune data faction <name>` — Set their faction for themed embeds
+- `/dune data inventory` — View their inventory
+- `/dune data inventory <search>` — Search their inventory
+- `/dune data storage` — View their storage
+- `/dune data find <item>` — Search for items
+
+## Multi-Tenant Mode (Optional)
+
+For centralized hosting serving multiple Discord servers, enable multi-tenant mode:
+
+```bash
+ACP_MULTI_TENANT=true
+ACP_DB_PATH=data/acp.db
+ACP_BASE_URL=http://your-server:3100
+DISCORD_CLIENT_SECRET=your-oauth2-secret
+```
+
+The setup portal runs at `http://your-server:3100/setup` and handles:
+- Discord OAuth2 authentication
+- Guild registration with console URL and adapter token
+- Per-guild role configuration
+- Automatic DM onboarding when the bot joins a new server
+
+See [Multi-Tenant Design](multi-tenant-design.md) for architecture details.
 
 ## Next Steps
 
@@ -273,5 +295,5 @@ Players use these commands:
 ## Sources
 
 - [Discord Developer Portal](https://discord.com/developers/applications)
-- [Discord OAuth2 Documentation](https://docs.discord.com/developers/platform/oauth2-and-permissions)
+- [Discord OAuth2 Documentation](https://discord.com/developers/docs/topics/oauth2)
 - [Discord Slash Commands](https://support.discord.com/hc/en-us/articles/1500000368501-Slash-Commands-FAQ)

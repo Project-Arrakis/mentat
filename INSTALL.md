@@ -1,9 +1,13 @@
 # Install
 
-This bot is a user-owned, read-only Discord companion for Dune Awakening
-Self-Host Docker. There is no shared hosted bot. Each operator creates their
-own Discord application, keeps their own tokens, and connects only to their own
-WebUI Discord adapter.
+This bot is a user-owned Discord companion for Dune Awakening Self-Host Docker.
+There is no shared hosted bot. Each operator creates their own Discord
+application, keeps their own tokens, and connects only to their own WebUI
+Discord adapter.
+
+The bot is read-only by default. Write commands exist but are disabled by
+default. In multi-tenant mode, the bot can serve multiple Discord servers from
+a single hosted instance.
 
 ## Prerequisites
 
@@ -23,7 +27,8 @@ allow-lists, request limits, rate limits, and token rotation.
 4. Set `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DUNE_CONSOLE_API_URL`, and
    `DUNE_DISCORD_ADAPTER_TOKEN`.
 5. Set at least one RBAC principal, usually `DISCORD_OBSERVER_ROLE_IDS` or
-   `DISCORD_ADMIN_ROLE_IDS`.
+   `DISCORD_ADMIN_ROLE_IDS`. For write commands, also set
+   `DISCORD_WRITE_ADMIN_ROLE_IDS`.
 6. Set `DISCORD_GUILD_ID` for a test guild while validating command
    registration.
 7. Run `npm run register`.
@@ -31,6 +36,19 @@ allow-lists, request limits, rate limits, and token rotation.
 
 Leave `DISCORD_RBAC_MODE=restricted` for normal installs. `open` mode is for
 local testing only.
+
+## Multi-Tenant Install (Hosted)
+
+For a centralized service serving multiple Discord servers:
+
+1. Set `ACP_MULTI_TENANT=true`
+2. Set `DISCORD_CLIENT_SECRET` (from Discord Developer Portal → OAuth2)
+3. Set `ACP_BASE_URL` to your public server URL
+4. Run `npm start` — the setup portal starts on port 3100
+5. Visit `http://your-server:3100/setup` to configure guilds via OAuth2
+
+Guilds can also be onboarded automatically via DM when the bot joins a new server.
+Configuration is stored in `data/acp.db` (SQLite).
 
 ## Docker Install
 

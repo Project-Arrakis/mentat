@@ -79,13 +79,13 @@ Type `/dune` in Discord and select a group:
 
 | Group | What It Does | Commands |
 |-------|-------------|----------|
-| `core` | Bot information and help | `about` `ping` `help` |
-| `server` | Game server health checks | `health` `status` `summary` `readiness` `services` |
-| `data` | Game world data | `population` `backups` `maps` |
-| `player` | Your character info and inventory | `link` `unlink` `me` `inventory` `storage` `find` `inventory-search` |
+| `core` | Bot information and help | `about` `ping` `help` `setup` |
+| `server` | Game server health checks | `health` `status` `summary` `readiness` `readiness-detail` `services` `services-detail` |
+| `data` | Game world data and player features | `population` `backups` `maps` `maintenance` `link` `unlink` `faction` `whoami` `inventory` `storage` `find` |
 | `ops` | Detailed operational stats | `activity` `combat` `resources` `economy` `inventory` `location` `soc` `prometheus` `dashboard` |
 | `admin` | Administration tools | `doctor` `cooldowns` `latency` `events` `broadcast` |
 | `infra` | Server infrastructure | `version` `servers` `ports` `db` |
+| `write` | Write operations (disabled by default) | `maintenance-note` `maintenance-window` `alert-channel` `alert-threshold` `digest-schedule` `post-schedule` `add-channel` `remove-channel` `backup` `restart` `update` `cache` |
 
 > **Tip:** Add `diagnostic:true` to `/dune server status` or `/dune server readiness` for detailed technical output (admins only).
 
@@ -117,13 +117,14 @@ The bot is designed to be safe by default:
 
 | Protection | What It Means |
 |-----------|--------------|
-| Read-only | The bot cannot change anything on your game server |
+| Read-only by default | The bot cannot change anything on your game server unless writes are explicitly enabled |
 | Token authentication | Every request to the game server requires a secret token |
 | Role-based access | Only people with the right Discord roles can use commands |
 | File-based secrets | Tokens stored in files, not in command history |
 | No Docker access | The bot cannot see or control your Docker containers |
-| No database access | The bot cannot directly query your game database |
+| No game database access | The bot cannot directly query your game database (it maintains its own SQLite DB for multi-tenant config) |
 | Security scanning | Every code change is scanned for vulnerabilities |
+| Write-safety | Write commands are disabled by default, require confirmation, and generate idempotency keys |
 
 Run `npm run check` to verify everything is working. `npm run release:gates` runs the full security test suite.
 
@@ -136,11 +137,12 @@ The latest readiness security review is recorded at [docs/security-review-2026-0
 
 | Release | What's Included | Status |
 |---------|----------------|--------|
-| **R1.0.0–R1.5.0** | Read-only commands, status cards, player inventory | ✅ Complete |
-| **R2.0.0** | Write-safety foundation (disabled by default) | Planned |
+| **R1.0.0–R1.5.0** | Read-only commands, status cards, player features, OPS/infra commands | ✅ Complete |
+| **R2.0.0** | Write-safety foundation (disabled by default) | Scaffolded |
 | **R2.x** | Low-risk admin writes (maintenance, notifications) | Planned |
 | **R3.0.0** | Operational writes (backup, restart, update) | Planned |
 | **R4.0.0+** | High-risk operations (player moderation, restore) | Planned |
+| **Multi-Tenant** | Centralized OCI hosting, per-guild console routing, OAuth2 portal | In Progress |
 
 See [Full Release Roadmap](docs/full-release-roadmap.md) for details.
 The detailed R1.x to R2.x cadence and entry criteria live in [docs/r1-r2-release-roadmap.md](docs/r1-r2-release-roadmap.md).

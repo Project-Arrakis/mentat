@@ -252,7 +252,7 @@ docker run -d --name dune-discord-bot --env-file .env --restart unless-stopped d
 ## Sources
 
 - [Discord Developer Portal](https://discord.com/developers/applications)
-- [Discord OAuth2 Documentation](https://docs.discord.com/developers/platform/oauth2-and-permissions)
+- [Discord OAuth2 Documentation](https://discord.com/developers/docs/topics/oauth2)
 - `docs/discord-setup.md` — Discord-specific setup details
 - `docs/configuration.md` — Full configuration reference
 - `docs/security-model.md` — Security model and RBAC
