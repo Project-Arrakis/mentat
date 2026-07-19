@@ -62,94 +62,171 @@ export function createSetupServer(config) {
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>ACP Setup</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Marcellus&display=swap" rel="stylesheet">
         <style>
           :root {
-            color-scheme: light dark;
-            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            line-height: 1.5;
+            --bg-deep: #0d0f12;
+            --bg-board: #1a1510;
+            --parchment: #f5e6c8;
+            --parchment-dark: #d4c4a0;
+            --sand-light: #ffd08a;
+            --sand-mid: #c68b4a;
+            --spice-glow: #e8a84c;
+            --sienna: #6b3a2a;
+            --text-light: #f3efe7;
+            --muted: #ad9f89;
+            --border: #302b25;
+            --border-strong: #4d4032;
+            --font-heading: 'Marcellus', serif;
+            --font-body: 'Inter', sans-serif;
           }
+          *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
           body {
-            margin: 0;
-            color: #18202a;
-            background: #f6f7f9;
+            font-family: var(--font-body);
+            background: var(--bg-deep);
+            color: var(--text-light);
+            line-height: 1.6;
+            min-height: 100vh;
           }
-          main {
-            max-width: 920px;
-            margin: 0 auto;
-            padding: 32px 20px 48px;
+          .sand-layer { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+          .sand-particle {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255, 208, 138, 0.35);
+            animation: sandDrift linear infinite;
+          }
+          @keyframes sandDrift {
+            0%   { transform: translateX(-5vw) translateY(0); opacity: 0; }
+            10%  { opacity: 0.7; }
+            90%  { opacity: 0.7; }
+            100% { transform: translateX(105vw) translateY(15vh); opacity: 0; }
+          }
+          .page-wrapper {
+            position: relative;
+            z-index: 1;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+          }
+          .hero-glow {
+            position: fixed;
+            width: 500px; height: 500px;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: radial-gradient(circle, rgba(232, 168, 76, 0.08) 0%, transparent 70%);
+            animation: glowPulse 6s ease-in-out infinite alternate;
+            pointer-events: none;
+            z-index: 0;
+          }
+          @keyframes glowPulse {
+            0% { opacity: 0.6; transform: translate(-50%, -50%) scale(1); }
+            100% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
+          }
+          .hero-icon {
+            width: 80px; height: 80px;
+            margin: 0 auto 20px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, var(--spice-glow), var(--sand-mid), var(--sienna));
+            box-shadow: 0 0 30px rgba(232, 168, 76, 0.3), 0 0 60px rgba(232, 168, 76, 0.15);
+            animation: iconFloat 4s ease-in-out infinite alternate;
+          }
+          @keyframes iconFloat {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(-6px); }
           }
           h1 {
-            margin: 0 0 8px;
-            font-size: 28px;
-            line-height: 1.15;
+            font-family: var(--font-heading);
+            font-size: clamp(28px, 5vw, 42px);
+            color: var(--sand-light);
+            text-align: center;
+            margin-bottom: 8px;
+            letter-spacing: 0.02em;
           }
-          h2 {
-            margin: 28px 0 8px;
+          .subtitle {
+            font-family: var(--font-heading);
+            font-style: italic;
             font-size: 18px;
-          }
-          p, li {
-            font-size: 15px;
-          }
-          code {
-            padding: 2px 5px;
-            border-radius: 4px;
-            background: #e7ebf0;
+            color: var(--parchment-dark);
+            text-align: center;
+            margin-bottom: 32px;
           }
           .panel {
-            margin-top: 20px;
-            padding: 18px;
-            border: 1px solid #d9dee6;
-            border-radius: 8px;
-            background: #ffffff;
+            background: var(--bg-board);
+            border: 1px solid var(--border-strong);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 480px;
+            width: 100%;
+            text-align: center;
+          }
+          .panel h2 {
+            font-family: var(--font-heading);
+            font-size: 20px;
+            color: var(--sand-light);
+            margin-bottom: 12px;
+          }
+          .panel p {
+            color: var(--muted);
+            font-size: 15px;
+            margin-bottom: 20px;
           }
           .btn {
-            display: inline-block;
-            background: #c4883a;
-            color: #fff;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: linear-gradient(135deg, var(--spice-glow), var(--sand-mid));
+            color: var(--bg-deep);
             border: none;
-            padding: 12px 24px;
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 15px;
+            padding: 14px 28px;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 16px;
             cursor: pointer;
             text-decoration: none;
-            margin-top: 12px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 24px rgba(232, 168, 76, 0.3);
           }
           .btn:hover {
-            background: #b07830;
-          }
-          @media (prefers-color-scheme: dark) {
-            body {
-              color: #e7edf5;
-              background: #111820;
-            }
-            .panel {
-              border-color: #303b49;
-              background: #18222d;
-            }
-            code {
-              background: #263241;
-            }
-            .btn {
-              background: #c4883a;
-              color: #111820;
-            }
-            .btn:hover {
-              background: #d4984a;
-            }
+            transform: translateY(-2px);
+            box-shadow: 0 4px 36px rgba(232, 168, 76, 0.5);
+            text-decoration: none;
           }
         </style>
       </head>
       <body>
-        <main>
+        <div class="sand-layer" id="sandLayer" aria-hidden="true"></div>
+        <div class="hero-glow" aria-hidden="true"></div>
+        <div class="page-wrapper">
+          <div class="hero-icon" aria-hidden="true"></div>
           <h1>Arrakis Control Panel</h1>
-          <p>Connect your Discord server to your game console.</p>
+          <p class="subtitle">Connect your Discord server to your game console.</p>
           <section class="panel">
             <h2>Sign In</h2>
             <p>Sign in with Discord to configure your server.</p>
-            <a href="${authUrl.toString()}" class="btn">Sign in with Discord</a>
+            <a href="${authUrl.toString()}" class="btn">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20.3 4.4A18.4 18.4 0 0 0 15.8 3l-.2.4a13.1 13.1 0 0 1 4 2 14.2 14.2 0 0 0-5-1.5 14.8 14.8 0 0 0-5.2 0 14.2 14.2 0 0 0-5 1.5 13.1 13.1 0 0 1 4-2L8.2 3a18.4 18.4 0 0 0-4.5 1.4C.9 8.5.1 12.5.5 16.5A18.7 18.7 0 0 0 6 19.2l.7-.9a11.6 11.6 0 0 1-1.8-.9l.4-.3a13.2 13.2 0 0 0 13.4 0l.4.3a11.6 11.6 0 0 1-1.8.9l.7.9a18.7 18.7 0 0 0 5.5-2.7c.5-4.6-.8-8.5-3.2-12.1ZM8.4 14.2c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm7.2 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>
+              Sign in with Discord
+            </a>
           </section>
-        </main>
+        </div>
+        <script>
+          (function() {
+            const layer = document.getElementById('sandLayer');
+            if (!layer) return;
+            for (let i = 0; i < 20; i++) {
+              const p = document.createElement('div');
+              p.className = 'sand-particle';
+              const size = Math.random() * 4 + 2;
+              p.style.cssText = 'width:' + size + 'px;height:' + size + 'px;top:' + (Math.random() * 100) + '%;left:' + (Math.random() * -10) + '%;animation-duration:' + (Math.random() * 15 + 10) + 's;animation-delay:' + (Math.random() * 10) + 's;';
+              layer.appendChild(p);
+            }
+          })();
+        </script>
       </body>
       </html>
     `);
@@ -217,81 +294,161 @@ export function createSetupServer(config) {
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>ACP Setup — Configure Server</title>
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Marcellus&display=swap" rel="stylesheet">
           <style>
             :root {
-              color-scheme: light dark;
-              font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-              line-height: 1.5;
+              --bg-deep: #0d0f12;
+              --bg-board: #1a1510;
+              --parchment: #f5e6c8;
+              --parchment-dark: #d4c4a0;
+              --sand-light: #ffd08a;
+              --sand-mid: #c68b4a;
+              --spice-glow: #e8a84c;
+              --sienna: #6b3a2a;
+              --text-light: #f3efe7;
+              --muted: #ad9f89;
+              --border: #302b25;
+              --border-strong: #4d4032;
+              --font-heading: 'Marcellus', serif;
+              --font-body: 'Inter', sans-serif;
+              --font-code: ui-monospace, 'SF Mono', 'Consolas', monospace;
             }
+            *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
             body {
-              margin: 0;
-              color: #18202a;
-              background: #f6f7f9;
+              font-family: var(--font-body);
+              background: var(--bg-deep);
+              color: var(--text-light);
+              line-height: 1.6;
+              min-height: 100vh;
             }
-            main {
-              max-width: 920px;
+            .sand-layer { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+            .sand-particle {
+              position: absolute;
+              border-radius: 50%;
+              background: rgba(255, 208, 138, 0.35);
+              animation: sandDrift linear infinite;
+            }
+            @keyframes sandDrift {
+              0%   { transform: translateX(-5vw) translateY(0); opacity: 0; }
+              10%  { opacity: 0.7; }
+              90%  { opacity: 0.7; }
+              100% { transform: translateX(105vw) translateY(15vh); opacity: 0; }
+            }
+            .hero-glow {
+              position: fixed;
+              width: 500px; height: 500px;
+              top: 50%; left: 50%;
+              transform: translate(-50%, -50%);
+              background: radial-gradient(circle, rgba(232, 168, 76, 0.06) 0%, transparent 70%);
+              animation: glowPulse 6s ease-in-out infinite alternate;
+              pointer-events: none;
+              z-index: 0;
+            }
+            @keyframes glowPulse {
+              0% { opacity: 0.6; transform: translate(-50%, -50%) scale(1); }
+              100% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
+            }
+            .page-wrapper {
+              position: relative;
+              z-index: 1;
+              max-width: 640px;
               margin: 0 auto;
-              padding: 32px 20px 48px;
+              padding: 40px 20px 60px;
+            }
+            .page-header {
+              text-align: center;
+              margin-bottom: 32px;
             }
             h1 {
-              margin: 0 0 8px;
-              font-size: 28px;
-              line-height: 1.15;
+              font-family: var(--font-heading);
+              font-size: clamp(24px, 4vw, 36px);
+              color: var(--sand-light);
+              margin-bottom: 4px;
+              letter-spacing: 0.02em;
             }
-            h2 {
-              margin: 28px 0 8px;
-              font-size: 18px;
-            }
-            p, li {
-              font-size: 15px;
-            }
-            code {
-              padding: 2px 5px;
-              border-radius: 4px;
-              background: #e7ebf0;
+            .welcome {
+              color: var(--parchment-dark);
+              font-size: 16px;
             }
             .panel {
-              margin-top: 20px;
-              padding: 18px;
-              border: 1px solid #d9dee6;
-              border-radius: 8px;
-              background: #ffffff;
+              background: var(--bg-board);
+              border: 1px solid var(--border-strong);
+              border-radius: 12px;
+              padding: 24px;
+              margin-bottom: 20px;
+            }
+            .panel h2 {
+              font-family: var(--font-heading);
+              font-size: 18px;
+              color: var(--sand-light);
+              margin-bottom: 16px;
             }
             label {
               display: block;
-              margin: 12px 0 4px;
+              margin-bottom: 4px;
               font-weight: 600;
               font-size: 14px;
+              color: var(--parchment-dark);
             }
             input, select {
               width: 100%;
-              padding: 8px 10px;
-              border-radius: 4px;
-              border: 1px solid #d9dee6;
-              background: #fff;
-              color: #18202a;
-              box-sizing: border-box;
+              padding: 10px 12px;
+              border-radius: 8px;
+              border: 1px solid var(--border-strong);
+              background: rgba(13, 15, 18, 0.6);
+              color: var(--text-light);
+              font-family: var(--font-body);
               font-size: 14px;
+              margin-bottom: 4px;
+              transition: border-color 0.2s;
+            }
+            input:focus, select:focus {
+              outline: none;
+              border-color: var(--spice-glow);
+              box-shadow: 0 0 0 2px rgba(232, 168, 76, 0.2);
             }
             .hint {
               font-size: 13px;
-              color: #6b7a8d;
-              margin: 4px 0 12px;
+              color: var(--muted);
+              margin-bottom: 14px;
+            }
+            code {
+              font-family: var(--font-code);
+              font-size: 0.9em;
+              padding: 2px 6px;
+              border-radius: 4px;
+              background: rgba(232, 168, 76, 0.12);
+              color: var(--sand-light);
             }
             .btn {
-              display: inline-block;
-              background: #c4883a;
-              color: #fff;
+              display: inline-flex;
+              align-items: center;
+              gap: 8px;
+              background: linear-gradient(135deg, var(--spice-glow), var(--sand-mid));
+              color: var(--bg-deep);
               border: none;
-              padding: 12px 24px;
-              border-radius: 6px;
-              font-weight: 600;
-              font-size: 15px;
+              padding: 14px 28px;
+              border-radius: 10px;
+              font-weight: 700;
+              font-size: 16px;
               cursor: pointer;
-              margin-top: 16px;
+              text-decoration: none;
+              transition: transform 0.2s, box-shadow 0.2s;
+              box-shadow: 0 4px 24px rgba(232, 168, 76, 0.3);
+              margin-top: 8px;
             }
             .btn:hover {
-              background: #b07830;
+              transform: translateY(-2px);
+              box-shadow: 0 4px 36px rgba(232, 168, 76, 0.5);
+              text-decoration: none;
+            }
+            .btn-sm {
+              padding: 10px 16px;
+              font-size: 14px;
+              margin-top: 0;
+              white-space: nowrap;
             }
             .token-row {
               display: flex;
@@ -300,46 +457,38 @@ export function createSetupServer(config) {
             .token-row input {
               flex: 1;
             }
-            .btn-sm {
-              padding: 8px 12px;
-              font-size: 13px;
-              margin-top: 0;
-              white-space: nowrap;
+            .success-page {
+              text-align: center;
+              padding: 80px 20px;
             }
-            @media (prefers-color-scheme: dark) {
-              body {
-                color: #e7edf5;
-                background: #111820;
-              }
-              .panel {
-                border-color: #303b49;
-                background: #18222d;
-              }
-              code {
-                background: #263241;
-              }
-              input, select {
-                border-color: #303b49;
-                background: #222d3a;
-                color: #e7edf5;
-              }
-              .hint {
-                color: #8a9bb5;
-              }
-              .btn {
-                background: #c4883a;
-                color: #111820;
-              }
-              .btn:hover {
-                background: #d4984a;
-              }
+            .success-page h1 {
+              color: var(--sand-light);
+            }
+            .success-page p {
+              color: var(--muted);
+              margin-bottom: 8px;
+            }
+            .success-icon {
+              width: 64px; height: 64px;
+              margin: 0 auto 20px;
+              border-radius: 50%;
+              background: radial-gradient(circle at 30% 30%, var(--spice-glow), var(--sand-mid));
+              box-shadow: 0 0 30px rgba(232, 168, 76, 0.4);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 32px;
             }
           </style>
         </head>
         <body>
-          <main>
-            <h1>Configure Your Server</h1>
-            <p>Welcome, ${userName}!</p>
+          <div class="sand-layer" id="sandLayer" aria-hidden="true"></div>
+          <div class="hero-glow" aria-hidden="true"></div>
+          <div class="page-wrapper">
+            <div class="page-header">
+              <h1>Configure Your Server</h1>
+              <p class="welcome">Welcome, ${userName}!</p>
+            </div>
 
             <form id="setup-form" action="/setup/register" method="POST">
               <input type="hidden" name="discordUserId" value="${userId}">
@@ -375,20 +524,31 @@ export function createSetupServer(config) {
 
               <section class="panel">
                 <h2>Step 3: Role Configuration</h2>
-                <label for="observerRoleId">Observer Role ID</label>
-                <input type="text" name="observerRoleId" id="observerRoleId" placeholder="Discord role ID">
-                <div class="hint">Members with this role can use read-only commands</div>
-
                 <label for="adminRoleId">Admin Role ID</label>
                 <input type="text" name="adminRoleId" id="adminRoleId" placeholder="Discord role ID">
                 <div class="hint">Members with this role can use admin commands</div>
+
+                <label for="observerRoleId">Observer Role ID</label>
+                <input type="text" name="observerRoleId" id="observerRoleId" placeholder="Discord role ID">
+                <div class="hint">Members with this role can use read-only commands</div>
               </section>
 
               <button type="submit" class="btn">Connect Server</button>
             </form>
-          </main>
+          </div>
 
           <script>
+            (function() {
+              var layer = document.getElementById('sandLayer');
+              if (!layer) return;
+              for (var i = 0; i < 20; i++) {
+                var p = document.createElement('div');
+                p.className = 'sand-particle';
+                var size = Math.random() * 4 + 2;
+                p.style.cssText = 'width:' + size + 'px;height:' + size + 'px;top:' + (Math.random() * 100) + '%;left:' + (Math.random() * -10) + '%;animation-duration:' + (Math.random() * 15 + 10) + 's;animation-delay:' + (Math.random() * 10) + 's;';
+                layer.appendChild(p);
+              }
+            })();
             function escHtml(str) {
               return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
             }
@@ -408,7 +568,18 @@ export function createSetupServer(config) {
               });
               const data = await res.json();
               if (res.ok) {
-                document.body.innerHTML = '<main style="text-align:center;padding:60px 20px;"><h1>✅ Connected!</h1><p>Your server "' + escHtml(data.guildName) + '" is now connected to ACP.</p><p>Use <code>/dune core help</code> in Discord to see available commands.</p></main>';
+                document.body.innerHTML = '<div class="sand-layer" id="sandLayer"></div><div class="hero-glow"></div><div class="success-page"><div class="success-icon">&#x2714;</div><h1>Connected!</h1><p>Your server "' + escHtml(data.guildName) + '" is now connected to ACP.</p><p>Use <code>/dune core help</code> in Discord to see available commands.</p></div>';
+                (function() {
+                  var layer = document.getElementById('sandLayer');
+                  if (!layer) return;
+                  for (var i = 0; i < 20; i++) {
+                    var p = document.createElement('div');
+                    p.className = 'sand-particle';
+                    var size = Math.random() * 4 + 2;
+                    p.style.cssText = 'width:' + size + 'px;height:' + size + 'px;top:' + (Math.random() * 100) + '%;left:' + (Math.random() * -10) + '%;animation-duration:' + (Math.random() * 15 + 10) + 's;animation-delay:' + (Math.random() * 10) + 's;';
+                    layer.appendChild(p);
+                  }
+                })();
               } else {
                 alert('Error: ' + (data.error || 'Unknown error'));
               }
