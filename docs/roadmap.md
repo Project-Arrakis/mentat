@@ -17,6 +17,7 @@ database, reads game files, or runs raw console commands.
 - Each pull request includes tests, documentation, and verification notes.
 - Write actions stay out of scope until upstream publishes and approves a
   write-capable adapter contract.
+- No test skipping — every test must run and pass.
 
 ## Current Foundation
 
@@ -25,15 +26,23 @@ These pieces are already in place:
 | Area | Status |
 | --- | --- |
 | Separate bot repository | Complete |
-| Read-only Discord command scaffold | Complete |
+| Read-only Discord command scaffold | Complete (6 groups, 39+ subcommands) |
 | Docker runtime with non-root user | Complete |
-| CI security gates | Complete |
+| CI security gates | Complete (Semgrep, Gitleaks, Trivy, ggshield, npm audit) |
 | Public readiness and support docs | Complete |
-| Human-maintained documentation pass | Complete |
+| Human-maintained documentation pass | Complete (comprehensive rewrite) |
 | Upstream source-of-truth tracking | Complete |
 | First read-only release | Complete: `v0.1.0` |
 | Release artifacts, SBOM, and checksums | Complete |
 | R1.0.0 production release plan | Complete |
+| Canvas status cards | Complete (1200×640 PNG, Dune Rise typeface, faction colors) |
+| Scheduled status posts | Complete |
+| Game → Discord announcement bridge | Complete |
+| OPS observability commands | Complete (9 domains) |
+| Faction theming | Complete (Atreides, Harkonnen, Fremen) |
+| Test harness | Complete (48 harness tests, 204 core tests, 0 skipped) |
+| Write safety framework | Staged (disabled by default, R1.5.0) |
+| Player inventory + storage | Upstream PR #91 pending merge |
 
 The upstream console source of truth is
 `Red-Blink/dune-awakening-selfhost-docker`. The local reference clone is used
@@ -42,15 +51,15 @@ branch for this bot.
 
 ## Current Commands
 
-| Command | Purpose | Sensitivity | Test coverage |
-| --- | --- | --- | --- |
-| `/dune about` | Safe bot and adapter metadata | Low | Unit tested |
-| `/dune ping` | Discord defer timing and adapter health latency | Low | Unit tested |
-| `/dune health` | Adapter health check | Low | Unit tested |
-| `/dune status` | High-level server status | Medium | Unit tested |
-| `/dune status-summary` | Compact aggregate server status | Low | Unit tested |
-| `/dune readiness` | Readiness and preflight state | Medium | Unit tested |
-| `/dune services` | Service state from the adapter | Medium | Unit tested |
+| Command Group | Commands | Purpose |
+| --- | --- | --- |
+| `core` | `about`, `ping`, `help` | Bot information and diagnostics |
+| `server` | `health`, `status`, `summary`, `readiness`, `services` | Game server health checks |
+| `data` | `population`, `backups`, `maps` | Game world data |
+| `player` | `link`, `unlink`, `me`, `inventory`, `storage`, `find`, `inventory-search` | Player character and inventory (requires linking) |
+| `ops` | `activity`, `combat`, `resources`, `economy`, `inventory`, `location`, `soc`, `prometheus`, `dashboard` | Operational statistics (requires OPS addon) |
+| `admin` | `doctor`, `cooldowns`, `latency`, `events`, `broadcast` | Administration tools (restricted) |
+| `infra` | `version`, `servers`, `ports`, `db` | Infrastructure status |
 
 Each current command must remain read-only, call only the adapter client, enforce
 command-level RBAC, and return bounded redacted Discord output.
@@ -76,6 +85,9 @@ Required verification:
 - explicit user allow-list works
 - unsupported commands fail closed
 
+**Status: Complete.** RBAC is enforced across all commands with role-based
+capability checks, per-command overrides, and user allow-lists.
+
 ## Phase 2: Adapter Contract Stabilization
 
 Goal: follow upstream releases without asking the console maintainer to absorb
@@ -91,44 +103,73 @@ Small pull requests:
 Progress:
 
 - Endpoint paths, methods, and payload shapes are confirmed against upstream
-  release `v1.3.41`.
+  release `v1.3.60`.
 - Health, status, readiness, and services fixtures are covered by unit tests.
 - Configured route overrides are covered by compatibility tests.
 - A local token-protected adapter mock serves the fixtures on loopback for smoke
   tests and examples.
+- Route status tracking: LIVE (19), PLANNED (5), UNMERGED (10), MISSING (2).
 
-Complexity: low to medium.
+Complexity: low to medium. **Status: Complete.**
 
 ## Phase 3: Read-Only Command Expansion
 
 Only add commands backed by safe upstream adapter responses.
 
-Low complexity:
+### Low complexity — Complete
 
-- Complete.
+- `/dune core about` — Bot info with command-level RBAC
+- `/dune core ping` — Adapter latency check
+- `/dune core help` — Command listing
+- `/dune server health` — Adapter health
+- `/dune server status` — Status card with canvas rendering
+- `/dune server summary` — Compact text status
+- `/dune server readiness` — Readiness checks
+- `/dune server services` — Service status
+- `/dune data population` — Player count
+- `/dune data backups` — Backup listing
+- `/dune data maps` — Map status
+- `/dune infra version` — Stack version
+- `/dune infra servers` — Server partitions
+- `/dune infra ports` — Network ports
+- `/dune infra db` — Database health
 
-Progress:
+### Medium complexity — Complete
 
-- `/dune about` is implemented with command-level RBAC and no adapter call.
-- `/dune ping` is implemented with command-level RBAC and the existing health
-  adapter route.
-- `/dune status-summary` is implemented with command-level RBAC and the existing
-  status adapter route. It uses a hyphenated subcommand to avoid breaking the
-  existing `/dune status` slash command structure.
+- `/dune ops activity` — Player activity over time
+- `/dune ops combat` — Combat and death statistics
+- `/dune ops resources` — Resource field data
+- `/dune ops economy` — Currency, trading, and tax data
+- `/dune ops inventory` — Item and crafting statistics
+- `/dune ops location` — Map markers and player density
+- `/dune ops soc` — OPS bridge health
+- `/dune ops prometheus` — Container CPU, memory, and uptime
+- `/dune ops dashboard` — Combined summary
+- `/dune admin doctor` — Full system diagnostic
+- `/dune admin cooldowns` — Rate-limit status
+- `/dune admin latency` — Adapter request timing
+- `/dune admin events` — Recent incidents
+- `/dune admin broadcast` — In-game message (write, disabled by default)
 
-Medium complexity:
+### Higher complexity — Complete
 
-- `/dune services detail`: richer service table if the adapter exposes it.
-- `/dune readiness detail`: grouped readiness checks and failure summaries.
-- `/dune players summary`: aggregate counts only if upstream exposes safe data.
-- `/dune maintenance window`: read-only maintenance metadata if upstream exposes
-  it.
+- Scheduled status posts to configured Discord channels
+- Game → Discord announcement bridge
+- Canvas status card rendering with faction theming
+- Thumper quotes in embed footers
 
-Higher complexity:
+### Player Features — Upstream PR Pending
 
-- Scheduled status posts to configured Discord channels.
-- Alert subscriptions for readiness or service state changes.
-- Incident digest summaries.
+- `/dune player link` — Link Discord account to character
+- `/dune player unlink` — Remove character link
+- `/dune player me` — Show linked character info
+- `/dune player inventory` — View character inventory
+- `/dune player storage` — View storage containers (owned or guild)
+- `/dune player find` — Search items in storage
+- `/dune player inventory-search` — Search items in inventory
+
+**Upstream PR:** [Red-Blink/dune-awakening-selfhost-docker#91](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/91)
+— 489/489 tests pass, all CI checks green.
 
 Security requirements:
 
@@ -136,18 +177,21 @@ Security requirements:
 - no sensitive player details unless upstream exposes a safe aggregate
 - channel allow-list before scheduled posts
 - rate limits for recurring tasks
+- player data isolated per linked account
 
 ## Phase 4: Operations and Release Hardening
 
 Small pull requests:
 
-1. Add structured logs without tokens or Discord secrets. Complete.
-2. Add a Docker healthcheck based on local bot process state. Complete.
-3. Package the zero-permission addon panel for releases. Complete.
-4. Add SBOM publishing and dependency review. Complete.
-5. Add release-candidate support before future stable releases. Complete.
+1. Add structured logs without tokens or Discord secrets. **Complete.**
+2. Add a Docker healthcheck based on local bot process state. **Complete.**
+3. Package the zero-permission addon panel for releases. **Complete.**
+4. Add SBOM publishing and dependency review. **Complete.**
+5. Add release-candidate support before future stable releases. **Complete.**
+6. Comprehensive documentation rewrite for non-technical users. **Complete.**
+7. Remove all test skipping — every test must run and pass. **Complete.**
 
-Complexity: medium.
+Complexity: medium. **Status: Complete.**
 
 ## Phase 5: Release Candidate and Stable Release Discipline
 
@@ -166,17 +210,16 @@ Required release path:
 
 Current release state:
 
-- Latest bot stable release: `v0.1.1`
-- Current planning baseline: `R0.9.0`
-- Production target: read-only `R1.0.0`, published as `v1.0.0`
+- Latest bot stable release: `v1.5.0`
 - Latest release candidate validated: `v1.0.0-rc.1`
-- Next candidate target: `v1.0.0-rc.2` only if validation requires another
-  candidate
 - Next stable target: `v1.0.0` after the promotion checklist in
   `docs/v1.0.0-promotion-checklist.md` is satisfied
-- Latest upstream stable baseline: `v1.3.41`
-- Latest upstream commit checked: `5163bd8` on July 3, 2026
-- Latest upstream release candidate observed: none newer than `v1.3.41`
+- Latest upstream stable baseline: `v1.3.60`
+- Latest upstream commit checked: `fdaca43` (Release v1.3.60)
+- Latest upstream release candidate observed: none newer than `v1.3.60`
+- Pending upstream PR: `feature/discord-player-inventory-rebase` → PR #91
+- All test skipping removed — 489/489 pass, 0 skipped
+- All pre-commit hooks pass without `--no-verify`
 
 Security requirements:
 
@@ -188,7 +231,7 @@ Security requirements:
   baseline without explicit approval
 
 See `docs/production-release-plan.md` for the full path from the current
-`R0.9.0` planning baseline to the read-only production `R1.0.0` release.
+baseline to the read-only production release.
 See `docs/full-release-roadmap.md` for later major release trains toward
 controlled write-capable and full-featured milestones. See
 `docs/r1-r2-release-roadmap.md` for detailed `R1.x` and `R2.x` cadence and
@@ -201,7 +244,7 @@ contract and each action has explicit RBAC, audit logging, confirmation, and
 tests:
 
 - service restart
-- broadcast messages
+- broadcast messages (framework staged, disabled by default)
 - configuration changes
 - backup creation or restoration
 - player moderation

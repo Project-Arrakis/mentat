@@ -82,7 +82,7 @@ trivy image --scanners vuln,misconfig --severity HIGH,CRITICAL --ignore-unfixed 
 
 `npm run check` runs unit tests, release metadata validation, addon packaging
 validation, and SBOM generation. The SBOM command writes
-`dist/dune-awakening-selfhost-discordbot.cdx.json` and a matching `.sha256`
+`dist/arrakis-control-panel.cdx.json` and a matching `.sha256`
 checksum.
 
 Release metadata can be checked directly with:

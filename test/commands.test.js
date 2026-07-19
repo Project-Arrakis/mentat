@@ -66,21 +66,21 @@ test("extractRoleIds supports discord.js role cache shape", () => {
 });
 
 test("isCommandAllowed allows group:subcommand format", () => {
-  const rbac = { mode: "restricted", commandRoleIds: { "core:about": ["role-a"] } };
-  assert.equal(isCommandAllowed({ member: { roles: ["role-a"] } }, "core:about", rbac), true);
-  assert.equal(isCommandAllowed({ member: { roles: ["role-b"] } }, "core:about", rbac), false);
+  const config = { multiTenant: false, discord: { rbac: { mode: "restricted", commandRoleIds: { "core:about": ["role-a"] } } } };
+  assert.equal(isCommandAllowed({ member: { roles: ["role-a"] } }, "core:about", config), true);
+  assert.equal(isCommandAllowed({ member: { roles: ["role-b"] } }, "core:about", config), false);
 });
 
 test("isCommandAllowed falls back to observer/admin for unknown commands", () => {
-  const rbac = { mode: "restricted", observerRoleIds: ["role-a"], adminRoleIds: ["role-b"] };
-  assert.equal(isCommandAllowed({ member: { roles: ["role-a"] } }, "ops:dashboard", rbac), true);
-  assert.equal(isCommandAllowed({ member: { roles: [] } }, "ops:dashboard", rbac), false);
+  const config = { multiTenant: false, discord: { rbac: { mode: "restricted", observerRoleIds: ["role-a"], adminRoleIds: ["role-b"] } } };
+  assert.equal(isCommandAllowed({ member: { roles: ["role-a"] } }, "ops:dashboard", config), true);
+  assert.equal(isCommandAllowed({ member: { roles: [] } }, "ops:dashboard", config), false);
 });
 
 test("isCommandAllowed permits all in open mode", () => {
-  const rbac = { mode: "open" };
-  assert.equal(isCommandAllowed({}, "core:about", rbac), true);
-  assert.equal(isCommandAllowed({}, "unknown:cmd", rbac), true);
+  const config = { multiTenant: false, discord: { rbac: { mode: "open" } } };
+  assert.equal(isCommandAllowed({}, "core:about", config), true);
+  assert.equal(isCommandAllowed({}, "unknown:cmd", config), true);
 });
 
 test("executeDuneCommand handles core:about without calling the adapter", async () => {

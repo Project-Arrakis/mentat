@@ -68,6 +68,7 @@ an issue instead of a pull request.
 | `PR-0060` | PR | v2.4.0 R3 readiness review (planning) | PR #60 |
 | `PR-0061` | PR | v3.0.0 operational writes (planning) | PR #61 |
 | `PR-0063` | PR | v2.0.0+ write-safety foundation | PR #63 |
+| `UPSTREAM-discord-player-inventory` | Upstream PR | Discord adapter player inventory routes + linking + storage queries | [Red-Blink/dune-awakening-selfhost-docker#91](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/91) |
 
 Every future substantive PR should add or update its matching change note before
 merge. If a security finding is tracked as an issue, record the issue in this

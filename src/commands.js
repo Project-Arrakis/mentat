@@ -9,6 +9,7 @@ import { writesEnabled } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory, isRouteMissing, routeStatus, UNMERGED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
+import { getGuildRoles, getGuildSettings } from "./database.js";
 
 // Group -> subcommand -> handler config
 // Each group can have up to 25 subcommands; we have 6 groups with room for many more.
@@ -129,14 +130,15 @@ export function commandDefinitions({ includeWriteGroup = false } = {}) {
   return [buildDuneCommand({ includeWriteGroup }).toJSON()];
 }
 
-export async function executeDuneCommand(interaction, adapterClient, config) {
+export async function executeDuneCommand(interaction, adapterClient, config, db = null) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== "dune") return false;
 
   const group = interaction.options.getSubcommandGroup() || "";
   const subcommand = interaction.options.getSubcommand();
   const key = group ? `${group}:${subcommand}` : subcommand;
+  const guildId = interaction.guildId;
 
-  if (!isCommandAllowed(interaction, key, config.discord.rbac)) {
+  if (!isCommandAllowed(interaction, key, config, db, guildId)) {
     await interaction.reply({ content: "You are not authorized to use this command.", ephemeral: true });
     return true;
   }
@@ -149,7 +151,7 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
   }
 
   const diagnostic = interaction.options.getBoolean("diagnostic") || false;
-  if (diagnostic && !isAdminActor(interaction, config)) {
+  if (diagnostic && !isAdminActor(interaction, config, db, guildId)) {
     await interaction.reply({ content: "Diagnostic mode requires admin or owner role.", ephemeral: true });
     return true;
   }
@@ -165,89 +167,89 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
     if (key === "core:about") {
       payload = aboutPayload(config);
     } else if (key === "core:ping") {
-      payload = await pingPayload(adapterClient, actor, deferReplyMs);
+      payload = await pingPayload(adapterClient, actor, deferReplyMs, guildId);
     } else if (key === "core:help") {
-      payload = helpPayload(config, interaction);
+      payload = helpPayload(config, interaction, db, guildId);
     } else if (key === "core:setup") {
       payload = setupPayload(config, interaction);
     }
     // ── server group ──
     else if (key === "server:health") {
-      payload = await adapterClient.health(actor);
+      payload = await adapterClient.health(actor, guildId);
     } else if (key === "server:status") {
-      payload = await adapterClient.status(actor, diagnostic);
+      payload = await adapterClient.status(actor, diagnostic, guildId);
       if (!diagnostic) {
         const statusData = payload?.result || payload || {};
-        await sendStatusCard({ interaction, statusData: payload, title: statusData.title, adapterClient });
+        await sendStatusCard({ interaction, statusData: payload, title: statusData.title, adapterClient, guildId });
         applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
         return true;
       }
     } else if (key === "server:summary") {
-      payload = statusSummaryPayload(await adapterClient.status(actor));
+      payload = statusSummaryPayload(await adapterClient.status(actor, false, guildId));
     } else if (key === "server:readiness") {
-      payload = await adapterClient.readiness(actor, diagnostic);
+      payload = await adapterClient.readiness(actor, diagnostic, guildId);
     } else if (key === "server:readiness-detail") {
-      payload = await adapterClient.readiness(actor, true);
+      payload = await adapterClient.readiness(actor, true, guildId);
     } else if (key === "server:services") {
-      payload = await adapterClient.services(actor);
+      payload = await adapterClient.services(actor, guildId);
     } else if (key === "server:services-detail") {
-      const services = await adapterClient.services(actor);
-      const logs = await adapterClient.logs(actor);
-      const mapState = await adapterClient.mapState(actor);
+      const services = await adapterClient.services(actor, guildId);
+      const logs = await adapterClient.logs(actor, guildId);
+      const mapState = await adapterClient.mapState(actor, guildId);
       payload = { services, logs, mapState };
     }
     // ── data group ──
     else if (key === "data:population") {
-      payload = populationPayload(await adapterClient.population(actor));
+      payload = populationPayload(await adapterClient.population(actor, guildId));
     } else if (key === "data:backups") {
-      payload = backupPayload(await adapterClient.backups(actor));
+      payload = backupPayload(await adapterClient.backups(actor, guildId));
     } else if (key === "data:maps") {
-      const status = await adapterClient.status(actor);
+      const status = await adapterClient.status(actor, false, guildId);
       payload = { maps: status?.result?.maps || [] };
     } else if (key === "data:maintenance") {
-      payload = await adapterClient.maintenance(actor);
+      payload = await adapterClient.maintenance(actor, guildId);
     }
     else if (key === "data:link") {
       const characterName = interaction.options.getString("character");
-      payload = await adapterClient.playerLink(actor, characterName);
+      payload = await adapterClient.playerLink(actor, characterName, guildId);
     } else if (key === "data:unlink") {
-      payload = await adapterClient.playerUnlink(actor);
+      payload = await adapterClient.playerUnlink(actor, guildId);
     } else if (key === "data:faction") {
       const faction = interaction.options.getString("name");
-      payload = await adapterClient.playerFaction(actor, faction);
+      payload = await adapterClient.playerFaction(actor, faction, guildId);
     } else if (key === "data:whoami") {
-      payload = await adapterClient.whoami(actor);
+      payload = await adapterClient.whoami(actor, guildId);
     } else if (key === "data:inventory") {
       const search = interaction.options.getString("search");
       if (search) {
-        payload = await adapterClient.playerInventorySearch(actor, search);
+        payload = await adapterClient.playerInventorySearch(actor, search, guildId);
       } else {
-        payload = await adapterClient.playerInventory(actor);
+        payload = await adapterClient.playerInventory(actor, guildId);
       }
     } else if (key === "data:storage") {
       const scope = interaction.options.getString("scope") || "owned";
-      payload = await adapterClient.playerStorage(actor, scope);
+      payload = await adapterClient.playerStorage(actor, scope, guildId);
     } else if (key === "data:find") {
       const query = interaction.options.getString("query");
       const scope = interaction.options.getString("scope") || "owned";
-      payload = await adapterClient.playerFind(actor, query, scope);
+      payload = await adapterClient.playerFind(actor, query, scope, guildId);
     }
     // ── ops group ──
     else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
       const route = opsRouteFor(subcommand);
       if (route) {
         const methodName = route.replace(/-(\w)/g, (_, c) => c.toUpperCase());
-        payload = formatOpsPayload(subcommand, await adapterClient[methodName](actor));
+        payload = formatOpsPayload(subcommand, await adapterClient[methodName](actor, guildId));
       } else {
         payload = { ok: false, error: `Unknown OPS command: ${subcommand}` };
       }
     }
     // ── admin group ──
     else if (key === "admin:doctor") {
-      if (!isAdminActor(interaction, config)) throw new Error("Doctor diagnostic requires admin or owner role.");
-      payload = await doctorPayload(adapterClient, actor, config);
+      if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Doctor diagnostic requires admin or owner role.");
+      payload = await doctorPayload(adapterClient, actor, config, guildId);
     } else if (key === "admin:cooldowns") {
-      if (!isAdminActor(interaction, config)) throw new Error("Cooldowns viewer requires admin or owner role.");
+      if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Cooldowns viewer requires admin or owner role.");
       payload = cooldownStats();
     } else if (key === "admin:latency") {
       payload = getLatencyHistory();
@@ -255,7 +257,7 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
       payload = getIncidentHistory();
     } else if (key === "admin:broadcast") {
       const msg = interaction.options.getString("message");
-      const result = await executeBroadcast({ interaction, adapterClient, config, userRequest: msg });
+      const result = await executeBroadcast({ interaction, adapterClient, config, userRequest: msg, guildId });
       if (result.ok && result.needsConfirmation) {
         payload = { ok: true, action: "broadcast", message: result.message, idempotencyKey: result.idempotencyKey, confirmation: result.confirmationMessage };
       } else {
@@ -264,17 +266,17 @@ export async function executeDuneCommand(interaction, adapterClient, config) {
     }
     // ── infra group ──
     else if (key === "infra:version") {
-      payload = await adapterClient.version(actor);
+      payload = await adapterClient.version(actor, guildId);
     } else if (key === "infra:servers") {
-      payload = await adapterClient.servers(actor);
+      payload = await adapterClient.servers(actor, guildId);
     } else if (key === "infra:ports") {
-      payload = await adapterClient.ports(actor);
+      payload = await adapterClient.ports(actor, guildId);
     } else if (key === "infra:db") {
-      payload = await adapterClient.db(actor);
+      payload = await adapterClient.db(actor, guildId);
     }
     // ── write group ──
     else if (group === "write") {
-      payload = await handleWriteCommand({ subcommand, interaction, adapterClient, config });
+      payload = await handleWriteCommand({ subcommand, interaction, adapterClient, config, guildId });
     }
     else {
       payload = { ok: false, error: `Unknown command: ${key}` };
@@ -372,7 +374,21 @@ export function actorFromInteraction(interaction) {
 }
 
 // ── RBAC ──
-export function isCommandAllowed(interaction, command, rbac) {
+export function isCommandAllowed(interaction, command, config, db = null, guildId = null) {
+  if (config.multiTenant && db && guildId) {
+    const roles = getGuildRoles(db, guildId);
+    const settings = getGuildSettings(db, guildId);
+    const mode = settings?.rbac_mode || "restricted";
+    if (mode === "open") return true;
+    const roleIds = new Set(extractRoleIds(interaction));
+    const observerIds = new Set((roles.observer || []).map(r => r.role_id));
+    const adminIds = new Set((roles.admin || []).map(r => r.role_id));
+    if (observerIds.size > 0 && [...roleIds].some(r => observerIds.has(r))) return true;
+    if (adminIds.size > 0 && [...roleIds].some(r => adminIds.has(r))) return true;
+    return false;
+  }
+
+  const rbac = config.discord.rbac;
   if (rbac.mode === "open") return true;
   if (rbac.allowedUserIds?.includes(interaction.user?.id)) return true;
   const roleIds = new Set(extractRoleIds(interaction));
@@ -392,7 +408,14 @@ export function extractRoleIds(interaction) {
 }
 
 // ── Helpers ──
-function isAdminActor(interaction, config) {
+function isAdminActor(interaction, config, db = null, guildId = null) {
+  if (config.multiTenant && db && guildId) {
+    const roles = getGuildRoles(db, guildId);
+    const roleIds = extractRoleIds(interaction);
+    const adminIds = new Set((roles.admin || []).map(r => r.role_id));
+    return roleIds.some(r => adminIds.has(r));
+  }
+
   const roleIds = extractRoleIds(interaction);
   const adminRoles = new Set([
     ...parseCsv(process.env.DISCORD_ADMIN_ROLE_IDS),
@@ -409,9 +432,9 @@ function elapsedMs(startedAt) { const d = Date.now() - startedAt; return Number.
 function adapterOrigin(baseUrl) { return new URL(baseUrl).origin; }
 
 // ── Payload formatters ──
-export async function pingPayload(adapterClient, actor, deferReplyMs = 0) {
+export async function pingPayload(adapterClient, actor, deferReplyMs = 0, guildId = null) {
   const startedAt = Date.now();
-  const health = await adapterClient.health(actor);
+  const health = await adapterClient.health(actor, guildId);
   return {
     ok: health?.ok === true,
     discord: { deferReplyMs: elapsedMs(startedAt) },
@@ -441,7 +464,7 @@ function setupPayload(config, interaction) {
   return { ok: true, clientId, guildId, inviteUrl };
 }
 
-function helpPayload(config, interaction) {
+function helpPayload(config, interaction, db = null, guildId = null) {
   const all = [
     { name: "core:about", desc: "Show safe bot and adapter metadata.", role: "observer" },
     { name: "core:ping", desc: "Measure Discord and adapter latency.", role: "observer" },
@@ -476,17 +499,18 @@ function helpPayload(config, interaction) {
   ];
   const available = []; const locked = [];
   for (const cmd of all) {
-    if (isCommandAllowed(interaction, cmd.name, config.discord.rbac)) available.push(cmd); else locked.push(cmd);
+    if (isCommandAllowed(interaction, cmd.name, config, db, guildId)) available.push(cmd); else locked.push(cmd);
   }
-  return { ok: true, total: all.length, available: available.map(c => c.name), locked: locked.map(c => c.name), availableCount: available.length, rbacMode: config.discord.rbac.mode };
+  const rbacMode = config.multiTenant ? "multi-tenant" : config.discord.rbac.mode;
+  return { ok: true, total: all.length, available: available.map(c => c.name), locked: locked.map(c => c.name), availableCount: available.length, rbacMode };
 }
 
-async function doctorPayload(adapterClient, actor, config) {
+async function doctorPayload(adapterClient, actor, config, guildId = null) {
   const [health, status, readiness, services] = await Promise.all([
-    adapterClient.health(actor).catch(() => ({ ok: false })),
-    adapterClient.status(actor).catch(() => ({ ok: false })),
-    adapterClient.readiness(actor).catch(() => ({ ok: false })),
-    adapterClient.services(actor).catch(() => ({ ok: false }))
+    adapterClient.health(actor, guildId).catch(() => ({ ok: false })),
+    adapterClient.status(actor, false, guildId).catch(() => ({ ok: false })),
+    adapterClient.readiness(actor, false, guildId).catch(() => ({ ok: false })),
+    adapterClient.services(actor, guildId).catch(() => ({ ok: false }))
   ]);
   return { ok: health?.ok !== false && status?.ok !== false, health: { ok: health?.ok === true, enabled: health?.enabled, readOnly: health?.readOnly, writesEnabled: health?.writesEnabled }, status: { ok: status?.ok === true, summary: status?.result?.summary || {} }, readiness: { ok: readiness?.ok === true, ready: readiness?.result?.ready, issues: readiness?.result?.issues || [] }, services: { ok: services?.ok === true, overall: services?.result?.overall, count: (services?.result?.services || []).length }, timestamp: new Date().toISOString() };
 }

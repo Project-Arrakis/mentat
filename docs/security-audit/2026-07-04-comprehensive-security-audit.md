@@ -3,7 +3,7 @@
 **Date:** 2026-07-04
 **Auditor:** OpenCode agent
 **Scope:**
-- `yacketrj/dune-awakening-selfhost-discordbot` (Discord companion bot)
+- `yacketrj/Arrakis-Control-Panel` (Discord companion bot)
 - `yacketrj/dune-awakening-selfhost-docker-WSL` / upstream core adapter code
 - Current read-only state and future read/write state risks
 
