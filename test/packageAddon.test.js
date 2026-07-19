@@ -97,7 +97,7 @@ async function createTempAddon(overrides = {}) {
     id: "discord-readonly-bot",
     name: "Discord Read-Only Bot",
     description: "Zero-permission setup panel for the external Dune Discord bot.",
-    author: "dune-awakening-selfhost-discordbot contributors",
+    author: "arrakis-control-panel contributors",
     version: "0.1.0",
     type: "ui",
     entry: {

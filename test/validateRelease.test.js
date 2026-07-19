@@ -90,7 +90,7 @@ async function createReleaseTree({
   await mkdir(join(rootDir, "docs", "releases"), { recursive: true });
 
   await writeJson(join(rootDir, "package.json"), {
-    name: "dune-awakening-selfhost-discordbot",
+    name: "arrakis-control-panel",
     version
   });
   await writeJson(join(rootDir, "addon", "addon.json"), {

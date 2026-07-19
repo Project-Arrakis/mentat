@@ -15,3 +15,47 @@
 {"level":"info","event":"discord.ready","time":"2026-07-18T00:43:41.338Z","fields":{"botUserId":"1516816812006969494"}}
 (node:798604) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
 (Use `node --trace-warnings ...` to show where the warning was created)
+{"level":"info","event":"discord.ready","time":"2026-07-19T16:51:30.363Z","fields":{"botUserId":"1516816812006969494","multiTenant":false}}
+{"level":"info","event":"scheduler.started","time":"2026-07-19T16:51:30.365Z","fields":{"scheduleType":"status-summary","channels":["1524126347688018024"]}}
+{"level":"info","event":"stats_pusher.skipped","time":"2026-07-19T16:51:30.366Z","fields":{"reason":"missing_cloudflare_env"}}
+{"level":"info","event":"process.shutdown","time":"2026-07-19T16:52:09.575Z","fields":{"signal":"SIGTERM"}}
+{"level":"info","event":"discord.ready","time":"2026-07-19T16:52:11.592Z","fields":{"botUserId":"1516816812006969494","multiTenant":false}}
+{"level":"info","event":"scheduler.started","time":"2026-07-19T16:52:11.594Z","fields":{"scheduleType":"status-summary","channels":["1524126347688018024"]}}
+{"level":"info","event":"stats_pusher.skipped","time":"2026-07-19T16:52:11.595Z","fields":{"reason":"missing_cloudflare_env"}}
+{"level":"info","event":"process.shutdown","time":"2026-07-19T16:57:14.570Z","fields":{"signal":"SIGTERM"}}
+node:fs:440
+    return binding.readFileUtf8(path, stringToFlags(options.flag));
+                   ^
+
+Error: ENOENT: no such file or directory, open '/home/darkdante/dune-awakening-selfhost-discordbot/secrets/discord-bot-token.txt'
+    at readFileSync (node:fs:440:20)
+    at readSecret (file:///home/darkdante/arrakis-control-panel/src/config.js:248:21)
+    at loadConfig (file:///home/darkdante/arrakis-control-panel/src/config.js:95:14)
+    at file:///home/darkdante/arrakis-control-panel/src/index.js:15:16 {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/darkdante/dune-awakening-selfhost-discordbot/secrets/discord-bot-token.txt'
+}
+
+Node.js v22.22.1
+node:fs:440
+    return binding.readFileUtf8(path, stringToFlags(options.flag));
+                   ^
+
+Error: ENOENT: no such file or directory, open '/home/darkdante/dune-awakening-selfhost-discordbot/secrets/discord-bot-token.txt'
+    at readFileSync (node:fs:440:20)
+    at readSecret (file:///home/darkdante/arrakis-control-panel/src/config.js:248:21)
+    at loadConfig (file:///home/darkdante/arrakis-control-panel/src/config.js:95:14)
+    at file:///home/darkdante/arrakis-control-panel/src/index.js:15:16 {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/darkdante/dune-awakening-selfhost-discordbot/secrets/discord-bot-token.txt'
+}
+
+Node.js v22.22.1
+{"level":"info","event":"process.shutdown","time":"2026-07-19T16:57:37.024Z","fields":{"signal":"SIGTERM"}}
+{"level":"info","event":"discord.ready","time":"2026-07-19T16:57:38.726Z","fields":{"botUserId":"1516816812006969494","multiTenant":false}}
+{"level":"info","event":"scheduler.started","time":"2026-07-19T16:57:38.728Z","fields":{"scheduleType":"status-summary","channels":["1524126347688018024"]}}
+{"level":"info","event":"stats_pusher.skipped","time":"2026-07-19T16:57:38.729Z","fields":{"reason":"missing_cloudflare_env"}}

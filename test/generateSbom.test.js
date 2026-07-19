@@ -13,7 +13,7 @@ test("buildCycloneDxSbom creates CycloneDX metadata and npm components", () => {
 
   assert.equal(sbom.bomFormat, "CycloneDX");
   assert.equal(sbom.specVersion, "1.6");
-  assert.equal(sbom.metadata.component.name, "dune-awakening-selfhost-discordbot");
+  assert.equal(sbom.metadata.component.name, "arrakis-control-panel");
   assert.equal(sbom.components.length, 1);
   assert.deepEqual(sbom.components[0], {
     type: "library",
@@ -84,12 +84,12 @@ test("validateCycloneDxSbom rejects missing component details", () => {
 
 function sampleLockfile() {
   return {
-    name: "dune-awakening-selfhost-discordbot",
+    name: "arrakis-control-panel",
     version: "0.1.0",
     lockfileVersion: 3,
     packages: {
       "": {
-        name: "dune-awakening-selfhost-discordbot",
+        name: "arrakis-control-panel",
         version: "0.1.0",
         dependencies: {
           "discord.js": "^14.26.4"
