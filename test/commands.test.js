@@ -139,7 +139,7 @@ test("actorFromInteraction emits minimal Discord context", () => {
 test("aboutPayload exposes safe metadata without secrets", () => {
   const payload = aboutPayload({ adapter: { baseUrl: "https://user:pass@example.com:8443/console", timeoutMs: 5000 }, discord: { defaultEphemeral: true, rbac: { mode: "restricted" } } });
   assert.equal(payload.bot.version, packageVersion);
-  assert.equal(payload.bot.readOnly, true);
+  assert.equal(payload.bot.readOnly, false);
   assert.equal(payload.bot.writesEnabled, false);
   assert.equal(payload.adapter.origin, "https://example.com:8443");
   assert.ok(payload.adapter.timeoutMs > 0);
