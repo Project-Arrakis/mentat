@@ -1,8 +1,9 @@
 # Setup Portal Guide
 
 This guide walks you through connecting your Discord server to the Arrakis
-Control Panel using the web setup portal. No `.env` file editing required —
-everything is configured through the browser.
+Control Panel. The bot side is fully hosted — no bot configuration needed on
+your end. You will only need to configure your Dune console via SSH in
+**Step 5** (enabling the Discord adapter).
 
 ## Before You Start
 
