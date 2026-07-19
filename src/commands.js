@@ -422,6 +422,7 @@ export function isCommandAllowed(interaction, command, config, db = null, guildI
 
 export function extractRoleIds(interaction) {
   const roles = interaction.member?.roles;
+  console.error("DEBUG extractRoleIds: member=", interaction.member ? "present" : "missing", "roles type=", typeof roles, "isArray=", Array.isArray(roles), "hasCache=", !!(roles?.cache), "cacheKeys=", roles?.cache ? [...roles.cache.keys()] : "n/a");
   if (!roles) return [];
   if (Array.isArray(roles)) return roles.map(String);
   if (roles.cache?.keys) return [...roles.cache.keys()];
