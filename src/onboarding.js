@@ -30,8 +30,8 @@ export async function handleGuildCreate(bot, guild, db) {
         `Once configured, commands like \`/dune server status\` and \`/dune player inventory\` will work immediately.`
       ].join("\n")
     });
-  } catch {
-    console.warn(`Could not send setup DM to owner of ${guild.name} (${guild.id})`);
+  } catch (err) {
+    console.warn(`Could not send setup DM to owner of ${guild.name} (${guild.id}): ${err.message}`);
   }
 }
 
