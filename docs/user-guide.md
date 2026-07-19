@@ -56,8 +56,8 @@ Select one, then choose a command from within that group.
 | `/dune data population` | Shows how many players are online |
 | `/dune data backups` | Lists recent game backups |
 | `/dune data maps` | Shows which game maps are running |
-| `/dune data maintenance` | Shows maintenance window metadata |
-| `/dune data link <character-name>` | Link your Discord to your in-game character |
+| `/dune data link <character-name>` | Start linking your Discord to your in-game character |
+| `/dune data verify <code>` | Complete linking by entering the verification code shown in-game |
 | `/dune data unlink` | Remove the link between your Discord and character |
 | `/dune data faction <name>` | Set your faction for themed embeds (atreides, harkonnen, fremen) |
 | `/dune data whoami` | Show your linked character info |
@@ -66,6 +66,26 @@ Select one, then choose a command from within that group.
 | `/dune data storage` | View items in your storage containers (owned or guild) |
 | `/dune data storage <scope>` | View storage with scope (owned, guild, or all) |
 | `/dune data find <item-name>` | Search for an item across all your storage containers |
+
+**Character Linking Flow:**
+1. Run `/dune data link <character-name>` — the bot sends a verification code to your character in-game via RCON whisper
+2. Read the code in-game (it appears as a whisper message)
+3. Run `/dune data verify <code>` to complete the link
+4. If you don't receive a code, your Discord account must have a verified Steam connection linked in Discord Settings → Connections
+
+Each Discord account can only link to one character, and each character can only link to one Discord account.
+
+### 📋 `logs` — Container Logs
+
+| Command | What It Does |
+|---------|-------------|
+| `/dune logs dune-cache` | View dune-cache container logs |
+| `/dune logs dune-generated` | View dune-generated container logs |
+| `/dune logs dune-server` | View dune-server container logs |
+| `/dune logs dune-steam` | View dune-steam container logs |
+| `/dune logs dune-work` | View dune-work container logs |
+| `/dune logs orchestrator` | View orchestrator container logs |
+| `/dune logs redblink-dune-docker-console` | View console adapter logs |
 
 ### 📈 `ops` — Operational Stats (returns planned data until upstream merges)
 
