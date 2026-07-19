@@ -39,6 +39,14 @@ export function createSetupServer(config) {
     const { guildId } = req.query;
     const state = randomBytes(16).toString("hex");
 
+    // Store the session so the callback can validate it
+    createOauthSession(db, {
+      state,
+      discordUserId: "",
+      discordUsername: "",
+      guildId: guildId || ""
+    });
+
     const authUrl = new URL(DISCORD_OAUTH_URL);
     authUrl.searchParams.set("client_id", config.discordClientId);
     authUrl.searchParams.set("redirect_uri", redirectUri);
