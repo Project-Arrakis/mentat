@@ -18,17 +18,18 @@ const DUNE_COLORS = {
 
 // ── Value formatting helpers ──
 function fmt(val) {
-  if (val === null || val === undefined) return "—";
+  if (val === null || val === undefined) return "— None —";
   if (typeof val === "boolean") return val ? "✅ Yes" : "❌ No";
   if (typeof val === "number") return val < 10000 ? `\`${val.toLocaleString()}\`` : `\`${(val / 1000).toFixed(1)}k\``;
   const s = String(val).trim();
-  if (!s) return "—";
+  if (!s) return "— None —";
   return `\`${s}\``;
 }
 
 function fmtBool(val) { return val ? "✅ Yes" : "❌ No"; }
-function fmtCount(val) { return `\`${val ?? 0}\``; }
+function fmtCount(val) { return val != null ? `\`${val}\`` : "— None —"; }
 function fmtStatus(val) { return val ? "🟢 Enabled" : "🔒 Disabled"; }
+function fmtEmpty(val, fallback = "— None —") { return val != null && String(val).trim() ? String(val) : fallback; }
 
 const ARRAKIS_TERMS = [
   "The spice must flow.",
@@ -126,17 +127,26 @@ function augmentMax(item) {
 
 export function duneEmbed({ title, color = "spice", description, fields = [], timestamp = true, faction } = {}) {
   const embedColor = faction ? (DUNE_COLORS[faction] || DUNE_COLORS[color] || DUNE_COLORS.spice) : (DUNE_COLORS[color] || DUNE_COLORS.spice);
+  const quote = randomQuote(faction);
+  const timeStr = timestamp ? new Date().toLocaleString("en-US", { timeZoneName: "short" }) : "";
+  const footerText = `🏜️ Arrakis Control Panel${timeStr ? " · " + timeStr : ""}`;
+
   const embed = new EmbedBuilder()
     .setTitle(title)
     .setColor(embedColor)
-    .setFooter({ text: "Arrakis Control Panel" });
+    .setFooter({ text: footerText, iconURL: undefined });
   if (description) embed.setDescription(description);
   if (timestamp) embed.setTimestamp();
-  for (const field of fields) {
+
+  // Add data fields first
+  const dataFields = fields.slice(0, 24);
+  for (const field of dataFields) {
     embed.addFields({ name: field.name, value: String(field.value).slice(0, 1024), inline: field.inline ?? false });
   }
-  const quote = randomQuote(faction);
-  embed.addFields({ name: " ", value: `*"${quote}"*`, inline: false });
+
+  // Always end with the faction quote as a separator
+  embed.addFields({ name: "\u200b", value: `*"${quote}"*`, inline: false });
+
   return embed;
 }
 
@@ -182,7 +192,9 @@ export function formatStatusEmbed(payload, subcommand) {
   const overall = r.overall || "UNKNOWN";
   const ok = payload?.ok !== false;
   const maps = Array.isArray(r.maps) ? r.maps : [];
-  const mapStr = maps.map(m => `${m.state === "READY" ? "🟢" : "🔴"} **${m.name}**`).join(" · ") || "—";
+  const mapStr = maps.length === 0
+    ? "— No map data available —"
+    : maps.map(m => `${m.state === "READY" ? "🟢" : "🔴"} **${m.name}**`).join(" · ");
 
   return duneEmbed({
     title: "🌍 Server Status",
@@ -295,7 +307,7 @@ export function formatPopulationEmbed(population) {
 export function formatBackupsEmbed(backups) {
   const list = backups?.backups || [];
   const desc = list.length === 0
-    ? "*No backups found*"
+    ? "— No backups found —"
     : list.map((b, i) => `**${i + 1}.** ${b.name} — ${b.date} (${b.size})`).join("\n");
   return duneEmbed({
     title: "💾 Recent Backups",
@@ -396,7 +408,7 @@ export function formatDoctorEmbed(doctor) {
 export function formatMapsEmbed(maps) {
   const list = Array.isArray(maps?.maps) ? maps.maps : (Array.isArray(maps?.result?.maps) ? maps.result.maps : []);
   const desc = list.length === 0
-    ? "*No map data available*"
+    ? "— No map data available —"
     : list.map(m => {
         const state = m.state || m.status || "UNKNOWN";
         const icon = state === "READY" ? "🟢" : state === "STARTING" ? "🟡" : "🔴";
@@ -426,7 +438,7 @@ export function formatInventoryEmbed(payload) {
   const items = payload?.rows || payload?.items || [];
   const total = payload?.count ?? payload?.totalItems ?? items.length;
   const desc = items.length === 0
-    ? "*No items in inventory*"
+    ? "— No items in inventory —"
     : items.slice(0, 25).map((item, i) => {
         const id = item.displayName || item.template_id || item.templateId || "Unknown";
         const qty = item.stack_size || item.stackSize || 0;
@@ -454,7 +466,7 @@ export function formatStorageEmbed(payload) {
   const scope = payload?.scope || "owned";
   const scopeLabel = scope === "guild" ? "Guild" : "Owned";
   const desc = Object.keys(groups).length === 0
-    ? `*No ${scope} storage containers found*`
+    ? `— No ${scope} storage containers found —`
     : Object.entries(groups).map(([map, containers]) => {
         return `**${map}** (${containers.length})\n` +
           containers.map(c => `  📦 \`${c.name}\` — ${c.itemCount} items`).join("\n");
@@ -476,7 +488,7 @@ export function formatFindEmbed(payload) {
   const totalContainers = payload?.totalContainers || 0;
   const totalStacks = payload?.totalItemStacks || 0;
   const desc = matches.length === 0
-    ? `*No items matching "${query}" found*`
+    ? `— No items matching "${query}" found —`
     : matches.map(m => {
         return `**${m.containerName}** (${m.map || "Unknown"})\n` +
           (m.items || []).map(i => `  \`${i.displayName || i.template_id || i.templateId}\` ×${i.stack_size || i.stackSize || 0}${Number(i.quality_level || i.qualityLevel || 0) > 0 ? ` G${Number(i.quality_level || i.qualityLevel || 0)}` : ""}`).join("\n");
@@ -539,7 +551,7 @@ export function formatWhoamiEmbed(payload) {
 export function formatCooldownsEmbed(stats) {
   const entries = stats?.entries || [];
   const desc = entries.length === 0
-    ? "*No active cooldowns*"
+    ? "— No active cooldowns —"
     : entries.map(e => `⏳ <@${e.userId}> → \`${e.command}\` (${Math.ceil(e.remaining / 1000)}s)`).join("\n");
   return duneEmbed({
     title: "⏱️ Active Cooldowns",
@@ -555,17 +567,19 @@ export function formatLatencyEmbed(history) {
   const avg = entries.length > 0
     ? Math.round(entries.reduce((s, e) => s + (e.durationMs || 0), 0) / entries.length)
     : 0;
-  const desc = entries.slice(-10).map(e => {
-    const icon = e.status === 200 ? "🟢" : "🔴";
-    return `${icon} \`${e.method} ${e.route}\` — ${e.durationMs}ms`;
-  }).join("\n") || "*No requests recorded yet*";
+  const desc = entries.length === 0
+    ? "— No requests recorded yet —"
+    : entries.slice(-10).map(e => {
+        const icon = e.status === 200 ? "🟢" : "🔴";
+        return `${icon} \`${e.method} ${e.route}\` — ${e.durationMs}ms`;
+      }).join("\n");
   return duneEmbed({
     title: "📡 Adapter Latency History",
     color: avg < 200 ? "success" : avg < 1000 ? "warning" : "error",
-    description: `**Avg: ${avg}ms** over ${entries.length} requests\n${desc}`.slice(0, 2048),
+    description: entries.length > 0 ? `**Avg: ${avg}ms** over ${entries.length} requests\n${desc}`.slice(0, 2048) : desc,
     fields: [
       { name: "🔢 Requests", value: fmtCount(entries.length), inline: true },
-      { name: "⏱️ Average", value: `\`${avg}ms\``, inline: true },
+      { name: "⏱️ Average", value: entries.length > 0 ? `\`${avg}ms\`` : "— None —", inline: true },
     ]
   });
 }
@@ -574,7 +588,7 @@ export function formatLatencyEmbed(history) {
 export function formatEventsEmbed(incidents) {
   const entries = incidents || [];
   const desc = entries.length === 0
-    ? "*No incidents recorded — the desert is quiet*"
+    ? "— No incidents recorded —"
     : entries.slice(0, 15).map(e => `• **${e.type}** — ${e.detail} (_${new Date(e.time).toLocaleTimeString()}_)`).join("\n");
   return duneEmbed({
     title: "📋 Incident Log",
@@ -673,7 +687,7 @@ export function formatServersEmbed(payload) {
 
   const running = partitions.filter(p => p.ready || p.alive);
   const desc = partitions.length === 0
-    ? "*No server partitions found*"
+    ? "— No server partitions found —"
     : partitions.slice(0, 20).map(p => {
         const icon = p.ready ? "🟢" : p.alive ? "🟡" : "🔴";
         const info = p.assigned ? `${p.assigned}` : "unassigned";
@@ -733,7 +747,7 @@ export function formatPortsEmbed(payload) {
   return duneEmbed({
     title: "🔌 Network Ports",
     color: "spice",
-    description: items.join("\n").slice(0, 2000) || "*No port data*",
+    description: items.length > 0 ? items.join("\n").slice(0, 2000) : "— No port data —",
     fields: [{ name: "🔢 Listeners", value: fmtCount(items.length), inline: true }]
   });
 }
@@ -750,7 +764,7 @@ export function formatDbEmbed(payload) {
   return duneEmbed({
     title: "🗄️ Database Status",
     color: items.some(l => l.includes("🔴") || l.includes("WARN")) ? "warning" : "success",
-    description: items.join("\n").slice(0, 2000) || "*No database data*",
+    description: items.length > 0 ? items.join("\n").slice(0, 2000) : "— No database data —",
     fields: [{ name: "🔢 Checks", value: fmtCount(items.length), inline: true }]
   });
 }
@@ -1001,7 +1015,7 @@ export function formatDashboardEmbed(payload) {
 export function formatAnnouncementsEmbed(payload) {
   const announcements = payload?.announcements || payload?.result?.announcements || [];
   const desc = announcements.length === 0
-    ? "*No announcements*"
+    ? "— No announcements —"
     : announcements.slice(0, 10).map((a, i) => {
         const time = a.timestamp || a.time || a.createdAt || "";
         const source = a.source || a.type || "system";
