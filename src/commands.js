@@ -405,7 +405,6 @@ export function isCommandAllowed(interaction, command, config, db = null, guildI
     const roleIds = new Set(extractRoleIds(interaction));
     const observerIds = new Set((roles.observer || []).map(r => r.role_id));
     const adminIds = new Set((roles.admin || []).map(r => r.role_id));
-    if (observerIds.size === 0 && adminIds.size === 0) return true;
     if (observerIds.size > 0 && [...roleIds].some(r => observerIds.has(r))) return true;
     if (adminIds.size > 0 && [...roleIds].some(r => adminIds.has(r))) return true;
     return false;
