@@ -189,10 +189,10 @@ export function createSetupServer(config) {
                 <button type="button" onclick="generateToken()" style="margin:0;white-space:nowrap;font-size:0.85em;padding:8px 12px;">Generate</button>
               </div>
               <div class="hint">
-                <strong>Enable the adapter first:</strong> In your Docker <code>.env</code>, set:<br>
+                <strong>Enable the adapter first:</strong> In your Dune Docker <code>.env</code>, set:<br>
                 <code>DUNE_DISCORD_ADAPTER_ENABLED=true</code><br>
-                <code>DUNE_DISCORD_ADAPTER_TOKEN=&lt;your-token&gt;</code><br>
-                Then restart the console. Use the same token here.
+                <code>DUNE_BOT_API_TOKEN_FILE=/repo/runtime/secrets/discord-adapter-token.txt</code><br>
+                Then restart the console. The token is in that file — copy it here.
               </div>
             </div>
 
