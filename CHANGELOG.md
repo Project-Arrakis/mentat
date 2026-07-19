@@ -75,59 +75,11 @@ and Cloudflare tunnel support.
 
 ### Added
 
-- Multi-tenant architecture with per-guild console routing
-- SQLite database layer (`better-sqlite3`) for guild configuration
-- OAuth2 setup portal (`/setup`, `/oauth/callback`, `/setup/register`)
-- DM-based guild onboarding on `guildCreate` events
-- Guild-scoped RBAC with per-guild role configuration
-- Player faction system (`/dune data faction`)
-- Infra commands (`/dune infra version`, `servers`, `ports`, `db`)
-- OPS commands (9 subcommands, returns planned data until upstream merges)
-- Write command scaffold (12 subcommands, disabled by default)
-- Human-readable test reporter (`scripts/run-tests.js`)
-- Multi-tenant design documentation
-- Terms of Service and Privacy Policy documents
-- `.semgrepignore` for false positive suppression
+- (reserved for future changes)
 
 ### Changed
 
-- Project renamed from "Thumper" to "Arrakis Control Panel" (ACP)
-- Player commands moved from `/dune player` group to `/dune data` group
-- All documentation updated with new repo URL (`yacketrj/Arrakis-Control-Panel`)
-- `src/config.js` supports multi-tenant mode with optional env vars
-- `src/adapterClient.js` supports guild-scoped config lookup
-- `src/commands.js` RBAC supports both single-tenant (env) and multi-tenant (DB) modes
-- Default database path changed from `data/thumper.db` to `data/acp.db`
-- Environment variable prefix changed from `THUMPER_*` to `ACP_*`
-
-### Fixed
-
-- XSS vulnerabilities in setup server HTML templates (all user values now escaped)
-- Semgrep false positives for setup server and test files
-- Test compatibility with new config signature
-- Player command paths in documentation (`/dune player` → `/dune data`)
-- Scheduler default value in documentation (5min → 30min)
-- Test count in CONTRIBUTING.md (153 → 205+)
-
-### Removed
-
-- (no removals)
-
-## v1.5.0 - 2026-07-03
-
-R2 readiness review (R1.5). Final read-only hardening before write foundation
-work begins. Comprehensive security review and owner approval gate for
-transitioning to R2 planning.
-
-### Added
-
-- Comprehensive security review covering all read-only surfaces.
-- STRIDE re-review for accumulated R1.x changes.
-- Privacy review for all read-only command output.
-- Dependency and container security review.
-- Upstream compatibility evidence freeze for R1.5 baseline.
-- R2 entry criteria assessment checklist.
-- Owner approval documentation for R2 planning commencement.
+- (reserved for future changes)
 
 ### Fixed
 
@@ -136,10 +88,6 @@ transitioning to R2 planning.
 ### Removed
 
 - (reserved for future changes)
-
-### Changed
-
-- Release planning baseline advanced from R1.x to R2 readiness evaluation.
 
 ## v1.0.0-rc.1 - 2026-07-03
 
