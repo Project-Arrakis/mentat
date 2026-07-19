@@ -28,7 +28,7 @@ Open GitHub issues checked during review: none.
 | Trivy filesystem | Passed, 0 high/critical vulnerabilities, 0 Dockerfile misconfigurations |
 | Gitleaks history scan | Passed, no leaks found |
 | Gitleaks worktree scan | Passed, no leaks found |
-| Docker image build | Passed for `dune-awakening-selfhost-discordbot:security-review` |
+| Docker image build | Passed for `arrakis-control-panel:security-review` |
 | Trivy image scan | Passed, 0 high/critical vulnerabilities |
 | Addon checksum | Passed |
 | SBOM checksum | Passed |

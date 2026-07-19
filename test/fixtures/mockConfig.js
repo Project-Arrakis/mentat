@@ -70,7 +70,7 @@ export function createMockConfig(overrides = {}) {
       }
     },
     bot: {
-      name: 'dune-awakening-selfhost-discordbot',
+      name: 'arrakis-control-panel',
       version: '1.5.0',
       readOnly: true
     }
