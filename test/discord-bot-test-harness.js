@@ -103,7 +103,7 @@ describe('Command Registration', () => {
       'data:population', 'data:backups', 'data:maps', 'data:link', 'data:unlink', 'data:faction',
       'data:whoami', 'data:inventory', 'data:find', 'data:storage',
       'ops:activity', 'ops:combat', 'ops:resources', 'ops:economy', 'ops:inventory',
-      'ops:location', 'ops:soc', 'ops:prometheus', 'ops:dashboard',
+      'ops:location', 'ops:soc', 'ops:prometheus', 'ops:dashboard', 'ops:announcements',
       'admin:doctor', 'admin:cooldowns', 'admin:latency', 'admin:events', 'admin:broadcast',
       'infra:version', 'infra:servers', 'infra:ports', 'infra:db'
     ];
@@ -266,6 +266,117 @@ describe('Command Execution', () => {
 
     assert.ok(result, 'Command should succeed');
     assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
+    assert.ok(embed.title?.includes('Activity'), 'Should have activity title');
+    assert.ok(embed.fields?.length > 0, 'Should have fields');
+  });
+
+  test('ops:combat returns combat statistics', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({ command: 'ops:combat', roles: ['observer-role-id'] });
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+
+    assert.ok(result, 'Command should succeed');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
+    assert.ok(embed.title?.includes('Combat'), 'Should have combat title');
+    assert.ok(embed.fields?.length > 0, 'Should have fields');
+  });
+
+  test('ops:resources returns resource statistics', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({ command: 'ops:resources', roles: ['observer-role-id'] });
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+
+    assert.ok(result, 'Command should succeed');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
+    assert.ok(embed.title?.includes('Resource'), 'Should have resource title');
+    assert.ok(embed.fields?.length > 0, 'Should have fields');
+  });
+
+  test('ops:economy returns economy statistics', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({ command: 'ops:economy', roles: ['observer-role-id'] });
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+
+    assert.ok(result, 'Command should succeed');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
+    assert.ok(embed.title?.includes('Economy'), 'Should have economy title');
+    assert.ok(embed.fields?.length > 0, 'Should have fields');
+  });
+
+  test('ops:inventory returns inventory statistics', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({ command: 'ops:inventory', roles: ['observer-role-id'] });
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+
+    assert.ok(result, 'Command should succeed');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
+    assert.ok(embed.title?.includes('Inventory'), 'Should have inventory title');
+    assert.ok(embed.fields?.length > 0, 'Should have fields');
+  });
+
+  test('ops:location returns location activity', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({ command: 'ops:location', roles: ['observer-role-id'] });
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+
+    assert.ok(result, 'Command should succeed');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
+    assert.ok(embed.title?.includes('Location'), 'Should have location title');
+    assert.ok(embed.fields?.length > 0, 'Should have fields');
+  });
+
+  test('ops:soc returns bridge health', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({ command: 'ops:soc', roles: ['observer-role-id'] });
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+
+    assert.ok(result, 'Command should succeed');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
+    assert.ok(embed.title?.includes('Bridge') || embed.title?.includes('SOC'), 'Should have SOC/bridge title');
+    assert.ok(embed.fields?.length > 0, 'Should have fields');
+  });
+
+  test('ops:prometheus returns infrastructure metrics', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({ command: 'ops:prometheus', roles: ['observer-role-id'] });
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+
+    assert.ok(result, 'Command should succeed');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
+    assert.ok(embed.title?.includes('Infrastructure') || embed.title?.includes('Metrics'), 'Should have metrics title');
+    assert.ok(embed.fields?.length > 0, 'Should have fields');
+  });
+
+  test('ops:dashboard returns dashboard summary', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({ command: 'ops:dashboard', roles: ['observer-role-id'] });
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+
+    assert.ok(result, 'Command should succeed');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
+    assert.ok(embed.title?.includes('Dashboard'), 'Should have dashboard title');
+    assert.ok(embed.fields?.length > 0, 'Should have fields');
+  });
+
+  test('ops:announcements returns announcements', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({ command: 'ops:announcements', roles: ['observer-role-id'] });
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+
+    assert.ok(result, 'Command should succeed');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
+    assert.ok(embed.title?.includes('Announcements'), 'Should have announcements title');
+    assert.ok(embed.fields?.length > 0, 'Should have fields');
   });
 
   test('admin:doctor runs comprehensive diagnostic', async () => {

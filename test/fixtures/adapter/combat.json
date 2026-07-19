@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "result": {
+    "deaths": 2847,
+    "pvpDeaths": 1203,
+    "pveDeaths": 1644,
+    "topKiller": "Vladimir Harkonnen",
+    "kdRatio": 2.4,
+    "deathCauses": {
+      "Player": 1203,
+      "Sandworm": 847,
+      "Environment": 512,
+      "Creature": 285
+    },
+    "topPvP": [
+      {"name": "Vladimir Harkonnen", "kills": 342},
+      {"name": "Stilgar", "kills": 287},
+      {"name": "Feyd-Rautha", "kills": 198}
+    ]
+  }
+}

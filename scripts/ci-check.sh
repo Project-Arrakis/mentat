@@ -27,7 +27,7 @@ check_run() {
   local conclusion=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('conclusion',''))")
   local status=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))")
   local id=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('databaseId',''))")
-  
+
   if [ "$conclusion" = "success" ]; then
     echo "[+] $name: passed"
   elif [ "$status" = "in_progress" ] || [ "$status" = "queued" ]; then

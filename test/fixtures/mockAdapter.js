@@ -30,6 +30,7 @@ export function createMockAdapter(options = {}) {
     soc: { ok: true, result: { alerts: 0 } },
     prometheus: { ok: true, result: { metrics: {} } },
     dashboard: { ok: true, result: { summary: {} } },
+    announcements: { ok: true, announcements: [] },
     diagnostic: { ok: true, result: { adapter: 'ok', rbac: 'ok' } },
     version: { ok: true, result: { version: 'v1.3.58' } },
     servers: { ok: true, result: { servers: ['server-1'] } },
@@ -213,6 +214,12 @@ export function createMockAdapter(options = {}) {
     if (delay) await new Promise(resolve => setTimeout(resolve, delay));
     if (error) throw new Error(error);
     return mockData.dashboard;
+  },
+
+  async opsAnnouncements() {
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+    if (error) throw new Error(error);
+    return mockData.announcements;
   },
 
     async diagnostic() {

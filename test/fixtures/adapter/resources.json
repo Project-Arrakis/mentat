@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "result": {
+    "spiceFields": 156,
+    "waterWells": 89,
+    "mineralNodes": 234,
+    "solarArrays": 67,
+    "organicFarms": 45,
+    "resourceRates": {
+      "Spice": "12.5/h",
+      "Water": "8.3/h",
+      "Iron": "15.2/h",
+      "Copper": "9.7/h"
+    }
+  }
+}

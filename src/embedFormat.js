@@ -794,3 +794,223 @@ export function formatSetupEmbed(setup) {
     ].join("\n").slice(0, 2048)
   });
 }
+
+// ── OPS: Activity ──
+export function formatActivityEmbed(payload) {
+  const r = payload?.result || payload || {};
+  const fields = [
+    { name: "🟢 Online (1h)", value: fmtCount(r.activeLast1h ?? r.activeLastHour), inline: true },
+    { name: "🟢 Online (24h)", value: fmtCount(r.activeLast24h ?? r.activeLastDay), inline: true },
+    { name: "👥 Peak Concurrent", value: fmtCount(r.peakConcurrent ?? r.peakOnline), inline: true },
+    { name: "📊 Total Sessions", value: fmtCount(r.totalSessions), inline: true },
+    { name: "⏱️ Avg Session", value: r.avgSessionMinutes ? `\`${r.avgSessionMinutes}m\`` : "—", inline: true },
+  ];
+  if (r.perGuild && Object.keys(r.perGuild).length > 0) {
+    fields.push({ name: "🏰 Per-Guild Activity", value: Object.entries(r.perGuild).slice(0, 5).map(([g, c]) => `• ${g}: ${c}`).join("\n"), inline: false });
+  }
+  if (r.perMap && Object.keys(r.perMap).length > 0) {
+    fields.push({ name: "🗺️ Per-Map Activity", value: Object.entries(r.perMap).slice(0, 5).map(([m, c]) => `• ${m}: ${c}`).join("\n"), inline: false });
+  }
+  return duneEmbed({
+    title: "📈 Player Activity",
+    color: (r.activeLast1h ?? r.activeLastHour ?? 0) > 0 ? "success" : "warning",
+    description: r.activeLast1h || r.activeLastHour ? "🟢 **Players active**" : "🟡 **No recent activity**",
+    fields
+  });
+}
+
+// ── OPS: Combat ──
+export function formatCombatEmbed(payload) {
+  const r = payload?.result || payload || {};
+  const fields = [
+    { name: "💀 Total Deaths", value: fmtCount(r.deaths ?? r.totalDeaths), inline: true },
+    { name: "⚔️ PvP Deaths", value: fmtCount(r.pvpDeaths), inline: true },
+    { name: "🐛 PvE Deaths", value: fmtCount(r.pveDeaths), inline: true },
+    { name: "🏆 Top Killer", value: fmt(r.topKiller), inline: true },
+    { name: "📊 K/D Ratio", value: r.kdRatio ? `\`${r.kdRatio}\`` : "—", inline: true },
+  ];
+  if (r.deathCauses && Object.keys(r.deathCauses).length > 0) {
+    fields.push({ name: "☠️ Deaths by Cause", value: Object.entries(r.deathCauses).slice(0, 5).map(([cause, count]) => `• ${cause}: ${count}`).join("\n"), inline: false });
+  }
+  if (r.topPvP && Array.isArray(r.topPvP)) {
+    fields.push({ name: "🥇 Top PvP", value: r.topPvP.slice(0, 3).map(p => `• ${p.name || p.character}: ${p.kills || 0} kills`).join("\n"), inline: false });
+  }
+  return duneEmbed({
+    title: "⚔️ Combat Statistics",
+    color: (r.deaths ?? r.totalDeaths ?? 0) > 0 ? "warning" : "success",
+    description: r.deaths || r.totalDeaths ? "⚔️ **Combat data available**" : "🟡 **No combat data**",
+    fields
+  });
+}
+
+// ── OPS: Resources ──
+export function formatResourcesEmbed(payload) {
+  const r = payload?.result || payload || {};
+  const fields = [
+    { name: "🌶️ Spice Fields", value: fmtCount(r.spiceFields), inline: true },
+    { name: "💧 Water Wells", value: fmtCount(r.waterWells), inline: true },
+    { name: "⛏️ Mineral Nodes", value: fmtCount(r.mineralNodes), inline: true },
+    { name: "☀️ Solar Arrays", value: fmtCount(r.solarArrays), inline: true },
+    { name: "🌿 Organic Farms", value: fmtCount(r.organicFarms), inline: true },
+  ];
+  if (r.resourceRates && Object.keys(r.resourceRates).length > 0) {
+    fields.push({ name: "📊 Extraction Rates", value: Object.entries(r.resourceRates).slice(0, 5).map(([res, rate]) => `• ${res}: ${rate}/h`).join("\n"), inline: false });
+  }
+  return duneEmbed({
+    title: "⛏️ Resource Statistics",
+    color: (r.spiceFields ?? 0) > 0 ? "success" : "warning",
+    description: "🏜️ **Resource field overview**",
+    fields
+  });
+}
+
+// ── OPS: Economy ──
+export function formatEconomyEmbed(payload) {
+  const r = payload?.result || payload || {};
+  const fields = [
+    { name: "💰 Total Currency", value: fmtCount(r.totalCurrency ?? r.totalSolari), inline: true },
+    { name: "📦 Active Orders", value: fmtCount(r.activeOrders), inline: true },
+    { name: "🏛️ Total Taxes", value: fmtCount(r.totalTaxes), inline: true },
+    { name: "📈 Transactions (24h)", value: fmtCount(r.transactions24h), inline: true },
+    { name: "🏪 Marketplaces", value: fmtCount(r.marketplaces), inline: true },
+  ];
+  if (r.topTraders && Array.isArray(r.topTraders)) {
+    fields.push({ name: "🥇 Top Traders", value: r.topTraders.slice(0, 3).map(t => `• ${t.name || t.character}: ${fmtCount(t.volume)}`).join("\n"), inline: false });
+  }
+  return duneEmbed({
+    title: "💰 Economy Statistics",
+    color: (r.totalCurrency ?? r.totalSolari ?? 0) > 0 ? "success" : "warning",
+    description: "🪙 **Economic overview**",
+    fields
+  });
+}
+
+// ── OPS: Inventory ──
+export function formatOpsInventoryEmbed(payload) {
+  const r = payload?.result || payload || {};
+  const fields = [
+    { name: "📦 Total Items", value: fmtCount(r.totalItems), inline: true },
+    { name: "🔨 Crafted Items", value: fmtCount(r.craftedItems), inline: true },
+    { name: "📊 Unique Templates", value: fmtCount(r.uniqueTemplates), inline: true },
+    { name: "🏆 Most Common", value: fmt(r.mostCommonItem), inline: true },
+    { name: "📈 Crafting Rate (24h)", value: fmtCount(r.craftingRate24h), inline: true },
+  ];
+  if (r.itemDistribution && Object.keys(r.itemDistribution).length > 0) {
+    fields.push({ name: "📊 Item Distribution", value: Object.entries(r.itemDistribution).slice(0, 5).map(([cat, count]) => `• ${cat}: ${count}`).join("\n"), inline: false });
+  }
+  return duneEmbed({
+    title: "📦 Inventory Statistics",
+    color: (r.totalItems ?? 0) > 0 ? "success" : "warning",
+    description: "🎒 **Global inventory overview**",
+    fields
+  });
+}
+
+// ── OPS: Location ──
+export function formatLocationEmbed(payload) {
+  const r = payload?.result || payload || {};
+  const fields = [
+    { name: "🗺️ Active Maps", value: fmtCount(r.activeMaps), inline: true },
+    { name: "📍 Total Markers", value: fmtCount(r.totalMarkers), inline: true },
+    { name: "🏰 Territories", value: fmtCount(r.territories), inline: true },
+    { name: "👥 Avg Density", value: r.avgDensity ? `\`${r.avgDensity}/km²\`` : "—", inline: true },
+  ];
+  if (r.hotspots && Array.isArray(r.hotspots)) {
+    fields.push({ name: "🔥 Hotspots", value: r.hotspots.slice(0, 5).map(h => `• ${h.name || h.location}: ${h.players || h.count} players`).join("\n"), inline: false });
+  }
+  if (r.territoryControl && Object.keys(r.territoryControl).length > 0) {
+    fields.push({ name: "🏴 Territory Control", value: Object.entries(r.territoryControl).slice(0, 5).map(([t, f]) => `• ${t}: ${f}`).join("\n"), inline: false });
+  }
+  return duneEmbed({
+    title: "📍 Location Activity",
+    color: (r.activeMaps ?? 0) > 0 ? "success" : "warning",
+    description: "🗺️ **Map and territory overview**",
+    fields
+  });
+}
+
+// ── OPS: SOC ──
+export function formatSocEmbed(payload) {
+  const r = payload?.result || payload || {};
+  const fields = [
+    { name: "🟢 Bridge Health", value: r.bridgeHealth === "healthy" || r.health === "ok" ? "🟢 Healthy" : "🔴 Degraded", inline: true },
+    { name: "📊 Total Requests", value: fmtCount(r.totalRequests), inline: true },
+    { name: "⚠️ Alerts", value: fmtCount(r.alerts), inline: true },
+    { name: "📈 Avg Response", value: r.avgResponseMs ? `\`${r.avgResponseMs}ms\`` : "—", inline: true },
+    { name: "🔴 Errors", value: fmtCount(r.errors), inline: true },
+  ];
+  if (r.endpoints && Object.keys(r.endpoints).length > 0) {
+    fields.push({ name: "🔌 Endpoint Status", value: Object.entries(r.endpoints).slice(0, 5).map(([ep, s]) => `• ${ep}: ${s === "ok" ? "🟢" : "🔴"} ${s}`).join("\n"), inline: false });
+  }
+  return duneEmbed({
+    title: "🔌 OPS Bridge Health",
+    color: r.bridgeHealth === "healthy" || r.health === "ok" ? "success" : "error",
+    description: r.bridgeHealth === "healthy" || r.health === "ok" ? "🟢 **All systems nominal**" : "🔴 **Bridge degraded**",
+    fields
+  });
+}
+
+// ── OPS: Prometheus ──
+export function formatPrometheusEmbed(payload) {
+  const r = payload?.result || payload || {};
+  const fields = [];
+  if (r.containers && Array.isArray(r.containers)) {
+    for (const c of r.containers.slice(0, 8)) {
+      const cpu = c.cpuPercent != null ? `${c.cpuPercent}%` : "—";
+      const mem = c.memoryMb != null ? `${c.memoryMb}MB` : "—";
+      const restarts = c.restarts != null ? `${c.restarts}` : "—";
+      const icon = c.status === "running" ? "🟢" : "🔴";
+      fields.push({ name: `${icon} ${c.name || "container"}`, value: `CPU: ${cpu} · Mem: ${mem} · Restarts: ${restarts}`, inline: false });
+    }
+  }
+  if (r.cpuAvg != null) fields.push({ name: "📊 Avg CPU", value: `\`${r.cpuAvg}%\``, inline: true });
+  if (r.memAvg != null) fields.push({ name: "📊 Avg Memory", value: `\`${r.memAvg}MB\``, inline: true });
+  if (r.totalRestarts != null) fields.push({ name: "🔄 Total Restarts", value: fmtCount(r.totalRestarts), inline: true });
+  return duneEmbed({
+    title: "📈 Infrastructure Metrics",
+    color: (r.cpuAvg ?? 0) < 80 ? "success" : "warning",
+    description: "🖥️ **Container and infrastructure overview**",
+    fields
+  });
+}
+
+// ── OPS: Dashboard ──
+export function formatDashboardEmbed(payload) {
+  const r = payload?.result || payload || {};
+  const fields = [
+    { name: "🌍 Server Status", value: r.serverStatus === "healthy" || r.status === "ok" ? "🟢 Healthy" : "🔴 Issue", inline: true },
+    { name: "👥 Online Players", value: fmtCount(r.onlinePlayers), inline: true },
+    { name: "⚔️ Combat Events (24h)", value: fmtCount(r.combatEvents24h), inline: true },
+    { name: "📦 Items Traded (24h)", value: fmtCount(r.itemsTraded24h), inline: true },
+    { name: "🔌 Bridge Health", value: r.bridgeHealth === "healthy" ? "🟢 OK" : "🔴 Down", inline: true },
+  ];
+  if (r.summary && typeof r.summary === "object") {
+    for (const [k, v] of Object.entries(r.summary).slice(0, 5)) {
+      fields.push({ name: k.charAt(0).toUpperCase() + k.slice(1), value: fmt(v), inline: true });
+    }
+  }
+  return duneEmbed({
+    title: "📊 OPS Dashboard",
+    color: r.serverStatus === "healthy" || r.status === "ok" ? "success" : "warning",
+    description: "🏜️ **Aggregated operational summary**",
+    fields
+  });
+}
+
+// ── OPS: Announcements ──
+export function formatAnnouncementsEmbed(payload) {
+  const announcements = payload?.announcements || payload?.result?.announcements || [];
+  const desc = announcements.length === 0
+    ? "*No announcements*"
+    : announcements.slice(0, 10).map((a, i) => {
+        const time = a.timestamp || a.time || a.createdAt || "";
+        const source = a.source || a.type || "system";
+        return `**${i + 1}.** [${source}] ${a.message || a.text || "No message"}${time ? ` — _${time}_` : ""}`;
+      }).join("\n");
+  return duneEmbed({
+    title: "📢 Announcements",
+    color: announcements.length > 0 ? "spice" : "warning",
+    description: desc.slice(0, 2048),
+    fields: [{ name: "📦 Total", value: fmtCount(announcements.length), inline: true }]
+  });
+}

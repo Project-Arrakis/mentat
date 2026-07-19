@@ -7,12 +7,14 @@ import { startHealthState } from "./healthState.js";
 import { logError, logInfo } from "./logger.js";
 import { startScheduler } from "./scheduler.js";
 import { alertSubscriber } from "./notifications.js";
-import { createDatabase, getGuild, getGuildRoles, getGuildSettings } from "./database.js";
+import { createDatabase, getGuild, getGuildRoles, getGuildSettings, initBotStats, incrementCommandCount } from "./database.js";
 import { createSetupServer } from "./setupServer.js";
 import { handleGuildCreate, handleGuildDelete } from "./onboarding.js";
+import { startStatsPusher } from "./statsPusher.js";
 
 const config = loadConfig();
 const db = config.multiTenant ? createDatabase(config.dbPath) : null;
+if (db) initBotStats(db);
 const adapterClient = new AdapterClient(config, {
   getGuildConfig: db ? (guildId) => {
     const guild = getGuild(db, guildId);
@@ -35,6 +37,7 @@ const healthState = startHealthState({
 let scheduler = { active: false, stop() {} };
 let announcementBridge = { active: false, stop() {} };
 let alerts = { active: false, stop() {} };
+let statsPusher = { active: false, stop() {} };
 
 if (config.multiTenant) {
   const setupApp = createSetupServer({
@@ -113,6 +116,8 @@ client.once(Events.ClientReady, (readyClient) => {
       intervalMs: alertIntervalMs
     });
   }
+
+  statsPusher = startStatsPusher({ client, db, adapterClient });
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -145,6 +150,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     }
     announcementBridge.stop();
     alerts.stop();
+    statsPusher.stop();
     if (db) db.close();
     await client.destroy();
     healthState.stop();
