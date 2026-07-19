@@ -125,7 +125,8 @@ If you haven't set up the adapter yet, or want a fresh token:
    ```
 7. Restart your Dune console:
    ```bash
-   docker compose restart
+   cd ~/dune-awakening-selfhost-docker
+   docker compose -f docker-compose.web.yml restart redblink-dune-docker-console
    ```
 
 ---
