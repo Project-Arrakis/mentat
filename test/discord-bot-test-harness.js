@@ -409,15 +409,17 @@ describe('Command Execution', () => {
     assert.ok(embed.title?.includes('Services'), 'Should have services title');
   });
 
-  test('data:maintenance returns maintenance metadata', async () => {
+  test('data:verify initiates link verification', async () => {
     const { adapterClient, config } = getTestContext();
-    const interaction = createMockInteraction({ command: 'data:maintenance', roles: ['observer-role-id'] });
+    const interaction = createMockInteraction({
+      command: 'data:verify',
+      roles: ['observer-role-id'],
+      options: { code: 'ACP-TEST123' }
+    });
     const result = await executeDuneCommand(interaction, adapterClient, config);
 
     assert.ok(result, 'Command should succeed');
     assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
-    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
-    assert.ok(embed.title?.includes('Maintenance'), 'Should have maintenance title');
   });
 });
 
@@ -485,11 +487,20 @@ describe('Adapter Methods', () => {
     assert.ok(result.ok !== false, 'Should succeed');
   });
 
-  test('adapterClient.maintenance() returns maintenance metadata', async () => {
+  test('adapterClient.logs() returns log entries', async () => {
     const { adapterClient } = getTestContext();
     const actor = { userId: 'test-user', guildId: 'test-guild', channelId: 'test-channel', roleIds: ['observer-role-id'] };
 
-    const result = await adapterClient.maintenance(actor);
+    const result = await adapterClient.logs(actor, 'dune-server');
+    assert.ok(result, 'Should return result');
+    assert.ok(result.ok !== false, 'Should succeed');
+  });
+
+  test('adapterClient.playerLinkVerify() verifies link code', async () => {
+    const { adapterClient } = getTestContext();
+    const actor = { userId: 'test-user', guildId: 'test-guild', channelId: 'test-channel', roleIds: ['observer-role-id'] };
+
+    const result = await adapterClient.playerLinkVerify(actor, 'ACP-TEST123');
     assert.ok(result, 'Should return result');
     assert.ok(result.ok !== false, 'Should succeed');
   });

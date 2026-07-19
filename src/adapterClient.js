@@ -12,19 +12,19 @@ export class AdapterHttpError extends Error {
 export const LIVE_ROUTES = new Set([
   "health", "status", "readiness", "services", "population",
   "version", "servers", "ports", "db",
-  "logs", "map-state", "maintenance"
+  "logs", "map-state"
 ]);
 
 // Routes that exist in upstream but return "planned" stubs or placeholder data.
 export const PLANNED_ROUTES = new Set([
-  "backups", "announcements",
+  "backups", "announcements", "broadcast",
   "ops-activity", "ops-combat", "ops-resources", "ops-economy",
   "ops-inventory", "ops-location", "ops-soc", "ops-prometheus", "ops-dashboard"
 ]);
 
 // Routes implemented in feature/discord-player-inventory but NOT yet in upstream main.
 export const UNMERGED_ROUTES = new Set([
-  "players-link", "players-unlink", "players-me", "players-faction",
+  "players-link", "players-link-verify", "players-unlink", "players-me", "players-faction",
   "players-inventory", "players-inventory-search", "players-storage", "players-find",
   "guild-storage", "guild-find"
 ]);
@@ -80,9 +80,9 @@ export class AdapterClient {
   services(actor, guildId) { return this.request("services", actor, undefined, guildId); }
   population(actor, guildId) { return this.request("population", actor, undefined, guildId); }
   backups(actor, guildId) { return this.request("backups", actor, undefined, guildId); }
-  logs(actor, guildId) { return this.request("logs", actor, undefined, guildId); }
+  logs(actor, service, guildId) { return this.request("logs", actor, service ? { service } : undefined, guildId); }
   mapState(actor, guildId) { return this.request("map-state", actor, undefined, guildId); }
-  maintenance(actor, guildId) { return this.request("maintenance", actor, undefined, guildId); }
+  broadcast(actor, message, guildId) { return this.request("broadcast", actor, { message }, guildId); }
   opsActivity(actor, guildId) { return this.request("ops-activity", actor, undefined, guildId); }
   opsCombat(actor, guildId) { return this.request("ops-combat", actor, undefined, guildId); }
   opsResources(actor, guildId) { return this.request("ops-resources", actor, undefined, guildId); }
@@ -100,6 +100,7 @@ export class AdapterClient {
   writeExecute(actor, body, guildId) { return this.request("write-execute", actor, body, guildId); }
   writePreview(actor, body, guildId) { return this.request("write-preview", actor, body, guildId); }
   playerLink(actor, characterName, guildId) { return this.request("players-link", actor, { characterName }, guildId); }
+  playerLinkVerify(actor, code, guildId) { return this.request("players-link-verify", actor, { code }, guildId); }
   playerUnlink(actor, guildId) { return this.request("players-unlink", actor, undefined, guildId); }
   whoami(actor, guildId) { return this.request("players-me", actor, undefined, guildId); }
   playerFaction(actor, faction, guildId) { return this.request("players-faction", actor, { faction }, guildId); }
