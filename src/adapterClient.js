@@ -59,62 +59,72 @@ export function getLatencyHistory() {
 }
 
 export class AdapterClient {
-  constructor(config, { fetchImpl = globalThis.fetch } = {}) {
+  constructor(config, { fetchImpl = globalThis.fetch, getGuildConfig = null } = {}) {
     if (typeof fetchImpl !== "function") throw new Error("Fetch is unavailable in this runtime.");
     this.config = config;
     this.fetchImpl = fetchImpl;
+    this.getGuildConfig = getGuildConfig;
   }
 
-  health(actor) { return this.request("health", actor); }
-  status(actor, diagnostic = false) { return this.request("status", actor, diagnostic ? { diagnostic: true } : undefined); }
-  readiness(actor, diagnostic = false) { return this.request("readiness", actor, diagnostic ? { diagnostic: true } : undefined); }
-  services(actor) { return this.request("services", actor); }
-  population(actor) { return this.request("population", actor); }
-  backups(actor) { return this.request("backups", actor); }
-  logs(actor) { return this.request("logs", actor); }
-  mapState(actor) { return this.request("map-state", actor); }
-  maintenance(actor) { return this.request("maintenance", actor); }
-  opsActivity(actor) { return this.request("ops-activity", actor); }
-  opsCombat(actor) { return this.request("ops-combat", actor); }
-  opsResources(actor) { return this.request("ops-resources", actor); }
-  opsEconomy(actor) { return this.request("ops-economy", actor); }
-  opsInventory(actor) { return this.request("ops-inventory", actor); }
-  opsLocation(actor) { return this.request("ops-location", actor); }
-  opsSoc(actor) { return this.request("ops-soc", actor); }
-  opsPrometheus(actor) { return this.request("ops-prometheus", actor); }
-  opsDashboard(actor) { return this.request("ops-dashboard", actor); }
-  announcements(actor) { return this.request("announcements", actor); }
-  version(actor) { return this.request("version", actor); }
-  servers(actor) { return this.request("servers", actor); }
-  ports(actor) { return this.request("ports", actor); }
-  db(actor) { return this.request("db", actor); }
-  writeExecute(actor, body) { return this.request("write-execute", actor, body); }
-  writePreview(actor, body) { return this.request("write-preview", actor, body); }
-  playerLink(actor, characterName) { return this.request("players-link", actor, { characterName }); }
-  playerUnlink(actor) { return this.request("players-unlink", actor); }
-  whoami(actor) { return this.request("players-me", actor); }
-  playerFaction(actor, faction) { return this.request("players-faction", actor, { faction }); }
-  playerInventory(actor) { return this.request("players-inventory", actor); }
-  playerInventorySearch(actor, query) { return this.request("players-inventory-search", actor, { query }); }
-  playerStorage(actor, scope) { return this.request("players-storage", actor, { scope }); }
-  playerFind(actor, query, scope) { return this.request("players-find", actor, { query, scope }); }
-  guildStorage(actor) { return this.request("guild-storage", actor); }
-  guildFind(actor, query) { return this.request("guild-find", actor, { query }); }
+  _resolveConfig(guildId) {
+    if (guildId && this.getGuildConfig) {
+      const guildConfig = this.getGuildConfig(guildId);
+      if (guildConfig) return guildConfig;
+    }
+    return this.config;
+  }
 
-  async request(route, actor, extra = undefined) {
-    const path = this.config.adapter.paths[route];
-    const method = this.config.adapter.methods[route];
+  health(actor, guildId) { return this.request("health", actor, undefined, guildId); }
+  status(actor, diagnostic = false, guildId) { return this.request("status", actor, diagnostic ? { diagnostic: true } : undefined, guildId); }
+  readiness(actor, diagnostic = false, guildId) { return this.request("readiness", actor, diagnostic ? { diagnostic: true } : undefined, guildId); }
+  services(actor, guildId) { return this.request("services", actor, undefined, guildId); }
+  population(actor, guildId) { return this.request("population", actor, undefined, guildId); }
+  backups(actor, guildId) { return this.request("backups", actor, undefined, guildId); }
+  logs(actor, guildId) { return this.request("logs", actor, undefined, guildId); }
+  mapState(actor, guildId) { return this.request("map-state", actor, undefined, guildId); }
+  maintenance(actor, guildId) { return this.request("maintenance", actor, undefined, guildId); }
+  opsActivity(actor, guildId) { return this.request("ops-activity", actor, undefined, guildId); }
+  opsCombat(actor, guildId) { return this.request("ops-combat", actor, undefined, guildId); }
+  opsResources(actor, guildId) { return this.request("ops-resources", actor, undefined, guildId); }
+  opsEconomy(actor, guildId) { return this.request("ops-economy", actor, undefined, guildId); }
+  opsInventory(actor, guildId) { return this.request("ops-inventory", actor, undefined, guildId); }
+  opsLocation(actor, guildId) { return this.request("ops-location", actor, undefined, guildId); }
+  opsSoc(actor, guildId) { return this.request("ops-soc", actor, undefined, guildId); }
+  opsPrometheus(actor, guildId) { return this.request("ops-prometheus", actor, undefined, guildId); }
+  opsDashboard(actor, guildId) { return this.request("ops-dashboard", actor, undefined, guildId); }
+  announcements(actor, guildId) { return this.request("announcements", actor, undefined, guildId); }
+  version(actor, guildId) { return this.request("version", actor, undefined, guildId); }
+  servers(actor, guildId) { return this.request("servers", actor, undefined, guildId); }
+  ports(actor, guildId) { return this.request("ports", actor, undefined, guildId); }
+  db(actor, guildId) { return this.request("db", actor, undefined, guildId); }
+  writeExecute(actor, body, guildId) { return this.request("write-execute", actor, body, guildId); }
+  writePreview(actor, body, guildId) { return this.request("write-preview", actor, body, guildId); }
+  playerLink(actor, characterName, guildId) { return this.request("players-link", actor, { characterName }, guildId); }
+  playerUnlink(actor, guildId) { return this.request("players-unlink", actor, undefined, guildId); }
+  whoami(actor, guildId) { return this.request("players-me", actor, undefined, guildId); }
+  playerFaction(actor, faction, guildId) { return this.request("players-faction", actor, { faction }, guildId); }
+  playerInventory(actor, guildId) { return this.request("players-inventory", actor, undefined, guildId); }
+  playerInventorySearch(actor, query, guildId) { return this.request("players-inventory-search", actor, { query }, guildId); }
+  playerStorage(actor, scope, guildId) { return this.request("players-storage", actor, { scope }, guildId); }
+  playerFind(actor, query, scope, guildId) { return this.request("players-find", actor, { query, scope }, guildId); }
+  guildStorage(actor, guildId) { return this.request("guild-storage", actor, undefined, guildId); }
+  guildFind(actor, query, guildId) { return this.request("guild-find", actor, { query }, guildId); }
+
+  async request(route, actor, extra = undefined, guildId = null) {
+    const cfg = this._resolveConfig(guildId);
+    const path = cfg.adapter.paths[route];
+    const method = cfg.adapter.methods[route];
     if (!path || !method) throw new Error(`Unsupported adapter route: ${route}`);
 
-    const url = new URL(path, ensureTrailingSlash(this.config.adapter.baseUrl));
+    const url = new URL(path, ensureTrailingSlash(cfg.adapter.baseUrl));
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.config.adapter.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), cfg.adapter.timeoutMs);
     const startedAt = Date.now();
 
     try {
       const headers = {
         accept: "application/json",
-        authorization: `Bearer ${this.config.adapter.token}`
+        authorization: `Bearer ${cfg.adapter.token}`
       };
       const options = { method, headers, signal: controller.signal };
 

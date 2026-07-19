@@ -33,6 +33,14 @@ gh run list --branch <branch> --limit 5 --json status,conclusion,name,headBranch
 - `CI` — lint, build, test
 - `Security Gates` — Semgrep, Gitleaks, Trivy, npm audit, Docker build, Trivy image
 
+### No Skipping Rule
+
+**No tests or security gates may be skipped or excluded unless:**
+1. **Explicitly instructed** to do so by the user, or
+2. **The test is not relevant** to the PR scope (e.g., Discord bot tests when no Discord bot code is being PR'd, or console API tests when only bot documentation is changed)
+
+**Never** use `--no-verify` to bypass pre-commit hooks without explicit instruction. If a gate fails, fix the root cause — do not skip it.
+
 If either fails, resolve the failures before cutting the PR. Common failures:
 | Failure | Fix |
 |---------|-----|

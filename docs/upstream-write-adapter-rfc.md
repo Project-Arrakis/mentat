@@ -7,10 +7,10 @@ read-only. Do not implement Discord write commands in this bot until upstream
 publishes and approves a write-capable adapter contract.
 
 The current upstream Discord adapter is read-only in
-`Red-Blink/dune-awakening-selfhost-docker@5163bd8`, latest stable tag
-`v1.3.41`. Its health payload advertises `readOnly: true` and
-`writesEnabled: false`. No upstream release-candidate tag newer than `v1.3.41`
-was observed during the July 3, 2026 compatibility review.
+`Red-Blink/dune-awakening-selfhost-docker@fdaca43`, latest stable tag
+`v1.3.60`. Its health payload advertises `readOnly: true` and
+`writesEnabled: false`. No upstream release-candidate tag newer than `v1.3.60`
+was observed during the July 18, 2026 compatibility review.
 
 ## Maintainer Brief
 

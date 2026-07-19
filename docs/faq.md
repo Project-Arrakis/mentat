@@ -6,7 +6,9 @@
 
 It monitors your Dune Awakening game server and shows its health, status,
 players, and services through Discord slash commands. Instead of logging into
-the WebUI console, you can check everything from Discord.
+the WebUI console, you can check everything from Discord. Players can also
+link their Discord account to their in-game character to check their inventory
+and storage.
 
 **Q: Can I add this bot to my server right now?**
 
@@ -26,6 +28,12 @@ Yes. It never accesses the Docker socket, game files, or database directly.
 All commands go through a bearer-token protected API. Secrets use file-based
 storage with restricted permissions (0600). Security scanning runs on every
 commit (Semgrep, Gitleaks, Trivy, ggshield, npm audit).
+
+**Q: Is the bot read-only?**
+
+Yes. All commands only read data from your game server — they cannot change
+anything. Write commands (like broadcast) are disabled by default and require
+explicit configuration to enable.
 
 ---
 
@@ -62,6 +70,72 @@ command line. Only available to admins.
 
 ---
 
+## Player Features
+
+**Q: How do I check my inventory in Discord?**
+
+First, link your Discord account to your character:
+```
+/dune player link <your-character-name>
+```
+Then run:
+```
+/dune player inventory
+```
+
+**Q: What does "linking" mean?**
+
+Linking connects your Discord account to your in-game character. This lets the
+bot know which character's data to show you when you run player commands. The
+link is stored securely on the game server — your Discord account and character
+are associated, but no personal data is shared.
+
+**Q: Can I link multiple characters to one Discord account?**
+
+No. Each Discord account can only be linked to one character at a time. If you
+want to switch characters, run `/dune player unlink` first, then link the new
+character.
+
+**Q: Can multiple Discord accounts link to the same character?**
+
+No. Each character can only be linked to one Discord account at a time.
+
+**Q: What's the difference between `/dune player inventory` and `/dune player storage`?**
+
+- **Inventory** shows items your character is currently carrying (on their person).
+- **Storage** shows items in storage containers you own (chests, shelves, etc.).
+
+**Q: What's the difference between `/dune player find` and `/dune player inventory-search`?**
+
+- **find** searches across all your storage containers (chests, guild storage, etc.)
+- **inventory-search** searches only in your character's personal inventory
+
+**Q: Can I search guild storage?**
+
+Yes. Use `/dune player storage` with the scope set to `guild`, or use
+`/dune player find` with scope `guild`. You must be a member of the guild
+to see its storage.
+
+**Q: Why do I get "Not linked" when I try to check my inventory?**
+
+You need to link your Discord account to your character first. Run:
+```
+/dune player link <your-character-name>
+```
+Replace `<your-character-name>` with the exact name of your character in the game.
+
+**Q: Why do I get "No player found" when linking?**
+
+The character name you entered doesn't match any character on the server.
+Check the spelling — it must match exactly, including capitalization.
+
+**Q: Why do I get "Multiple players found" when linking?**
+
+More than one character on the server has the name you entered. Try using a
+more specific name, or ask a server admin for help.
+
+---
+
 ## Setup
 
 **Q: How do I get my bot token?**
@@ -80,7 +154,7 @@ command line. Only available to admins.
 Yes. Set up the bot once with guild-scoped commands (`DISCORD_GUILD_ID`) and
 repeat Steps 4-6 of the admin guide for each additional server. Each server
 points to the same console by default, or you can configure per-guild console
-URLs in advanced setup.
+urls in advanced setup.
 
 **Q: Do I need to open ports on my firewall?**
 
@@ -144,6 +218,12 @@ has no access to the Docker socket, database, or game files.
 No. The bot only uses the Guilds gateway intent — it never reads message
 content. It only responds to slash commands.
 
+**Q: Is player data private?**
+
+Yes. Each player can only see their own inventory and storage. The bot checks
+your Discord identity and only returns data for the character you've linked to.
+Other players' data is never exposed.
+
 ---
 
 ## Troubleshooting
@@ -167,6 +247,13 @@ Use `DISCORD_GUILD_ID` for instant registration.
 
 Check that your Discord role ID matches the IDs in the `.env` file under
 `DISCORD_OBSERVER_ROLE_IDS` or `DISCORD_ADMIN_ROLE_IDS`.
+
+**Q: I get "Adapter request failed" when running commands.**
+
+The bot can't reach the game server console. Check that:
+1. The console is running
+2. `DUNE_CONSOLE_API_URL` is correct
+3. `DUNE_DISCORD_ADAPTER_TOKEN` matches the console's token
 
 For a full troubleshooting guide, see [Troubleshooting](troubleshooting.md).
 

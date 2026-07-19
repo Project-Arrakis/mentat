@@ -5,17 +5,23 @@ use it. You don't need to know anything about servers, Docker, or code.
 
 ## What This Bot Does
 
-The Arrakis Control Plane bot watches your Dune Awakening game server and
+The Arrakis Control Panel bot watches your Dune Awakening game server and
 reports its health, status, and activity through Discord slash commands. Think
 of it like a dashboard that lives inside Discord — you type a command, and the
 bot tells you what's happening with the game server.
+
+**What you can do:**
+- Check if the game server is running and healthy
+- See how many players are online
+- Look up your own inventory and storage containers
+- Search for specific items in your inventory or storage
+- View combat statistics, resource data, and economy info
+- Get automatic status updates posted to a Discord channel
 
 ## How to Use Slash Commands
 
 In any channel where the bot can see messages, type `/` and start typing `dune`.
 Discord will show a list of available commands:
-
-![Typing /dune in Discord](https://cdn.discordapp.com/attachments/1207782128457228348/1524202981606690916/content.png?ex=6a4ee425&is=6a4d92a5&hm=3f9f844d477990536c3ae4f19abfd45a55a351ed965ea67128355c6ae301686e&width=400)
 
 Commands are organized into groups. After typing `/dune`, you'll see the groups.
 Select one, then choose a command from within that group.
@@ -43,13 +49,29 @@ Select one, then choose a command from within that group.
 > **Admin Tip:** Add `diagnostic:true` to `/dune server status` or
 > `/dune server readiness` for detailed technical output (admin only).
 
-### 📊 `data` — Game Data
+### 📊 `data` — Game World Data
 
 | Command | What It Does |
 |---------|-------------|
 | `/dune data population` | Shows how many players are online |
 | `/dune data backups` | Lists recent game backups |
 | `/dune data maps` | Shows which game maps are running |
+
+### 👤 `player` — Your Character (Requires Linking)
+
+These commands let you check your own character's inventory, storage, and more.
+**First, you must link your Discord account to your in-game character.** See
+the "Linking Your Character" section below.
+
+| Command | What It Does |
+|---------|-------------|
+| `/dune player link <character-name>` | Link your Discord account to your in-game character |
+| `/dune player unlink` | Remove the link between your Discord and character |
+| `/dune player me` | Show your linked character info |
+| `/dune player inventory` | View everything in your character's inventory |
+| `/dune player storage` | View items in your storage containers (owned or guild) |
+| `/dune player find <item-name>` | Search for an item across all your storage containers |
+| `/dune player inventory-search <item-name>` | Search for an item in your character's inventory |
 
 ### 📈 `ops` — Operational Stats (requires OPS addon)
 
@@ -83,6 +105,63 @@ Select one, then choose a command from within that group.
 | `/dune infra servers` | Lists all game server partitions |
 | `/dune infra ports` | Shows which network ports are open |
 | `/dune infra db` | Checks database health |
+
+## Linking Your Character
+
+Before you can use the player commands (`/dune player inventory`, `/dune player storage`, etc.),
+you need to link your Discord account to your in-game character.
+
+### Step 1: Link Your Character
+
+Run this command in Discord:
+
+```
+/dune player link <your-character-name>
+```
+
+Replace `<your-character-name>` with the exact name of your character in the game.
+For example: `/dune player link PaulAtreides`
+
+The bot will search for your character and link it to your Discord account.
+If it finds your character, you'll see a confirmation message.
+
+### Step 2: Check Your Link
+
+Run this command to see your linked character:
+
+```
+/dune player me
+```
+
+This shows your character name, whether you're currently online, and other details.
+
+### Step 3: Use Player Commands
+
+Once linked, you can use all the player commands:
+
+- `/dune player inventory` — See everything your character is carrying
+- `/dune player storage` — See items in your storage containers
+- `/dune player find <item>` — Search for an item across all your storage
+- `/dune player inventory-search <item>` — Search for an item in your inventory
+
+### Step 4: Unlink (Optional)
+
+If you want to remove the link between your Discord and character:
+
+```
+/dune player unlink
+```
+
+This does not affect your character in the game — it just disconnects it from Discord.
+
+### Common Linking Issues
+
+| Problem | What It Means | How to Fix |
+|---------|--------------|------------|
+| "No player found" | The character name doesn't exist | Check the spelling — it must match exactly |
+| "Multiple players found" | More than one character has that name | Use a more specific name |
+| "Not linked" | You haven't linked a character yet | Run `/dune player link <name>` first |
+| "Not authorized" | You don't have the Observer role | Ask a server admin to give you the role |
 
 ## Understanding the Status Card
 
@@ -122,7 +201,8 @@ administrator.
 ## Where to See Status Updates
 
 The bot automatically posts server status updates to a dedicated channel
-(called `#acp-updates`). These appear every 30 minutes and show:
+(called `#acp-updates` or whatever your admin configured). These appear every
+30 minutes and show:
 
 ```
 **Scheduled Status Summary**
@@ -141,4 +221,4 @@ You don't need to do anything — these updates happen automatically.
 ## Sources
 
 - [Discord Slash Commands Guide](https://support.discord.com/hc/en-us/articles/1500000368501-Slash-Commands-FAQ)
-- [Dune Awakening Self-Host Discord Bot Repository](https://github.com/yacketrj/dune-awakening-selfhost-discordbot)
+- [Dune Awakening Self-Host Discord Bot Repository](https://github.com/yacketrj/Arrakis-Control-Panel)

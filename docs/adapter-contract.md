@@ -5,19 +5,19 @@
 The bot follows the Discord adapter in
 [Red-Blink/dune-awakening-selfhost-docker](https://github.com/Red-Blink/dune-awakening-selfhost-docker).
 
-Evidence checked on July 3, 2026:
+Evidence checked on July 18, 2026:
 
 | Source | Value |
 | --- | --- |
 | Upstream reference clone | Clean local clone of upstream `main`, kept outside this repository. Recommended sibling path: `../dune-awakening-selfhost-docker-upstream-main` |
-| Upstream commit | `5163bd8` |
+| Upstream commit | `fdaca43` |
 | Upstream file | `console/api/src/services/discordAdapter.js` |
-| Latest published upstream release | `v1.3.41` |
-| Latest upstream release candidate observed | None newer than `v1.3.41` |
+| Latest published upstream release | `v1.3.60` |
+| Latest upstream release candidate observed | None newer than `v1.3.60` |
 
-The adapter contract is included in upstream release `v1.3.41`. No changes were
+The adapter contract is included in upstream release `v1.3.60`. No changes were
 observed in `console/api/src/services/discordAdapter.js` between the earlier
-fixture baseline and upstream commit `5163bd8`. Upstream API source changed
+fixture baseline and upstream commit `fdaca43`. Upstream API source changed
 elsewhere, so route registration was also reviewed; the Discord adapter still
 exposes the same four read-only routes. The health payload still advertises
 `readOnly: true` and `writesEnabled: false`.

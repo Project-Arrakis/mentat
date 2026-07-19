@@ -7,7 +7,7 @@ Awakening Selfhost Docker Console.
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/yacketrj/dune-awakening-selfhost-discordbot.git
+git clone https://github.com/yacketrj/Arrakis-Control-Panel.git
 cd dune-awakening-selfhost-discordbot
 
 # 2. Copy and edit the environment file
@@ -99,6 +99,7 @@ DUNE_BOT_API_TOKEN_FILE=/path/to/secrets/bot-api-token.txt
 Create the bot API token file:
 ```bash
 echo -n "your-secure-random-token" > /path/to/secrets/bot-api-token.txt
+chmod 600 /path/to/secrets/bot-api-token.txt
 ```
 
 This token is what the Discord bot uses to authenticate against the console

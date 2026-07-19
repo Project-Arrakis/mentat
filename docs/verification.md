@@ -97,7 +97,7 @@ permissions or unsafe entry paths.
 npm run sbom
 ```
 
-The command should create `dist/dune-awakening-selfhost-discordbot.cdx.json`
+The command should create `dist/arrakis-control-panel.cdx.json`
 and a matching `.sha256` file from `package-lock.json`.
 
 ## Release Artifact Checksums
@@ -107,7 +107,7 @@ After `npm run check`, verify local release artifact checksums with:
 ```bash
 cd dist
 sha256sum -c discord-readonly-bot-v1.5.0.tar.gz.sha256
-sha256sum -c dune-awakening-selfhost-discordbot.cdx.json.sha256
+sha256sum -c arrakis-control-panel.cdx.json.sha256
 ```
 
 ## Regression Checklist

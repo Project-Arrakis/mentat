@@ -43,6 +43,6 @@ maintainability.
 ## Sources
 
 - Semgrep finding run:
-  https://github.com/yacketrj/dune-awakening-selfhost-discordbot/actions/runs/28610395001
+  https://github.com/yacketrj/Arrakis-Control-Panel/actions/runs/28610395001
 - Tracking issue: #30
 - Resolved pull request: #31

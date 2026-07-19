@@ -154,6 +154,76 @@ Then only use guild-scoped registration going forward.
 
 ---
 
+## Player Feature Issues
+
+### "Not linked to a game character"
+
+**What it means:** You haven't linked your Discord account to an in-game character yet.
+
+**How to fix:**
+Run the link command with your exact character name:
+```bash
+/dune player link <your-character-name>
+```
+Replace `<your-character-name>` with the name as it appears in the game.
+
+---
+
+### "No player found matching <name>"
+
+**What it means:** The character name you entered doesn't exist on the server.
+
+**How to fix:**
+1. Check the spelling — it must match exactly, including capitalization
+2. Verify the character exists on this server (not a different server)
+3. Try linking with a different name if you have multiple characters
+
+---
+
+### "Multiple players found: <names>"
+
+**What it means:** More than one character on the server has the name you entered.
+
+**How to fix:**
+1. Use a more specific character name if possible
+2. Ask a server admin to help identify the correct character
+3. Check if you have multiple characters with similar names
+
+---
+
+### "Player inventory is empty"
+
+**What it means:** Your character has no items in their inventory.
+
+**How to fix:**
+1. This is normal if your character isn't carrying anything
+2. Check `/dune player storage` to see items in your storage containers
+3. Verify your character is online and the game server is running
+
+---
+
+### "Storage scope must be 'owned' or 'guild'"
+
+**What it means:** You used an invalid scope when checking storage.
+
+**How to fix:**
+- Use `/dune player storage` for your personal storage
+- Use `/dune player storage` with guild scope for guild storage (if supported)
+- Use `/dune player find <item>` with scope `owned` or `guild`
+
+---
+
+### "Not authorized to access guild storage"
+
+**What it means:** You don't have permission to view guild storage.
+
+**How to fix:**
+1. Verify you're a member of a guild on the server
+2. Ask a server admin to check your guild membership
+3. Ensure your Discord role has the `guild:read` capability
+
+---
+
 ## Bot Crashes
 
 ### Container exits immediately
@@ -225,7 +295,7 @@ git commit --no-verify
 1. Check the [FAQ](faq.md) for common questions
 2. See the [Admin Guide](admin-guide.md) for setup instructions
 3. Review the [Configuration Reference](configuration.md) for all settings
-4. Open an issue at [github.com/yacketrj/dune-awakening-selfhost-discordbot](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/issues)
+4. Open an issue at [github.com/yacketrj/Arrakis-Control-Panel](https://github.com/yacketrj/Arrakis-Control-Panel/issues)
 
 ## Sources
 

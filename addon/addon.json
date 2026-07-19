@@ -3,7 +3,7 @@
   "id": "discord-readonly-bot",
   "name": "Discord Read-Only Bot",
   "description": "Zero-permission setup panel for the external Dune Discord bot.",
-  "author": "dune-awakening-selfhost-discordbot contributors",
+  "author": "Arrakis Control Panel contributors",
   "version": "1.5.0",
   "type": "ui",
   "entry": {

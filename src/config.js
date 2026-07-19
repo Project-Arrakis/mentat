@@ -84,10 +84,17 @@ export function loadConfig(env = process.env) {
   const legacyAllowedRoleIds = parseCsv(env.DISCORD_ALLOWED_ROLE_IDS);
   const observerRoleIds = mergeRoleIds(parseCsv(env.DISCORD_OBSERVER_ROLE_IDS), legacyAllowedRoleIds);
   const adminRoleIds = parseCsv(env.DISCORD_ADMIN_ROLE_IDS);
+  const multiTenant = parseBoolean(env.ACP_MULTI_TENANT, false);
   const config = {
+    multiTenant,
+    dbPath: env.ACP_DB_PATH || "data/acp.db",
+    baseUrl: optionalEnv(env, "ACP_BASE_URL") || "http://localhost:3100",
+    setupPort: parsePositiveInteger(env.ACP_SETUP_PORT, 3100),
+    oauthRedirectUri: optionalEnv(env, "ACP_OAUTH_REDIRECT_URI"),
     discord: {
       token: readSecret(env, "DISCORD_BOT_TOKEN", "DISCORD_BOT_TOKEN_FILE"),
       clientId: requiredEnv(env, "DISCORD_CLIENT_ID"),
+      clientSecret: multiTenant ? readSecret(env, "DISCORD_CLIENT_SECRET", "DISCORD_CLIENT_SECRET_FILE") : undefined,
       guildId: optionalEnv(env, "DISCORD_GUILD_ID"),
       defaultEphemeral: parseBoolean(env.DISCORD_DEFAULT_EPHEMERAL, true),
       rbac: {
@@ -109,8 +116,8 @@ export function loadConfig(env = process.env) {
       }
     },
     adapter: {
-      baseUrl: requiredEnv(env, "DUNE_CONSOLE_API_URL"),
-      token: readSecret(env, "DUNE_DISCORD_ADAPTER_TOKEN", "DUNE_DISCORD_ADAPTER_TOKEN_FILE"),
+      baseUrl: multiTenant ? (optionalEnv(env, "DUNE_CONSOLE_API_URL") || "http://placeholder") : requiredEnv(env, "DUNE_CONSOLE_API_URL"),
+      token: multiTenant ? (readSecret(env, "DUNE_DISCORD_ADAPTER_TOKEN", "DUNE_DISCORD_ADAPTER_TOKEN_FILE") || "placeholder") : readSecret(env, "DUNE_DISCORD_ADAPTER_TOKEN", "DUNE_DISCORD_ADAPTER_TOKEN_FILE"),
       timeoutMs: parsePositiveInteger(env.REQUEST_TIMEOUT_MS, 8000),
       paths: {
         health: optionalEnv(env, "DUNE_ADAPTER_HEALTH_PATH") || DEFAULT_PATHS.health,
@@ -195,9 +202,11 @@ export function loadConfig(env = process.env) {
 }
 
 export function validateConfig(config) {
-  const url = new URL(config.adapter.baseUrl);
-  if (!["http:", "https:"].includes(url.protocol)) {
-    throw new Error("DUNE_CONSOLE_API_URL must use http or https.");
+  if (!config.multiTenant) {
+    const url = new URL(config.adapter.baseUrl);
+    if (!["http:", "https:"].includes(url.protocol)) {
+      throw new Error("DUNE_CONSOLE_API_URL must use http or https.");
+    }
   }
 
   for (const [name, path] of Object.entries(config.adapter.paths)) {
@@ -212,7 +221,7 @@ export function validateConfig(config) {
     }
   }
 
-  if (config.discord.rbac.mode === "restricted" && !hasAnyRbacPrincipal(config.discord.rbac)) {
+  if (!config.multiTenant && config.discord.rbac.mode === "restricted" && !hasAnyRbacPrincipal(config.discord.rbac)) {
     throw new Error("Restricted RBAC requires at least one Discord role or user allow-list entry.");
   }
 

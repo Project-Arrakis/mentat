@@ -26,7 +26,7 @@ npm run sbom
 ```
 
 The command reads `package-lock.json`, writes
-`dist/dune-awakening-selfhost-discordbot.cdx.json`, and writes a matching
+`dist/arrakis-control-panel.cdx.json`, and writes a matching
 SHA-256 checksum. Release artifact workflows upload the SBOM and checksum for
 tagged or manually prepared releases.
 

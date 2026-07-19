@@ -8,7 +8,7 @@ For first-time setup, you only need these 4 values:
 
 ```bash
 DISCORD_BOT_TOKEN=           # From Discord Developer Portal → Bot → Token
-DISCORD_CLIENT_ID=            # From Discord Developer Portal → General Information  
+DISCORD_CLIENT_ID=            # From Discord Developer Portal → General Information
 DUNE_CONSOLE_API_URL=http://localhost:8088  # Your console WebUI address
 DUNE_DISCORD_ADAPTER_TOKEN=   # Must match console's bot-api-token.txt
 ```
@@ -92,15 +92,15 @@ Each command can have its own role list. If not set, falls back to observer/admi
 
 | Variable | Command |
 |----------|---------|
-| `DISCORD_HEALTH_ROLE_IDS` | `/dune health` |
-| `DISCORD_ABOUT_ROLE_IDS` | `/dune about` |
-| `DISCORD_PING_ROLE_IDS` | `/dune ping` |
-| `DISCORD_STATUS_ROLE_IDS` | `/dune status` |
-| `DISCORD_STATUS_SUMMARY_ROLE_IDS` | `/dune status-summary` |
-| `DISCORD_READINESS_ROLE_IDS` | `/dune readiness` |
-| `DISCORD_SERVICES_ROLE_IDS` | `/dune services` |
-| `DISCORD_POPULATION_ROLE_IDS` | `/dune population` |
-| `DISCORD_BACKUPS_ROLE_IDS` | `/dune backups` |
+| `DISCORD_HEALTH_ROLE_IDS` | `/dune server health` |
+| `DISCORD_ABOUT_ROLE_IDS` | `/dune core about` |
+| `DISCORD_PING_ROLE_IDS` | `/dune core ping` |
+| `DISCORD_STATUS_ROLE_IDS` | `/dune server status` |
+| `DISCORD_STATUS_SUMMARY_ROLE_IDS` | `/dune server summary` |
+| `DISCORD_READINESS_ROLE_IDS` | `/dune server readiness` |
+| `DISCORD_SERVICES_ROLE_IDS` | `/dune server services` |
+| `DISCORD_POPULATION_ROLE_IDS` | `/dune data population` |
+| `DISCORD_BACKUPS_ROLE_IDS` | `/dune data backups` |
 
 **Example:**
 ```bash
@@ -145,7 +145,7 @@ Controls scheduled status posts to Discord channels.
 |----------|---------|-------------|
 | `DUNE_POST_SCHEDULE_TYPE` | `none` | `none`, `status`, `status-summary`, `readiness`, `services` |
 | `DUNE_POST_ALLOWED_CHANNELS` | *(empty)* | Comma-separated Discord channel IDs for scheduled posts |
-| `DUNE_SCHEDULER_INTERVAL_MS` | `1800000) |
+| `DUNE_SCHEDULER_INTERVAL_MS` | `1800000` | Interval between posts in milliseconds (30 min default) |
 | `DUNE_POST_RATE_LIMIT_MS` | `600000` | Minimum time between posts per channel (10 min default) |
 
 **Example:**
@@ -166,6 +166,36 @@ Forwards in-game announcements to a Discord channel.
 | `DUNE_ANNOUNCEMENTS_ENABLED` | `false` | Enable game→Discord announcement forwarding |
 | `DUNE_ANNOUNCEMENTS_CHANNEL` | *(empty)* | Discord channel ID to post announcements |
 | `DUNE_ANNOUNCEMENTS_POLL_MS` | `30000` | Poll interval in milliseconds |
+
+---
+
+## Player Features Configuration
+
+Controls player inventory, storage, and character linking features.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DUNE_DISCORD_ADAPTER_ENABLED` | *(inherited from console)* | Must be `true` on the console side for player features to work |
+
+**Note:** Player features require no additional bot configuration. They work
+automatically once the bot is connected to a console with the Discord adapter
+enabled. Players use `/dune player link <character-name>` to link their
+Discord account to their in-game character, then can use:
+
+- `/dune player inventory` — View character inventory
+- `/dune player storage` — View storage containers (owned or guild)
+- `/dune player find <item>` — Search items in storage
+- `/dune player inventory-search <item>` — Search items in inventory
+
+### Player Feature Capabilities
+
+The console controls access to player features through Discord role capabilities:
+
+| Capability | Required Role | Commands |
+|-----------|---------------|----------|
+| `inventory:read` | Observer or Admin | `/dune player link`, `/dune player me`, `/dune player inventory`, `/dune player find`, `/dune player inventory-search` |
+| `storage:read` | Observer or Admin | `/dune player storage` (owned scope) |
+| `guild:read` | Observer or Admin | `/dune player storage` (guild scope), `/dune player find` (guild scope) |
 
 ---
 
@@ -209,6 +239,7 @@ Prevents command spam.
 | Feature | Env Var | Default |
 |---------|---------|---------|
 | Read-only commands | (always on) | N/A |
+| Player inventory/storage | (always on when adapter enabled) | N/A |
 | Scheduled status posts | `DUNE_POST_SCHEDULE_TYPE` | `none` |
 | Announcement bridge | `DUNE_ANNOUNCEMENTS_ENABLED` | `false` |
 | Write commands | `DUNE_DISCORD_WRITES_ENABLED` | `false` |
@@ -220,10 +251,10 @@ Prevents command spam.
 
 After inviting the bot, create these roles in your Discord server:
 
-1. **Dune Observer** — Can use all read-only commands
+1. **Dune Observer** — Can use all read-only commands including player features
 2. **Dune Moderator** — Read-only + broadcast capability
-3. **Dune Admin** — Read-only + all write operations
-4. **Dune Owner** — Full access including high-risk operations
+3. **Dune Admin** — Read-only + all admin commands
+4. **Dune Owner** — Full access including high-risk operations (future)
 
 Configure the role IDs in your `.env`:
 ```bash

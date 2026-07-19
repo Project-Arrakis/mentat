@@ -1,87 +1,251 @@
-# Discord Setup
+# Discord Setup — Creating Your Bot Application
+
+This guide walks you through creating a Discord bot application and inviting it
+to your server. No coding experience is required.
 
 ## Overview
 
-Each install should use its own Discord application. Do not use a shared public
-bot. Keeping the bot user-owned keeps Discord access, bot tokens, and WebUI
-adapter tokens under the operator's control.
+Each Dune server should have its own Discord bot. This keeps your tokens and
+server data private — no shared public bots. The setup takes about 15 minutes.
 
-## Required Discord Model
+**What you'll need:**
+- A Discord server where you have "Manage Server" permission
+- Access to the [Discord Developer Portal](https://discord.com/developers/applications)
 
-Use one Discord application per deployment or admin group:
+---
 
-1. Create an application in the Discord Developer Portal.
-2. Add a bot user to that application.
-3. Copy the bot token into local secrets management.
-4. Invite the bot to the target Discord server.
-5. Register the slash commands with `npm run register`.
-6. Run the bot beside the WebUI or on a trusted private network.
+## Step 1: Create a Discord Application
 
-## OAuth2 Scopes
+A Discord application is like a registration for your bot. It tells Discord
+"this bot exists and belongs to me."
 
-Use only the scopes required for this bot:
+1. Go to **[discord.com/developers/applications](https://discord.com/developers/applications)**
+2. Click the **New Application** button (top right corner)
+3. Name your bot something recognizable, like:
+   - "Arrakis Control Panel"
+   - "Dune Server Status"
+   - "Tabr-Tau Server Bot"
+4. Click **Create**
 
-- `bot`
-- `applications.commands`
+You'll now see your application's dashboard.
 
-Discord uses OAuth2 scopes to decide what an application can do. This bot needs
-the bot identity and slash commands only; it does not need user OAuth tokens.
+---
 
-## Bot Permissions
+## Step 2: Create the Bot User
 
-Start with permissions integer `0` for v1 slash-command interaction responses.
+The application is registered, but it doesn't have a bot yet. Let's create one.
 
-Do not grant broad server permissions. The current bot does not need:
+1. In the left sidebar, click **Bot**
+2. Click **Add Bot** → **Yes, do it!**
+3. Under **TOKEN**, click **Reset Token** → **Copy**
 
-- Administrator
-- Manage Server
-- Manage Channels
-- Manage Roles
-- Manage Messages
-- Read Message History
-- Message Content access
+> ⚠️ **IMPORTANT:** Save this token somewhere safe right now. This is like a
+> password for your bot. Anyone with this token can control your bot. You will
+> only see it once — if you lose it, you'll need to reset it (which creates a
+> new token and invalidates the old one).
 
-If a future feature adds scheduled channel posts, grant only the specific
-channel permissions required for that feature and document the change in the PR.
+### Turn Off Privileged Intents
 
-## Gateway Intents
+On the Bot page, scroll down to **Privileged Gateway Intents**. Turn all three
+**OFF**:
 
-The runtime uses the Discord `Guilds` intent only. Do not enable privileged
-gateway intents for v1:
+- Server Members Intent — **OFF**
+- Presence Intent — **OFF**
+- Message Content Intent — **OFF**
 
-- Guild Members
-- Guild Presences
-- Message Content
+Your bot uses slash commands only — it doesn't need to read messages or see
+who's online. Turning these off is more secure and doesn't affect functionality.
 
-Discord requires privileged intents to be enabled separately in the Developer
-Portal, and they should only be enabled when a bot requires them. This bot does
-not require them for the current read-only slash command flow.
+---
 
-## Command Registration
+## Step 3: Get Your Application ID
 
-For development, set `DISCORD_GUILD_ID` so command updates appear in one test
-guild quickly:
+This is a number that uniquely identifies your bot application.
+
+1. Click **General Information** in the left sidebar
+2. Find **APPLICATION ID** and click **Copy**
+
+You'll need this for the invite link and bot configuration.
+
+---
+
+## Step 4: Invite the Bot to Your Server
+
+Now let's add the bot to your Discord server.
+
+1. Replace `YOUR_APP_ID` in this URL with your Application ID from Step 3:
+   ```
+   https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot%20applications.commands
+   ```
+2. Open the URL in your browser
+3. Select your server from the dropdown
+4. Click **Authorize**
+
+| Setting | Value |
+|----------|-------|
+| Client ID | Your Application ID from Step 3 |
+| Scopes | `bot` + `applications.commands` (already in the URL) |
+| Permissions | `0` (slash commands don't need extra permissions) |
+
+The bot will appear in your server's member list as **offline**. This is
+normal — it shows as offline until the bot process is actually running on
+your game server.
+
+---
+
+## Step 5: Set Up Roles in Discord
+
+The bot uses Discord roles to control who can use which commands. Think of
+roles like badges — if someone has the right badge, they can use certain
+commands.
+
+### Create the Roles
+
+1. In your Discord server, go to **Server Settings → Roles**
+2. Create these roles (or use existing ones):
+
+| Role | Purpose | Who Gets It |
+|------|---------|-------------|
+| **Dune Observer** | Can use all read-only commands | Trusted members |
+| **Dune Admin** | Can use admin commands + diagnostics | Server admins |
+| **Dune Moderator** *(optional)* | Read-only + broadcast | Trusted moderators |
+
+3. Assign these roles to yourself and your trusted members.
+
+### How to Find a Role ID
+
+1. Enable **Developer Mode** in Discord:
+   - User Settings → Advanced → **Developer Mode** (turn ON)
+2. Go to Server Settings → Roles
+3. Right-click the role → **Copy Role ID**
+
+Save these IDs — you'll need them for the bot configuration.
+
+---
+
+## Step 6: Enable the Discord Adapter on the Console
+
+The bot needs to talk to your Dune game server's console. The console has a
+built-in "Discord adapter" that the bot connects to.
+
+1. On your game server, find the console's configuration file (usually `.env`
+   or `docker-compose.web.yml`)
+2. Add or update these settings:
+
+```bash
+DUNE_DISCORD_ADAPTER_ENABLED=true
+DUNE_DISCORD_ADAPTER_TOKEN=your-random-secret-token
+```
+
+3. Create a token file for the adapter:
+
+```bash
+echo -n "your-random-secret-token" > /path/to/secrets/bot-api-token.txt
+chmod 600 /path/to/secrets/bot-api-token.txt
+```
+
+4. Restart the console:
+
+```bash
+docker compose -f docker-compose.web.yml up -d redblink-dune-docker-console
+```
+
+> **Important:** The token you set here (`DUNE_DISCORD_ADAPTER_TOKEN`) must
+> match the token in the bot's configuration. They must be identical.
+
+---
+
+## Step 7: Configure the Bot
+
+Create a `.env` file for the bot with your settings:
+
+```bash
+# === Required ===
+DISCORD_BOT_TOKEN=PASTE_YOUR_BOT_TOKEN_HERE
+DISCORD_CLIENT_ID=PASTE_YOUR_APP_ID_HERE
+DUNE_CONSOLE_API_URL=http://your-console-host:8088
+DUNE_DISCORD_ADAPTER_TOKEN=PASTE_YOUR_ADAPTER_TOKEN_HERE
+
+# === Roles ===
+DISCORD_RBAC_MODE=restricted
+DISCORD_OBSERVER_ROLE_IDS=PASTE_OBSERVER_ROLE_ID
+DISCORD_ADMIN_ROLE_IDS=PASTE_ADMIN_ROLE_ID
+
+# === Guild (for instant command registration) ===
+DISCORD_GUILD_ID=PASTE_YOUR_SERVER_ID
+```
+
+> **Security tip:** Instead of putting tokens directly in the `.env` file, use
+> file-based secrets:
+> ```bash
+> DISCORD_BOT_TOKEN_FILE=/app/secrets/discord-bot-token.txt
+> DUNE_DISCORD_ADAPTER_TOKEN_FILE=/app/secrets/adapter-token.txt
+> ```
+> Create these files with 600 permissions and mount them as a read-only Docker
+> volume.
+
+---
+
+## Step 8: Register Slash Commands
+
+Once the bot is running, register the commands with Discord:
 
 ```bash
 npm run register
 ```
 
-For production, leave `DISCORD_GUILD_ID` empty to register global commands.
+Commands appear **instantly** if you set `DISCORD_GUILD_ID`. Without it, they
+register globally and can take up to an hour to appear.
 
-## User-Owned Secrets
+---
 
-Never commit these values:
+## Step 9: Verify Everything Works
 
-- `DISCORD_BOT_TOKEN`
-- `DUNE_DISCORD_ADAPTER_TOKEN`
-- secret-file contents referenced by `DISCORD_BOT_TOKEN_FILE`
-- secret-file contents referenced by `DUNE_DISCORD_ADAPTER_TOKEN_FILE`
+Test these commands in your Discord server:
 
-Use `.env` only for local runtime configuration. `.env` is ignored by Git.
+| Command | What It Should Show |
+|---------|-------------------|
+| `/dune core ping` | Adapter latency (a few ms) |
+| `/dune server status` | Status card with server info |
+| `/dune server health` | Adapter health (🟢 Healthy) |
+| `/dune core about` | Bot version and security info |
+
+---
+
+## Security Notes
+
+### What the Bot Can and Cannot Do
+
+**Can do:**
+- Read server status, population, and service health
+- Check player inventory and storage (for linked players)
+- Post scheduled status updates to Discord
+- Forward in-game announcements to Discord
+
+**Cannot do:**
+- Change anything on your game server (read-only by default)
+- Access your Docker containers or database
+- Read Discord messages (only responds to slash commands)
+- See who's online or what they're doing in Discord
+
+### Protecting Your Tokens
+
+- Never share your bot token or adapter token
+- Use file-based secrets instead of putting tokens in `.env`
+- If a token leaks, reset it immediately in the Discord Developer Portal
+- The old token becomes invalid instantly when you reset it
+
+---
+
+## Next Steps
+
+- [Admin Guide](admin-guide.md) — full server setup instructions
+- [User Guide](user-guide.md) — how to use all commands
+- [FAQ](faq.md) — answers to common questions
+- [Troubleshooting](troubleshooting.md) — what to do when things go wrong
 
 ## Sources
 
-- Discord OAuth2 and permissions: https://docs.discord.com/developers/platform/oauth2-and-permissions
-- Discord application commands: https://docs.discord.com/developers/interactions/application-commands
-- Discord privileged intents: https://support-dev.discord.com/hc/en-us/articles/6207308062871-What-are-Privileged-Intents
-- Discord gateway privileged intents: https://docs.discord.com/developers/events/gateway
+- [Discord Developer Portal](https://discord.com/developers/applications)
+- [Discord OAuth2 Documentation](https://docs.discord.com/developers/platform/oauth2-and-permissions)
+- [Discord Slash Commands](https://support.discord.com/hc/en-us/articles/1500000368501-Slash-Commands-FAQ)
