@@ -121,13 +121,6 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
-  logInfo("discord.interaction_received", {
-    type: interaction.type,
-    commandName: interaction.commandName,
-    guildId: interaction.guildId,
-    userId: interaction.user?.id,
-    channelId: interaction.channelId
-  });
   try {
     await executeDuneCommand(interaction, adapterClient, config, db);
   } catch (error) {

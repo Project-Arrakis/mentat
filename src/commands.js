@@ -403,8 +403,8 @@ export function isCommandAllowed(interaction, command, config, db = null, guildI
     const mode = settings?.rbac_mode || "restricted";
     if (mode === "open") return true;
     const roleIds = new Set(extractRoleIds(interaction));
-    const observerIds = new Set((roles.observer || []).map(r => r.role_id));
-    const adminIds = new Set((roles.admin || []).map(r => r.role_id));
+    const observerIds = new Set((roles || []).filter(r => r.role_type === "observer").map(r => r.role_id));
+    const adminIds = new Set((roles || []).filter(r => r.role_type === "admin").map(r => r.role_id));
     if (observerIds.size > 0 && [...roleIds].some(r => observerIds.has(r))) return true;
     if (adminIds.size > 0 && [...roleIds].some(r => adminIds.has(r))) return true;
     return false;
@@ -422,7 +422,6 @@ export function isCommandAllowed(interaction, command, config, db = null, guildI
 
 export function extractRoleIds(interaction) {
   const roles = interaction.member?.roles;
-  console.error("DEBUG extractRoleIds: member=", interaction.member ? "present" : "missing", "roles type=", typeof roles, "isArray=", Array.isArray(roles), "hasCache=", !!(roles?.cache), "cacheKeys=", roles?.cache ? [...roles.cache.keys()] : "n/a");
   if (!roles) return [];
   if (Array.isArray(roles)) return roles.map(String);
   if (roles.cache?.keys) return [...roles.cache.keys()];
@@ -435,7 +434,7 @@ function isAdminActor(interaction, config, db = null, guildId = null) {
   if (config.multiTenant && db && guildId) {
     const roles = getGuildRoles(db, guildId);
     const roleIds = extractRoleIds(interaction);
-    const adminIds = new Set((roles.admin || []).map(r => r.role_id));
+    const adminIds = new Set((roles || []).filter(r => r.role_type === "admin").map(r => r.role_id));
     return roleIds.some(r => adminIds.has(r));
   }
 
