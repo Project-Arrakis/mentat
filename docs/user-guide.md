@@ -49,31 +49,25 @@ Select one, then choose a command from within that group.
 > **Admin Tip:** Add `diagnostic:true` to `/dune server status` or
 > `/dune server readiness` for detailed technical output (admin only).
 
-### 📊 `data` — Game World Data
+### 📊 `data` — Game World Data & Player Features
 
 | Command | What It Does |
 |---------|-------------|
 | `/dune data population` | Shows how many players are online |
 | `/dune data backups` | Lists recent game backups |
 | `/dune data maps` | Shows which game maps are running |
+| `/dune data maintenance` | Shows maintenance window metadata |
+| `/dune data link <character-name>` | Link your Discord to your in-game character |
+| `/dune data unlink` | Remove the link between your Discord and character |
+| `/dune data faction <name>` | Set your faction for themed embeds (atreides, harkonnen, fremen) |
+| `/dune data whoami` | Show your linked character info |
+| `/dune data inventory` | View everything in your character's inventory |
+| `/dune data inventory <search>` | Search for an item in your inventory |
+| `/dune data storage` | View items in your storage containers (owned or guild) |
+| `/dune data storage <scope>` | View storage with scope (owned, guild, or all) |
+| `/dune data find <item-name>` | Search for an item across all your storage containers |
 
-### 👤 `player` — Your Character (Requires Linking)
-
-These commands let you check your own character's inventory, storage, and more.
-**First, you must link your Discord account to your in-game character.** See
-the "Linking Your Character" section below.
-
-| Command | What It Does |
-|---------|-------------|
-| `/dune player link <character-name>` | Link your Discord account to your in-game character |
-| `/dune player unlink` | Remove the link between your Discord and character |
-| `/dune player me` | Show your linked character info |
-| `/dune player inventory` | View everything in your character's inventory |
-| `/dune player storage` | View items in your storage containers (owned or guild) |
-| `/dune player find <item-name>` | Search for an item across all your storage containers |
-| `/dune player inventory-search <item-name>` | Search for an item in your character's inventory |
-
-### 📈 `ops` — Operational Stats (requires OPS addon)
+### 📈 `ops` — Operational Stats (returns planned data until upstream merges)
 
 | Command | What It Does |
 |---------|-------------|
@@ -108,7 +102,7 @@ the "Linking Your Character" section below.
 
 ## Linking Your Character
 
-Before you can use the player commands (`/dune player inventory`, `/dune player storage`, etc.),
+Before you can use the player commands (`/dune data inventory`, `/dune data storage`, etc.),
 you need to link your Discord account to your in-game character.
 
 ### Step 1: Link Your Character
@@ -116,11 +110,11 @@ you need to link your Discord account to your in-game character.
 Run this command in Discord:
 
 ```
-/dune player link <your-character-name>
+/dune data link <your-character-name>
 ```
 
 Replace `<your-character-name>` with the exact name of your character in the game.
-For example: `/dune player link PaulAtreides`
+For example: `/dune data link PaulAtreides`
 
 The bot will search for your character and link it to your Discord account.
 If it finds your character, you'll see a confirmation message.
@@ -130,21 +124,32 @@ If it finds your character, you'll see a confirmation message.
 Run this command to see your linked character:
 
 ```
-/dune player me
+/dune data whoami
 ```
 
 This shows your character name, whether you're currently online, and other details.
 
-### Step 3: Use Player Commands
+### Step 3: Set Your Faction (Optional)
+
+You can set your faction to get themed embed colors and quotes:
+
+```
+/dune data faction atreides
+/dune data faction harkonnen
+/dune data faction fremen
+```
+
+### Step 4: Use Player Commands
 
 Once linked, you can use all the player commands:
 
-- `/dune player inventory` — See everything your character is carrying
-- `/dune player storage` — See items in your storage containers
-- `/dune player find <item>` — Search for an item across all your storage
-- `/dune player inventory-search <item>` — Search for an item in your inventory
+- `/dune data inventory` — See everything your character is carrying
+- `/dune data inventory <search>` — Search for an item in your inventory
+- `/dune data storage` — See items in your storage containers
+- `/dune data storage guild` — See items in guild storage
+- `/dune data find <item>` — Search for an item across all your storage
 
-### Step 4: Unlink (Optional)
+### Step 5: Unlink (Optional)
 
 If you want to remove the link between your Discord and character:
 
@@ -179,7 +184,7 @@ looks like this:
 │  🟢 Survival_1 — READY (Up 18h)         │
 │  🟢 Overmap — READY (Up 18h)            │
 │  ─────────────────────────────────────  │
-│  Thumper · The spice must flow.         │
+│  ACP · The spice must flow.         │
 └─────────────────────────────────────────┘
 ```
 

@@ -135,10 +135,10 @@ Bot receives `guildCreate` event, checks if guild is registered:
 
 Bot sends DM to guild owner/admin:
 ```
-Welcome to Thumper! To get started, click the link below to configure
+Welcome to ACP! To get started, click the link below to configure
 your server's connection to your Dune Awakening console.
 
-Setup Link: https://thumper.example.com/setup?state=XYZ
+Setup Link: https://acp.example.com/setup?state=XYZ
 ```
 
 ### Step 4: Web Portal (OAuth2)

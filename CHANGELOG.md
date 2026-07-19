@@ -8,15 +8,43 @@ change notes under `docs/changes/`.
 
 ### Added
 
-- (reserved for future changes)
+- Multi-tenant architecture with per-guild console routing
+- SQLite database layer (`better-sqlite3`) for guild configuration
+- OAuth2 setup portal (`/setup`, `/oauth/callback`, `/setup/register`)
+- DM-based guild onboarding on `guildCreate` events
+- Guild-scoped RBAC with per-guild role configuration
+- Player faction system (`/dune data faction`)
+- Infra commands (`/dune infra version`, `servers`, `ports`, `db`)
+- OPS commands (9 subcommands, returns planned data until upstream merges)
+- Write command scaffold (12 subcommands, disabled by default)
+- Human-readable test reporter (`scripts/run-tests.js`)
+- Multi-tenant design documentation
+- Terms of Service and Privacy Policy documents
+- `.semgrepignore` for false positive suppression
+
+### Changed
+
+- Project renamed from "Thumper" to "Arrakis Control Panel" (ACP)
+- Player commands moved from `/dune player` group to `/dune data` group
+- All documentation updated with new repo URL (`yacketrj/Arrakis-Control-Panel`)
+- `src/config.js` supports multi-tenant mode with optional env vars
+- `src/adapterClient.js` supports guild-scoped config lookup
+- `src/commands.js` RBAC supports both single-tenant (env) and multi-tenant (DB) modes
+- Default database path changed from `data/thumper.db` to `data/acp.db`
+- Environment variable prefix changed from `THUMPER_*` to `ACP_*`
 
 ### Fixed
 
-- (reserved for future changes)
+- XSS vulnerabilities in setup server HTML templates (all user values now escaped)
+- Semgrep false positives for setup server and test files
+- Test compatibility with new config signature
+- Player command paths in documentation (`/dune player` → `/dune data`)
+- Scheduler default value in documentation (5min → 30min)
+- Test count in CONTRIBUTING.md (153 → 205+)
 
 ### Removed
 
-- (reserved for future changes)
+- (no removals)
 
 ## v1.5.0 - 2026-07-03
 

@@ -156,7 +156,7 @@ Only add commands backed by safe upstream adapter responses.
 - Scheduled status posts to configured Discord channels
 - Game → Discord announcement bridge
 - Canvas status card rendering with faction theming
-- Thumper quotes in embed footers
+- ACP quotes in embed footers
 
 ### Player Features — Upstream PR Pending
 
