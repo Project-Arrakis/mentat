@@ -6,7 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgVersion = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")).version;
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
-import { formatError, formatPayload } from "./format.js";
+import { formatError, formatPayload, redactSecrets } from "./format.js";
 import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed } from "./embedFormat.js";
 import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
@@ -48,9 +48,9 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("population").setDescription("Show aggregate player count and server population."))
       .addSubcommand((c) => c.setName("backups").setDescription("List recent backup metadata (read-only)."))
       .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime."))
-      .addSubcommand((c) => c.setName("maintenance").setDescription("Show maintenance window metadata (read-only)."))
       .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character.")
         .addStringOption((o) => o.setName("character").setDescription("Your character name").setRequired(true)))
+      .addSubcommand((c) => c.setName("verify").setDescription("Verify a pending character link with a code."))
       .addSubcommand((c) => c.setName("unlink").setDescription("Unlink your Discord from your game character."))
       .addSubcommand((c) => c.setName("faction").setDescription("Set your faction for themed embeds.")
         .addStringOption((o) => o.setName("name").setDescription("atreides, harkonnen, or fremen").setRequired(true)
@@ -65,6 +65,16 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
         .addStringOption((o) => o.setName("query").setDescription("Item name to search for").setRequired(true))
         .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
           .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" }))))
+
+    // ── logs group ──
+    .addSubcommandGroup((g) => g.setName("logs").setDescription("View logs from specific game services.")
+      .addSubcommand((c) => c.setName("dune-cache").setDescription("Show dune-cache container logs."))
+      .addSubcommand((c) => c.setName("dune-generated").setDescription("Show dune-generated container logs."))
+      .addSubcommand((c) => c.setName("dune-server").setDescription("Show dune-server container logs."))
+      .addSubcommand((c) => c.setName("dune-steam").setDescription("Show dune-steam container logs."))
+      .addSubcommand((c) => c.setName("dune-work").setDescription("Show dune-work container logs."))
+      .addSubcommand((c) => c.setName("orchestrator").setDescription("Show orchestrator container logs."))
+      .addSubcommand((c) => c.setName("redblink-dune-docker-console").setDescription("Show console adapter logs.")))
 
     // ── ops group ──
     .addSubcommandGroup((g) => g.setName("ops").setDescription("Operational observability from the OPS addon.")
@@ -201,9 +211,9 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = await adapterClient.services(actor, guildId);
     } else if (key === "server:services-detail") {
       const services = await adapterClient.services(actor, guildId);
-      const logs = await adapterClient.logs(actor, guildId);
+      const logs = await adapterClient.logs(actor, undefined, guildId);
       const mapState = await adapterClient.mapState(actor, guildId);
-      payload = { services, logs, mapState };
+      payload = { services, logs: redactSecrets(logs), mapState };
     }
     // ── data group ──
     else if (key === "data:population") {
@@ -213,12 +223,12 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     } else if (key === "data:maps") {
       const status = await adapterClient.status(actor, false, guildId);
       payload = { maps: status?.result?.maps || [] };
-    } else if (key === "data:maintenance") {
-      payload = await adapterClient.maintenance(actor, guildId);
-    }
-    else if (key === "data:link") {
+    } else if (key === "data:link") {
       const characterName = interaction.options.getString("character");
       payload = await adapterClient.playerLink(actor, characterName, guildId);
+    } else if (key === "data:verify") {
+      const code = interaction.options.getString("code");
+      payload = await adapterClient.playerLinkVerify(actor, code, guildId);
     } else if (key === "data:unlink") {
       payload = await adapterClient.playerUnlink(actor, guildId);
     } else if (key === "data:faction") {
@@ -240,6 +250,11 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       const query = interaction.options.getString("query");
       const scope = interaction.options.getString("scope") || "owned";
       payload = await adapterClient.playerFind(actor, query, scope, guildId);
+    }
+    // ── logs group ──
+    else if (group === "logs") {
+      const rawLogs = await adapterClient.logs(actor, subcommand, guildId);
+      payload = redactSecrets(rawLogs);
     }
     // ── ops group ──
     else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
@@ -269,9 +284,9 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       const msg = interaction.options.getString("message");
       const result = await executeBroadcast({ interaction, adapterClient, config, userRequest: msg, guildId });
       if (result.ok && result.needsConfirmation) {
-        payload = { ok: true, action: "broadcast", message: result.message, idempotencyKey: result.idempotencyKey, confirmation: result.confirmationMessage };
+        payload = redactSecrets({ ok: true, action: "broadcast", message: result.message, idempotencyKey: result.idempotencyKey, confirmation: result.confirmationMessage });
       } else {
-        payload = result;
+        payload = redactSecrets(result);
       }
     }
     // ── infra group ──
@@ -292,6 +307,9 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = { ok: false, error: `Unknown command: ${key}` };
     }
 
+    // Sanitize all output before sending to Discord
+    payload = redactSecrets(payload);
+
     // ── Embed selection ──
     let embed;
     if (subcommand === "about") {
@@ -310,10 +328,10 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = diagnostic ? formatReadinessDetailEmbed(payload) : formatGenericEmbed(payload, "readiness");
     } else if (subcommand === "readiness-detail") {
       embed = formatReadinessDetailEmbed(payload);
+    } else if (subcommand === "services") {
+      embed = formatGenericEmbed(payload, "services");
     } else if (subcommand === "services-detail") {
       embed = formatServicesDetailEmbed(payload);
-    } else if (subcommand === "maintenance") {
-      embed = formatMaintenanceEmbed(payload);
     } else if (subcommand === "population") {
       embed = formatPopulationEmbed(payload);
     } else if (subcommand === "backups") {
@@ -322,6 +340,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatMapsEmbed(payload);
     } else if (subcommand === "link") {
       embed = formatLinkEmbed(payload);
+    } else if (subcommand === "verify") {
+      embed = formatGenericEmbed(payload, "verify");
     } else if (subcommand === "unlink") {
       embed = formatUnlinkEmbed(payload);
     } else if (subcommand === "whoami") {
@@ -332,6 +352,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatStorageEmbed(payload);
     } else if (subcommand === "find") {
       embed = formatFindEmbed(payload);
+    } else if (group === "logs") {
+      embed = formatGenericEmbed(payload, `logs:${subcommand}`);
     } else if (subcommand === "doctor") {
       embed = formatDoctorEmbed(payload);
     } else if (subcommand === "cooldowns") {

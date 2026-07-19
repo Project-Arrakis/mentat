@@ -16,7 +16,6 @@ export function createMockAdapter(options = {}) {
     maps: { ok: true, result: { maps: ['Survival_1', 'Overmap'] } },
     logs: { ok: true, logs: ['Log entry 1', 'Log entry 2'] },
     mapState: { ok: true, mapState: 'Map state data' },
-    maintenance: { ok: true, maintenance: 'No maintenance scheduled' },
     backups: { ok: true, result: { backups: [
       { name: 'backup-2026-07-16', date: '2026-07-16T00:00:00Z', size: '1.2GB' },
       { name: 'backup-2026-07-15', date: '2026-07-15T00:00:00Z', size: '1.1GB' }
@@ -36,7 +35,8 @@ export function createMockAdapter(options = {}) {
     servers: { ok: true, result: { servers: ['server-1'] } },
     ports: { ok: true, result: { ports: [7777, 8080] } },
     db: { ok: true, result: { status: 'connected' } },
-    playerLink: { ok: true, result: { linked: true } },
+    playerLink: { ok: true, result: { linked: true, code: 'ACP-TEST123' } },
+    playerLinkVerify: { ok: true, result: { verified: true, character: 'TestCharacter' } },
     playerUnlink: { ok: true, result: { unlinked: true } },
     playerFaction: { ok: true, faction: 'atreides' },
     whoami: { ok: true, result: { character: 'TestCharacter' } },
@@ -72,22 +72,16 @@ export function createMockAdapter(options = {}) {
       return mockData.services;
     },
 
-    async logs(actor) {
+    async logs(actor, service) {
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       if (error) throw new Error(error);
-      return mockData.logs;
+      return { ...mockData.logs, service };
     },
 
     async mapState(actor) {
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       if (error) throw new Error(error);
       return mockData.mapState;
-    },
-
-    async maintenance(actor) {
-      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
-      if (error) throw new Error(error);
-      return mockData.maintenance;
     },
 
     async population() {
@@ -256,6 +250,12 @@ export function createMockAdapter(options = {}) {
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       if (error) throw new Error(error);
       return mockData.playerLink;
+    },
+
+    async playerLinkVerify(actor, code) {
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      if (error) throw new Error(error);
+      return { ...mockData.playerLinkVerify, code };
     },
 
     async playerUnlink(actor) {

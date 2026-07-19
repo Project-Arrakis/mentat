@@ -75,19 +75,35 @@ and Cloudflare tunnel support.
 
 ### Added
 
-- (reserved for future changes)
+- `logs` command group with per-service subcommands (`dune-postgres`, `dune-redis`,
+  `dune-nginx`, `dune-orchestrator`, `dune-console`, `dune-steamcmd`).
+- `data:verify` subcommand for two-step character linking with RCON code verification.
+- Setup portal guide (`docs/setup-portal-guide.md`) for new users.
+- Post-receive hook fix: replaced broken `git fetch origin` with `git pull deploy`.
 
 ### Changed
 
-- (reserved for future changes)
+- `data:link` now uses two-step verification: primary via Discord's verified Steam
+  connection, fallback via RCON whisper code sent in-game.
+- `admin:broadcast` marked as planned until upstream implements the route.
+- Setup portal intro clarified: only console `.env` editing required, not bot config.
+- Setup portal docker restart command uses `-f docker-compose.web.yml` and service name.
 
 ### Fixed
 
-- (reserved for future changes)
+- Guild onboarding DM error now logged with actual error message (was silently swallowed).
+- Landing page counter reset bug: `animateCounter` now preserves previous values
+  between fetches instead of always starting from 0.
 
 ### Removed
 
-- (reserved for future changes)
+- `data:maintenance` subcommand (route does not exist in upstream console).
+
+### Security
+
+- Character linking requires ownership proof: Discord Steam connection or
+  in-game RCON code. No public info (Steam ID) can bypass verification.
+- Unique constraint on `player_controller_id` prevents duplicate links.
 
 ## v1.0.0-rc.1 - 2026-07-03
 
