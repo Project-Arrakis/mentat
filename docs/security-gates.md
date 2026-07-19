@@ -76,8 +76,8 @@ npm run check
 npm audit --audit-level=moderate
 semgrep scan --config p/default --config p/secrets --error --severity ERROR --severity WARNING --exclude node_modules --exclude .git --exclude package-lock.json .
 trivy fs --scanners vuln,misconfig --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --skip-dirs node_modules --skip-dirs .git .
-docker build -t dune-awakening-selfhost-discordbot:security .
-trivy image --scanners vuln,misconfig --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 dune-awakening-selfhost-discordbot:security
+docker build -t arrakis-control-panel:security .
+trivy image --scanners vuln,misconfig --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 arrakis-control-panel:security
 ```
 
 `npm run check` runs unit tests, release metadata validation, addon packaging

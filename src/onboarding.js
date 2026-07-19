@@ -1,6 +1,6 @@
 import { getGuild, upsertGuild } from "./database.js";
 
-const SETUP_URL = process.env.ACP_SETUP_URL || "https://acp.example.com/setup";
+const SETUP_URL = process.env.ACP_SETUP_URL || process.env.ACP_BASE_URL || "http://localhost:3100";
 
 export async function handleGuildCreate(bot, guild, db) {
   const existing = getGuild(db, guild.id);
@@ -11,13 +11,13 @@ export async function handleGuildCreate(bot, guild, db) {
 
   try {
     const dm = await owner.createDM();
-    const setupLink = `${SETUP_URL}?guildId=${guild.id}`;
+    const setupLink = `${SETUP_URL}/setup?guildId=${guild.id}`;
 
     await dm.send({
       content: [
         `🐛 **Welcome to ACP!**`,
         ``,
-        `I've been added to **${guild.name}**. To get started, you need to connect this server to your Dune Awakening console.`,
+        `I've been added to **${guild.name}**. To get started, you need to connect this server to your Arrakis Control Panel.`,
         ``,
         `**Setup takes 2 minutes:**`,
         `1. Click the setup link below`,

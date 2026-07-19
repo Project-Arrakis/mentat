@@ -129,7 +129,7 @@ export function duneEmbed({ title, color = "spice", description, fields = [], ti
   const embed = new EmbedBuilder()
     .setTitle(title)
     .setColor(embedColor)
-    .setFooter({ text: "Dune Awakening · Self-Host Discord Bot" });
+    .setFooter({ text: "Arrakis Control Panel" });
   if (description) embed.setDescription(description);
   if (timestamp) embed.setTimestamp();
   for (const field of fields) {
@@ -790,7 +790,7 @@ export function formatSetupEmbed(setup) {
       "DISCORD_GUILD_ID=" + (guildId || "your-server-id"),
       "```",
       "",
-      "📖 **Full documentation:** [Admin Guide](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/blob/main/docs/admin-guide.md)"
+      "📖 **Full documentation:** [Admin Guide](https://github.com/darkdante/Arrakis-Control-Panel/blob/main/docs/admin-guide.md)"
     ].join("\n").slice(0, 2048)
   });
 }

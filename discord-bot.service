@@ -1,5 +1,5 @@
 [Unit]
-Description=Dune Awakening Discord Bot
+Description=Arrakis Control Panel
 After=network.target
 
 [Service]

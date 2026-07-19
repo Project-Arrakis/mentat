@@ -67,7 +67,7 @@ export function createSetupServer(config) {
       <body>
         <h1>🐛 ACP Setup</h1>
         <div class="card">
-          <p>Connect your Discord server to your Dune Awakening console.</p>
+          <p>Connect your Discord server to your Arrakis Control Panel.</p>
           <a href="${authUrl.toString()}">
             <button>Sign in with Discord</button>
           </a>
@@ -170,7 +170,7 @@ export function createSetupServer(config) {
               <h2>Step 2: Console Connection</h2>
               <label for="consoleUrl">Console URL</label>
               <input type="url" name="consoleUrl" id="consoleUrl" placeholder="http://your-server:8088" required>
-              <div class="hint">Your Dune Awakening console WebUI address</div>
+              <div class="hint">Your Arrakis Control Panel console WebUI address</div>
 
               <label for="adapterToken">Adapter Token</label>
               <input type="text" name="adapterToken" id="adapterToken" placeholder="your-adapter-token" required>

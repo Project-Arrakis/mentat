@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 
 const DEFAULT_LOCKFILE = "package-lock.json";
 const DEFAULT_OUTPUT_DIR = "dist";
-const DEFAULT_OUTPUT_NAME = "dune-awakening-selfhost-discordbot.cdx.json";
+const DEFAULT_OUTPUT_NAME = "arrakis-control-panel.cdx.json";
 const CYCLONEDX_SPEC_VERSION = "1.6";
 
 export async function writeSbom({
@@ -92,7 +92,7 @@ export function buildCycloneDxSbom(lockfile, { timestamp = new Date().toISOStrin
       tools: {
         components: [{
           type: "application",
-          name: "dune-awakening-selfhost-discordbot-sbom-generator",
+          name: "arrakis-control-panel-sbom-generator",
           version: root.version
         }]
       },
