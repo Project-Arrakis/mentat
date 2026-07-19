@@ -4,6 +4,73 @@ This project follows Semantic Versioning for release tags. Security fixes,
 dependency updates, and release evidence stay tied to pull requests and durable
 change notes under `docs/changes/`.
 
+## v1.0.0-rc.2 - 2026-07-18
+
+Second release candidate for the read-only `R1.0.0` production target. Adds
+multi-tenant architecture, status card rendering, faction theming, OPS commands,
+and Cloudflare tunnel support.
+
+### Added
+
+- Multi-tenant architecture with per-guild console routing and SQLite storage.
+- OAuth2 setup portal with dark Dune theme matching `acp.darkdante.org`.
+- Guild-scoped RBAC with per-guild role configuration via web portal.
+- Canvas status card rendering (1200×640 PNG, Dune Rise typeface, faction colors).
+- Faction theming for embeds and status cards (Atreides, Harkonnen, Fremen).
+- OPS commands (9 subcommands: activity, combat, resources, economy, inventory,
+  location, soc, prometheus, dashboard) with status card output.
+- Infra commands (`/dune infra version`, `servers`, `ports`, `db`).
+- Player faction system (`/dune data faction`).
+- Write command scaffold (12 subcommands, disabled by default).
+- Cloudflare Tunnel for setup portal (`acp-setup.darkdante.org`).
+- Cloudflare KV stats aggregation for cross-instance live stats.
+- Git-based deployment pipeline with pre-deploy test guardrails.
+- DM-based guild onboarding on `guildCreate` events.
+- Human-readable test reporter.
+- Multi-tenant design documentation.
+- Terms of Service and Privacy Policy documents.
+- `.semgrepignore` for false positive suppression.
+- Shared quote pool module (`src/quotes.js`) for embed and card footers.
+- 30-second LRU cache for status card generation.
+- Error/offline status card variant with red-tinted theme.
+
+### Changed
+
+- Project renamed from "Thumper" to "Arrakis Control Panel" (ACP).
+- Player commands moved from `/dune player` group to `/dune data` group.
+- All documentation updated with new repo URL (`yacketrj/Arrakis-Control-Panel`).
+- `src/config.js` supports multi-tenant mode with optional env vars.
+- `src/adapterClient.js` supports guild-scoped config lookup.
+- `src/commands.js` RBAC supports both single-tenant (env) and multi-tenant (DB) modes.
+- OPS commands now render as status cards instead of text embeds.
+- Default database path changed from `data/thumper.db` to `data/acp.db`.
+- Environment variable prefix changed from `THUMPER_*` to `ACP_*`.
+- Upstream compatibility baseline advanced to `v1.3.60`.
+
+### Fixed
+
+- XSS vulnerabilities in setup server HTML templates (all user values now escaped).
+- OAuth2 session state bug (state stored in DB before redirect).
+- Empty server dropdown in setup portal (relaxed guild permission filter).
+- RBAC array parsing bug in `getGuildRoles` (flat array vs object mismatch).
+- Embed formatting standardized across all commands (consistent footers, empty states).
+- Semgrep false positives for setup server and test files.
+- Test compatibility with new config signature.
+- Player command paths in documentation (`/dune player` → `/dune data`).
+- Scheduler default value in documentation (5min → 30min).
+- Test count in CONTRIBUTING.md (153 → 205+).
+
+### Removed
+
+- `/* nosemgrep */` comments from HTML templates.
+
+### Security
+
+- All setup portal HTML templates use server-side escaping for user input.
+- OAuth2 state tokens stored server-side before redirect (prevents CSRF).
+- Multi-tenant mode isolates guild data in SQLite with foreign key constraints.
+- Status card cache limited to 50 entries with 30-second TTL.
+
 ## Unreleased
 
 ### Added

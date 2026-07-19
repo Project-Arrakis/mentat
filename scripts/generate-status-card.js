@@ -27,41 +27,41 @@ const W = 1200, H = 640;
 const PAD = 40;
 const CARD_TOP = 184, CARD_BOT = 576;
 
-// Faction colors: Atreides (blue-pass), Harkonnen (red-fail), Fremen (gold-warn)
-const ATREIDES = "#3b82f6", HARKONNEN = "#ef4444", FREMEN = "#f59e0b";
+const FACTION_COLORS = {
+  atreides: { primary: "#3b82f6", secondary: "#1e40af", accent: "#60a5fa" },
+  harkonnen: { primary: "#ef4444", secondary: "#991b1b", accent: "#f87171" },
+  fremen: { primary: "#f59e0b", secondary: "#92400e", accent: "#fbbf24" },
+  default: { primary: "#a06839", secondary: "#8b6914", accent: "#c2a44e" }
+};
 
-export async function generateStatusCard({ title, overall, region, mode, population, maps = [], services = 0, latency = 0, quote = "", faction } = {}) {
+const ERROR_COLORS = { primary: "#dc2626", secondary: "#7f1d1d", accent: "#fca5a5" };
+
+export async function generateStatusCard({ title, overall, region, mode, population, maps = [], services = 0, latency = 0, quote = "", faction, isError = false } = {}) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
 
-  // Faction-based color scheme
-  const FACTION_COLORS = {
-    atreides: { primary: "#3b82f6", secondary: "#1e40af", accent: "#60a5fa" },
-    harkonnen: { primary: "#ef4444", secondary: "#991b1b", accent: "#f87171" },
-    fremen: { primary: "#f59e0b", secondary: "#92400e", accent: "#fbbf24" },
-    default: { primary: "#a06839", secondary: "#8b6914", accent: "#c2a44e" }
-  };
+  const colors = isError ? ERROR_COLORS : (FACTION_COLORS[faction] || FACTION_COLORS.default);
 
-  const colors = FACTION_COLORS[faction] || FACTION_COLORS.default;
-
-  // Background image fills canvas
   const bg = await loadBanner();
   if (bg.width > 0) {
     const s = Math.max(W / bg.width, H / bg.height);
     ctx.drawImage(bg, (W - bg.width * s) / 2, (H - bg.height * s) / 2, bg.width * s, bg.height * s);
   }
-  ctx.fillStyle = "rgba(0,0,0,0.35)";
+
+  if (isError) {
+    ctx.fillStyle = "rgba(40,0,0,0.55)";
+  } else {
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+  }
   ctx.fillRect(0, 0, W, H);
 
-  // ── Card panel inside the green box zone ──
   const cx = PAD, cy = CARD_TOP, cw = W - PAD * 2, ch = CARD_BOT - CARD_TOP;
-  ctx.fillStyle = "rgba(15,12,8,0.85)";
+  ctx.fillStyle = isError ? "rgba(30,8,8,0.9)" : "rgba(15,12,8,0.85)";
   roundRect(ctx, cx, cy, cw, ch, 12, true, false);
   ctx.strokeStyle = colors.accent + "66";
-  ctx.lineWidth = 1;
+  ctx.lineWidth = isError ? 2 : 1;
   roundRect(ctx, cx, cy, cw, ch, 12, false, true);
 
-  // ── Title row ──
   ctx.fillStyle = colors.primary;
   ctx.font = "32px \"Dune Rise\"";
   ctx.fillText(title || "Server", cx + 24, cy + 44);
@@ -70,13 +70,12 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   ctx.font = "18px \"Dune Rise\"";
   const badge = overall || "UNKNOWN";
   const bw = ctx.measureText(badge).width + 24;
-  const bc = overall === "READY" ? colors.primary : overall === "ISSUE" ? colors.accent : colors.secondary;
+  const bc = overall === "READY" ? colors.primary : overall === "ISSUE" ? colors.accent : isError ? colors.secondary : colors.secondary;
   ctx.fillStyle = bc;
   roundRect(ctx, cx + cw - 24 - bw, cy + 20, bw, 26, 13, true, false);
   ctx.fillStyle = "#ffffff";
   ctx.fillText(badge, cx + cw - 24 - bw / 2 - ctx.measureText(badge).width / 2, cy + 40);
 
-  // ── Stats row ──
   const stats = [
     { label: "PLAYERS", value: population || "—" },
     { label: "REGION", value: region || "—" },
@@ -96,7 +95,6 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     ctx.fillText(s.value, sx, statY + 40);
   });
 
-  // ── Separator ──
   ctx.strokeStyle = colors.accent + "4D";
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -104,7 +102,6 @@ export async function generateStatusCard({ title, overall, region, mode, populat
   ctx.lineTo(cx + cw - 20, statY + 62);
   ctx.stroke();
 
-  // ── Maps ──
   const mapY = statY + 80;
   ctx.fillStyle = colors.primary;
   ctx.font = "12px \"Dune Rise\"";
@@ -136,7 +133,6 @@ export async function generateStatusCard({ title, overall, region, mode, populat
     ctx.fillText(st, cx + cw - 42 - sw / 2 - ctx.measureText(st).width / 2, my + 22);
   });
 
-  // ── Footer (inside card panel) ──
   ctx.fillStyle = "#ffffff";
   ctx.font = "12px \"Dune Rise\"";
   ctx.fillText(`Thumper · ${quote || "The spice must flow."}`, cx + 24, CARD_BOT - 20);
@@ -168,7 +164,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     population: "0/60", maps: [
       { name: "Survival_1", state: "READY", uptime: "Up 18h" },
       { name: "Overmap", state: "READY", uptime: "Up 18h" },
-    ], services: 10,  quote: "The spice must flow."
+    ], services: 10, quote: "The spice must flow."
   });
   writeFileSync("/tmp/status-card-test.png", c.toBuffer("image/png"));
   console.log("Test card saved");

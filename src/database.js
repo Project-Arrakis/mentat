@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS guild_settings (
   announcements_enabled INTEGER NOT NULL DEFAULT 0,
   announcements_channel TEXT NOT NULL DEFAULT '',
   cooldown_ms INTEGER NOT NULL DEFAULT 5000,
-  admin_cooldown_ms INTEGER NOT NULL DEFAULT 1000
+  admin_cooldown_ms INTEGER NOT NULL DEFAULT 1000,
+  faction TEXT NOT NULL DEFAULT '' CHECK(faction IN ('', 'atreides', 'harkonnen', 'fremen'))
 );
 
 CREATE TABLE IF NOT EXISTS oauth_sessions (
@@ -93,6 +94,13 @@ export function createDatabase(dbPath = "./data/acp.db") {
   const currentVersion = db.prepare("SELECT version FROM schema_version LIMIT 1").get();
   if (!currentVersion) {
     db.prepare("INSERT INTO schema_version (version) VALUES (?)").run(SCHEMA_VERSION);
+  } else if (currentVersion.version < 2) {
+    try {
+      db.prepare("ALTER TABLE guild_settings ADD COLUMN faction TEXT NOT NULL DEFAULT '' CHECK(faction IN ('', 'atreides', 'harkonnen', 'fremen'))").run();
+      db.prepare("UPDATE schema_version SET version = 2").run();
+    } catch {
+      // Column may already exist from a previous migration attempt
+    }
   }
 
   return db;
@@ -231,4 +239,13 @@ export function getCommandCount(db) {
 
 export function getBotStats(db) {
   return db.prepare("SELECT key, value FROM bot_stats").all();
+}
+
+export function getGuildFaction(db, guildId) {
+  const row = db.prepare("SELECT faction FROM guild_settings WHERE guild_id = ?").get(guildId);
+  return row?.faction || "";
+}
+
+export function setGuildFaction(db, guildId, faction) {
+  db.prepare("UPDATE guild_settings SET faction = ? WHERE guild_id = ?").run(faction, guildId);
 }
