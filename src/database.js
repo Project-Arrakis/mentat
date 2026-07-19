@@ -64,6 +64,11 @@ CREATE TABLE IF NOT EXISTS player_links (
   UNIQUE(guild_id, discord_user_id)
 );
 
+CREATE TABLE IF NOT EXISTS bot_stats (
+  key TEXT PRIMARY KEY,
+  value INTEGER DEFAULT 0
+);
+
 CREATE INDEX IF NOT EXISTS idx_guild_roles_guild ON guild_roles(guild_id);
 CREATE INDEX IF NOT EXISTS idx_guild_roles_type ON guild_roles(guild_id, role_type);
 CREATE INDEX IF NOT EXISTS idx_player_links_guild_user ON player_links(guild_id, discord_user_id);
@@ -209,4 +214,21 @@ export function getAllGuilds(db) {
 
 export function getActiveGuilds(db) {
   return db.prepare("SELECT * FROM guilds WHERE status = 'active'").all();
+}
+
+export function initBotStats(db) {
+  db.prepare("INSERT OR IGNORE INTO bot_stats (key, value) VALUES ('commands_total', 0)").run();
+}
+
+export function incrementCommandCount(db) {
+  db.prepare("UPDATE bot_stats SET value = value + 1 WHERE key = 'commands_total'").run();
+}
+
+export function getCommandCount(db) {
+  const row = db.prepare("SELECT value FROM bot_stats WHERE key = 'commands_total'").get();
+  return row ? row.value : 0;
+}
+
+export function getBotStats(db) {
+  return db.prepare("SELECT key, value FROM bot_stats").all();
 }

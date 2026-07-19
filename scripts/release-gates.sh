@@ -19,7 +19,7 @@ echo ""
 
 # 3. SAST
 echo "[3/6] Semgrep SAST"
-semgrep --config=auto --error --severity ERROR --severity WARNING --exclude package-lock.json . 
+semgrep --config=auto --error --severity ERROR --severity WARNING --exclude package-lock.json .
 echo ""
 
 # 4. Secret scan

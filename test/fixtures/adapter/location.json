@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "result": {
+    "activeMaps": 8,
+    "totalMarkers": 4521,
+    "territories": 24,
+    "avgDensity": 3.2,
+    "hotspots": [
+      {"name": "Arrakeen", "players": 42},
+      {"name": "Sietch Tabr", "players": 28},
+      {"name": "Carthag", "players": 19}
+    ],
+    "territoryControl": {
+      "Atreides": "Arrakeen, Carthag",
+      "Fremen": "Sietch Tabr, Deep Desert",
+      "Harkonnen": "Harkonnen Outpost"
+    }
+  }
+}

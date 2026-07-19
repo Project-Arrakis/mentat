@@ -2,14 +2,14 @@ import { SlashCommandBuilder } from "discord.js";
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload } from "./format.js";
-import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed } from "./embedFormat.js";
+import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed } from "./embedFormat.js";
 import { sendStatusCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { writesEnabled } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory, isRouteMissing, routeStatus, UNMERGED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
-import { getGuildRoles, getGuildSettings } from "./database.js";
+import { getGuildRoles, getGuildSettings, incrementCommandCount } from "./database.js";
 
 // Group -> subcommand -> handler config
 // Each group can have up to 25 subcommands; we have 6 groups with room for many more.
@@ -71,7 +71,8 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("location").setDescription(opsDescriptionFor("location")))
       .addSubcommand((c) => c.setName("soc").setDescription(opsDescriptionFor("soc")))
       .addSubcommand((c) => c.setName("prometheus").setDescription(opsDescriptionFor("prometheus")))
-      .addSubcommand((c) => c.setName("dashboard").setDescription(opsDescriptionFor("dashboard"))))
+      .addSubcommand((c) => c.setName("dashboard").setDescription(opsDescriptionFor("dashboard")))
+      .addSubcommand((c) => c.setName("announcements").setDescription(opsDescriptionFor("announcements"))))
 
     // ── admin group ──
     .addSubcommandGroup((g) => g.setName("admin").setDescription("Admin-only diagnostics and management.")
@@ -158,6 +159,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
 
   const startedAt = Date.now();
   const actor = actorFromInteraction(interaction);
+  if (db) incrementCommandCount(db);
   await interaction.deferReply({ ephemeral: config.discord.defaultEphemeral });
   const deferReplyMs = elapsedMs(startedAt);
 
@@ -336,6 +338,26 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatPortsEmbed(payload);
     } else if (subcommand === "db") {
       embed = formatDbEmbed(payload);
+    } else if (subcommand === "activity") {
+      embed = formatActivityEmbed(payload);
+    } else if (subcommand === "combat") {
+      embed = formatCombatEmbed(payload);
+    } else if (subcommand === "resources") {
+      embed = formatResourcesEmbed(payload);
+    } else if (subcommand === "economy") {
+      embed = formatEconomyEmbed(payload);
+    } else if (subcommand === "inventory" && group === "ops") {
+      embed = formatOpsInventoryEmbed(payload);
+    } else if (subcommand === "location") {
+      embed = formatLocationEmbed(payload);
+    } else if (subcommand === "soc") {
+      embed = formatSocEmbed(payload);
+    } else if (subcommand === "prometheus") {
+      embed = formatPrometheusEmbed(payload);
+    } else if (subcommand === "dashboard") {
+      embed = formatDashboardEmbed(payload);
+    } else if (subcommand === "announcements") {
+      embed = formatAnnouncementsEmbed(payload);
     } else {
       embed = formatGenericEmbed(payload, subcommand);
     }
@@ -487,6 +509,7 @@ function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "ops:soc", desc: opsDescriptionFor("soc"), role: "observer" },
     { name: "ops:prometheus", desc: opsDescriptionFor("prometheus"), role: "observer" },
     { name: "ops:dashboard", desc: opsDescriptionFor("dashboard"), role: "observer" },
+    { name: "ops:announcements", desc: opsDescriptionFor("announcements"), role: "observer" },
     { name: "admin:doctor", desc: "Comprehensive system diagnostic.", role: "admin" },
     { name: "admin:cooldowns", desc: "Show active cooldowns.", role: "admin" },
     { name: "admin:latency", desc: "Adapter latency history.", role: "admin" },
