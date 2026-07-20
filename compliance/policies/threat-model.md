@@ -44,6 +44,8 @@
 | T-08 | Credential stuffing | Medium | Medium | Discord OAuth (no passwords), MFA enforced | AC-02 |
 | T-09 | Privilege escalation | High | Low | RBAC, least privilege, regular access reviews | AC-01, AC-04 |
 | T-10 | Data tampering in KV | Medium | Low | Write-only from bot, read-only from landing, integrity checks | DP-04, AC-03 |
+| T-11 | Character link abuse | Medium | Low | Linking writes to game DB, limited to Discord↔Character association, unlink capability | DP-03, DP-05 |
+| T-12 | DB injection via linking | High | Low | Input validation on character names, parameterized queries, no raw SQL | DP-04, RA-01 |
 
 ## Attack Vectors
 
@@ -79,6 +81,7 @@
 | Bearer token | Secret | File system, env var | Until rotation |
 | KV API token | Secret | File system, env var | Until rotation |
 | Player data | Confidential | Dune console API | Per game server policy |
+| Character links | PII | Game server database | Until unlink |
 | Stats aggregates | Public | Cloudflare KV | 30 days |
 | Bot logs | Internal | File system | 90 days |
 | Discord user IDs | PII | Bot database | Until unlink |

@@ -77,17 +77,19 @@ and Cloudflare tunnel support.
 
 - `logs` command group with per-service subcommands (`dune-postgres`, `dune-redis`,
   `dune-nginx`, `dune-orchestrator`, `dune-console`, `dune-steamcmd`).
-- `data:verify` subcommand for two-step character linking with RCON code verification.
+- `data:verify` subcommand for two-step character linking with in-game whisper code verification.
 - Setup portal guide (`docs/setup-portal-guide.md`) for new users.
 - Post-receive hook fix: replaced broken `git fetch origin` with `git pull deploy`.
+- Stats pusher now writes to both `acp-stats-${INSTANCE_ID}` and `acp-stats-aggregate` KV keys.
 
 ### Changed
 
 - `data:link` now uses two-step verification: primary via Discord's verified Steam
-  connection, fallback via RCON whisper code sent in-game.
+  connection (instant link), fallback via in-game whisper code sent through RabbitMQ.
 - `admin:broadcast` marked as planned until upstream implements the route.
 - Setup portal intro clarified: only console `.env` editing required, not bot config.
 - Setup portal docker restart command uses `-f docker-compose.web.yml` and service name.
+- `aboutPayload` `readOnly` changed to `false` (bot supports write operations for player linking).
 
 ### Fixed
 

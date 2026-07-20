@@ -46,5 +46,6 @@
 | Bot logs | 90 days | Secure delete |
 | CI/CD logs | 90 days | GitHub auto-delete |
 | KV stats | 30 days | KV expiration |
+| Character links | Until unlink | `/dune player unlink` or DB delete |
 | Player links | Until unlink | Database delete |
 | Audit records | 1 year | Secure delete |

@@ -76,11 +76,15 @@ command line. Only available to admins.
 
 First, link your Discord account to your character:
 ```
-/dune player link <your-character-name>
+/dune data link <your-character-name>
 ```
-Then run:
+You'll receive a verification code in-game via whisper. Then run:
 ```
-/dune player inventory
+/dune data verify <code>
+```
+Once linked, run:
+```
+/dune data inventory
 ```
 
 **Q: What does "linking" mean?**
@@ -90,10 +94,16 @@ bot know which character's data to show you when you run player commands. The
 link is stored securely on the game server — your Discord account and character
 are associated, but no personal data is shared.
 
+**Q: How does the verification code work?**
+
+The bot sends a 6-character code (e.g., `ACP-7X9K2`) to your character in-game as a whisper
+message. Only you can see this message. Enter the code with `/dune data verify <code>`
+to complete linking. Codes expire after 5 minutes.
+
 **Q: Can I link multiple characters to one Discord account?**
 
 No. Each Discord account can only be linked to one character at a time. If you
-want to switch characters, run `/dune player unlink` first, then link the new
+want to switch characters, run `/dune data unlink` first, then link the new
 character.
 
 **Q: Can multiple Discord accounts link to the same character?**
@@ -120,7 +130,7 @@ to see its storage.
 
 You need to link your Discord account to your character first. Run:
 ```
-/dune player link <your-character-name>
+/dune data link <your-character-name>
 ```
 Replace `<your-character-name>` with the exact name of your character in the game.
 

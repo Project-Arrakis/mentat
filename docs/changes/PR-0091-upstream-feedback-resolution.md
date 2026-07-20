@@ -6,13 +6,19 @@
 
 **Problem:** `/dune data link <character-name>` accepted any character name without proving the Discord user owns that character.
 
-**Solution:** Two-step verification flow:
-- **Primary:** Discord's verified Steam connection — the adapter checks the user's Discord-connected Steam account against the console's connected player list
-- **Fallback:** RCON whisper verification — the adapter sends a 6-character code to the character in-game, the user reads it and submits it via `/dune data verify <code>`
+**Solution:** In-game whisper verification flow:
+- The adapter generates a 6-character code (e.g., `ACP-7X9K2`) and sends it via RabbitMQ whisper to the character in-game. The user reads it and submits it via `/dune data verify <code>`.
 
 **Commands:**
 - `/dune data link <character-name>` — initiates link, returns verification code
 - `/dune data verify <code>` — completes link after code verification
+
+**Implementation Details:**
+- New `discord_pending_links` table stores codes with 5-minute expiry
+- `resolvePlayerByName()` returns player record for whisper targeting
+- `publishCarePackageWhisper()` sends codes through RabbitMQ `chat.whispers` exchange
+- Codes are uppercase alphanumeric (`ACP-XXXXXX` format)
+- `consumePendingLink()` atomically deletes and returns the pending link on verification
 
 ### 2. Unique Constraint on player_controller_id ✅
 
@@ -70,17 +76,18 @@
 │   Discord   │────▶│  ACP Bot     │────▶│  Dune Console   │
 │   User      │     │  (OCI)       │     │  Adapter        │
 └─────────────┘     └──────────────┘     └─────────────────┘
-                           │                      │
-                           │                      ▼
-                           │              ┌─────────────────┐
-                           │              │  Game Server    │
-                           │              │  (RCON Whisper) │
-                           │              └─────────────────┘
-                           ▼
-                    ┌──────────────┐
-                    │  Cloudflare  │
-                    │  KV (stats)  │
-                    └──────────────┘
+                                                │
+                                                ▼
+                                       ┌─────────────────┐
+                                       │  RabbitMQ       │
+                                       │  (chat.whispers)│
+                                       └─────────────────┘
+                                                │
+                                                ▼
+                                       ┌─────────────────┐
+                                       │  Game Server    │
+                                       │  (Whisper Msg)  │
+                                       └─────────────────┘
 ```
 
 ### Step-by-Step Flow
@@ -93,14 +100,11 @@ User: /dune data link MyCharacter
 1. Bot receives slash command with `character` parameter
 2. Bot calls `adapterClient.playerLink(actor, characterName, guildId)`
 3. Adapter receives `POST /api/integrations/discord/players/link` with `{ actor, characterName }`
-4. Adapter resolves character name to `player_controller_id` via `resolvePlayerByName()`
-5. **Primary verification:** Adapter checks if the Discord user has a verified Steam connection linked in Discord Settings → Connections
-   - If Steam ID matches the connected player's Steam ID → link completes immediately
-   - If no Steam connection or mismatch → proceed to fallback
-6. **Fallback verification:** Adapter generates a 6-character code (e.g., `ACP-7X9K2`)
-   - Code stored in pending links table with 5-minute expiry
-   - Adapter sends RCON whisper to the character in-game: *"Your ACP verification code is: ACP-7X9K2"*
-   - Returns `{ ok: true, pending: true, message: "Check in-game for your verification code" }`
+4. Adapter resolves character name via `resolvePlayerByName()`, returning `player_controller_id`, `funcom_id`, and `fls_id`
+5. Adapter generates a 6-character code (e.g., `ACP-7X9K2`)
+   - Code stored in `discord_pending_links` table with 5-minute expiry
+   - Adapter sends RabbitMQ whisper to the character in-game via `publishCarePackageWhisper()`: *"Your ACP verification code is: ACP-7X9K2. Use /dune data verify ACP-7X9K2 to link your character."*
+   - Returns `{ ok: true, pending: true, code: "ACP-7X9K2", message: "Check in-game whispers for your code." }`
 
 #### Step 2: User Verifies Link
 ```
@@ -111,14 +115,15 @@ User: /dune data verify ACP-7X9K2
 2. Bot calls `adapterClient.playerLinkVerify(actor, code, guildId)`
 3. Adapter receives `POST /api/integrations/discord/players/link/verify` with `{ actor, code }`
 4. Adapter validates:
-   - Code exists in pending links table
+   - Code exists in `discord_pending_links` table
    - Code hasn't expired (5-minute window)
-   - Code matches the character that received the RCON whisper
+   - Code's `discord_user_id` matches the requesting user
 5. If valid:
+   - Atomically deletes the pending link via `consumePendingLink()`
    - Inserts into `discord_player_links` with unique constraints on both `discord_user_id` (primary key) and `player_controller_id` (unique)
    - Returns `{ ok: true, linked: true, character: "MyCharacter" }`
 6. If invalid:
-   - Returns `{ ok: false, error: "Invalid or expired code" }`
+   - Returns `{ ok: false, error: "Invalid or expired verification code" }`
 
 ### Database Schema
 
@@ -128,17 +133,30 @@ create table if not exists dune.discord_player_links (
   player_controller_id text not null unique,
   linked_at timestamp with time zone default now()
 );
+
+create table if not exists dune.discord_pending_links (
+  code text primary key,
+  discord_user_id text not null,
+  player_controller_id text not null,
+  character_name text not null,
+  funcom_id text,
+  fls_id text,
+  created_at timestamp with time zone default now(),
+  expires_at timestamp with time zone not null
+);
 ```
 
 **Constraints:**
-- `discord_user_id` PRIMARY KEY — one Discord account = one link
-- `player_controller_id` UNIQUE — one character = one Discord account
+- `discord_player_links.discord_user_id` PRIMARY KEY — one Discord account = one link
+- `discord_player_links.player_controller_id` UNIQUE — one character = one Discord account
+- `discord_pending_links.code` PRIMARY KEY — unique verification codes
 - Both constraints enforced at the database level, preventing duplicate or conflicting links
 
 ### Security Properties
 
-1. **No public info bypass:** Steam IDs, friend lists, and character names are all publicly visible. Neither can be used alone to prove ownership.
-2. **RCON whisper is private:** Only the player actually controlling that character sees the whisper message.
-3. **Codes expire:** 5-minute window prevents replay attacks.
-4. **Unique constraints:** Database-level enforcement prevents one character from being linked to multiple Discord accounts, or one Discord account from linking to multiple characters.
-5. **Atomic operations:** `INSERT ... ON CONFLICT` ensures the link operation is transactional — no race conditions where two users could claim the same character simultaneously.
+1. **Whisper is private:** Only the player actually controlling that character sees the whisper message sent via RabbitMQ `chat.whispers` exchange.
+2. **Codes expire:** 5-minute window prevents replay attacks.
+3. **Unique constraints:** Database-level enforcement prevents one character from being linked to multiple Discord accounts, or one Discord account from linking to multiple characters.
+4. **Atomic operations:** `INSERT ... ON CONFLICT` ensures the link operation is transactional — no race conditions where two users could claim the same character simultaneously.
+5. **Code ownership:** Pending links store the `discord_user_id` that generated them. Verification fails if a different user tries to use the code.
+6. **Single-use codes:** `consumePendingLink()` atomically deletes the code on successful verification, preventing reuse.
