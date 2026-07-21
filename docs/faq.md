@@ -76,6 +76,13 @@ command line. Only available to admins.
 
 First, link your Discord account to your character:
 ```
+<<<<<<< HEAD
+/dune player link <your-character-name>
+```
+Then run:
+```
+/dune player inventory
+=======
 /dune data link <your-character-name>
 ```
 You'll receive a verification code in-game via whisper. Then run:
@@ -85,6 +92,7 @@ You'll receive a verification code in-game via whisper. Then run:
 Once linked, run:
 ```
 /dune data inventory
+>>>>>>> origin/main
 ```
 
 **Q: What does "linking" mean?**
@@ -94,6 +102,12 @@ bot know which character's data to show you when you run player commands. The
 link is stored securely on the game server — your Discord account and character
 are associated, but no personal data is shared.
 
+<<<<<<< HEAD
+**Q: Can I link multiple characters to one Discord account?**
+
+No. Each Discord account can only be linked to one character at a time. If you
+want to switch characters, run `/dune player unlink` first, then link the new
+=======
 **Q: How does the verification code work?**
 
 The bot sends a 6-character code (e.g., `ACP-7X9K2`) to your character in-game as a whisper
@@ -104,6 +118,7 @@ to complete linking. Codes expire after 5 minutes.
 
 No. Each Discord account can only be linked to one character at a time. If you
 want to switch characters, run `/dune data unlink` first, then link the new
+>>>>>>> origin/main
 character.
 
 **Q: Can multiple Discord accounts link to the same character?**
@@ -130,7 +145,11 @@ to see its storage.
 
 You need to link your Discord account to your character first. Run:
 ```
+<<<<<<< HEAD
+/dune player link <your-character-name>
+=======
 /dune data link <your-character-name>
+>>>>>>> origin/main
 ```
 Replace `<your-character-name>` with the exact name of your character in the game.
 
