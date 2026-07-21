@@ -62,3 +62,14 @@ Node.js v22.22.1
 {"level":"info","event":"discord.ready","time":"2026-07-19T18:21:43.931Z","fields":{"botUserId":"1516816812006969494","multiTenant":false}}
 {"level":"info","event":"scheduler.started","time":"2026-07-19T18:21:43.933Z","fields":{"scheduleType":"status-summary","channels":["1524126347688018024"]}}
 {"level":"info","event":"stats_pusher.skipped","time":"2026-07-19T18:21:43.933Z","fields":{"reason":"missing_cloudflare_env"}}
+<<<<<<< HEAD
+=======
+(node:2756503) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"level":"error","event":"discord.interaction_failed","time":"2026-07-19T19:40:52.125Z","fields":{"error":{"name":"DiscordAPIError[40060]","message":"Interaction has already been acknowledged.","status":400}}}
+{"level":"error","event":"discord.interaction_failed","time":"2026-07-19T19:57:13.284Z","fields":{"error":{"name":"DiscordAPIError[40060]","message":"Interaction has already been acknowledged.","status":400}}}
+{"level":"error","event":"discord.interaction_failed","time":"2026-07-19T20:34:31.588Z","fields":{"error":{"name":"DiscordAPIError[40060]","message":"Interaction has already been acknowledged.","status":400}}}
+{"level":"error","event":"discord.interaction_failed","time":"2026-07-19T20:36:35.620Z","fields":{"error":{"name":"DiscordAPIError[40060]","message":"Interaction has already been acknowledged.","status":400}}}
+{"level":"error","event":"discord.interaction_failed","time":"2026-07-19T20:36:54.163Z","fields":{"error":{"name":"DiscordAPIError[40060]","message":"Interaction has already been acknowledged.","status":400}}}
+{"level":"error","event":"discord.interaction_failed","time":"2026-07-19T20:37:06.540Z","fields":{"error":{"name":"DiscordAPIError[40060]","message":"Interaction has already been acknowledged.","status":400}}}
+>>>>>>> origin/main

@@ -83,6 +83,24 @@ async function fetchAggregate(adapterClient, db) {
   return aggregates;
 }
 
+async function pushToKV(url, stats, label) {
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(stats),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    logError(`stats_push.${label}_failed`, { status: res.status, body });
+    return false;
+  }
+  return true;
+}
+
 async function pushStats(client, db, adapterClient) {
   if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_API_TOKEN || !KV_NAMESPACE_ID) {
     return;
@@ -106,20 +124,15 @@ async function pushStats(client, db, adapterClient) {
       ...aggregates,
     };
 
-    const url = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${KV_NAMESPACE_ID}/values/acp-stats-${INSTANCE_ID}`;
+    const instanceUrl = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${KV_NAMESPACE_ID}/values/acp-stats-${INSTANCE_ID}`;
+    const aggregateUrl = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${KV_NAMESPACE_ID}/values/acp-stats-aggregate`;
 
-    const res = await fetch(url, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(stats),
-    });
+    const [instanceOk, aggregateOk] = await Promise.all([
+      pushToKV(instanceUrl, stats, "instance"),
+      pushToKV(aggregateUrl, stats, "aggregate"),
+    ]);
 
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      logError("stats_push.failed", { status: res.status, body });
+    if (!instanceOk || !aggregateOk) {
       return false;
     }
 
