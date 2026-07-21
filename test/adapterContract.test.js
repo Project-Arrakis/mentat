@@ -84,7 +84,16 @@ const UPSTREAM_CONTRACT = Object.freeze({
   "players-storage": { method: "POST", path: "/api/integrations/discord/players/storage", fixture: "ops.json" },
   "players-find": { method: "POST", path: "/api/integrations/discord/players/find", fixture: "ops.json" },
   "guild-storage": { method: "POST", path: "/api/integrations/discord/guilds/storage", fixture: "ops.json" },
-  "guild-find": { method: "POST", path: "/api/integrations/discord/guilds/find", fixture: "ops.json" }
+  "guild-find": { method: "POST", path: "/api/integrations/discord/guilds/find", fixture: "ops.json" },
+  "player-links-start": { method: "POST", path: "/api/integrations/discord/player-links/start", fixture: "ops.json" },
+  "player-links-verify": { method: "POST", path: "/api/integrations/discord/player-links/verify", fixture: "ops.json" },
+  "player-links": { method: "GET", path: "/api/integrations/discord/player-links", fixture: "ops.json" },
+  "player-links-unlink": { method: "POST", path: "/api/integrations/discord/player-links/unlink", fixture: "ops.json" },
+  "guild-grants": { method: "GET", path: "/api/integrations/discord/guild-character-grants", fixture: "ops.json" },
+  "guild-grants-enable": { method: "POST", path: "/api/integrations/discord/guild-character-grants/enable", fixture: "ops.json" },
+  "guild-grants-disable": { method: "POST", path: "/api/integrations/discord/guild-character-grants/disable", fixture: "ops.json" },
+  "guild-grants-default": { method: "POST", path: "/api/integrations/discord/guild-character-grants/default", fixture: "ops.json" },
+  "player-inventory-v2": { method: "POST", path: "/api/integrations/discord/player/inventory", fixture: "ops.json" }
 });
 
 function routeToMethodName(route) {
