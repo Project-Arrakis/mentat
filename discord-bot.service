@@ -1,0 +1,17 @@
+[Unit]
+Description=Arrakis Control Panel
+After=network.target
+
+[Service]
+Type=simple
+User=darkdante
+WorkingDirectory=/home/darkdante/arrakis-control-panel
+EnvironmentFile=/home/darkdante/arrakis-control-panel/.env
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/darkdante/arrakis-control-panel/logs/bot.log
+StandardError=append:/home/darkdante/arrakis-control-panel/logs/bot.log
+
+[Install]
+WantedBy=multi-user.target

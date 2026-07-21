@@ -9,7 +9,7 @@ GitHub Actions workflow steps that used mutable release tags.
 
 Rule: `yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag`
 
-Evidence run: https://github.com/yacketrj/dune-awakening-selfhost-discordbot/actions/runs/28610395001
+Evidence run: https://github.com/yacketrj/Arrakis-Control-Panel/actions/runs/28610395001
 
 Affected files:
 

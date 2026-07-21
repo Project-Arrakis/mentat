@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "result": {
+    "serverStatus": "healthy",
+    "onlinePlayers": 156,
+    "combatEvents24h": 89,
+    "itemsTraded24h": 3421,
+    "bridgeHealth": "healthy",
+    "summary": {
+      "spiceCollected": 12547,
+      "waterHarvested": 8923,
+      "deaths": 234,
+      "newPlayers": 67
+    }
+  }
+}

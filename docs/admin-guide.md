@@ -23,10 +23,8 @@ bot with Discord so it can connect to your server.
 
 1. Go to **[discord.com/developers/applications](https://discord.com/developers/applications)**
 2. Click the **New Application** button (top right)
-3. Name your bot (e.g., "Arrakis Control Plane" or "Dune Server Status")
+3. Name your bot (e.g., "Arrakis Control Panel" or "Dune Server Status")
 4. Click **Create**
-
-![New Application](https://cdn.discordapp.com/attachments/1207782128457228348/1524202981606690916/content.png?ex=6a4ee425&is=6a4d92a5&hm=3f9f844d477990536c3ae4f19abfd45a55a351ed965ea67128355c6ae301686e&width=600)
 
 ---
 
@@ -46,8 +44,6 @@ Under **Privileged Gateway Intents**, turn all three OFF:
 - Message Content Intent — **OFF**
 
 Your bot uses slash commands only — it doesn't need to read messages.
-
-![Bot Settings](https://cdn.discordapp.com/attachments/1207782128457228348/1524202981606690916/content.png?ex=6a4ee425&is=6a4d92a5&hm=3f9f844d477990536c3ae4f19abfd45a55a351ed965ea67128355c6ae301686e&width=600)
 
 ---
 
@@ -84,15 +80,18 @@ normal. It shows as offline until the bot process is actually running.
 
 ## Step 5: Set Up Roles in Discord
 
-The bot uses Discord roles to control who can use which commands.
+The bot uses Discord roles to control who can use which commands. Think of
+roles like badges — if someone has the right badge, they can use certain
+commands.
 
 1. In your Discord server, go to **Server Settings → Roles**
 2. Create these roles (or use existing ones):
 
 | Role | Purpose | Who Gets It |
 |------|---------|-------------|
-| **Dune Observer** | Can use all read-only commands | Trusted members |
+| **Dune Observer** | Can use all read-only commands (status, population, player inventory, etc.) | Trusted members |
 | **Dune Admin** | Can use admin commands + diagnostics | Server admins |
+| **Dune Moderator** *(optional)* | Can use read-only commands + broadcast | Trusted moderators |
 
 3. Assign roles to yourself and your trusted members.
 
@@ -115,13 +114,45 @@ Save these IDs — you'll need them for the bot configuration.
 
 ---
 
-## Step 7: Enable Scheduled Status Updates
+## Step 7: Enable the Discord Adapter on the Console
+
+The bot needs to talk to your game server's console. The console has a built-in
+"Discord adapter" that the bot connects to.
+
+1. On your game server, find the console's configuration file (usually `.env`
+   or `docker-compose.web.yml`)
+2. Add or update these settings:
+
+```bash
+DUNE_DISCORD_ADAPTER_ENABLED=true
+DUNE_DISCORD_ADAPTER_TOKEN=your-random-secret-token
+```
+
+3. Create a token file for the adapter:
+
+```bash
+echo -n "your-random-secret-token" > /path/to/secrets/bot-api-token.txt
+chmod 600 /path/to/secrets/bot-api-token.txt
+```
+
+4. Restart the console:
+
+```bash
+docker compose -f docker-compose.web.yml up -d redblink-dune-docker-console
+```
+
+> **Important:** The token you set here (`DUNE_DISCORD_ADAPTER_TOKEN`) must
+> match the token in the bot's configuration (Step 10). They must be identical.
+
+---
+
+## Step 8: Enable Scheduled Status Updates (Optional)
 
 The bot can automatically post server status to a channel every 30 minutes.
 
 1. Create or identify a channel for updates (e.g., `#server-status`)
 2. Right-click the channel → **Copy Channel ID**
-3. Add these to your `.env` file:
+3. Add these to your `.env` file (Step 10):
 
 ```bash
 DUNE_POST_SCHEDULE_TYPE=status-summary
@@ -141,7 +172,7 @@ DUNE_SCHEDULER_INTERVAL_MS=1800000    # 30 minutes
 
 ---
 
-## Step 8: Enable In-Game Announcements (Optional)
+## Step 9: Enable In-Game Announcements (Optional)
 
 The bot can forward in-game announcements to a Discord channel:
 
@@ -149,21 +180,6 @@ The bot can forward in-game announcements to a Discord channel:
 DUNE_ANNOUNCEMENTS_ENABLED=true
 DUNE_ANNOUNCEMENTS_CHANNEL=YOUR_CHANNEL_ID
 ```
-
----
-
-## Step 9: Configure Write Commands (Optional, Advanced)
-
-Write commands like `/dune admin broadcast` are **disabled by default** for
-security. To enable them:
-
-```bash
-DUNE_DISCORD_WRITES_ENABLED=true
-DISCORD_WRITE_ADMIN_ROLE_IDS=YOUR_ADMIN_ROLE_ID
-```
-
-> ⚠️ Write commands should only be enabled after the upstream write-contract
-> is approved and you've tested thoroughly.
 
 ---
 
@@ -234,9 +250,44 @@ Test these commands in your Discord server:
 - Security checks run automatically before every commit
 - The bot restarts automatically if it crashes (Docker `--restart unless-stopped`)
 
+## Player Linking
+
+Players can link their Discord account to their in-game character to check
+their inventory and storage. No additional setup is needed — this works
+automatically once the bot is connected to the console.
+
+Players use these commands:
+- `/dune data link <character-name>` — Link their account
+- `/dune data unlink` — Remove their character link
+- `/dune data whoami` — Check their linked character
+- `/dune data faction <name>` — Set their faction for themed embeds
+- `/dune data inventory` — View their inventory
+- `/dune data inventory <search>` — Search their inventory
+- `/dune data storage` — View their storage
+- `/dune data find <item>` — Search for items
+
+## Multi-Tenant Mode (Optional)
+
+For centralized hosting serving multiple Discord servers, enable multi-tenant mode:
+
+```bash
+ACP_MULTI_TENANT=true
+ACP_DB_PATH=data/acp.db
+ACP_BASE_URL=http://your-server:3100
+DISCORD_CLIENT_SECRET=your-oauth2-secret
+```
+
+The setup portal runs at `http://your-server:3100/setup` and handles:
+- Discord OAuth2 authentication
+- Guild registration with console URL and adapter token
+- Per-guild role configuration
+- Automatic DM onboarding when the bot joins a new server
+
+See [Multi-Tenant Design](multi-tenant-design.md) for architecture details.
+
 ## Next Steps
 
-- [User Guide](user-guide.md) — how to use all 25 commands
+- [User Guide](user-guide.md) — how to use all commands
 - [FAQ](faq.md) — answers to common questions
 - [Troubleshooting](troubleshooting.md) — what to do when things go wrong
 - [Configuration Reference](configuration.md) — all available settings
@@ -244,5 +295,5 @@ Test these commands in your Discord server:
 ## Sources
 
 - [Discord Developer Portal](https://discord.com/developers/applications)
-- [Discord OAuth2 Documentation](https://docs.discord.com/developers/platform/oauth2-and-permissions)
+- [Discord OAuth2 Documentation](https://discord.com/developers/docs/topics/oauth2)
 - [Discord Slash Commands](https://support.discord.com/hc/en-us/articles/1500000368501-Slash-Commands-FAQ)

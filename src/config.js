@@ -6,6 +6,9 @@ const DEFAULT_PATHS = Object.freeze({
   readiness: "/api/integrations/discord/readiness",
   services: "/api/integrations/discord/services",
   population: "/api/integrations/discord/population",
+  logs: "/api/integrations/discord/logs",
+  "map-state": "/api/integrations/discord/map-state",
+  maintenance: "/api/integrations/discord/maintenance",
   backups: "/api/integrations/discord/backups/list",
   announcements: "/api/integrations/discord/announcements",
   broadcast: "/api/integrations/discord/broadcast",
@@ -13,6 +16,18 @@ const DEFAULT_PATHS = Object.freeze({
   servers: "/api/integrations/discord/servers",
   ports: "/api/integrations/discord/ports",
   db: "/api/integrations/discord/db",
+  "write-execute": "/api/integrations/discord/write/execute",
+  "write-preview": "/api/integrations/discord/write/preview",
+  "players-link": "/api/integrations/discord/players/link",
+  "players-unlink": "/api/integrations/discord/players/unlink",
+  "players-me": "/api/integrations/discord/players/me",
+  "players-faction": "/api/integrations/discord/players/faction",
+  "players-inventory": "/api/integrations/discord/players/inventory",
+  "players-inventory-search": "/api/integrations/discord/players/inventory-search",
+  "players-storage": "/api/integrations/discord/players/storage",
+  "players-find": "/api/integrations/discord/players/find",
+  "guild-storage": "/api/integrations/discord/guilds/storage",
+  "guild-find": "/api/integrations/discord/guilds/find",
   "ops-activity": "/api/integrations/discord/ops/activity",
   "ops-combat": "/api/integrations/discord/ops/combat",
   "ops-resources": "/api/integrations/discord/ops/resources",
@@ -30,6 +45,9 @@ const DEFAULT_METHODS = Object.freeze({
   readiness: "POST",
   services: "POST",
   population: "POST",
+  logs: "POST",
+  "map-state": "POST",
+  maintenance: "POST",
   backups: "GET",
   announcements: "POST",
   broadcast: "POST",
@@ -37,6 +55,18 @@ const DEFAULT_METHODS = Object.freeze({
   servers: "POST",
   ports: "POST",
   db: "POST",
+  "write-execute": "POST",
+  "write-preview": "POST",
+  "players-link": "POST",
+  "players-unlink": "POST",
+  "players-me": "POST",
+  "players-faction": "POST",
+  "players-inventory": "POST",
+  "players-inventory-search": "POST",
+  "players-storage": "POST",
+  "players-find": "POST",
+  "guild-storage": "POST",
+  "guild-find": "POST",
   "ops-activity": "POST",
   "ops-combat": "POST",
   "ops-resources": "POST",
@@ -54,10 +84,17 @@ export function loadConfig(env = process.env) {
   const legacyAllowedRoleIds = parseCsv(env.DISCORD_ALLOWED_ROLE_IDS);
   const observerRoleIds = mergeRoleIds(parseCsv(env.DISCORD_OBSERVER_ROLE_IDS), legacyAllowedRoleIds);
   const adminRoleIds = parseCsv(env.DISCORD_ADMIN_ROLE_IDS);
+  const multiTenant = parseBoolean(env.ACP_MULTI_TENANT, false);
   const config = {
+    multiTenant,
+    dbPath: env.ACP_DB_PATH || "data/acp.db",
+    baseUrl: optionalEnv(env, "ACP_BASE_URL") || "http://localhost:3100",
+    setupPort: parsePositiveInteger(env.ACP_SETUP_PORT, 3100),
+    oauthRedirectUri: optionalEnv(env, "ACP_OAUTH_REDIRECT_URI"),
     discord: {
       token: readSecret(env, "DISCORD_BOT_TOKEN", "DISCORD_BOT_TOKEN_FILE"),
       clientId: requiredEnv(env, "DISCORD_CLIENT_ID"),
+      clientSecret: multiTenant ? readSecret(env, "DISCORD_CLIENT_SECRET", "DISCORD_CLIENT_SECRET_FILE") : undefined,
       guildId: optionalEnv(env, "DISCORD_GUILD_ID"),
       defaultEphemeral: parseBoolean(env.DISCORD_DEFAULT_EPHEMERAL, true),
       rbac: {
@@ -79,8 +116,8 @@ export function loadConfig(env = process.env) {
       }
     },
     adapter: {
-      baseUrl: requiredEnv(env, "DUNE_CONSOLE_API_URL"),
-      token: readSecret(env, "DUNE_DISCORD_ADAPTER_TOKEN", "DUNE_DISCORD_ADAPTER_TOKEN_FILE"),
+      baseUrl: multiTenant ? (optionalEnv(env, "DUNE_CONSOLE_API_URL") || "http://placeholder") : requiredEnv(env, "DUNE_CONSOLE_API_URL"),
+      token: multiTenant ? (readSecret(env, "DUNE_DISCORD_ADAPTER_TOKEN", "DUNE_DISCORD_ADAPTER_TOKEN_FILE") || "placeholder") : readSecret(env, "DUNE_DISCORD_ADAPTER_TOKEN", "DUNE_DISCORD_ADAPTER_TOKEN_FILE"),
       timeoutMs: parsePositiveInteger(env.REQUEST_TIMEOUT_MS, 8000),
       paths: {
         health: optionalEnv(env, "DUNE_ADAPTER_HEALTH_PATH") || DEFAULT_PATHS.health,
@@ -88,6 +125,9 @@ export function loadConfig(env = process.env) {
         readiness: optionalEnv(env, "DUNE_ADAPTER_READINESS_PATH") || DEFAULT_PATHS.readiness,
         services: optionalEnv(env, "DUNE_ADAPTER_SERVICES_PATH") || DEFAULT_PATHS.services,
         population: optionalEnv(env, "DUNE_ADAPTER_POPULATION_PATH") || DEFAULT_PATHS.population,
+        logs: optionalEnv(env, "DUNE_ADAPTER_LOGS_PATH") || DEFAULT_PATHS.logs,
+        "map-state": optionalEnv(env, "DUNE_ADAPTER_MAP_STATE_PATH") || DEFAULT_PATHS["map-state"],
+        maintenance: optionalEnv(env, "DUNE_ADAPTER_MAINTENANCE_PATH") || DEFAULT_PATHS.maintenance,
         backups: optionalEnv(env, "DUNE_ADAPTER_BACKUPS_PATH") || DEFAULT_PATHS.backups,
         announcements: optionalEnv(env, "DUNE_ADAPTER_ANNOUNCEMENTS_PATH") || DEFAULT_PATHS.announcements,
         broadcast: optionalEnv(env, "DUNE_ADAPTER_BROADCAST_PATH") || DEFAULT_PATHS.broadcast,
@@ -95,6 +135,18 @@ export function loadConfig(env = process.env) {
         servers: optionalEnv(env, "DUNE_ADAPTER_SERVERS_PATH") || DEFAULT_PATHS.servers,
         ports: optionalEnv(env, "DUNE_ADAPTER_PORTS_PATH") || DEFAULT_PATHS.ports,
         db: optionalEnv(env, "DUNE_ADAPTER_DB_PATH") || DEFAULT_PATHS.db,
+        "write-execute": optionalEnv(env, "DUNE_ADAPTER_WRITE_EXECUTE_PATH") || DEFAULT_PATHS["write-execute"],
+        "write-preview": optionalEnv(env, "DUNE_ADAPTER_WRITE_PREVIEW_PATH") || DEFAULT_PATHS["write-preview"],
+        "players-link": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_LINK_PATH") || DEFAULT_PATHS["players-link"],
+        "players-unlink": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_UNLINK_PATH") || DEFAULT_PATHS["players-unlink"],
+        "players-me": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_ME_PATH") || DEFAULT_PATHS["players-me"],
+        "players-faction": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_FACTION_PATH") || DEFAULT_PATHS["players-faction"],
+        "players-inventory": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_INVENTORY_PATH") || DEFAULT_PATHS["players-inventory"],
+        "players-inventory-search": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_INVENTORY_SEARCH_PATH") || DEFAULT_PATHS["players-inventory-search"],
+        "players-storage": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_STORAGE_PATH") || DEFAULT_PATHS["players-storage"],
+        "players-find": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_FIND_PATH") || DEFAULT_PATHS["players-find"],
+        "guild-storage": optionalEnv(env, "DUNE_ADAPTER_GUILD_STORAGE_PATH") || DEFAULT_PATHS["guild-storage"],
+        "guild-find": optionalEnv(env, "DUNE_ADAPTER_GUILD_FIND_PATH") || DEFAULT_PATHS["guild-find"],
         "ops-activity": optionalEnv(env, "DUNE_ADAPTER_OPS_ACTIVITY_PATH") || DEFAULT_PATHS["ops-activity"],
         "ops-combat": optionalEnv(env, "DUNE_ADAPTER_OPS_COMBAT_PATH") || DEFAULT_PATHS["ops-combat"],
         "ops-resources": optionalEnv(env, "DUNE_ADAPTER_OPS_RESOURCES_PATH") || DEFAULT_PATHS["ops-resources"],
@@ -111,6 +163,9 @@ export function loadConfig(env = process.env) {
         readiness: parseMethod(env.DUNE_ADAPTER_READINESS_METHOD, DEFAULT_METHODS.readiness),
         services: parseMethod(env.DUNE_ADAPTER_SERVICES_METHOD, DEFAULT_METHODS.services),
         population: parseMethod(env.DUNE_ADAPTER_POPULATION_METHOD, DEFAULT_METHODS.population),
+        logs: parseMethod(env.DUNE_ADAPTER_LOGS_METHOD, DEFAULT_METHODS.logs),
+        "map-state": parseMethod(env.DUNE_ADAPTER_MAP_STATE_METHOD, DEFAULT_METHODS["map-state"]),
+        maintenance: parseMethod(env.DUNE_ADAPTER_MAINTENANCE_METHOD, DEFAULT_METHODS.maintenance),
         backups: parseMethod(env.DUNE_ADAPTER_BACKUPS_METHOD, DEFAULT_METHODS.backups),
         announcements: parseMethod(env.DUNE_ADAPTER_ANNOUNCEMENTS_METHOD, DEFAULT_METHODS.announcements),
         broadcast: parseMethod(env.DUNE_ADAPTER_BROADCAST_METHOD, DEFAULT_METHODS.broadcast),
@@ -118,6 +173,18 @@ export function loadConfig(env = process.env) {
         servers: parseMethod(env.DUNE_ADAPTER_SERVERS_METHOD, DEFAULT_METHODS.servers),
         ports: parseMethod(env.DUNE_ADAPTER_PORTS_METHOD, DEFAULT_METHODS.ports),
         db: parseMethod(env.DUNE_ADAPTER_DB_METHOD, DEFAULT_METHODS.db),
+        "write-execute": parseMethod(env.DUNE_ADAPTER_WRITE_EXECUTE_METHOD, DEFAULT_METHODS["write-execute"]),
+        "write-preview": parseMethod(env.DUNE_ADAPTER_WRITE_PREVIEW_METHOD, DEFAULT_METHODS["write-preview"]),
+        "players-link": parseMethod(env.DUNE_ADAPTER_PLAYERS_LINK_METHOD, DEFAULT_METHODS["players-link"]),
+        "players-unlink": parseMethod(env.DUNE_ADAPTER_PLAYERS_UNLINK_METHOD, DEFAULT_METHODS["players-unlink"]),
+        "players-me": parseMethod(env.DUNE_ADAPTER_PLAYERS_ME_METHOD, DEFAULT_METHODS["players-me"]),
+        "players-faction": parseMethod(env.DUNE_ADAPTER_PLAYERS_FACTION_METHOD, DEFAULT_METHODS["players-faction"]),
+        "players-inventory": parseMethod(env.DUNE_ADAPTER_PLAYERS_INVENTORY_METHOD, DEFAULT_METHODS["players-inventory"]),
+        "players-inventory-search": parseMethod(env.DUNE_ADAPTER_PLAYERS_INVENTORY_SEARCH_METHOD, DEFAULT_METHODS["players-inventory-search"]),
+        "players-storage": parseMethod(env.DUNE_ADAPTER_PLAYERS_STORAGE_METHOD, DEFAULT_METHODS["players-storage"]),
+        "players-find": parseMethod(env.DUNE_ADAPTER_PLAYERS_FIND_METHOD, DEFAULT_METHODS["players-find"]),
+        "guild-storage": parseMethod(env.DUNE_ADAPTER_GUILD_STORAGE_METHOD, DEFAULT_METHODS["guild-storage"]),
+        "guild-find": parseMethod(env.DUNE_ADAPTER_GUILD_FIND_METHOD, DEFAULT_METHODS["guild-find"]),
         "ops-activity": parseMethod(env.DUNE_ADAPTER_OPS_ACTIVITY_METHOD, DEFAULT_METHODS["ops-activity"]),
         "ops-combat": parseMethod(env.DUNE_ADAPTER_OPS_COMBAT_METHOD, DEFAULT_METHODS["ops-combat"]),
         "ops-resources": parseMethod(env.DUNE_ADAPTER_OPS_RESOURCES_METHOD, DEFAULT_METHODS["ops-resources"]),
@@ -135,9 +202,11 @@ export function loadConfig(env = process.env) {
 }
 
 export function validateConfig(config) {
-  const url = new URL(config.adapter.baseUrl);
-  if (!["http:", "https:"].includes(url.protocol)) {
-    throw new Error("DUNE_CONSOLE_API_URL must use http or https.");
+  if (!config.multiTenant) {
+    const url = new URL(config.adapter.baseUrl);
+    if (!["http:", "https:"].includes(url.protocol)) {
+      throw new Error("DUNE_CONSOLE_API_URL must use http or https.");
+    }
   }
 
   for (const [name, path] of Object.entries(config.adapter.paths)) {
@@ -152,7 +221,7 @@ export function validateConfig(config) {
     }
   }
 
-  if (config.discord.rbac.mode === "restricted" && !hasAnyRbacPrincipal(config.discord.rbac)) {
+  if (!config.multiTenant && config.discord.rbac.mode === "restricted" && !hasAnyRbacPrincipal(config.discord.rbac)) {
     throw new Error("Restricted RBAC requires at least one Discord role or user allow-list entry.");
   }
 

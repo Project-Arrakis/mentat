@@ -86,12 +86,12 @@ function buildConfirmationRow(actionId, nonce) {
     .setCustomId(`write:confirm:${actionId}:${nonce}`)
     .setLabel("Confirm")
     .setStyle(ButtonStyle.Success);
-  
+
   const cancel = new ButtonBuilder()
     .setCustomId(`write:cancel:${actionId}`)
     .setLabel("Cancel")
     .setStyle(ButtonStyle.Secondary);
-  
+
   return new ActionRowBuilder().addComponents(confirm, cancel);
 }
 ```
@@ -105,10 +105,10 @@ handler can route the confirmation to the correct command.
 // In index.js or a write interaction handler:
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isButton()) return;
-  
+
   const [prefix, action, idempotencyKey, nonce] = interaction.customId.split(":");
   if (prefix !== "write") return;
-  
+
   if (action === "cancel") {
     await handleWriteCancel(interaction, idempotencyKey);
   } else if (action === "confirm") {

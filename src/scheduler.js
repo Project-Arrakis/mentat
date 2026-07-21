@@ -99,5 +99,5 @@ function parsePositiveInt(value, fallback) {
 }
 
 function defaultActor() {
-  return { userId: "scheduler", username: "Thumper", guildId: "scheduler", channelId: "scheduler", roleIds: [] };
+  return { userId: "scheduler", username: "ACP", guildId: "scheduler", channelId: "scheduler", roleIds: [] };
 }

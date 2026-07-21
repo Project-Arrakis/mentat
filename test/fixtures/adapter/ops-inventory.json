@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "result": {
+    "totalItems": 89234,
+    "craftedItems": 23456,
+    "uniqueTemplates": 342,
+    "mostCommonItem": "Spice",
+    "craftingRate24h": 1247,
+    "itemDistribution": {
+      "Resources": 34521,
+      "Weapons": 12345,
+      "Armor": 8923,
+      "Tools": 15678,
+      "Consumables": 17767
+    }
+  }
+}

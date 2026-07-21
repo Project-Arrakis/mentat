@@ -8,7 +8,7 @@ For first-time setup, you only need these 4 values:
 
 ```bash
 DISCORD_BOT_TOKEN=           # From Discord Developer Portal → Bot → Token
-DISCORD_CLIENT_ID=            # From Discord Developer Portal → General Information  
+DISCORD_CLIENT_ID=            # From Discord Developer Portal → General Information
 DUNE_CONSOLE_API_URL=http://localhost:8088  # Your console WebUI address
 DUNE_DISCORD_ADAPTER_TOKEN=   # Must match console's bot-api-token.txt
 ```
@@ -92,15 +92,15 @@ Each command can have its own role list. If not set, falls back to observer/admi
 
 | Variable | Command |
 |----------|---------|
-| `DISCORD_HEALTH_ROLE_IDS` | `/dune health` |
-| `DISCORD_ABOUT_ROLE_IDS` | `/dune about` |
-| `DISCORD_PING_ROLE_IDS` | `/dune ping` |
-| `DISCORD_STATUS_ROLE_IDS` | `/dune status` |
-| `DISCORD_STATUS_SUMMARY_ROLE_IDS` | `/dune status-summary` |
-| `DISCORD_READINESS_ROLE_IDS` | `/dune readiness` |
-| `DISCORD_SERVICES_ROLE_IDS` | `/dune services` |
-| `DISCORD_POPULATION_ROLE_IDS` | `/dune population` |
-| `DISCORD_BACKUPS_ROLE_IDS` | `/dune backups` |
+| `DISCORD_HEALTH_ROLE_IDS` | `/dune server health` |
+| `DISCORD_ABOUT_ROLE_IDS` | `/dune core about` |
+| `DISCORD_PING_ROLE_IDS` | `/dune core ping` |
+| `DISCORD_STATUS_ROLE_IDS` | `/dune server status` |
+| `DISCORD_STATUS_SUMMARY_ROLE_IDS` | `/dune server summary` |
+| `DISCORD_READINESS_ROLE_IDS` | `/dune server readiness` |
+| `DISCORD_SERVICES_ROLE_IDS` | `/dune server services` |
+| `DISCORD_POPULATION_ROLE_IDS` | `/dune data population` |
+| `DISCORD_BACKUPS_ROLE_IDS` | `/dune data backups` |
 
 **Example:**
 ```bash
@@ -129,9 +129,38 @@ You can override individual adapter route paths and methods:
 | `DUNE_ADAPTER_READINESS_PATH` | `/api/integrations/discord/readiness` |
 | `DUNE_ADAPTER_SERVICES_PATH` | `/api/integrations/discord/services` |
 | `DUNE_ADAPTER_POPULATION_PATH` | `/api/integrations/discord/population` |
+| `DUNE_ADAPTER_LOGS_PATH` | `/api/integrations/discord/logs` |
+| `DUNE_ADAPTER_MAP_STATE_PATH` | `/api/integrations/discord/map-state` |
+| `DUNE_ADAPTER_MAINTENANCE_PATH` | `/api/integrations/discord/maintenance` |
 | `DUNE_ADAPTER_BACKUPS_PATH` | `/api/integrations/discord/backups/list` |
 | `DUNE_ADAPTER_ANNOUNCEMENTS_PATH` | `/api/integrations/discord/announcements` |
 | `DUNE_ADAPTER_BROADCAST_PATH` | `/api/integrations/discord/broadcast` |
+| `DUNE_ADAPTER_VERSION_PATH` | `/api/integrations/discord/version` |
+| `DUNE_ADAPTER_SERVERS_PATH` | `/api/integrations/discord/servers` |
+| `DUNE_ADAPTER_PORTS_PATH` | `/api/integrations/discord/ports` |
+| `DUNE_ADAPTER_DB_PATH` | `/api/integrations/discord/db` |
+| `DUNE_ADAPTER_WRITE_EXECUTE_PATH` | `/api/integrations/discord/write/execute` |
+| `DUNE_ADAPTER_WRITE_PREVIEW_PATH` | `/api/integrations/discord/write/preview` |
+| `DUNE_ADAPTER_PLAYERS_LINK_PATH` | `/api/integrations/discord/players/link` |
+| `DUNE_ADAPTER_PLAYERS_LINK_VERIFY_PATH` | `/api/integrations/discord/players/link/verify` |
+| `DUNE_ADAPTER_PLAYERS_UNLINK_PATH` | `/api/integrations/discord/players/unlink` |
+| `DUNE_ADAPTER_PLAYERS_ME_PATH` | `/api/integrations/discord/players/me` |
+| `DUNE_ADAPTER_PLAYERS_FACTION_PATH` | `/api/integrations/discord/players/faction` |
+| `DUNE_ADAPTER_PLAYERS_INVENTORY_PATH` | `/api/integrations/discord/players/inventory` |
+| `DUNE_ADAPTER_PLAYERS_INVENTORY_SEARCH_PATH` | `/api/integrations/discord/players/inventory-search` |
+| `DUNE_ADAPTER_PLAYERS_STORAGE_PATH` | `/api/integrations/discord/players/storage` |
+| `DUNE_ADAPTER_PLAYERS_FIND_PATH` | `/api/integrations/discord/players/find` |
+| `DUNE_ADAPTER_GUILD_STORAGE_PATH` | `/api/integrations/discord/guilds/storage` |
+| `DUNE_ADAPTER_GUILD_FIND_PATH` | `/api/integrations/discord/guilds/find` |
+| `DUNE_ADAPTER_OPS_ACTIVITY_PATH` | `/api/integrations/discord/ops/activity` |
+| `DUNE_ADAPTER_OPS_COMBAT_PATH` | `/api/integrations/discord/ops/combat` |
+| `DUNE_ADAPTER_OPS_RESOURCES_PATH` | `/api/integrations/discord/ops/resources` |
+| `DUNE_ADAPTER_OPS_ECONOMY_PATH` | `/api/integrations/discord/ops/economy` |
+| `DUNE_ADAPTER_OPS_INVENTORY_PATH` | `/api/integrations/discord/ops/inventory` |
+| `DUNE_ADAPTER_OPS_LOCATION_PATH` | `/api/integrations/discord/ops/location` |
+| `DUNE_ADAPTER_OPS_SOC_PATH` | `/api/integrations/discord/ops/soc` |
+| `DUNE_ADAPTER_OPS_PROMETHEUS_PATH` | `/api/integrations/discord/ops/prometheus` |
+| `DUNE_ADAPTER_OPS_DASHBOARD_PATH` | `/api/integrations/discord/ops/dashboard` |
 
 Method overrides: `_PATH` → `_METHOD` (e.g., `DUNE_ADAPTER_HEALTH_METHOD=GET`).
 
@@ -145,7 +174,7 @@ Controls scheduled status posts to Discord channels.
 |----------|---------|-------------|
 | `DUNE_POST_SCHEDULE_TYPE` | `none` | `none`, `status`, `status-summary`, `readiness`, `services` |
 | `DUNE_POST_ALLOWED_CHANNELS` | *(empty)* | Comma-separated Discord channel IDs for scheduled posts |
-| `DUNE_SCHEDULER_INTERVAL_MS` | `1800000) |
+| `DUNE_SCHEDULER_INTERVAL_MS` | `1800000` | Interval between posts in milliseconds (30 min default) |
 | `DUNE_POST_RATE_LIMIT_MS` | `600000` | Minimum time between posts per channel (10 min default) |
 
 **Example:**
@@ -166,6 +195,48 @@ Forwards in-game announcements to a Discord channel.
 | `DUNE_ANNOUNCEMENTS_ENABLED` | `false` | Enable game→Discord announcement forwarding |
 | `DUNE_ANNOUNCEMENTS_CHANNEL` | *(empty)* | Discord channel ID to post announcements |
 | `DUNE_ANNOUNCEMENTS_POLL_MS` | `30000` | Poll interval in milliseconds |
+
+---
+
+## Player Features Configuration
+
+Controls player inventory, storage, and character linking features.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DUNE_DISCORD_ADAPTER_ENABLED` | *(inherited from console)* | Must be `true` on the console side for player features to work |
+
+**Note:** Player features require no additional bot configuration. They work
+automatically once the bot is connected to a console with the Discord adapter
+enabled. Players use `/dune data link <character-name>` to link their
+Discord account to their in-game character:
+
+1. If Discord has a verified Steam connection, linking completes instantly
+2. Otherwise, a verification code is sent in-game via whisper
+3. Use `/dune data verify <code>` to complete the link
+
+Once linked, players can use:
+
+- `/dune data link <character>` — Link Discord to in-game character
+- `/dune data verify <code>` — Complete linking with verification code
+- `/dune data unlink` — Remove character link
+- `/dune data whoami` — Show linked character info
+- `/dune data faction <name>` — Set faction for themed embeds (atreides, harkonnen, fremen)
+- `/dune data inventory` — View character inventory
+- `/dune data inventory <search>` — Search items in inventory
+- `/dune data storage` — View storage containers (owned scope)
+- `/dune data storage <scope>` — View storage (owned, guild, or all)
+- `/dune data find <item>` — Search items in storage
+
+### Player Feature Capabilities
+
+Player links are stored in the console's PostgreSQL database (`dune.discord_player_links`).
+
+| Capability | Required Role | Commands |
+|-----------|---------------|----------|
+| `inventory:read` | Observer or Admin | `/dune data link`, `/dune data unlink`, `/dune data whoami`, `/dune data faction`, `/dune data inventory`, `/dune data find` |
+| `storage:read` | Observer or Admin | `/dune data storage` (owned scope) |
+| `guild:read` | Observer or Admin | `/dune data storage` (guild scope), `/dune data find` (guild scope) |
 
 ---
 
@@ -204,26 +275,70 @@ Prevents command spam.
 
 ---
 
+## Multi-Tenant Configuration (v1.6+)
+
+When `ACP_MULTI_TENANT=true`, the bot runs as a centralized service serving multiple Discord servers. Each guild connects to its own Dune console, with configuration stored in a local SQLite database.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ACP_MULTI_TENANT` | `false` | Enable multi-tenant mode |
+| `ACP_DB_PATH` | `data/acp.db` | Path to SQLite database file |
+| `ACP_BASE_URL` | `http://localhost:3100` | Base URL for the setup web portal |
+| `ACP_SETUP_PORT` | `3100` | Port for the setup web portal |
+| `ACP_OAUTH_REDIRECT_URI` | *(auto)* | Discord OAuth2 callback URL |
+| `DISCORD_CLIENT_SECRET` | *(required)* | Discord OAuth2 client secret (from Developer Portal → OAuth2) |
+
+In multi-tenant mode:
+- `DUNE_CONSOLE_API_URL` and `DUNE_DISCORD_ADAPTER_TOKEN` are optional placeholders
+- RBAC is configured per-guild via the web portal or DM onboarding
+- Guild configuration is stored in SQLite (`data/acp.db`)
+- The setup portal runs at `http://localhost:3100/setup`
+
+### Setup Portal Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /setup` | OAuth2 login page |
+| `GET /oauth/callback` | Discord OAuth2 callback |
+| `POST /setup/register` | Guild registration API |
+| `GET /health` | Setup server health check |
+
+### Database Schema
+
+The bot manages these tables:
+- `guilds` — Per-guild console URL, adapter token, status
+- `guild_roles` — Per-guild observer/admin role IDs
+- `guild_settings` — Per-guild RBAC mode, cooldowns, schedule
+- `oauth_sessions` — OAuth2 state and tokens
+- `player_links` — Per-guild Discord-to-character mappings
+
+---
+
 ## Feature Flag Summary
 
 | Feature | Env Var | Default |
 |---------|---------|---------|
 | Read-only commands | (always on) | N/A |
+| Player inventory/storage | (always on when adapter enabled) | N/A |
+| Player faction | (always on when adapter enabled) | N/A |
+| OPS commands | (always on, returns planned data) | N/A |
+| Infra commands | (always on) | N/A |
 | Scheduled status posts | `DUNE_POST_SCHEDULE_TYPE` | `none` |
 | Announcement bridge | `DUNE_ANNOUNCEMENTS_ENABLED` | `false` |
 | Write commands | `DUNE_DISCORD_WRITES_ENABLED` | `false` |
 | Broadcast command | `DUNE_DISCORD_WRITES_ENABLED` | `false` |
+| Multi-tenant mode | `ACP_MULTI_TENANT` | `false` |
 
 ---
 
-## Discord Role Setup (In-App)
+## Discord Role Setup
 
 After inviting the bot, create these roles in your Discord server:
 
-1. **Dune Observer** — Can use all read-only commands
-2. **Dune Moderator** — Read-only + broadcast capability
-3. **Dune Admin** — Read-only + all write operations
-4. **Dune Owner** — Full access including high-risk operations
+1. **Dune Observer** — Can use all read-only commands including player features
+2. **Dune Admin** — Read-only + all admin commands
+3. **Dune Write Admin** — Can execute write commands (when enabled)
+4. **Dune Write Owner** — Full access including high-risk operations (future)
 
 Configure the role IDs in your `.env`:
 ```bash
@@ -276,4 +391,10 @@ DUNE_POST_SCHEDULE_TYPE=none
 # === Writes (disabled by default) ===
 # DUNE_DISCORD_WRITES_ENABLED=true
 # DISCORD_WRITE_ADMIN_ROLE_IDS=
+
+# === Multi-Tenant (optional) ===
+# ACP_MULTI_TENANT=false
+# ACP_DB_PATH=data/acp.db
+# ACP_BASE_URL=http://localhost:3100
+# DISCORD_CLIENT_SECRET=
 ```
