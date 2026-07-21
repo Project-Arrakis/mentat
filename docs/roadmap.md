@@ -158,15 +158,17 @@ Only add commands backed by safe upstream adapter responses.
 - Canvas status card rendering with faction theming
 - ACP quotes in embed footers
 
-### Player Features — Upstream PR Pending
+### Player Features — Implemented
 
-- `/dune player link` — Link Discord account to character
-- `/dune player unlink` — Remove character link
-- `/dune player me` — Show linked character info
-- `/dune player inventory` — View character inventory
-- `/dune player storage` — View storage containers (owned or guild)
-- `/dune player find` — Search items in storage
-- `/dune player inventory-search` — Search items in inventory
+- `/dune data link <character>` — Link Discord account to character (two-step: Steam instant or whisper code)
+- `/dune data verify <code>` — Complete linking with in-game verification code
+- `/dune data unlink` — Remove character link
+- `/dune data whoami` — Show linked character info
+- `/dune data inventory` — View character inventory
+- `/dune data inventory <search>` — Search items in inventory
+- `/dune data storage` — View storage containers (owned or guild)
+- `/dune data find` — Search items in storage
+- `/dune data faction <name>` — Set faction for themed embeds
 
 **Upstream PR:** [Red-Blink/dune-awakening-selfhost-docker#91](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/91)
 — 489/489 tests pass, all CI checks green.
@@ -178,6 +180,8 @@ Security requirements:
 - channel allow-list before scheduled posts
 - rate limits for recurring tasks
 - player data isolated per linked account
+- verification codes expire after 5 minutes
+- codes are single-use and tied to the generating Discord user
 
 ## Phase 4: Operations and Release Hardening
 
