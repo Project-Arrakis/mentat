@@ -26,7 +26,10 @@ export const PLANNED_ROUTES = new Set([
 export const UNMERGED_ROUTES = new Set([
   "players-link", "players-link-verify", "players-unlink", "players-me", "players-faction",
   "players-inventory", "players-inventory-search", "players-storage", "players-find",
-  "guild-storage", "guild-find"
+  "guild-storage", "guild-find",
+  "player-links-start", "player-links-verify", "player-links", "player-links-unlink",
+  "guild-grants", "guild-grants-enable", "guild-grants-disable", "guild-grants-default",
+  "player-inventory-v2"
 ]);
 
 // Routes that do NOT exist anywhere.
@@ -110,6 +113,15 @@ export class AdapterClient {
   playerFind(actor, query, scope, guildId) { return this.request("players-find", actor, { query, scope }, guildId); }
   guildStorage(actor, guildId) { return this.request("guild-storage", actor, undefined, guildId); }
   guildFind(actor, query, guildId) { return this.request("guild-find", actor, { query }, guildId); }
+
+  playerLinkStart(actor, characterName, guildId) { return this.request("player-links-start", actor, { characterName }, guildId); }
+  playerLinkVerify(actor, code, guildId) { return this.request("player-links-verify", actor, { code }, guildId); }
+  playerLinks(actor, guildId) { return this.request("player-links", actor, undefined, guildId); }
+  playerUnlinkV2(actor, characterLinkId, guildId) { return this.request("player-links-unlink", actor, { characterLinkId }, guildId); }
+  guildGrantsEnable(actor, characterLinkId, guildId) { return this.request("guild-grants-enable", actor, { characterLinkId }, guildId); }
+  guildGrantsDisable(actor, characterLinkId, guildId) { return this.request("guild-grants-disable", actor, { characterLinkId }, guildId); }
+  guildGrantsDefault(actor, characterLinkId, guildId) { return this.request("guild-grants-default", actor, { characterLinkId }, guildId); }
+  playerInventoryV2(actor, characterHandle, guildId) { return this.request("player-inventory-v2", actor, { characterHandle }, guildId); }
 
   async request(route, actor, extra = undefined, guildId = null) {
     const cfg = this._resolveConfig(guildId);

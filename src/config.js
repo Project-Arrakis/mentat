@@ -36,7 +36,16 @@ const DEFAULT_PATHS = Object.freeze({
   "ops-location": "/api/integrations/discord/ops/location",
   "ops-soc": "/api/integrations/discord/ops/soc",
   "ops-prometheus": "/api/integrations/discord/ops/prometheus",
-  "ops-dashboard": "/api/integrations/discord/ops/dashboard"
+  "ops-dashboard": "/api/integrations/discord/ops/dashboard",
+  "player-links-start": "/api/integrations/discord/player-links/start",
+  "player-links-verify": "/api/integrations/discord/player-links/verify",
+  "player-links": "/api/integrations/discord/player-links",
+  "player-links-unlink": "/api/integrations/discord/player-links/unlink",
+  "guild-grants": "/api/integrations/discord/guild-character-grants",
+  "guild-grants-enable": "/api/integrations/discord/guild-character-grants/enable",
+  "guild-grants-disable": "/api/integrations/discord/guild-character-grants/disable",
+  "guild-grants-default": "/api/integrations/discord/guild-character-grants/default",
+  "player-inventory-v2": "/api/integrations/discord/player/inventory"
 });
 
 const DEFAULT_METHODS = Object.freeze({
@@ -75,7 +84,16 @@ const DEFAULT_METHODS = Object.freeze({
   "ops-location": "POST",
   "ops-soc": "POST",
   "ops-prometheus": "POST",
-  "ops-dashboard": "POST"
+  "ops-dashboard": "POST",
+  "player-links-start": "POST",
+  "player-links-verify": "POST",
+  "player-links": "GET",
+  "player-links-unlink": "POST",
+  "guild-grants": "GET",
+  "guild-grants-enable": "POST",
+  "guild-grants-disable": "POST",
+  "guild-grants-default": "POST",
+  "player-inventory-v2": "POST"
 });
 
 const RBAC_MODES = new Set(["restricted", "open"]);
@@ -155,7 +173,16 @@ export function loadConfig(env = process.env) {
         "ops-location": optionalEnv(env, "DUNE_ADAPTER_OPS_LOCATION_PATH") || DEFAULT_PATHS["ops-location"],
         "ops-soc": optionalEnv(env, "DUNE_ADAPTER_OPS_SOC_PATH") || DEFAULT_PATHS["ops-soc"],
         "ops-prometheus": optionalEnv(env, "DUNE_ADAPTER_OPS_PROMETHEUS_PATH") || DEFAULT_PATHS["ops-prometheus"],
-        "ops-dashboard": optionalEnv(env, "DUNE_ADAPTER_OPS_DASHBOARD_PATH") || DEFAULT_PATHS["ops-dashboard"]
+        "ops-dashboard": optionalEnv(env, "DUNE_ADAPTER_OPS_DASHBOARD_PATH") || DEFAULT_PATHS["ops-dashboard"],
+        "player-links-start": optionalEnv(env, "DUNE_ADAPTER_PLAYER_LINKS_START_PATH") || DEFAULT_PATHS["player-links-start"],
+        "player-links-verify": optionalEnv(env, "DUNE_ADAPTER_PLAYER_LINKS_VERIFY_PATH") || DEFAULT_PATHS["player-links-verify"],
+        "player-links": optionalEnv(env, "DUNE_ADAPTER_PLAYER_LINKS_PATH") || DEFAULT_PATHS["player-links"],
+        "player-links-unlink": optionalEnv(env, "DUNE_ADAPTER_PLAYER_LINKS_UNLINK_PATH") || DEFAULT_PATHS["player-links-unlink"],
+        "guild-grants": optionalEnv(env, "DUNE_ADAPTER_GUILD_GRANTS_PATH") || DEFAULT_PATHS["guild-grants"],
+        "guild-grants-enable": optionalEnv(env, "DUNE_ADAPTER_GUILD_GRANTS_ENABLE_PATH") || DEFAULT_PATHS["guild-grants-enable"],
+        "guild-grants-disable": optionalEnv(env, "DUNE_ADAPTER_GUILD_GRANTS_DISABLE_PATH") || DEFAULT_PATHS["guild-grants-disable"],
+        "guild-grants-default": optionalEnv(env, "DUNE_ADAPTER_GUILD_GRANTS_DEFAULT_PATH") || DEFAULT_PATHS["guild-grants-default"],
+        "player-inventory-v2": optionalEnv(env, "DUNE_ADAPTER_PLAYER_INVENTORY_V2_PATH") || DEFAULT_PATHS["player-inventory-v2"]
       },
       methods: {
         health: parseMethod(env.DUNE_ADAPTER_HEALTH_METHOD, DEFAULT_METHODS.health),
@@ -193,7 +220,16 @@ export function loadConfig(env = process.env) {
         "ops-location": parseMethod(env.DUNE_ADAPTER_OPS_LOCATION_METHOD, DEFAULT_METHODS["ops-location"]),
         "ops-soc": parseMethod(env.DUNE_ADAPTER_OPS_SOC_METHOD, DEFAULT_METHODS["ops-soc"]),
         "ops-prometheus": parseMethod(env.DUNE_ADAPTER_OPS_PROMETHEUS_METHOD, DEFAULT_METHODS["ops-prometheus"]),
-        "ops-dashboard": parseMethod(env.DUNE_ADAPTER_OPS_DASHBOARD_METHOD, DEFAULT_METHODS["ops-dashboard"])
+        "ops-dashboard": parseMethod(env.DUNE_ADAPTER_OPS_DASHBOARD_METHOD, DEFAULT_METHODS["ops-dashboard"]),
+        "player-links-start": parseMethod(env.DUNE_ADAPTER_PLAYER_LINKS_START_METHOD, DEFAULT_METHODS["player-links-start"]),
+        "player-links-verify": parseMethod(env.DUNE_ADAPTER_PLAYER_LINKS_VERIFY_METHOD, DEFAULT_METHODS["player-links-verify"]),
+        "player-links": parseMethod(env.DUNE_ADAPTER_PLAYER_LINKS_METHOD, DEFAULT_METHODS["player-links"]),
+        "player-links-unlink": parseMethod(env.DUNE_ADAPTER_PLAYER_LINKS_UNLINK_METHOD, DEFAULT_METHODS["player-links-unlink"]),
+        "guild-grants": parseMethod(env.DUNE_ADAPTER_GUILD_GRANTS_METHOD, DEFAULT_METHODS["guild-grants"]),
+        "guild-grants-enable": parseMethod(env.DUNE_ADAPTER_GUILD_GRANTS_ENABLE_METHOD, DEFAULT_METHODS["guild-grants-enable"]),
+        "guild-grants-disable": parseMethod(env.DUNE_ADAPTER_GUILD_GRANTS_DISABLE_METHOD, DEFAULT_METHODS["guild-grants-disable"]),
+        "guild-grants-default": parseMethod(env.DUNE_ADAPTER_GUILD_GRANTS_DEFAULT_METHOD, DEFAULT_METHODS["guild-grants-default"]),
+        "player-inventory-v2": parseMethod(env.DUNE_ADAPTER_PLAYER_INVENTORY_V2_METHOD, DEFAULT_METHODS["player-inventory-v2"])
       }
     }
   };

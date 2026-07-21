@@ -50,8 +50,17 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime."))
       .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character.")
         .addStringOption((o) => o.setName("character").setDescription("Your character name").setRequired(true)))
-      .addSubcommand((c) => c.setName("verify").setDescription("Verify a pending character link with a code."))
-      .addSubcommand((c) => c.setName("unlink").setDescription("Unlink your Discord from your game character."))
+      .addSubcommand((c) => c.setName("verify").setDescription("Verify a pending character link with a code.")
+        .addStringOption((o) => o.setName("code").setDescription("Verification code from in-game whisper").setRequired(true)))
+      .addSubcommand((c) => c.setName("characters").setDescription("List your verified characters."))
+      .addSubcommand((c) => c.setName("enable").setDescription("Enable a character in this guild.")
+        .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
+      .addSubcommand((c) => c.setName("disable").setDescription("Disable a character in this guild.")
+        .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
+      .addSubcommand((c) => c.setName("default").setDescription("Set your default character for this guild.")
+        .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
+      .addSubcommand((c) => c.setName("unlink").setDescription("Unlink a character from your Discord.")
+        .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
       .addSubcommand((c) => c.setName("faction").setDescription("Set your faction for themed embeds.")
         .addStringOption((o) => o.setName("name").setDescription("atreides, harkonnen, or fremen").setRequired(true)
           .addChoices({ name: "Atreides", value: "atreides" }, { name: "Harkonnen", value: "harkonnen" }, { name: "Fremen", value: "fremen" })))
@@ -225,12 +234,17 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = { maps: status?.result?.maps || [] };
     } else if (key === "data:link") {
       const characterName = interaction.options.getString("character");
-      payload = await adapterClient.playerLink(actor, characterName, guildId);
+      payload = await adapterClient.playerLinkStart(actor, characterName, guildId);
     } else if (key === "data:verify") {
       const code = interaction.options.getString("code");
       payload = await adapterClient.playerLinkVerify(actor, code, guildId);
     } else if (key === "data:unlink") {
-      payload = await adapterClient.playerUnlink(actor, guildId);
+      const characterLinkId = interaction.options.getString("character");
+      if (characterLinkId) {
+        payload = await adapterClient.playerUnlinkV2(actor, characterLinkId, guildId);
+      } else {
+        payload = await adapterClient.playerUnlink(actor, guildId);
+      }
     } else if (key === "data:faction") {
       const faction = interaction.options.getString("name");
       payload = await adapterClient.playerFaction(actor, faction, guildId);
@@ -250,6 +264,17 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       const query = interaction.options.getString("query");
       const scope = interaction.options.getString("scope") || "owned";
       payload = await adapterClient.playerFind(actor, query, scope, guildId);
+    } else if (key === "data:characters") {
+      payload = await adapterClient.playerLinks(actor, guildId);
+    } else if (key === "data:enable") {
+      const characterLinkId = interaction.options.getString("character");
+      payload = await adapterClient.guildGrantsEnable(actor, characterLinkId, guildId);
+    } else if (key === "data:disable") {
+      const characterLinkId = interaction.options.getString("character");
+      payload = await adapterClient.guildGrantsDisable(actor, characterLinkId, guildId);
+    } else if (key === "data:default") {
+      const characterLinkId = interaction.options.getString("character");
+      payload = await adapterClient.guildGrantsDefault(actor, characterLinkId, guildId);
     }
     // ── logs group ──
     else if (group === "logs") {
