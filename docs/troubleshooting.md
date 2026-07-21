@@ -163,9 +163,15 @@ Then only use guild-scoped registration going forward.
 **How to fix:**
 Run the link command with your exact character name:
 ```bash
+<<<<<<< HEAD
+/dune player link <your-character-name>
+```
+Replace `<your-character-name>` with the name as it appears in the game.
+=======
 /dune data link <your-character-name>
 ```
 Replace `<your-character-name>` with the name as it appears in the game. If you don't have a verified Steam connection, you'll receive a verification code in-game. Use `/dune data verify <code>` to complete the link.
+>>>>>>> origin/main
 
 ---
 

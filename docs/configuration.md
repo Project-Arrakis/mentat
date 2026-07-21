@@ -142,7 +142,10 @@ You can override individual adapter route paths and methods:
 | `DUNE_ADAPTER_WRITE_EXECUTE_PATH` | `/api/integrations/discord/write/execute` |
 | `DUNE_ADAPTER_WRITE_PREVIEW_PATH` | `/api/integrations/discord/write/preview` |
 | `DUNE_ADAPTER_PLAYERS_LINK_PATH` | `/api/integrations/discord/players/link` |
+<<<<<<< HEAD
+=======
 | `DUNE_ADAPTER_PLAYERS_LINK_VERIFY_PATH` | `/api/integrations/discord/players/link/verify` |
+>>>>>>> origin/main
 | `DUNE_ADAPTER_PLAYERS_UNLINK_PATH` | `/api/integrations/discord/players/unlink` |
 | `DUNE_ADAPTER_PLAYERS_ME_PATH` | `/api/integrations/discord/players/me` |
 | `DUNE_ADAPTER_PLAYERS_FACTION_PATH` | `/api/integrations/discord/players/faction` |
@@ -209,6 +212,11 @@ Controls player inventory, storage, and character linking features.
 **Note:** Player features require no additional bot configuration. They work
 automatically once the bot is connected to a console with the Discord adapter
 enabled. Players use `/dune data link <character-name>` to link their
+<<<<<<< HEAD
+Discord account to their in-game character, then can use:
+
+- `/dune data link <character>` — Link Discord to in-game character
+=======
 Discord account to their in-game character:
 
 1. If Discord has a verified Steam connection, linking completes instantly
@@ -219,6 +227,7 @@ Once linked, players can use:
 
 - `/dune data link <character>` — Link Discord to in-game character
 - `/dune data verify <code>` — Complete linking with verification code
+>>>>>>> origin/main
 - `/dune data unlink` — Remove character link
 - `/dune data whoami` — Show linked character info
 - `/dune data faction <name>` — Set faction for themed embeds (atreides, harkonnen, fremen)
@@ -230,7 +239,11 @@ Once linked, players can use:
 
 ### Player Feature Capabilities
 
+<<<<<<< HEAD
+Player links are stored in the bot's SQLite database, scoped per guild in multi-tenant mode.
+=======
 Player links are stored in the console's PostgreSQL database (`dune.discord_player_links`).
+>>>>>>> origin/main
 
 | Capability | Required Role | Commands |
 |-----------|---------------|----------|
