@@ -1,0 +1,15 @@
+title = "gitleaks config"
+
+[allowlist]
+description = "Allowlisted paths and patterns"
+paths = [
+  '''docs/''',
+  '''test/fixtures/''',
+  '''\.github/''',
+]
+regexes = [
+  '''dune-idem-[0-9a-f-]+''',
+  '''discord-execute-\d+''',
+  '''123456789012345678''',
+  '''Nu6VmPWUMvdPMeB7qErr''',
+]
