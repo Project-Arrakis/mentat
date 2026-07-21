@@ -3,7 +3,7 @@
 ## Status
 
 Releases are cut from the private repository
-`yacketrj/dune-awakening-selfhost-discordbot`. The upstream
+`yacketrj/Arrakis-Control-Panel`. The upstream
 `Red-Blink/dune-awakening-selfhost-docker` repository remains the source of
 truth for WebUI adapter behavior, but this project does not publish upstream
 changes or upstream pull requests unless explicitly requested.
@@ -82,7 +82,7 @@ Before a release branch or tag:
 2. Record the upstream commit SHA and latest tag used for compatibility review.
 3. Fetch and fast-forward the bot repository `main`.
 4. Confirm the bot repository remote is
-   `git@github.com:yacketrj/dune-awakening-selfhost-discordbot.git`.
+   `git@github.com:yacketrj/Arrakis-Control-Panel.git`.
 5. Confirm the worktree is clean before creating the release branch.
 6. Open a focused release-preparation pull request.
 
@@ -163,8 +163,8 @@ Each release should publish:
 
 - `discord-readonly-bot-vMAJOR.MINOR.PATCH.tar.gz`
 - `discord-readonly-bot-vMAJOR.MINOR.PATCH.tar.gz.sha256`
-- `dune-awakening-selfhost-discordbot.cdx.json`
-- `dune-awakening-selfhost-discordbot.cdx.json.sha256`
+- `arrakis-control-panel.cdx.json`
+- `arrakis-control-panel.cdx.json.sha256`
 
 The addon package must remain zero-permission. The SBOM must be generated from
 the committed `package-lock.json`.

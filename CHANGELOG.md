@@ -4,46 +4,108 @@ This project follows Semantic Versioning for release tags. Security fixes,
 dependency updates, and release evidence stay tied to pull requests and durable
 change notes under `docs/changes/`.
 
+## v1.0.0-rc.2 - 2026-07-18
+
+Second release candidate for the read-only `R1.0.0` production target. Adds
+multi-tenant architecture, status card rendering, faction theming, OPS commands,
+and Cloudflare tunnel support.
+
+### Added
+
+- Multi-tenant architecture with per-guild console routing and SQLite storage.
+- OAuth2 setup portal with dark Dune theme matching `acp.darkdante.org`.
+- Guild-scoped RBAC with per-guild role configuration via web portal.
+- Canvas status card rendering (1200×640 PNG, Dune Rise typeface, faction colors).
+- Faction theming for embeds and status cards (Atreides, Harkonnen, Fremen).
+- OPS commands (9 subcommands: activity, combat, resources, economy, inventory,
+  location, soc, prometheus, dashboard) with status card output.
+- Infra commands (`/dune infra version`, `servers`, `ports`, `db`).
+- Player faction system (`/dune data faction`).
+- Write command scaffold (12 subcommands, disabled by default).
+- Cloudflare Tunnel for setup portal (`acp-setup.darkdante.org`).
+- Cloudflare KV stats aggregation for cross-instance live stats.
+- Git-based deployment pipeline with pre-deploy test guardrails.
+- DM-based guild onboarding on `guildCreate` events.
+- Human-readable test reporter.
+- Multi-tenant design documentation.
+- Terms of Service and Privacy Policy documents.
+- `.semgrepignore` for false positive suppression.
+- Shared quote pool module (`src/quotes.js`) for embed and card footers.
+- 30-second LRU cache for status card generation.
+- Error/offline status card variant with red-tinted theme.
+
+### Changed
+
+- Project renamed from "Thumper" to "Arrakis Control Panel" (ACP).
+- Player commands moved from `/dune player` group to `/dune data` group.
+- All documentation updated with new repo URL (`yacketrj/Arrakis-Control-Panel`).
+- `src/config.js` supports multi-tenant mode with optional env vars.
+- `src/adapterClient.js` supports guild-scoped config lookup.
+- `src/commands.js` RBAC supports both single-tenant (env) and multi-tenant (DB) modes.
+- OPS commands now render as status cards instead of text embeds.
+- Default database path changed from `data/thumper.db` to `data/acp.db`.
+- Environment variable prefix changed from `THUMPER_*` to `ACP_*`.
+- Upstream compatibility baseline advanced to `v1.3.60`.
+
+### Fixed
+
+- XSS vulnerabilities in setup server HTML templates (all user values now escaped).
+- OAuth2 session state bug (state stored in DB before redirect).
+- Empty server dropdown in setup portal (relaxed guild permission filter).
+- RBAC array parsing bug in `getGuildRoles` (flat array vs object mismatch).
+- Embed formatting standardized across all commands (consistent footers, empty states).
+- Semgrep false positives for setup server and test files.
+- Test compatibility with new config signature.
+- Player command paths in documentation (`/dune player` → `/dune data`).
+- Scheduler default value in documentation (5min → 30min).
+- Test count in CONTRIBUTING.md (153 → 205+).
+
+### Removed
+
+- `/* nosemgrep */` comments from HTML templates.
+
+### Security
+
+- All setup portal HTML templates use server-side escaping for user input.
+- OAuth2 state tokens stored server-side before redirect (prevents CSRF).
+- Multi-tenant mode isolates guild data in SQLite with foreign key constraints.
+- Status card cache limited to 50 entries with 30-second TTL.
+
 ## Unreleased
 
 ### Added
 
-- (reserved for future changes)
-
-### Fixed
-
-- (reserved for future changes)
-
-### Removed
-
-- (reserved for future changes)
-
-## v1.5.0 - 2026-07-03
-
-R2 readiness review (R1.5). Final read-only hardening before write foundation
-work begins. Comprehensive security review and owner approval gate for
-transitioning to R2 planning.
-
-### Added
-### Fixed
-
-- (reserved for future changes)
-
-### Removed
-
-- (reserved for future changes)
-
-- Comprehensive security review covering all read-only surfaces.
-- STRIDE re-review for accumulated R1.x changes.
-- Privacy review for all read-only command output.
-- Dependency and container security review.
-- Upstream compatibility evidence freeze for R1.5 baseline.
-- R2 entry criteria assessment checklist.
-- Owner approval documentation for R2 planning commencement.
+- `logs` command group with per-service subcommands (`dune-postgres`, `dune-redis`,
+  `dune-nginx`, `dune-orchestrator`, `dune-console`, `dune-steamcmd`).
+- `data:verify` subcommand for two-step character linking with in-game whisper code verification.
+- Setup portal guide (`docs/setup-portal-guide.md`) for new users.
+- Post-receive hook fix: replaced broken `git fetch origin` with `git pull deploy`.
+- Stats pusher now writes to both `acp-stats-${INSTANCE_ID}` and `acp-stats-aggregate` KV keys.
 
 ### Changed
 
-- Release planning baseline advanced from R1.x to R2 readiness evaluation.
+- `data:link` now uses two-step verification: primary via Discord's verified Steam
+  connection (instant link), fallback via in-game whisper code sent through RabbitMQ.
+- `admin:broadcast` marked as planned until upstream implements the route.
+- Setup portal intro clarified: only console `.env` editing required, not bot config.
+- Setup portal docker restart command uses `-f docker-compose.web.yml` and service name.
+- `aboutPayload` `readOnly` changed to `false` (bot supports write operations for player linking).
+
+### Fixed
+
+- Guild onboarding DM error now logged with actual error message (was silently swallowed).
+- Landing page counter reset bug: `animateCounter` now preserves previous values
+  between fetches instead of always starting from 0.
+
+### Removed
+
+- `data:maintenance` subcommand (route does not exist in upstream console).
+
+### Security
+
+- Character linking requires ownership proof: Discord Steam connection or
+  in-game RCON code. No public info (Steam ID) can bypass verification.
+- Unique constraint on `player_controller_id` prevents duplicate links.
 
 ## v1.0.0-rc.1 - 2026-07-03
 

@@ -1,8 +1,8 @@
 {
   "ok": true,
-  "result": {
-    "announcements": [
-      {"type": "Broadcast", "message": "Server event in 10 minutes", "timestamp": "2026-07-04T12:00:00Z", "id": "a1"}
-    ]
-  }
+  "announcements": [
+    {"message": "Server maintenance scheduled for 2024-01-15 02:00 UTC", "source": "admin", "timestamp": "2024-01-14T10:00:00Z"},
+    {"message": "New spice field discovered in Deep Desert", "source": "system", "timestamp": "2024-01-14T08:30:00Z"},
+    {"message": "Harkonnen forces repelled from Arrakeen", "source": "game", "timestamp": "2024-01-14T06:15:00Z"}
+  ]
 }

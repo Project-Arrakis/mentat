@@ -1,11 +1,12 @@
 import { REST, Routes } from "discord.js";
 import { commandDefinitions } from "../src/commands.js";
 import { loadConfig } from "../src/config.js";
+import { writesEnabled } from "../src/writes.js";
 import { logInfo } from "../src/logger.js";
 
 const config = loadConfig();
 const rest = new REST({ version: "10" }).setToken(config.discord.token);
-const commands = commandDefinitions();
+const commands = commandDefinitions({ includeWriteGroup: writesEnabled(config) });
 
 if (config.discord.guildId) {
   await rest.put(Routes.applicationGuildCommands(config.discord.clientId, config.discord.guildId), { body: commands });

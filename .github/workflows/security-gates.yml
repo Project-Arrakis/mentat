@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+      - "feature/**"
+      - "fix/**"
   workflow_dispatch:
   schedule:
     - cron: "17 9 * * 1"
@@ -98,7 +100,7 @@ jobs:
       - name: Build runtime image
         run: |
           for i in 1 2 3; do
-            docker build -t dune-awakening-selfhost-discordbot:${{ github.sha }} . && exit 0
+            docker build -t arrakis-control-panel:${{ github.sha }} . && exit 0
             echo "Docker build attempt $i failed, retrying in 30s..."
             sleep 30
           done
@@ -107,7 +109,7 @@ jobs:
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
-          image-ref: dune-awakening-selfhost-discordbot:${{ github.sha }}
+          image-ref: arrakis-control-panel:${{ github.sha }}
           scanners: vuln,misconfig
           severity: HIGH,CRITICAL
           ignore-unfixed: true

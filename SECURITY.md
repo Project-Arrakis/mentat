@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-The project is pre-1.0. Security fixes land on `main` first and are released by
+The project is at v1.5.0. Security fixes land on `main` first and are released by
 tagging the next patch or minor version after the normal PR and security-gate
 process completes. Operators should run the latest GitHub Release or the current
 `main` branch only when they intentionally want unreleased changes.
@@ -37,15 +37,36 @@ If a Discord bot token or Dune adapter token is exposed:
 
 ## Security Scope
 
-In v1, the bot is read-only and must not:
+In v1, the bot is read-only by default. Write commands exist but are disabled
+by default (`DUNE_DISCORD_WRITES_ENABLED=false`). The bot must not:
 
 - mount the Docker socket
-- connect directly to a database
+- connect directly to the **game** database (the bot maintains its own SQLite DB for multi-tenant config)
 - read game files
-- execute shell commands
-- restart services
-- mutate WebUI state
+- execute arbitrary shell commands
+- restart services (unless write commands are explicitly enabled)
+- mutate WebUI state (unless write commands are explicitly enabled)
 - expose Discord or WebUI tokens in logs or responses
+
+### Write-Safety Boundary
+
+Write commands are scaffolded and gated behind `DUNE_DISCORD_WRITES_ENABLED`.
+When enabled, all write operations:
+- Require confirmation before execution
+- Generate idempotency keys for safety
+- Are audited with actor context
+- Are restricted to `DISCORD_WRITE_ADMIN_ROLE_IDS` or `DISCORD_WRITE_OWNER_ROLE_IDS`
+
+### Multi-Tenant Data Isolation
+
+In multi-tenant mode (`ACP_MULTI_TENANT=true`), the bot maintains its own SQLite
+database (`data/acp.db`) with per-guild data isolation:
+- Each guild's console URL and adapter token are scoped to that guild
+- Player-to-character links are scoped per guild
+- RBAC roles are configured per guild
+- OAuth2 sessions are isolated per guild
+
+The bot does **not** connect to the game database or access game files directly.
 
 Current redaction covers credential-like fields, emails, Steam identifiers,
 Funcom identifiers, and explicit real-name fields before output reaches Discord

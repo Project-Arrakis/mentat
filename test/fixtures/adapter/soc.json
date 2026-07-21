@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "result": {
+    "bridgeHealth": "healthy",
+    "totalRequests": 45892,
+    "alerts": 3,
+    "avgResponseMs": 142,
+    "errors": 12,
+    "endpoints": {
+      "health": "ok",
+      "status": "ok",
+      "population": "ok",
+      "backups": "ok",
+      "combat": "ok"
+    }
+  }
+}

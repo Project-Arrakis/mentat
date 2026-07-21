@@ -46,7 +46,18 @@ test("buildDuneCommand uses subcommand groups", () => {
   const groups = cmd.options.filter(o => o.type === 2); // SUB_COMMAND_GROUP = 2
   assert.ok(groups.length >= 6, `expected 6+ groups, got ${groups.length}`);
   const names = groups.map(g => g.name).sort();
-  assert.deepEqual(names, ["admin", "core", "data", "infra", "ops", "server"]);
+  assert.deepEqual(names, ["admin", "core", "data", "infra", "logs", "ops", "server"]);
+});
+
+test("buildDuneCommand includes write group only when enabled", () => {
+  const disabled = buildDuneCommand({ includeWriteGroup: false }).toJSON();
+  const disabledNames = disabled.options.filter(o => o.type === 2).map(g => g.name);
+  assert.equal(disabledNames.includes("write"), false, "write group must not be registered when disabled");
+
+  const enabled = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+  const enabledNames = enabled.options.filter(o => o.type === 2).map(g => g.name);
+  assert.equal(enabledNames.includes("write"), true, "write group must be registered when enabled");
+  assert.ok(enabledNames.length >= 7, `expected 7+ groups, got ${enabledNames.length}`);
 });
 
 test("extractRoleIds supports discord.js role cache shape", () => {
@@ -55,21 +66,21 @@ test("extractRoleIds supports discord.js role cache shape", () => {
 });
 
 test("isCommandAllowed allows group:subcommand format", () => {
-  const rbac = { mode: "restricted", commandRoleIds: { "core:about": ["role-a"] } };
-  assert.equal(isCommandAllowed({ member: { roles: ["role-a"] } }, "core:about", rbac), true);
-  assert.equal(isCommandAllowed({ member: { roles: ["role-b"] } }, "core:about", rbac), false);
+  const config = { multiTenant: false, discord: { rbac: { mode: "restricted", commandRoleIds: { "core:about": ["role-a"] } } } };
+  assert.equal(isCommandAllowed({ member: { roles: ["role-a"] } }, "core:about", config), true);
+  assert.equal(isCommandAllowed({ member: { roles: ["role-b"] } }, "core:about", config), false);
 });
 
 test("isCommandAllowed falls back to observer/admin for unknown commands", () => {
-  const rbac = { mode: "restricted", observerRoleIds: ["role-a"], adminRoleIds: ["role-b"] };
-  assert.equal(isCommandAllowed({ member: { roles: ["role-a"] } }, "ops:dashboard", rbac), true);
-  assert.equal(isCommandAllowed({ member: { roles: [] } }, "ops:dashboard", rbac), false);
+  const config = { multiTenant: false, discord: { rbac: { mode: "restricted", observerRoleIds: ["role-a"], adminRoleIds: ["role-b"] } } };
+  assert.equal(isCommandAllowed({ member: { roles: ["role-a"] } }, "ops:dashboard", config), true);
+  assert.equal(isCommandAllowed({ member: { roles: [] } }, "ops:dashboard", config), false);
 });
 
 test("isCommandAllowed permits all in open mode", () => {
-  const rbac = { mode: "open" };
-  assert.equal(isCommandAllowed({}, "core:about", rbac), true);
-  assert.equal(isCommandAllowed({}, "unknown:cmd", rbac), true);
+  const config = { multiTenant: false, discord: { rbac: { mode: "open" } } };
+  assert.equal(isCommandAllowed({}, "core:about", config), true);
+  assert.equal(isCommandAllowed({}, "unknown:cmd", config), true);
 });
 
 test("executeDuneCommand handles core:about without calling the adapter", async () => {
@@ -128,7 +139,7 @@ test("actorFromInteraction emits minimal Discord context", () => {
 test("aboutPayload exposes safe metadata without secrets", () => {
   const payload = aboutPayload({ adapter: { baseUrl: "https://user:pass@example.com:8443/console", timeoutMs: 5000 }, discord: { defaultEphemeral: true, rbac: { mode: "restricted" } } });
   assert.equal(payload.bot.version, packageVersion);
-  assert.equal(payload.bot.readOnly, true);
+  assert.equal(payload.bot.readOnly, false);
   assert.equal(payload.bot.writesEnabled, false);
   assert.equal(payload.adapter.origin, "https://example.com:8443");
   assert.ok(payload.adapter.timeoutMs > 0);
@@ -170,4 +181,61 @@ test("requiredRoleIdsForCommand looks up configured roles", () => {
   const rbac = { commandRoleIds: { "server:status": ["role-a", "role-b"] } };
   assert.deepEqual(requiredRoleIdsForCommand("server:status", rbac), ["role-a", "role-b"]);
   assert.deepEqual(requiredRoleIdsForCommand("unknown", rbac), []);
+});
+
+test("admin:broadcast returns disabled when writes are off", async () => {
+  let edited;
+  const interaction = mockInteraction("admin", "broadcast", {
+    user: { id: "u1" },
+    roles: ["role-a"]
+  });
+  interaction.options.getString = () => "Server restart in 5m";
+  interaction.deferReply = async (o) => { };
+  interaction.editReply = async (r) => { edited = r; };
+
+  const handled = await executeDuneCommand(interaction, {}, {
+    adapter: { baseUrl: "http://console-api:3000", timeoutMs: 8000 },
+    discord: { defaultEphemeral: true, rbac: { mode: "restricted", commandRoleIds: { "admin:broadcast": ["role-a"] } } }
+  });
+  assert.equal(handled, true);
+  assert.ok(edited?.embeds?.[0]?.data?.title, "broadcast embed has title");
+});
+
+test("admin:broadcast is blocked by RBAC when user has no role", async () => {
+  const interaction = mockInteraction("admin", "broadcast", {
+    user: { id: "not-allowed" },
+    roles: []
+  });
+  interaction.options.getString = () => "msg";
+  let immediateReply;
+  interaction.reply = async (r) => { immediateReply = r; };
+  interaction.deferReply = async () => { throw new Error("should not defer"); };
+  interaction.editReply = async () => { throw new Error("should not edit"); };
+
+  const handled = await executeDuneCommand(interaction, {}, {
+    adapter: { baseUrl: "http://console-api:3000", timeoutMs: 8000 },
+    discord: { defaultEphemeral: true, rbac: { mode: "restricted", commandRoleIds: { "admin:broadcast": ["role-a"] } } }
+  });
+  assert.equal(handled, true);
+  assert.equal(immediateReply?.content?.includes("not authorized"), true, "RBAC blocks unauthorized broadcast");
+});
+
+test("infra commands are RBAC-gated through fallback observer/admin", async () => {
+  let edited;
+  const interaction = mockInteraction("infra", "version", {
+    user: { id: "u1" },
+    roles: ["observer-role"]
+  });
+  interaction.deferReply = async (o) => { };
+  interaction.editReply = async (r) => { edited = r; };
+
+  let seenActor;
+  const client = { version: async (actor) => { seenActor = actor; return { ok: true, version: "1.3.41" }; } };
+
+  await executeDuneCommand(interaction, client, {
+    adapter: { baseUrl: "http://console-api:3000", timeoutMs: 8000 },
+    discord: { defaultEphemeral: true, rbac: { mode: "restricted", observerRoleIds: ["observer-role"], adminRoleIds: ["admin-role"] } }
+  });
+  assert.ok(edited?.embeds?.[0]?.data?.title, "infra:version embed has title");
+  assert.equal(seenActor.userId, "u1", "actor context sent to adapter");
 });

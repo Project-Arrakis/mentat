@@ -52,6 +52,12 @@ export const OPS_COMMANDS = Object.freeze({
     path: "/api/integrations/discord/ops/dashboard",
     method: "POST",
     description: "Show aggregated operational dashboard summary."
+  },
+  announcements: {
+    route: "ops-announcements",
+    path: "/api/integrations/discord/ops/announcements",
+    method: "POST",
+    description: "Show recent server and game announcements."
   }
 });
 
@@ -84,6 +90,7 @@ export function formatOpsPayload(subcommand, rawPayload) {
 
 function sanitizeOpsResult(result) {
   if (!result || typeof result !== "object") return { value: result };
+  if (Array.isArray(result)) return result;
   const safe = {};
   for (const [key, value] of Object.entries(result)) {
     if (BLOCKED_OPS_KEYS.has(key)) continue;

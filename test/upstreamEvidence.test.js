@@ -3,9 +3,9 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
 const currentEvidence = Object.freeze({
-  commit: "5163bd8",
-  tag: "v1.3.41",
-  date: "July 3, 2026"
+  commit: "fdaca43",
+  tag: "v1.3.60",
+  date: "July 18, 2026"
 });
 
 const livingEvidenceDocs = Object.freeze([
@@ -20,6 +20,8 @@ const supersededEvidenceTerms = Object.freeze([
   "v1.3.37",
   "v1.3.38-rc.1",
   "v1.3.40",
+  "v1.3.41",
+  "5163bd8",
   "fea65b4",
   "233aedf"
 ]);

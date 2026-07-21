@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "result": {
+    "containers": [
+      {"name": "game-server", "status": "running", "cpuPercent": 45, "memoryMb": 2048, "restarts": 0},
+      {"name": "ops-bridge", "status": "running", "cpuPercent": 12, "memoryMb": 256, "restarts": 1},
+      {"name": "postgres", "status": "running", "cpuPercent": 23, "memoryMb": 512, "restarts": 0},
+      {"name": "redis", "status": "running", "cpuPercent": 5, "memoryMb": 128, "restarts": 0}
+    ],
+    "cpuAvg": 21.25,
+    "memAvg": 736,
+    "totalRestarts": 1
+  }
+}

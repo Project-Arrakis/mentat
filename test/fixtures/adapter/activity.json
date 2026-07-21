@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "result": {
+    "activeLast1h": 42,
+    "activeLast24h": 312,
+    "peakConcurrent": 89,
+    "totalSessions": 1547,
+    "avgSessionMinutes": 47,
+    "perGuild": {
+      "Atreides": 18,
+      "Harkonnen": 14,
+      "Fremen": 10
+    },
+    "perMap": {
+      "Arrakis": 35,
+      "Tutorial": 7
+    }
+  }
+}

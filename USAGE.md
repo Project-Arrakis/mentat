@@ -1,19 +1,50 @@
 # Usage
 
-Register one `/dune` slash command. All current subcommands are read-only and
-pass through the WebUI Discord adapter.
+Register one `/dune` slash command with 6 command groups (plus a conditional 7th).
+Commands pass through the WebUI Discord adapter and are RBAC-gated.
 
 ## Commands
 
+Type `/dune` in Discord and select a group:
+
+| Group | Purpose | Commands |
+| --- | --- | --- |
+| `core` | Bot information and help | `about`, `ping`, `help`, `setup` |
+| `server` | Game server health | `health`, `status`, `summary`, `readiness`, `readiness-detail`, `services`, `services-detail` |
+| `data` | Game world data and player features | `population`, `backups`, `maps`, `maintenance`, `link`, `unlink`, `faction`, `whoami`, `inventory`, `storage`, `find` |
+| `ops` | Operational stats | `activity`, `combat`, `resources`, `economy`, `inventory`, `location`, `soc`, `prometheus`, `dashboard` |
+| `admin` | Administration | `doctor`, `cooldowns`, `latency`, `events`, `broadcast` |
+| `infra` | Infrastructure | `version`, `servers`, `ports`, `db` |
+| `write` | Write operations (disabled by default) | `maintenance-note`, `maintenance-window`, `alert-channel`, `alert-threshold`, `digest-schedule`, `post-schedule`, `add-channel`, `remove-channel`, `backup`, `restart`, `update`, `cache` |
+
+### Key Commands
+
 | Command | Purpose | Adapter call |
 | --- | --- | --- |
-| `/dune about` | Shows safe bot and adapter metadata. | none |
-| `/dune ping` | Measures Discord defer timing and adapter health latency. | `GET /api/integrations/discord/health` |
-| `/dune health` | Shows adapter health. | `GET /api/integrations/discord/health` |
-| `/dune status` | Shows high-level server status. | `POST /api/integrations/discord/status` |
-| `/dune status-summary` | Shows compact aggregate server status. | `POST /api/integrations/discord/status` |
-| `/dune readiness` | Shows readiness and preflight state. | `POST /api/integrations/discord/readiness` |
-| `/dune services` | Shows service state. | `POST /api/integrations/discord/services` |
+| `/dune core about` | Shows safe bot and adapter metadata | none |
+| `/dune core ping` | Measures Discord defer timing and adapter health latency | `GET /api/integrations/discord/health` |
+| `/dune server health` | Shows adapter health | `GET /api/integrations/discord/health` |
+| `/dune server status` | Shows high-level server status | `POST /api/integrations/discord/status` |
+| `/dune server summary` | Shows compact aggregate server status | `POST /api/integrations/discord/status` |
+| `/dune server readiness` | Shows readiness and preflight state | `POST /api/integrations/discord/readiness` |
+| `/dune server services` | Shows service state | `POST /api/integrations/discord/services` |
+| `/dune data population` | Shows player count | `POST /api/integrations/discord/population` |
+| `/dune data link <character>` | Link Discord to in-game character | `POST /api/integrations/discord/players/link` |
+| `/dune data inventory` | View character inventory | `POST /api/integrations/discord/players/inventory` |
+| `/dune infra version` | Shows Dune stack version | `GET /api/integrations/discord/version` |
+
+> Add `diagnostic:true` to `/dune server status` or `/dune server readiness` for full CLI output (admins only).
+
+### OPS Commands
+
+OPS commands return planned/placeholder data until the upstream OPS addon is merged.
+They are available for testing but will not show real operational data until the
+console-side implementation is complete.
+
+### Write Commands
+
+Write commands are disabled by default. Set `DUNE_DISCORD_WRITES_ENABLED=true` to enable.
+All write operations require confirmation and generate idempotency keys for safety.
 
 Command output is ephemeral by default. Set `DISCORD_DEFAULT_EPHEMERAL=false`
 only when the target channel and RBAC model are appropriate for shared server
@@ -31,6 +62,12 @@ configured before startup succeeds.
   cases.
 - `DISCORD_RBAC_MODE=open` is for local testing only.
 
+### Multi-Tenant RBAC
+
+When `ACP_MULTI_TENANT=true`, RBAC is configured per-guild via the web setup portal
+or DM onboarding. Role IDs are stored in the bot's SQLite database rather than
+environment variables. See [Configuration Reference](docs/configuration.md) for details.
+
 ## Data Handling
 
 The bot sends minimal actor context to `POST` adapter routes: Discord user ID,
@@ -40,6 +77,29 @@ tokens, adapter tokens, or broader Discord profile data.
 Before output reaches Discord or logs, the bot redacts credential-like fields,
 emails, Steam identifiers, Funcom identifiers, and explicit real-name fields.
 The project is not expected to process PCI/payment-card data.
+
+### Data Storage
+
+In multi-tenant mode, the bot stores per-guild configuration in a local SQLite
+database (`data/acp.db`). This includes:
+- Guild console URLs and adapter tokens (encrypted at rest)
+- Per-guild role IDs for RBAC
+- Per-guild settings (cooldowns, schedule, announcements)
+- Player-to-character links (scoped per guild)
+- OAuth2 session state for the setup portal
+
+The bot does **not** connect to the game database or access game files directly.
+
+## Multi-Tenant Mode
+
+When `ACP_MULTI_TENANT=true`, the bot runs as a centralized service serving
+multiple Discord servers. Each guild connects to its own Dune console.
+
+Setup options:
+1. **Web Portal** — Visit `http://your-server:3100/setup` to configure via OAuth2
+2. **DM Onboarding** — When the bot joins a new server, it DMs the owner a setup link
+
+See [Multi-Tenant Design](docs/multi-tenant-design.md) for architecture details.
 
 ## Troubleshooting
 
@@ -75,5 +135,7 @@ requests.
 - `SUPPORT.md`
 - `docs/adapter-contract.md`
 - `docs/configuration.md`
-- `docs/operator-validation.md`
+- `docs/admin-guide.md`
+- `docs/user-guide.md`
+- `docs/multi-tenant-design.md`
 - `docs/verification.md`

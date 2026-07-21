@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "result": {
+    "totalCurrency": 45892341,
+    "activeOrders": 1247,
+    "totalTaxes": 892341,
+    "transactions24h": 3847,
+    "marketplaces": 12,
+    "topTraders": [
+      {"name": "Guild Navigator", "volume": 892341},
+      {"name": "Spice Merchant", "volume": 567234},
+      {"name": "Water Trader", "volume": 345123}
+    ]
+  }
+}

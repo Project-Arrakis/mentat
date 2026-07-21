@@ -1,8 +1,8 @@
 {
-  "name": "dune-awakening-selfhost-discordbot",
-  "version": "1.5.0",
+  "name": "arrakis-control-panel",
+  "version": "1.0.0-rc.2",
   "private": true,
-  "description": "Read-only Discord bot for Dune Awakening Self-Host Docker.",
+  "description": "Arrakis Control Panel: a self-hosted Discord control panel for Dune Awakening server operations.",
   "type": "module",
   "engines": {
     "node": ">=20.18.0"
@@ -13,21 +13,32 @@
     "package:addon": "node scripts/package-addon.js",
     "register": "node scripts/register-commands.js",
     "release:check": "node scripts/validate-release.js",
+    "release:prepare": "bash scripts/cut-release.sh",
+    "release:dry-run": "bash scripts/cut-release.sh --dry-run",
+    "release:gates": "npm run check && npm audit --audit-level=moderate && npm run security:check && npm run security:api",
     "smoke:adapter": "node scripts/operator-smoke.js",
     "sbom": "node scripts/generate-sbom.js",
     "validate:operator": "node scripts/validate-operator.js",
-    "test": "node --test",
+    "test": "node scripts/run-tests.js",
+    "test:harness": "node test/discord-bot-test-harness.js",
     "check": "npm test && npm run release:check && npm run package:addon && npm run sbom",
     "compat:check": "node scripts/check-compatibility.js",
     "security:api": "node scripts/api-security-test.js",
     "validate:docs": "node scripts/validate-docs.js",
-    "security:check": "bash scripts/security-check-notify.sh"
+    "security:check": "bash scripts/security-check-notify.sh",
+    "coverage": "c8 --reporter=text --reporter=lcov --exclude=\"test/**\" --exclude=\"node_modules/**\" --exclude=\"scripts/**\" node --test test/*.test.js",
+    "coverage:check": "c8 --reporter=text --reporter=lcov --exclude=\"test/**\" --exclude=\"node_modules/**\" --exclude=\"scripts/**\" --lines=70 --functions=70 --branches=60 --statements=70 node --test test/*.test.js"
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.2",
-    "discord.js": "^14.26.4"
+    "better-sqlite3": "^12.11.1",
+    "discord.js": "^14.26.4",
+    "express": "^5.2.1"
   },
   "overrides": {
     "undici": "6.27.0"
+  },
+  "devDependencies": {
+    "c8": "^11.0.0"
   }
 }

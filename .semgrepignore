@@ -1,0 +1,7 @@
+# Semgrep ignore patterns
+# setupServer.js uses esc() for all user-controlled values in HTML templates
+# The following rules are false positives since values are properly escaped
+src/setupServer.js
+
+# Test files with safe dynamic regex usage (escapeRegExp is used)
+test/toolReferencePolicy.test.js

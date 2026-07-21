@@ -30,6 +30,21 @@ const UPSTREAM_CONTRACT = Object.freeze({
     path: "/api/integrations/discord/population",
     fixture: "population.json"
   },
+  logs: {
+    method: "POST",
+    path: "/api/integrations/discord/logs",
+    fixture: "ops.json"
+  },
+  "map-state": {
+    method: "POST",
+    path: "/api/integrations/discord/map-state",
+    fixture: "ops.json"
+  },
+  maintenance: {
+    method: "POST",
+    path: "/api/integrations/discord/maintenance",
+    fixture: "ops.json"
+  },
   backups: {
     method: "GET",
     path: "/api/integrations/discord/backups/list",
@@ -49,6 +64,8 @@ const UPSTREAM_CONTRACT = Object.freeze({
   servers: { method: "POST", path: "/api/integrations/discord/servers", fixture: "ops.json" },
   ports: { method: "POST", path: "/api/integrations/discord/ports", fixture: "ops.json" },
   db: { method: "POST", path: "/api/integrations/discord/db", fixture: "ops.json" },
+  "write-execute": { method: "POST", path: "/api/integrations/discord/write/execute", fixture: "broadcast.json" },
+  "write-preview": { method: "POST", path: "/api/integrations/discord/write/preview", fixture: "broadcast.json" },
   "ops-activity": { method: "POST", path: "/api/integrations/discord/ops/activity", fixture: "ops.json" },
   "ops-combat": { method: "POST", path: "/api/integrations/discord/ops/combat", fixture: "ops.json" },
   "ops-resources": { method: "POST", path: "/api/integrations/discord/ops/resources", fixture: "ops.json" },
@@ -57,7 +74,17 @@ const UPSTREAM_CONTRACT = Object.freeze({
   "ops-location": { method: "POST", path: "/api/integrations/discord/ops/location", fixture: "ops.json" },
   "ops-soc": { method: "POST", path: "/api/integrations/discord/ops/soc", fixture: "ops.json" },
   "ops-prometheus": { method: "POST", path: "/api/integrations/discord/ops/prometheus", fixture: "ops.json" },
-  "ops-dashboard": { method: "POST", path: "/api/integrations/discord/ops/dashboard", fixture: "ops.json" }
+  "ops-dashboard": { method: "POST", path: "/api/integrations/discord/ops/dashboard", fixture: "ops.json" },
+  "players-link": { method: "POST", path: "/api/integrations/discord/players/link", fixture: "ops.json" },
+  "players-unlink": { method: "POST", path: "/api/integrations/discord/players/unlink", fixture: "ops.json" },
+  "players-me": { method: "POST", path: "/api/integrations/discord/players/me", fixture: "ops.json" },
+  "players-faction": { method: "POST", path: "/api/integrations/discord/players/faction", fixture: "ops.json" },
+  "players-inventory": { method: "POST", path: "/api/integrations/discord/players/inventory", fixture: "ops.json" },
+  "players-inventory-search": { method: "POST", path: "/api/integrations/discord/players/inventory-search", fixture: "ops.json" },
+  "players-storage": { method: "POST", path: "/api/integrations/discord/players/storage", fixture: "ops.json" },
+  "players-find": { method: "POST", path: "/api/integrations/discord/players/find", fixture: "ops.json" },
+  "guild-storage": { method: "POST", path: "/api/integrations/discord/guilds/storage", fixture: "ops.json" },
+  "guild-find": { method: "POST", path: "/api/integrations/discord/guilds/find", fixture: "ops.json" }
 });
 
 function routeToMethodName(route) {
