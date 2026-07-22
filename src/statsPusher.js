@@ -44,7 +44,13 @@ async function fetchAggregate(adapterClient, db) {
     const resources = await adapterClient.opsResources("system", undefined).catch(() => null);
     if (resources?.ok) {
       const r = resources.result || resources;
-      aggregates.spice_fields = extract(r, "spiceFields") || 0;
+      const dd = r.deepDesert || {};
+      const hb = r.haggaBasin || {};
+      const ddInstances = Array.isArray(dd.instances) ? dd.instances : [];
+      const hbSietches = Array.isArray(hb.sietches) ? hb.sietches : [];
+      const ddActive = ddInstances.reduce((s, i) => s + ((i.smallActive || 0) + (i.mediumActive || 0) + (i.largeActive || 0)), 0);
+      const hbActive = hbSietches.reduce((s, si) => s + ((si.smallActive || 0) + (si.mediumActive || 0) + (si.largeActive || 0)), 0);
+      aggregates.spice_fields = (r.spiceFields || 0) + ddActive + hbActive;
       aggregates.water_wells = extract(r, "waterWells") || 0;
       aggregates.mineral_nodes = extract(r, "mineralNodes") || 0;
     }
