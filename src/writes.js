@@ -17,15 +17,24 @@ export function writeRoleIds(env = process.env) {
   };
 }
 
-export function canWrite(interaction, config) {
+// requiredTier is optional for backward compatibility with callers that have
+// no per-command tier concept (e.g. broadcast.js). When provided as "admin"
+// or "owner", enforces tier separation: an "admin" role may only perform
+// "admin"-tier actions, never "owner"-tier ones. Without requiredTier, any
+// write-admin or write-owner role passes (legacy/union behavior).
+export function canWrite(interaction, config, requiredTier = null) {
   if (!writesEnabled(config)) return false;
   if (!interaction?.member?.roles) return false;
 
   const roleIds = extractRoleIds(interaction);
   const writeRoles = writeRoleIds();
-  const allWriteRoles = new Set([...writeRoles.admin, ...writeRoles.owner]);
+  const isOwner = roleIds.some((r) => writeRoles.owner.includes(r));
+  const isAdmin = roleIds.some((r) => writeRoles.admin.includes(r));
 
-  return roleIds.some((r) => allWriteRoles.has(r));
+  if (requiredTier === "owner") return isOwner;
+  if (requiredTier === "admin") return isAdmin || isOwner;
+
+  return isAdmin || isOwner;
 }
 
 export function generateIdempotencyKey() {

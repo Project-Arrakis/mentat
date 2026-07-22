@@ -12,6 +12,7 @@ import { createSetupServer } from "./setupServer.js";
 import { createSteamLinkServer } from "./steamLinkServer.js";
 import { handleGuildCreate, handleGuildDelete } from "./onboarding.js";
 import { startStatsPusher } from "./statsPusher.js";
+import { handleWriteButtonInteraction } from "./writeConfirmation.js";
 
 const config = loadConfig();
 const db = config.multiTenant ? createDatabase(config.dbPath) : null;
@@ -137,6 +138,12 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    // Write-confirmation buttons (confirm/cancel/timeout) are real,
+    // handled component interactions -- route them first.
+    if (interaction.isButton?.()) {
+      await handleWriteButtonInteraction(interaction);
+      return;
+    }
     // Closes a previously-total gap: this handler used to only ever check
     // isChatInputCommand?.() inside executeDuneCommand() and silently fall
     // through (return false) for anything else, including component

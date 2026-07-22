@@ -3,6 +3,7 @@
 // AND the upstream write-adapter contract is implemented.
 
 import { writesEnabled, canWrite, requireConfirmation, generateIdempotencyKey, writeAuditEvent } from "./writes.js";
+import { createPendingConfirmation, writeTimeoutAuditEvent } from "./writeConfirmation.js";
 
 export const WRITE_COMMANDS = Object.freeze([
   // Maintenance (admin tier)
@@ -53,12 +54,33 @@ export async function handleWriteCommand({ subcommand, interaction, adapterClien
   const def = WRITE_COMMANDS.find(c => c.name === subcommand);
   if (!def) return { ok: false, error: `Unknown write command: ${subcommand}` };
 
-  if (!canWrite(interaction, config)) {
-    return { ok: false, error: "Not authorized for write operations. Requires write-admin or write-owner role." };
+  // Enforces tier separation: write-admin roles cannot reach owner-tier
+  // actions (restart-service, trigger-update, create-backup, clear-cache).
+  if (!canWrite(interaction, config, def.tier)) {
+    const requiresOwner = def.tier === "owner";
+    return {
+      ok: false,
+      error: requiresOwner
+        ? "Not authorized for write operations. This action requires the write-owner role."
+        : "Not authorized for write operations. Requires write-admin or write-owner role."
+    };
   }
 
   const idempotencyKey = generateIdempotencyKey();
   const confirmation = requireConfirmation({ action: def.action, target: def.tier, risk: def.risk });
+
+  // Registers a button-based confirmation (see writeConfirmation.js and
+  // docs/rw-confirmation-flow.md). Confirming reports a scaffolded status —
+  // it never calls adapterClient.writePreview()/writeExecute(); see
+  // writeConfirmation.js header for why.
+  const { embed, row } = createPendingConfirmation({
+    idempotencyKey,
+    action: def.action,
+    tier: def.tier,
+    risk: def.risk,
+    userId: interaction?.user?.id,
+    onTimeout: (entry) => writeTimeoutAuditEvent(entry, idempotencyKey)
+  });
 
   return {
     ok: true,
@@ -68,6 +90,8 @@ export async function handleWriteCommand({ subcommand, interaction, adapterClien
     idempotencyKey,
     needsConfirmation: true,
     confirmationMessage: confirmation.message,
+    confirmationEmbed: embed,
+    confirmationRow: row,
     status: "pending-upstream",
     message: "Write command scaffolded. Awaiting upstream write-adapter contract implementation."
   };
