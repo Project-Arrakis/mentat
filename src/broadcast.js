@@ -105,12 +105,18 @@ export async function sendBroadcastToAdapter({
   message,
   actor,
   idempotencyKey,
+  guildId,
   config
 } = {}) {
   if (!broadcastEnabled(config)) throw new Error("Broadcast disabled.");
 
   try {
-    const response = await adapterClient.broadcast(actor, message, idempotencyKey);
+    // AdapterClient.broadcast(actor, message, guildId) — the "broadcast"
+    // route is currently PLANNED upstream (see adapterClient.js LIVE_ROUTES
+    // vs PLANNED_ROUTES) and has no idempotency-key parameter yet; the key is
+    // still returned to the caller for audit/logging until the adapter
+    // contract supports passing it through.
+    const response = await adapterClient.broadcast(actor, message, guildId);
     return { ok: true, response, idempotencyKey };
   } catch (error) {
     return {

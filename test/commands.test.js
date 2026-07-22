@@ -31,13 +31,14 @@ function mockInteraction(group, subcommand, opts = {}) {
   return {
     isChatInputCommand: () => true,
     commandName: "dune",
-    options: mockOptions(group, subcommand),
+    options: opts.options || mockOptions(group, subcommand),
     user: opts.user || { id: "user-1" },
     member: opts.member || { roles: opts.roles || ["role-a"] },
     guildId: opts.guildId || "guild-1",
     channelId: opts.channelId || "channel-1",
     deferReply: async (o) => { },
-    editReply: async (r) => { }
+    editReply: async (r) => { },
+    reply: async (r) => { }
   };
 }
 
@@ -126,6 +127,67 @@ test("executeDuneCommand handles server:summary through the status route", async
   assert.ok(edited?.embeds?.[0]?.data?.title, "summary embed has title");
 });
 
+test("executeDuneCommand routes data:storage scope=owned to playerStorage", async () => {
+  let calledPlayerStorage = false, calledGuildStorage = false;
+  const interaction = mockInteraction("data", "storage", {
+    user: { id: "storage-owned-user" }, roles: ["role-a"],
+    options: mockOptions("data", "storage", { getString: (name) => (name === "scope" ? "owned" : "") })
+  });
+  interaction.deferReply = async () => { };
+  interaction.editReply = async () => { };
+  const client = {
+    playerStorage: async () => { calledPlayerStorage = true; return { ok: true, groups: {}, scope: "owned" }; },
+    guildStorage: async () => { calledGuildStorage = true; return { ok: true, groups: {}, scope: "guild" }; }
+  };
+
+  await executeDuneCommand(interaction, client, {
+    discord: { defaultEphemeral: true, rbac: { mode: "restricted", commandRoleIds: { "data:storage": ["role-a"] } } }
+  });
+  assert.equal(calledPlayerStorage, true, "owned scope should call playerStorage");
+  assert.equal(calledGuildStorage, false, "owned scope must not call guildStorage");
+});
+
+test("executeDuneCommand routes data:storage scope=guild to guildStorage, not playerStorage", async () => {
+  let calledPlayerStorage = false, calledGuildStorage = false;
+  const interaction = mockInteraction("data", "storage", {
+    user: { id: "storage-guild-user" }, roles: ["role-a"],
+    options: mockOptions("data", "storage", { getString: (name) => (name === "scope" ? "guild" : "") })
+  });
+  interaction.deferReply = async () => { };
+  interaction.editReply = async () => { };
+  const client = {
+    playerStorage: async () => { calledPlayerStorage = true; return { ok: true, groups: {}, scope: "owned" }; },
+    guildStorage: async () => { calledGuildStorage = true; return { ok: true, groups: {}, scope: "guild" }; }
+  };
+
+  await executeDuneCommand(interaction, client, {
+    discord: { defaultEphemeral: true, rbac: { mode: "restricted", commandRoleIds: { "data:storage": ["role-a"] } } }
+  });
+  assert.equal(calledGuildStorage, true, "guild scope should call the guild-scoped route");
+  assert.equal(calledPlayerStorage, false, "guild scope must never fall back to the requester's own player storage");
+});
+
+test("executeDuneCommand routes data:find scope=guild to guildFind, not playerFind", async () => {
+  let calledPlayerFind = false, calledGuildFind = false, seenQuery;
+  const interaction = mockInteraction("data", "find", {
+    user: { id: "find-guild-user" }, roles: ["role-a"],
+    options: mockOptions("data", "find", { getString: (name) => (name === "scope" ? "guild" : name === "query" ? "spice" : "") })
+  });
+  interaction.deferReply = async () => { };
+  interaction.editReply = async () => { };
+  const client = {
+    playerFind: async () => { calledPlayerFind = true; return { ok: true, matches: [] }; },
+    guildFind: async (actor, query) => { calledGuildFind = true; seenQuery = query; return { ok: true, matches: [] }; }
+  };
+
+  await executeDuneCommand(interaction, client, {
+    discord: { defaultEphemeral: true, rbac: { mode: "restricted", commandRoleIds: { "data:find": ["role-a"] } } }
+  });
+  assert.equal(calledGuildFind, true, "guild scope should call the guild-scoped route");
+  assert.equal(calledPlayerFind, false, "guild scope must never fall back to the requester's own player search");
+  assert.equal(seenQuery, "spice");
+});
+
 test("actorFromInteraction emits minimal Discord context", () => {
   const actor = actorFromInteraction({
     user: { id: "user-1" },
@@ -139,7 +201,14 @@ test("actorFromInteraction emits minimal Discord context", () => {
 test("aboutPayload exposes safe metadata without secrets", () => {
   const payload = aboutPayload({ adapter: { baseUrl: "https://user:pass@example.com:8443/console", timeoutMs: 5000 }, discord: { defaultEphemeral: true, rbac: { mode: "restricted" } } });
   assert.equal(payload.bot.version, packageVersion);
-  assert.equal(payload.bot.readOnly, true);
+  // BUG FIX: aboutPayload() hardcoded readOnly: true even though V2
+  // character-linking commands (link/verify/unlink/faction/enable/
+  // disable/default, shipped in #69) write to the local database -- see
+  // "fix: correct read-only state reporting..." commit. This is a
+  // second, independent test asserting the same now-corrected value
+  // (test/discord-bot-test-harness.js's "core:about" test asserts the
+  // rendered embed field; this one asserts the raw payload directly).
+  assert.equal(payload.bot.readOnly, false);
   assert.equal(payload.bot.writesEnabled, false);
   assert.equal(payload.adapter.origin, "https://example.com:8443");
   assert.ok(payload.adapter.timeoutMs > 0);
