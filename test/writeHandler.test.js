@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, beforeEach } from "node:test";
 import { handleWriteCommand, WRITE_COMMANDS } from "../src/writeHandler.js";
+import { getPendingConfirmation, resetPendingConfirmations } from "../src/writeConfirmation.js";
+
+beforeEach(() => resetPendingConfirmations());
 
 function mockInteraction(userId = "user-1", roleIds = []) {
   return {
@@ -79,6 +82,41 @@ test("handleWriteCommand returns confirmation for valid write admin", async () =
   }
 });
 
+test("handleWriteCommand registers a button-based pending confirmation", async () => {
+  const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
+  const oldAdminIds = process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
+  process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
+  process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = "write-admin-role";
+  try {
+    const interaction = mockInteraction("user-42", ["write-admin-role"]);
+    const config = mockConfig(true);
+    const result = await handleWriteCommand({
+      subcommand: "maintenance-note",
+      interaction,
+      adapterClient: {},
+      config
+    });
+
+    assert.ok(result.confirmationEmbed, "should return an embed for the confirmation prompt");
+    assert.ok(result.confirmationRow, "should return a button row for the confirmation prompt");
+
+    const rowJson = result.confirmationRow.toJSON();
+    const customIds = rowJson.components.map((c) => c.custom_id);
+    assert.deepEqual(customIds, [
+      `write:confirm:${result.idempotencyKey}`,
+      `write:cancel:${result.idempotencyKey}`
+    ]);
+
+    const pending = getPendingConfirmation(result.idempotencyKey);
+    assert.ok(pending, "confirmation should be tracked as pending");
+    assert.equal(pending.userId, "user-42");
+    assert.equal(pending.action, "maintenance:set-note");
+  } finally {
+    process.env.DUNE_DISCORD_WRITES_ENABLED = oldEnabled;
+    process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = oldAdminIds;
+  }
+});
+
 test("handleWriteCommand rejects unknown write subcommand", async () => {
   const old = process.env.DUNE_DISCORD_WRITES_ENABLED;
   process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
@@ -125,14 +163,17 @@ test("WRITE_COMMANDS have required fields", () => {
   }
 });
 
-test("all write commands return pending-upstream status", async () => {
+test("all write commands return pending-upstream status for a write-owner user", async () => {
+  // Uses a write-owner role (rather than write-admin) specifically because
+  // owner outranks admin: this test verifies every command's scaffold works,
+  // not tier enforcement, which is covered separately below.
   const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
-  const oldAdminIds = process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
+  const oldOwnerIds = process.env.DISCORD_WRITE_OWNER_ROLE_IDS;
   process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
-  process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = "write-admin-role";
+  process.env.DISCORD_WRITE_OWNER_ROLE_IDS = "write-owner-role";
   try {
     for (const cmd of WRITE_COMMANDS) {
-      const interaction = mockInteraction("user-1", ["write-admin-role"]);
+      const interaction = mockInteraction("user-1", ["write-owner-role"]);
       const config = mockConfig(true);
       const result = await handleWriteCommand({
         subcommand: cmd.name,
@@ -146,7 +187,56 @@ test("all write commands return pending-upstream status", async () => {
     }
   } finally {
     process.env.DUNE_DISCORD_WRITES_ENABLED = oldEnabled;
+    process.env.DISCORD_WRITE_OWNER_ROLE_IDS = oldOwnerIds;
+  }
+});
+
+test("write-admin role cannot reach owner-tier commands (tier separation)", async () => {
+  const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
+  const oldAdminIds = process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
+  process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
+  process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = "write-admin-role";
+  try {
+    const ownerTierCommands = WRITE_COMMANDS.filter((c) => c.tier === "owner");
+    const adminTierCommands = WRITE_COMMANDS.filter((c) => c.tier === "admin");
+    assert.ok(ownerTierCommands.length > 0, "fixture assumption: at least one owner-tier command exists");
+    assert.ok(adminTierCommands.length > 0, "fixture assumption: at least one admin-tier command exists");
+
+    for (const cmd of ownerTierCommands) {
+      const interaction = mockInteraction("user-1", ["write-admin-role"]);
+      const config = mockConfig(true);
+      const result = await handleWriteCommand({ subcommand: cmd.name, interaction, adapterClient: {}, config });
+      assert.equal(result.ok, false, `write-admin must not reach owner-tier ${cmd.name}`);
+      assert.ok(result.error.includes("write-owner"), `${cmd.name} error should mention write-owner role`);
+    }
+
+    for (const cmd of adminTierCommands) {
+      const interaction = mockInteraction("user-1", ["write-admin-role"]);
+      const config = mockConfig(true);
+      const result = await handleWriteCommand({ subcommand: cmd.name, interaction, adapterClient: {}, config });
+      assert.equal(result.ok, true, `write-admin should still reach admin-tier ${cmd.name}`);
+    }
+  } finally {
+    process.env.DUNE_DISCORD_WRITES_ENABLED = oldEnabled;
     process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = oldAdminIds;
+  }
+});
+
+test("write-owner role can reach both admin-tier and owner-tier commands", async () => {
+  const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
+  const oldOwnerIds = process.env.DISCORD_WRITE_OWNER_ROLE_IDS;
+  process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
+  process.env.DISCORD_WRITE_OWNER_ROLE_IDS = "write-owner-role";
+  try {
+    for (const cmd of WRITE_COMMANDS) {
+      const interaction = mockInteraction("user-1", ["write-owner-role"]);
+      const config = mockConfig(true);
+      const result = await handleWriteCommand({ subcommand: cmd.name, interaction, adapterClient: {}, config });
+      assert.equal(result.ok, true, `write-owner should reach ${cmd.tier}-tier ${cmd.name}`);
+    }
+  } finally {
+    process.env.DUNE_DISCORD_WRITES_ENABLED = oldEnabled;
+    process.env.DISCORD_WRITE_OWNER_ROLE_IDS = oldOwnerIds;
   }
 });
 
