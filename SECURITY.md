@@ -2,10 +2,18 @@
 
 ## Supported Versions
 
-The project is at v1.5.0. Security fixes land on `main` first and are released by
-tagging the next patch or minor version after the normal PR and security-gate
-process completes. Operators should run the latest GitHub Release or the current
-`main` branch only when they intentionally want unreleased changes.
+The project is currently at `v1.0.0-rc.2` (pre-1.0 release candidate line; see
+`package.json`, `addon/addon.json`, and `CHANGELOG.md`). Security fixes land on
+`main` first and are released by tagging the next patch or minor version after
+the normal PR and security-gate process completes. Operators should run the
+latest GitHub Release or the current `main` branch only when they intentionally
+want unreleased changes.
+
+Note: an earlier, now-superseded numbering line reached `v1.5.0` in
+`package.json` before the project was renamed to Arrakis Control Panel. That
+line was never tagged or released (no `v1.1.0`&ndash;`v1.5.0` git tag exists),
+and versioning restarted from `v1.0.0-rc.1` under the new name. Any planning
+document still referencing `v1.1.0`&ndash;`v1.5.0` as current is stale.
 
 ## Reporting a Vulnerability
 
