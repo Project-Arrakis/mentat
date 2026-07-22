@@ -1,17 +1,33 @@
 # False positives: deterministic test fixtures and documentation examples.
 # The hardcoded command-auth token in upstream core is a real finding and is NOT allowlisted.
+#
+# Entries below must be exact `Fingerprint` values from `gitleaks git -v .`
+# (format: <commit>:<file>:<rule-id>:<line>). Regenerate with:
+#   gitleaks detect --source . --redact -v
+# Bare paths/globs (e.g. "secrets/", ".env") are NOT valid .gitleaksignore
+# entries and are silently ignored by gitleaks — do not add them here.
 
-# RFC fixture clientRequestId is not a secret.
-test/fixtures/write-adapter/requests/execute-maintenance-note.json:generic-api-key:3
+# RFC 4122 example UUID used in a documentation request example, not a secret.
+1baad1495fcc98814f346e038061d97869a809c6:docs/rw-adapter-contract.md:generic-api-key:88
 
-# Scanner output directory is gitignored but may be scanned locally.
-.security-audit/*
+# Deterministic test fixture identifier, not a secret.
+cf617d691591e614623df9cd7f57d0e3dd40c142:test/fixtures/write-adapter/requests/execute-maintenance-note.json:generic-api-key:3
 
-# Audit report mentions the test fixture identifier in a security context.
-docs/security-audit/2026-07-04-comprehensive-security-audit.md:generic-api-key:71
-.env
-secrets/
-.env:discord-api-token:7
-/home/darkdante/dune-awakening-selfhost-discordbot/.env:discord-api-token:7
-/home/darkdante/dune-awakening-selfhost-discordbot/test/fixtures/write-adapter/requests/execute-maintenance-note.json:generic-api-key:3
-docs/rw-adapter-contract.md:generic-api-key:88
+# Audit report (FINDING-BOT-2) quotes the same test fixture identifier
+# above a second time, at a different line, while documenting it as a
+# known false positive.
+4378968b022e778bb7b5874489abdb3efe2cbd38:docs/security-audit/2026-07-04-comprehensive-security-audit.md:generic-api-key:71
+
+# Audit report (docs/security-audit/2026-07-04-comprehensive-security-audit.md)
+# quotes the already-known, already-public upstream fallback command-auth
+# token (FINDING-CORE-1) for the purpose of documenting it as a finding.
+# This is the SAME already-known token, not a new leak — see the audit
+# report's own recommendation, which explicitly says NOT to allowlist the
+# real occurrence of this token in upstream core, only this doc's mention
+# of it.
+4378968b022e778bb7b5874489abdb3efe2cbd38:docs/security-audit/2026-07-04-comprehensive-security-audit.md:generic-api-key:134
+4378968b022e778bb7b5874489abdb3efe2cbd38:docs/security-audit/2026-07-04-comprehensive-security-audit.md:generic-api-key:135
+
+# Audit report (FINDING-CORE-7) documents an explicitly-labeled example
+# Discord client ID ("123456789012345678") — a placeholder, not a secret.
+4378968b022e778bb7b5874489abdb3efe2cbd38:docs/security-audit/2026-07-04-comprehensive-security-audit.md:discord-client-id:189

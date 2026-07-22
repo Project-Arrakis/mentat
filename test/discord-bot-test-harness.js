@@ -211,7 +211,7 @@ describe('Command Execution', () => {
     assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
     const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
     assert.ok(embed.fields?.some(f => f.name.includes('Bot') && f.value.includes('arrakis-control-panel')), 'Should have bot name');
-    assert.ok(embed.fields?.some(f => f.name.includes('ReadOnly') && f.value.includes('No')), 'Should not be read-only (linking modifies data)');
+    assert.ok(embed.fields?.some(f => f.name.includes('ReadOnly') && f.value.includes('Yes')), 'Should be read-only (bot has no direct DB or RMQ access)');
   });
 
   test('core:ping measures latency', async () => {
