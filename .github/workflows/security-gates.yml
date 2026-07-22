@@ -28,18 +28,17 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=moderate
 
-  dependency-review:
-    name: dependency-review
-    runs-on: ubuntu-24.04
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
-        with:
-          fail-on-severity: moderate
-          vulnerability-check: true
-          license-check: false
-          comment-summary-in-pr: never
+  # Note: `actions/dependency-review-action` is intentionally not run here.
+  # It requires the repository Dependency Graph API, which GitHub only
+  # serves for private repositories when GitHub Advanced Security (a paid
+  # Team/Enterprise add-on) is enabled. This repo is private on a personal
+  # plan (`security_and_analysis` is unset, code scanning/dependency graph
+  # both 404), so the action fails unconditionally with "Dependency review
+  # is not supported on this repository" on every PR — a platform
+  # limitation, not something fixable via workflow configuration. The
+  # `dependency-audit` job above (`npm audit`) already covers the same
+  # dependency tree without requiring GHAS. If this repo is ever made
+  # public, or GHAS is licensed for it, this job can be reintroduced.
 
   semgrep-sast:
     name: semgrep-sast

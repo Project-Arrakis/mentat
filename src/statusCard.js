@@ -156,15 +156,21 @@ export async function sendOpsCard({ interaction, payload, subcommand, adapterCli
       break;
     }
     case "resources": {
-      title = "Resources";
-      const fields = (r.spiceFields || 0) + (r.waterWells || 0) + (r.mineralNodes || 0);
-      isError = fields === 0;
-      overall = fields > 0 ? "ACTIVE" : "EMPTY";
-      region = "";
-      mode = "";
+      title = "Spice Melange";
+      const dd = r.deepDesert || {};
+      const hb = r.haggaBasin || {};
+      const ddInstances = Array.isArray(dd.instances) ? dd.instances : [];
+      const hbSietches = Array.isArray(hb.sietches) ? hb.sietches : [];
+      const ddTotalActive = ddInstances.reduce((s, i) => s + ((i.smallActive || 0) + (i.mediumActive || 0) + (i.largeActive || 0)), 0);
+      const hbTotalActive = hbSietches.reduce((s, si) => s + ((si.smallActive || 0) + (si.mediumActive || 0) + (si.largeActive || 0)), 0);
+      const totalFields = (r.spiceFields || 0) + ddTotalActive + hbTotalActive;
+      isError = totalFields === 0;
+      overall = totalFields > 0 ? "ACTIVE" : "EMPTY";
+      region = ddInstances.length > 0 ? `${ddInstances.length} DD` : "";
+      mode = hbSietches.length > 0 ? `${hbSietches.length} HB` : "";
       population = r.spiceFields ? `${r.spiceFields} spice` : "—";
       maps = [];
-      services = fields;
+      services = totalFields;
       latency = 0;
       break;
     }

@@ -781,23 +781,132 @@ export function formatCombatEmbed(payload) {
   });
 }
 
-// ── OPS: Resources ──
+// ── OPS: Resources (Spice Melange) ──
 export function formatResourcesEmbed(payload) {
   const r = payload?.result || payload || {};
-  const fields = [
-    { name: "🌶️ Spice Fields", value: fmtCount(r.spiceFields), inline: true },
-    { name: "💧 Water Wells", value: fmtCount(r.waterWells), inline: true },
-    { name: "⛏️ Mineral Nodes", value: fmtCount(r.mineralNodes), inline: true },
-    { name: "☀️ Solar Arrays", value: fmtCount(r.solarArrays), inline: true },
-    { name: "🌿 Organic Farms", value: fmtCount(r.organicFarms), inline: true },
-  ];
+  const fields = [];
+
+  // ── Deep Desert Section ──
+  const dd = r.deepDesert || {};
+  const ddInstances = Array.isArray(dd.instances) ? dd.instances : [];
+  const ddSummary = dd.summary || {};
+
+  // Deep Desert Summary
+  const ddTotalActive = ddSummary.totalActiveFields ?? ddInstances.reduce((s, i) => s + ((i.smallActive || 0) + (i.mediumActive || 0) + (i.largeActive || 0)), 0);
+  const ddTotalRemaining = ddSummary.totalRemainingSpice ?? ddInstances.reduce((s, i) => s + ((i.smallRemaining || 0) + (i.mediumRemaining || 0) + (i.largeRemaining || 0)), 0);
+  const ddSmallActive = ddSummary.smallActiveFields ?? ddInstances.reduce((s, i) => s + (i.smallActive || 0), 0);
+  const ddMediumActive = ddSummary.mediumActiveFields ?? ddInstances.reduce((s, i) => s + (i.mediumActive || 0), 0);
+  const ddLargeActive = ddSummary.largeActiveFields ?? ddInstances.reduce((s, i) => s + (i.largeActive || 0), 0);
+  const ddSmallRemaining = ddSummary.smallRemainingSpice ?? ddInstances.reduce((s, i) => s + (i.smallRemaining || 0), 0);
+  const ddMediumRemaining = ddSummary.mediumRemainingSpice ?? ddInstances.reduce((s, i) => s + (i.mediumRemaining || 0), 0);
+  const ddLargeRemaining = ddSummary.largeRemainingSpice ?? ddInstances.reduce((s, i) => s + (i.largeRemaining || 0), 0);
+  const ddPvPCount = ddSummary.pvpInstances ?? ddInstances.filter(i => i.type === "pvp" || i.mode === "pvp").length;
+  const ddPvECount = ddSummary.pveInstances ?? ddInstances.filter(i => i.type === "pve" || i.mode === "pve").length;
+
+  let ddSummaryText = "";
+  ddSummaryText += `**Total Active Fields:** ${ddTotalActive.toLocaleString()}\n`;
+  ddSummaryText += `**Total Remaining Spice:** ${ddTotalRemaining.toLocaleString()}\n`;
+  ddSummaryText += `**Small Fields:** ${ddSmallActive.toLocaleString()} active · ${ddSmallRemaining.toLocaleString()} remaining\n`;
+  ddSummaryText += `**Medium Fields:** ${ddMediumActive.toLocaleString()} active · ${ddMediumRemaining.toLocaleString()} remaining\n`;
+  ddSummaryText += `**Large Fields:** ${ddLargeActive.toLocaleString()} active · ${ddLargeRemaining.toLocaleString()} remaining\n`;
+  ddSummaryText += `**PvP Instances:** ${ddPvPCount} · **PvE Instances:** ${ddPvECount}`;
+
+  fields.push({ name: "🏜️ Deep Desert — Summary", value: ddSummaryText, inline: false });
+
+  // Deep Desert Instance List
+  if (ddInstances.length > 0) {
+    const sorted = [...ddInstances].sort((a, b) => {
+      const aNum = parseInt(String(a.name || a.id || "").replace(/\D/g, ""), 10) || 0;
+      const bNum = parseInt(String(b.name || b.id || "").replace(/\D/g, ""), 10) || 0;
+      return aNum - bNum || String(a.name || a.id || "").localeCompare(String(b.name || b.id || ""));
+    });
+
+    for (const inst of sorted) {
+      const instName = inst.name || inst.id || "Unknown";
+      const instType = (inst.type || inst.mode || "pve").toUpperCase();
+      const typeBadge = instType === "PVP" ? "🔴" : "🟢";
+      const sActive = inst.smallActive ?? 0;
+      const mActive = inst.mediumActive ?? 0;
+      const lActive = inst.largeActive ?? 0;
+      const sRemaining = inst.smallRemaining ?? 0;
+      const mRemaining = inst.mediumRemaining ?? 0;
+      const lRemaining = inst.largeRemaining ?? 0;
+
+      let instText = "";
+      instText += `**Small:**   ${String(sActive).padStart(3)} active   ${sRemaining.toLocaleString().padStart(8)} remaining\n`;
+      instText += `**Medium:** ${String(mActive).padStart(3)} active   ${mRemaining.toLocaleString().padStart(8)} remaining\n`;
+      instText += `**Large:**   ${String(lActive).padStart(3)} active   ${lRemaining.toLocaleString().padStart(8)} remaining`;
+
+      fields.push({ name: `${typeBadge} ${instName} — ${instType}`, value: instText, inline: false });
+    }
+  }
+
+  // ── Hagga Basin Section ──
+  const hb = r.haggaBasin || {};
+  const hbSietches = Array.isArray(hb.sietches) ? hb.sietches : [];
+  const hbSummary = hb.summary || {};
+
+  // Hagga Basin Summary
+  const hbTotalActive = hbSummary.totalActiveFields ?? hbSietches.reduce((s, si) => s + ((si.smallActive || 0) + (si.mediumActive || 0) + (si.largeActive || 0)), 0);
+  const hbTotalRemaining = hbSummary.totalRemainingSpice ?? hbSietches.reduce((s, si) => s + ((si.smallRemaining || 0) + (si.mediumRemaining || 0) + (si.largeRemaining || 0)), 0);
+  const hbTotalSietches = hbSummary.totalSietches ?? hbSietches.length;
+  const hbPvPCount = hbSummary.pvpSietches ?? hbSietches.filter(s => s.type === "pvp" || s.mode === "pvp").length;
+  const hbPvECount = hbSummary.pveSietches ?? hbSietches.filter(s => s.type === "pve" || s.mode === "pve").length;
+
+  let hbSummaryText = "";
+  hbSummaryText += `**Total Active Fields:** ${hbTotalActive.toLocaleString()}\n`;
+  hbSummaryText += `**Total Remaining Spice:** ${hbTotalRemaining.toLocaleString()}\n`;
+  hbSummaryText += `**Total Sietches:** ${hbTotalSietches}\n`;
+  hbSummaryText += `**PvP Sietches:** ${hbPvPCount} · **PvE Sietches:** ${hbPvECount}`;
+
+  fields.push({ name: "🏔️ Hagga Basin — Summary", value: hbSummaryText, inline: false });
+
+  // Hagga Basin Sietch List
+  if (hbSietches.length > 0) {
+    const sorted = [...hbSietches].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+
+    for (const sietch of sorted) {
+      const sietchName = sietch.name || "Unknown Sietch";
+      const sietchType = (sietch.type || sietch.mode || "pve").toUpperCase();
+      const typeBadge = sietchType === "PVP" ? "🔴" : "🟢";
+      const sActive = sietch.smallActive ?? 0;
+      const mActive = sietch.mediumActive ?? 0;
+      const lActive = sietch.largeActive ?? 0;
+      const sRemaining = sietch.smallRemaining ?? 0;
+      const mRemaining = sietch.mediumRemaining ?? 0;
+      const lRemaining = sietch.largeRemaining ?? 0;
+
+      let sietchText = "";
+      sietchText += `**Small:**   ${String(sActive).padStart(3)} active   ${sRemaining.toLocaleString().padStart(8)} remaining`;
+      if (mActive > 0 || mRemaining > 0) {
+        sietchText += `\n**Medium:** ${String(mActive).padStart(3)} active   ${mRemaining.toLocaleString().padStart(8)} remaining`;
+      }
+      if (lActive > 0 || lRemaining > 0) {
+        sietchText += `\n**Large:**   ${String(lActive).padStart(3)} active   ${lRemaining.toLocaleString().padStart(8)} remaining`;
+      }
+
+      fields.push({ name: `${typeBadge} ${sietchName} — ${sietchType}`, value: sietchText, inline: false });
+    }
+  }
+
+  // ── Legacy Fallback (if no Deep Desert or Hagga Basin data) ──
+  if (ddInstances.length === 0 && hbSietches.length === 0) {
+    fields.push({ name: "🌶️ Spice Fields", value: fmtCount(r.spiceFields), inline: true });
+    fields.push({ name: "💧 Water Wells", value: fmtCount(r.waterWells), inline: true });
+    fields.push({ name: "⛏️ Mineral Nodes", value: fmtCount(r.mineralNodes), inline: true });
+    fields.push({ name: "☀️ Solar Arrays", value: fmtCount(r.solarArrays), inline: true });
+    fields.push({ name: "🌿 Organic Farms", value: fmtCount(r.organicFarms), inline: true });
+  }
+
   if (r.resourceRates && Object.keys(r.resourceRates).length > 0) {
     fields.push({ name: "📊 Extraction Rates", value: Object.entries(r.resourceRates).slice(0, 5).map(([res, rate]) => `• ${res}: ${rate}/h`).join("\n"), inline: false });
   }
+
+  const hasDetailedData = ddInstances.length > 0 || hbSietches.length > 0;
   return duneEmbed({
-    title: "⛏️ Resource Statistics",
-    color: (r.spiceFields ?? 0) > 0 ? "success" : "warning",
-    description: "🏜️ **Resource field overview**",
+    title: "🌶️ Spice Melange",
+    color: (r.spiceFields ?? ddTotalActive ?? hbTotalActive ?? 0) > 0 ? "success" : "warning",
+    description: hasDetailedData ? "🏜️ **Deep Desert & Hagga Basin spice field overview**" : "🏜️ **Resource field overview**",
     fields
   });
 }
