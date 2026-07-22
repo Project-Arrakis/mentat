@@ -1,31 +1,57 @@
 # Additional Features Roadmap
 
-**Date:** 2026-07-04
+**Date:** 2026-07-04 (version/status notes added 2026-07-22)
 **Context:** After reviewing the current implementation across all 13 release
 branches, these additional features are recommended to strengthen the bot's
 security and operator value.
 
+## Version Note (2026-07-22)
+
+The `Version` column below uses a numbering line (`v1.1.0`&ndash;`v4.0.0`)
+that was abandoned when the repo was renamed to Arrakis Control Panel
+(commit `a15d4a8`, 2026-07-20). No `v1.1.0`&ndash;`v1.5.0` git tag or GitHub
+Release was ever created; the current real version is `v1.0.0-rc.2`. The
+feature work itself did land on `main` — treat the `Version` column as a
+historical label for when work happened, not a claim about the current
+release. Do not create branches named `release/v1.1.0` etc. expecting them
+to correspond to an actual tagged release train; check `package.json` for
+the real current version before naming any new release branch.
+
+**Also stale as of 2026-07-22:** several "suggested" features below are
+already implemented and should not be re-proposed: `/dune core help`
+(P2-FEAT-17), `/dune admin doctor` (P2-FEAT-18), `/dune admin cooldowns`
+(P2-FEAT-19), `/dune admin latency` (P2-FEAT-20), `/dune admin events`
+(P2-FEAT-22), `/dune data maps` (P3-FEAT-23), and the `/dune logs <service>`
+group (P3-FEAT-24, R1.x-FEAT-4). Verify against `src/commands.js` before
+treating any item in this document as not-yet-built.
+
 ## Current Implementation Status
 
-| Release | Version | Key Features | Test Status |
+| Release | Version (historical label; see note above) | Key Features | Test Status |
 |---------|---------|-------------|-------------|
-| R1.0.0 | v1.0.0 | 7 read-only commands (about/ping/health/status/status-summary/readiness/services) | 88/88 pass |
-| R1.1 | v1.1.0 | Operator validation script (`validate:operator`) | 88/88 pass |
-| R1.2 | v1.2.0 | Population command (aggregate-only) | 88/88 pass |
-| R1.3 | v1.3.0 | Notification scheduler + alert digests | 99/99 pass |
-| R1.4 | v1.4.0 | Adapter compatibility check (`compat:check`) | 88/88 pass |
-| R1.5 | v1.5.0 | R2 readiness documentation | 88/88 pass |
-| R2.0.0 | v2.0.0 | Write-safety foundation framework (disabled) | 97/97 pass |
-| R2.1 | v2.1.0 | Maintenance metadata write stubs (disabled) | 88/88 pass |
-| R2.2 | v2.2.0 | Notification config write stubs (disabled) | 88/88 pass |
-| R2.3 | v2.3.0 | Schedule config write stubs (disabled) | 88/88 pass |
-| R2.4 | v2.4.0 | R3 readiness documentation | 88/88 pass |
-| R3.0.0 | v3.0.0 | Operational write stubs (backup/restart/update/cache, disabled) | 88/88 pass |
-| R4.0.0 | v4.0.0 | Highest-risk operations planning | 88/88 pass |
+| R1.0.0 | v1.0.0 | 7 read-only commands (about/ping/health/status/status-summary/readiness/services) | 88/88 pass (historical) |
+| R1.1 | v1.1.0 | Operator validation script (`validate:operator`) | 88/88 pass (historical) |
+| R1.2 | v1.2.0 | Population command (aggregate-only) | 88/88 pass (historical) |
+| R1.3 | v1.3.0 | Notification scheduler + alert digests | 99/99 pass (historical) |
+| R1.4 | v1.4.0 | Adapter compatibility check (`compat:check`) | 88/88 pass (historical) |
+| R1.5 | v1.5.0 | R2 readiness documentation | 88/88 pass (historical) |
+| R2.0.0 | v2.0.0 | Write-safety foundation framework (disabled) | 97/97 pass (historical) |
+| R2.1 | v2.1.0 | Maintenance metadata write stubs (disabled) | 88/88 pass (historical) |
+| R2.2 | v2.2.0 | Notification config write stubs (disabled) | 88/88 pass (historical) |
+| R2.3 | v2.3.0 | Schedule config write stubs (disabled) | 88/88 pass (historical) |
+| R2.4 | v2.4.0 | R3 readiness documentation | 88/88 pass (historical) |
+| R3.0.0 | v3.0.0 | Operational write stubs (backup/restart/update/cache, disabled) | 88/88 pass (historical) |
+| R4.0.0 | v4.0.0 | Highest-risk operations planning | 88/88 pass (historical) |
+
+Current real version: `v1.0.0-rc.2`. Current test count: 328 total
+(268 via `node --test`, 60 via `test/discord-bot-test-harness.js`) as of
+2026-07-22 — re-run `npm test` for the live number.
 
 Core modules: `adapterClient.js`, `commands.js`, `config.js`, `format.js`,
 `healthState.js`, `healthcheck.js`, `index.js`, `logger.js`, `notifications.js`,
-`scheduler.js`, `writes.js`, `writeCommands.js`
+`scheduler.js`, `writes.js`, `writeHandler.js`, `writeConfirmation.js`.
+`writeCommands.js` still exists but is dead code — not imported by
+`commands.js`; do not treat it as the live write-command path.
 
 ## Suggested Additional Features (R1.x — Read-Only)
 
@@ -231,16 +257,19 @@ out-of-band approval, rollback plan, and enhanced audit retention.
 
 ## Next Local Steps
 
-1. Merge security branches into `main`: `security/bot-dependabot-cooldown`,
-   `security/bot-gitleaks-allowlist`, `security/bot-health-state-permissions`.
-2. Merge in release train order: v1.0.0 → v1.1.0 → v1.2.0 → v1.3.0 → v1.4.0 → v1.5.0.
+1. Merge security branches into `main`, as applicable.
+2. Confirm the current version in `package.json` before naming or creating
+   any new release branch — do not assume the `v1.1.0`&ndash;`v1.5.0`
+   sequence below is still meaningful; it describes historical work under an
+   abandoned numbering line (see Version Note above).
 3. Run the full scanner suite after each merge.
-4. Implement R1.x-FEAT-1 (command cooldowns) and R1.x-FEAT-3 (backup list) as
-   the highest-priority additional features.
-5. Create local feature branches for each additional feature.
+4. Command cooldowns (R1.x-FEAT-1) and backup list (R1.x-FEAT-3) are already
+   implemented (`src/cooldown.js`, `src/adapterClient.js` `backups()`) —
+   verify against source before re-implementing.
+5. Create local feature branches for each remaining additional feature,
+   named for what they do rather than a specific old version number.
 6. Update staged PR bodies in `releases/` with completed implementation evidence.
-7. Only open upstream PRs after all tests and security gates pass on the merged
-   branch (which will be v1.5.0 or v2.0.0 after sequential merging).
+7. Only open upstream PRs after all tests and security gates pass on `main`.
 
 ## Additional Features — Phase 2 (Zero Upstream Dependency)
 
