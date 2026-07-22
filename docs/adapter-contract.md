@@ -55,6 +55,29 @@ The POST body carries minimal Discord actor context: user ID, guild ID, channel
 ID, and role IDs. It is used for adapter-side capability checks and should not
 include tokens, message content, or broader Discord profile data.
 
+## Additional Local Routes (Unverified Against Upstream)
+
+The bot implements bot commands and `AdapterClient` methods for routes beyond
+the four verified above. These have config paths/methods in `src/config.js`
+and a client method in `src/adapterClient.js`, but their upstream provenance
+has not been independently re-verified since the July 18, 2026 evidence check.
+`src/adapterClient.js` tracks per-route status honestly via `LIVE_ROUTES`,
+`PLANNED_ROUTES` (upstream stub/placeholder data), `UNMERGED_ROUTES`
+(implemented on an upstream feature branch, not `main`), and `MISSING_ROUTES`
+(no known upstream implementation). `executeDuneCommand()` surfaces a specific
+"not yet merged" message for `UNMERGED_ROUTES` failures instead of a generic
+error. Treat any route not in this file's verified table above as unverified
+until it is re-checked against upstream `main` and this document is updated.
+
+The `maintenance` route (`server:maintenance` bot command) is a case in point:
+it has a config path/method and an `AdapterClient.maintenance()` method, but
+no upstream verification evidence exists for it, and it is deliberately left
+out of `LIVE_ROUTES`/`PLANNED_ROUTES`/`UNMERGED_ROUTES` (so `routeStatus()`
+returns `"unknown"`). `formatMaintenanceEmbed()` treats any response without
+`ok: true` as an explicit **Unknown** state rather than a healthy "no
+maintenance scheduled" state, so an unsupported or failing route degrades
+safely instead of showing false-positive health.
+
 ## Fixtures
 
 The contract fixtures live in `test/fixtures/adapter/`:
