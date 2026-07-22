@@ -12,7 +12,7 @@ import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { writesEnabled } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
-import { getLatencyHistory, isRouteMissing, routeStatus, UNMERGED_ROUTES } from "./adapterClient.js";
+import { getLatencyHistory, UNMERGED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
 import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
@@ -53,7 +53,8 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
         .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin-only: detailed readiness checks.")))
       .addSubcommand((c) => c.setName("readiness-detail").setDescription("Show grouped readiness detail with issues."))
       .addSubcommand((c) => c.setName("services").setDescription("Show service container state."))
-      .addSubcommand((c) => c.setName("services-detail").setDescription("Show detailed service state with logs.")))
+      .addSubcommand((c) => c.setName("services-detail").setDescription("Show detailed service state with logs."))
+      .addSubcommand((c) => c.setName("maintenance").setDescription("Show current maintenance note or window (read-only).")))
 
     // ── data group ──
     .addSubcommandGroup((g) => g.setName("data").setDescription("Server population, backups, map, inventory, and storage.")
@@ -239,6 +240,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       const logs = await adapterClient.logs(actor, undefined, guildId);
       const mapState = await adapterClient.mapState(actor, guildId);
       payload = { services, logs: redactSecrets(logs), mapState };
+    } else if (key === "server:maintenance") {
+      payload = await adapterClient.maintenance(actor, guildId);
     }
     // ── data group ──
     else if (key === "data:population") {
@@ -257,11 +260,22 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       }
     } else if (key === "data:storage") {
       const scope = interaction.options.getString("scope") || "owned";
-      payload = await adapterClient.playerStorage(actor, scope, guildId);
+      // "guild" scope has a dedicated guild-scoped route; do not silently
+      // fall back to the requester's own player-scoped storage, which would
+      // mislabel one player's containers as guild-wide data.
+      payload = scope === "guild"
+        ? await adapterClient.guildStorage(actor, guildId)
+        : await adapterClient.playerStorage(actor, scope, guildId);
     } else if (key === "data:find") {
       const query = interaction.options.getString("query");
       const scope = interaction.options.getString("scope") || "owned";
-      payload = await adapterClient.playerFind(actor, query, scope, guildId);
+      // "guild" scope has a dedicated guild-scoped route; do not silently
+      // fall back to the requester's own player-scoped find, which would
+      // mislabel one player's results as guild-wide data (same fix as
+      // data:storage above).
+      payload = scope === "guild"
+        ? await adapterClient.guildFind(actor, query, guildId)
+        : await adapterClient.playerFind(actor, query, scope, guildId);
     }
     // ── player group ──
     // Split out of data (2026-07-24) -- see the block comment above
@@ -393,6 +407,16 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = { ok: false, error: `Unknown command: ${key}` };
     }
 
+    // Pull confirmation UI builder objects (EmbedBuilder/ActionRowBuilder)
+    // out before redaction: redactSecrets() walks plain object entries and
+    // would strip their prototypes/toJSON(), breaking interaction.editReply().
+    const confirmationEmbed = payload?.confirmationEmbed;
+    const confirmationRow = payload?.confirmationRow;
+    if (payload && typeof payload === "object" && "confirmationEmbed" in payload) {
+      const { confirmationEmbed: _e, confirmationRow: _r, ...rest } = payload;
+      payload = rest;
+    }
+
     // Sanitize all output before sending to Discord
     payload = redactSecrets(payload);
 
@@ -418,6 +442,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatGenericEmbed(payload, "services");
     } else if (subcommand === "services-detail") {
       embed = formatServicesDetailEmbed(payload);
+    } else if (subcommand === "maintenance") {
+      embed = formatMaintenanceEmbed(payload);
     } else if (subcommand === "population") {
       embed = formatPopulationEmbed(payload);
     } else if (subcommand === "backups") {
@@ -458,7 +484,12 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatGenericEmbed(payload, subcommand);
     }
 
-    if (embed) {
+    if (confirmationEmbed && confirmationRow) {
+      // Button-based confirmation for write commands (see writeConfirmation.js
+      // and docs/rw-confirmation-flow.md). Confirming/cancelling is handled by
+      // handleWriteButtonInteraction() in index.js's InteractionCreate listener.
+      await interaction.editReply({ embeds: [confirmationEmbed], components: [confirmationRow] });
+    } else if (embed) {
       await interaction.editReply({ embeds: [embed] });
     } else {
       await interaction.editReply(formatPayload(`Dune ${key}`, payload));
@@ -566,7 +597,13 @@ export function statusSummaryPayload(status) {
 }
 
 export function aboutPayload(config) {
-  return { ok: true, bot: { name: "arrakis-control-panel", version: pkgVersion, readOnly: true, writesEnabled: false }, adapter: { origin: new URL(config.adapter.baseUrl).origin, timeoutMs: config.adapter.timeoutMs }, discord: { rbacMode: config.discord.rbac.mode, defaultEphemeral: config.discord.defaultEphemeral }, boundary: { dockerSocket: false, databaseDirect: false, gameFiles: false, shellCommands: false } };
+  // readOnly reflects the bot's actual data-mutation surface: character linking
+  // (data:link/verify/unlink/faction/enable/disable/default) writes to the local
+  // multi-tenant database regardless of the DUNE_DISCORD_WRITES_ENABLED flag, so
+  // the bot has not been strictly read-only since V2 player linking shipped.
+  // writesEnabled reflects only the separate operator write-command group
+  // (src/writeHandler.js), which stays disabled unless explicitly configured.
+  return { ok: true, bot: { name: "arrakis-control-panel", version: pkgVersion, readOnly: false, writesEnabled: writesEnabled(config) }, adapter: { origin: new URL(config.adapter.baseUrl).origin, timeoutMs: config.adapter.timeoutMs }, discord: { rbacMode: config.discord.rbac.mode, defaultEphemeral: config.discord.defaultEphemeral }, boundary: { dockerSocket: false, databaseDirect: false, gameFiles: false, shellCommands: false } };
 }
 
 export function populationPayload(p) { const r = p?.result || {}; return { ok: p?.ok === true, online: r.onlinePlayers ?? "unknown", total: r.totalPlayers ?? "unknown", aggregate: r.aggregate ?? true, detailsSuppressed: r.detailsSuppressed ?? true }; }

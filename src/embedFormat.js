@@ -591,6 +591,17 @@ export function formatServicesDetailEmbed(payload) {
 }
 
 export function formatMaintenanceEmbed(payload) {
+  // Route provenance for "maintenance" is unverified against upstream main
+  // (see adapterClient.js maintenance() comment); a false/missing "ok" must
+  // read as unknown/unavailable, never as a healthy "no maintenance" state.
+  if (payload?.ok !== true) {
+    return duneEmbed({
+      title: "🛠️ Maintenance Status",
+      color: "warning",
+      description: "❔ **Unknown** — the console did not return a maintenance status."
+    });
+  }
+
   const maintenance = payload?.maintenance || "";
   const hasMaintenance = maintenance && maintenance.trim().length > 0;
 
@@ -601,7 +612,7 @@ export function formatMaintenanceEmbed(payload) {
   return duneEmbed({
     title: "🛠️ Maintenance Status",
     color: hasMaintenance ? "warning" : "success",
-    description: `${desc}\n\n${maintenance.slice(0, 2048)}`
+    description: `${desc}\n\n${maintenance.slice(0, 2048)}`.slice(0, 2048)
   });
 }
 
