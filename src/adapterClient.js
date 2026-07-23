@@ -9,16 +9,27 @@ export class AdapterHttpError extends Error {
 }
 
 // Routes that are live in upstream main with real data.
+//
+// ops-activity, ops-combat, ops-resources, ops-economy moved here from
+// PLANNED_ROUTES: dune-awakening-selfhost-docker's
+// docs/remediation-prompt-cross-repo.md Phase 1 (PR
+// yacketrj/dune-awakening-selfhost-docker#109, merged) wired all four to
+// real duneDb.js queries, replacing their previous
+// { status: "planned" } stub responses with real
+// { ok: true, result: {...} } data. ops-dashboard is NOT moved: it
+// aggregates all nine ops-* providers, four of which (inventory,
+// location, soc, prometheus) still return planned placeholders, so its
+// own output remains a genuine mix, not fully live.
 export const LIVE_ROUTES = new Set([
   "health", "status", "readiness", "services", "population",
   "version", "servers", "ports", "db",
-  "logs", "map-state"
+  "logs", "map-state",
+  "ops-activity", "ops-combat", "ops-resources", "ops-economy"
 ]);
 
 // Routes that exist in upstream but return "planned" stubs or placeholder data.
 export const PLANNED_ROUTES = new Set([
   "backups", "announcements", "broadcast",
-  "ops-activity", "ops-combat", "ops-resources", "ops-economy",
   "ops-inventory", "ops-location", "ops-soc", "ops-prometheus", "ops-dashboard"
 ]);
 
