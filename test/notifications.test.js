@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createDigestFormatter, alertSubscriber } from "../src/notifications.js";
+import { createDigestFormatter, alertSubscriber, sendChannelAlert } from "../src/notifications.js";
 
 test("digest formatter produces status digest", () => {
   const fmt = createDigestFormatter();
@@ -77,4 +77,42 @@ test("alert subscriber sends services alert to channel", async () => {
   });
   await sub.checkServices();
   assert.ok(sent[0].includes("Service Alert"));
+});
+
+// sendChannelAlert() — the shared low-level helper both alertSubscriber()
+// above and statsPusher.js's write-failure alerting (KV-4,
+// docs/remediation-prompt-cross-repo.md Phase 3) go through, so there is
+// exactly one place that knows how to reach Discord for an operational
+// alert.
+test("sendChannelAlert posts to a text-based channel and reports success", async () => {
+  const sent = [];
+  const client = {
+    channels: { fetch: async () => ({ isTextBased: () => true, send: async (msg) => sent.push(msg) }) }
+  };
+  const result = await sendChannelAlert(client, "channel-1", "hello");
+  assert.equal(result, true);
+  assert.deepEqual(sent, ["hello"]);
+});
+
+test("sendChannelAlert does nothing and reports false for a non-text channel", async () => {
+  const client = {
+    channels: { fetch: async () => ({ isTextBased: () => false, send: async () => { throw new Error("must not be called"); } }) }
+  };
+  const result = await sendChannelAlert(client, "channel-1", "hello");
+  assert.equal(result, false);
+});
+
+test("sendChannelAlert does nothing and reports false when the message is empty", async () => {
+  let fetchCalled = false;
+  const client = {
+    channels: { fetch: async () => { fetchCalled = true; return { isTextBased: () => true, send: async () => {} }; } }
+  };
+  const result = await sendChannelAlert(client, "channel-1", null);
+  assert.equal(result, false);
+  assert.equal(fetchCalled, false, "must not even look up the channel for an empty message");
+});
+
+test("sendChannelAlert does nothing and reports false when client or channelId is missing", async () => {
+  assert.equal(await sendChannelAlert(null, "channel-1", "hello"), false);
+  assert.equal(await sendChannelAlert({ channels: { fetch: async () => ({}) } }, null, "hello"), false);
 });

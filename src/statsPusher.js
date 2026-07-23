@@ -2,19 +2,31 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { logError, logInfo } from "./logger.js";
 import { getCommandCount, getAllGuilds, getActiveGuilds } from "./database.js";
+import { sendChannelAlert } from "./notifications.js";
 
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const KV_NAMESPACE_ID = process.env.KV_NAMESPACE_ID;
 const PUSH_INTERVAL_MS = Number.parseInt(process.env.STATS_PUSH_INTERVAL_MS || "300000", 10) || 300000;
-// Pin this per deployment (see .env.example) so the per-instance KV key
-// (acp-stats-{instanceId}) stays stable across restarts. If unset, a
-// fresh random ID is generated every process restart, which is fine for
-// the aggregate key (all instances overwrite the same acp-stats-aggregate
-// key) but means the per-instance key accumulates a new orphaned KV entry
-// on every restart -- see KV-2/KV-3, tracked as a separate follow-up
-// (Phase 3 of docs/remediation-prompt-cross-repo.md in
-// dune-awakening-selfhost-docker), not fixed in this change.
+// Cloudflare KV requires expiration_ttl to be at least 60 seconds. 3600s
+// (1 hour) is comfortably longer than the default 300000ms/5min push
+// interval, so a single missed push cycle (a transient Cloudflare API
+// error, a brief network blip, etc.) never causes the key to expire
+// before the next successful push refreshes it -- see KV-2/KV-3,
+// docs/remediation-prompt-cross-repo.md Phase 3 (dune-awakening-selfhost-docker).
+const KV_EXPIRATION_TTL_SECONDS = Number.parseInt(process.env.ACP_STATS_KV_TTL_SECONDS || "3600", 10) || 3600;
+// Identifies this bot process/deployment for log correlation
+// (stats_pusher.instance / stats_push.error), independent of any KV key.
+// Previously this ID also named a dedicated per-instance KV key
+// (acp-stats-{instanceId}); that write has been removed (see
+// pushStats() below) after confirming via a search across all three
+// repositories in this effort (dune-awakening-selfhost-docker,
+// Arrakis-Control-Panel, acp-landing) that nothing anywhere ever reads
+// an acp-stats-{id} key back -- only the shared acp-stats-aggregate key
+// is ever read (acp-landing's functions/api/stats.js). The per-instance
+// write was pure dead weight: a new orphaned KV entry created on every
+// process restart, accumulating without bound (KV-2/KV-3), for a key
+// nothing consumes.
 const INSTANCE_ID = process.env.ACP_INSTANCE_ID || randomUUID();
 
 function getVersion() {
@@ -117,6 +129,18 @@ async function fetchAggregate(adapterClient) {
   return aggregates;
 }
 
+// Builds the acp-stats-aggregate KV write URL with expiration_ttl set as
+// a query parameter, per Cloudflare's REST API for KV writes (this is
+// the `PUT .../values/{key}?expiration_ttl=N` REST call, not the
+// wrangler/Workers KV binding API, which takes an `expirationTtl` option
+// on a different call shape entirely -- do not confuse the two).
+// Exported for direct unit testing without needing a live fetch.
+export function buildAggregateKvUrl({ accountId = CLOUDFLARE_ACCOUNT_ID, namespaceId = KV_NAMESPACE_ID, ttlSeconds = KV_EXPIRATION_TTL_SECONDS } = {}) {
+  const url = new URL(`https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/acp-stats-aggregate`);
+  url.searchParams.set("expiration_ttl", String(ttlSeconds));
+  return url.toString();
+}
+
 async function pushToKV(url, stats, label) {
   const res = await fetch(url, {
     method: "PUT",
@@ -181,7 +205,55 @@ export function buildStatsPayload({ guildCount, allGuilds, activeGuilds, command
   };
 }
 
-async function pushStats(client, db, adapterClient) {
+// Consecutive stats-push failures before an alert is sent to the
+// configured Discord channel (KV-4). Alerting only after repeated
+// failures, not the first one, avoids paging on a single transient
+// Cloudflare API blip while still catching a genuinely broken push path.
+// Exported as a plain constant (not module-level mutable state) so the
+// decision of "should this failure count trigger an alert" is a pure,
+// directly-testable function (shouldAlertOnFailure() below) rather than
+// hidden counter state that would leak between test cases.
+export const ALERT_AFTER_CONSECUTIVE_FAILURES = 3;
+
+// Pure decision function: given how many consecutive failures have
+// occurred so far (including this one), should an alert fire now? Only
+// fires exactly once per failure streak (at the threshold), not on every
+// failure past it, so a channel doesn't get spammed with one alert per
+// push interval for as long as Cloudflare stays down.
+export function shouldAlertOnFailure(consecutiveFailureCount) {
+  return consecutiveFailureCount === ALERT_AFTER_CONSECUTIVE_FAILURES;
+}
+
+// KV-4: basic write-failure alerting. Reuses the existing
+// sendChannelAlert() mechanism (notifications.js) that alertSubscriber()
+// already uses for readiness/services alerts, rather than adding a
+// second, parallel notification path (e.g. a webhook) -- this bot has no
+// webhook-based alerting anywhere to reuse instead. Posts to the same
+// DUNE_ALERT_CHANNEL_ID configured for readiness/services alerts, if
+// one is configured; silently no-ops otherwise (stats pushing remains
+// best-effort and optional, same as before this change -- an unconfigured
+// alert channel must not become a hard requirement for stats pushing to
+// keep working).
+async function maybeAlertOnFailure(client, alertChannelId, consecutiveFailureCount, err) {
+  if (!alertChannelId) return;
+  if (!shouldAlertOnFailure(consecutiveFailureCount)) return;
+  try {
+    const detail = err?.message ? ` (${String(err.message).slice(0, 200)})` : "";
+    await sendChannelAlert(
+      client,
+      alertChannelId,
+      `**Stats Push Alert**\nFailed to write live stats to Cloudflare KV ${ALERT_AFTER_CONSECUTIVE_FAILURES} times in a row${detail}. The public live-stats widget may be showing stale data.`
+    );
+  } catch (alertErr) {
+    // Alerting itself must never crash the stats pusher or mask the
+    // original failure -- log and move on.
+    logError("stats_push.alert_failed", alertErr);
+  }
+}
+
+let consecutiveFailures = 0;
+
+async function pushStats(client, db, adapterClient, { alertChannelId } = {}) {
   if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_API_TOKEN || !KV_NAMESPACE_ID) {
     return;
   }
@@ -200,18 +272,20 @@ async function pushStats(client, db, adapterClient) {
       aggregates
     });
 
-    const instanceUrl = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${KV_NAMESPACE_ID}/values/acp-stats-${INSTANCE_ID}`;
-    const aggregateUrl = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${KV_NAMESPACE_ID}/values/acp-stats-aggregate`;
+    // Only the shared acp-stats-aggregate key is written. The previous
+    // per-instance acp-stats-{instanceId} write was removed -- see
+    // INSTANCE_ID's comment above for why (confirmed unread anywhere
+    // across all three repositories in this effort).
+    const aggregateUrl = buildAggregateKvUrl();
+    const aggregateOk = await pushToKV(aggregateUrl, stats, "aggregate");
 
-    const [instanceOk, aggregateOk] = await Promise.all([
-      pushToKV(instanceUrl, stats, "instance"),
-      pushToKV(aggregateUrl, stats, "aggregate"),
-    ]);
-
-    if (!instanceOk || !aggregateOk) {
+    if (!aggregateOk) {
+      consecutiveFailures += 1;
+      await maybeAlertOnFailure(client, alertChannelId, consecutiveFailures);
       return false;
     }
 
+    consecutiveFailures = 0;
     logInfo("stats_pushed", {
       instance_id: INSTANCE_ID,
       guilds: stats.guilds,
@@ -224,12 +298,14 @@ async function pushStats(client, db, adapterClient) {
     });
     return true;
   } catch (err) {
+    consecutiveFailures += 1;
     logError("stats_push.error", err);
+    await maybeAlertOnFailure(client, alertChannelId, consecutiveFailures, err);
     return false;
   }
 }
 
-export function startStatsPusher({ client, db, adapterClient }) {
+export function startStatsPusher({ client, db, adapterClient, alertChannelId = process.env.DUNE_ALERT_CHANNEL_ID }) {
   if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_API_TOKEN || !KV_NAMESPACE_ID) {
     logInfo("stats_pusher.skipped", { reason: "missing_cloudflare_env" });
     return { active: false, stop() {} };
@@ -237,9 +313,9 @@ export function startStatsPusher({ client, db, adapterClient }) {
 
   logInfo("stats_pusher.instance", { instance_id: INSTANCE_ID });
 
-  pushStats(client, db, adapterClient);
+  pushStats(client, db, adapterClient, { alertChannelId });
 
-  const timer = setInterval(() => pushStats(client, db, adapterClient), PUSH_INTERVAL_MS);
+  const timer = setInterval(() => pushStats(client, db, adapterClient, { alertChannelId }), PUSH_INTERVAL_MS);
   timer.unref?.();
 
   logInfo("stats_pusher.started", { intervalMs: PUSH_INTERVAL_MS });
