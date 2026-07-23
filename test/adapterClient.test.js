@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AdapterClient, AdapterHttpError } from "../src/adapterClient.js";
+import { AdapterClient, AdapterHttpError, LIVE_ROUTES, PLANNED_ROUTES, routeStatus } from "../src/adapterClient.js";
 
 function config(overrides = {}) {
   return {
@@ -82,4 +82,29 @@ test("AdapterClient raises typed HTTP errors", async () => {
       return true;
     }
   );
+});
+
+// Route classification — dune-awakening-selfhost-docker's
+// docs/remediation-prompt-cross-repo.md Phase 1 (PR #109, merged) wired
+// ops-activity/ops-combat/ops-resources/ops-economy to real data. This
+// client's LIVE_ROUTES/PLANNED_ROUTES sets must reflect that, or this
+// bot would keep treating four now-real routes as stubs.
+test("ops-activity, ops-combat, ops-resources, ops-economy are classified as live, not planned", () => {
+  for (const route of ["ops-activity", "ops-combat", "ops-resources", "ops-economy"]) {
+    assert.ok(LIVE_ROUTES.has(route), `${route} must be in LIVE_ROUTES now that Core wires it to real data`);
+    assert.ok(!PLANNED_ROUTES.has(route), `${route} must no longer be in PLANNED_ROUTES`);
+    assert.equal(routeStatus(route), "live");
+  }
+});
+
+// The other five ops-* routes have no backing query anywhere in Core
+// (see dune-awakening-selfhost-docker's opsProvider.js) and must remain
+// correctly classified as planned stubs -- this reclassification is
+// deliberately narrow, not a blanket "all ops routes are live now" change.
+test("ops-inventory, ops-location, ops-soc, ops-prometheus, ops-dashboard remain classified as planned", () => {
+  for (const route of ["ops-inventory", "ops-location", "ops-soc", "ops-prometheus", "ops-dashboard"]) {
+    assert.ok(PLANNED_ROUTES.has(route), `${route} has no backing query in Core and must remain planned`);
+    assert.ok(!LIVE_ROUTES.has(route), `${route} must not be misclassified as live`);
+    assert.equal(routeStatus(route), "planned");
+  }
 });
