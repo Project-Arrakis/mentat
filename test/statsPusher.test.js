@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildStatsPayload } from "../src/statsPusher.js";
+import { buildStatsPayload, buildAggregateKvUrl, shouldAlertOnFailure, ALERT_AFTER_CONSECUTIVE_FAILURES } from "../src/statsPusher.js";
 
 // Validates that buildStatsPayload() produces a shape acp-landing's
 // reader (yacketrj/acp-landing:functions/api/stats.js) would actually
@@ -114,4 +114,50 @@ test("buildStatsPayload never mutates its input arrays/objects", () => {
   assert.deepEqual(args.allGuilds, allGuildsCopy);
   assert.deepEqual(args.activeGuilds, activeGuildsCopy);
   assert.deepEqual(args.aggregates, aggregatesCopy);
+});
+
+// KV-2/KV-3 (docs/remediation-prompt-cross-repo.md Phase 3): the
+// acp-stats-aggregate KV write must always carry an expiration_ttl query
+// parameter, so a stale/unwritable key doesn't live forever if the bot
+// is decommissioned or its Cloudflare credentials are revoked.
+test("buildAggregateKvUrl always includes expiration_ttl as a query parameter", () => {
+  const url = new URL(buildAggregateKvUrl({ accountId: "acct-1", namespaceId: "ns-1" }));
+  assert.equal(url.searchParams.get("expiration_ttl"), "3600");
+  assert.ok(url.pathname.endsWith("/values/acp-stats-aggregate"));
+});
+
+test("buildAggregateKvUrl respects a custom TTL", () => {
+  const url = new URL(buildAggregateKvUrl({ accountId: "acct-1", namespaceId: "ns-1", ttlSeconds: 7200 }));
+  assert.equal(url.searchParams.get("expiration_ttl"), "7200");
+});
+
+test("buildAggregateKvUrl never builds a per-instance URL -- only the shared aggregate key", () => {
+  // KV-2/KV-3: confirmed via a search across all three repositories in
+  // this effort (dune-awakening-selfhost-docker, Arrakis-Control-Panel,
+  // acp-landing) that nothing anywhere ever reads an
+  // acp-stats-{instanceId} key back. The per-instance write function
+  // (and its URL) no longer exists at all -- this test asserts the
+  // absence of that capability, not just that it isn't called by
+  // pushStats() today.
+  const url = buildAggregateKvUrl({ accountId: "acct-1", namespaceId: "ns-1" });
+  assert.doesNotMatch(url, /acp-stats-(?!aggregate)/, "must never target a per-instance key");
+});
+
+// KV-4: write-failure alerting must fire exactly once per failure
+// streak, at the configured threshold -- never on every failure past it
+// (which would spam the alert channel for as long as an outage lasts),
+// and never before the threshold (which would alert on a single
+// transient blip).
+test("shouldAlertOnFailure fires exactly at the configured threshold, not before or after", () => {
+  for (let count = 1; count < ALERT_AFTER_CONSECUTIVE_FAILURES; count += 1) {
+    assert.equal(shouldAlertOnFailure(count), false, `must not alert yet at failure #${count}`);
+  }
+  assert.equal(shouldAlertOnFailure(ALERT_AFTER_CONSECUTIVE_FAILURES), true, "must alert exactly at the threshold");
+  for (const count of [ALERT_AFTER_CONSECUTIVE_FAILURES + 1, ALERT_AFTER_CONSECUTIVE_FAILURES + 5, 100]) {
+    assert.equal(shouldAlertOnFailure(count), false, `must not alert again past the threshold at failure #${count} (avoid spamming the channel for a long outage)`);
+  }
+});
+
+test("shouldAlertOnFailure never fires for zero (no failures yet)", () => {
+  assert.equal(shouldAlertOnFailure(0), false);
 });
