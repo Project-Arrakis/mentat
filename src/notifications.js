@@ -44,6 +44,22 @@ export function createDigestFormatter(config = {}) {
   };
 }
 
+// Shared low-level "post one message to one Discord text channel" step.
+// Both alertSubscriber() below and statsPusher.js's write-failure
+// alerting (KV-4, docs/remediation-prompt-cross-repo.md Phase 3) go
+// through this single function, so there is exactly one place that
+// knows how to reach Discord for an operational alert -- reusing it for
+// stats-push failures rather than inventing a second, parallel
+// notification mechanism (e.g. a webhook), per that phase's explicit
+// instruction to check for and reuse an existing pattern first.
+export async function sendChannelAlert(client, channelId, message) {
+  if (!message || !client || !channelId) return false;
+  const channel = await client.channels.fetch(channelId);
+  if (!channel?.isTextBased?.()) return false;
+  await channel.send(message);
+  return true;
+}
+
 export function alertSubscriber({
   adapterClient,
   client,
@@ -57,10 +73,7 @@ export function alertSubscriber({
       try {
         const readiness = await adapterClient.readiness(defaultActor());
         const alert = digestFormatter.formatReadinessAlert(readiness);
-        if (alert) {
-          const channel = await client.channels.fetch(channelId);
-          if (channel?.isTextBased?.()) await channel.send(alert);
-        }
+        if (alert) await sendChannelAlert(client, channelId, alert);
       } catch (error) {
         onError(error);
       }
@@ -70,10 +83,7 @@ export function alertSubscriber({
       try {
         const services = await adapterClient.services(defaultActor());
         const alert = digestFormatter.formatServicesAlert(services);
-        if (alert) {
-          const channel = await client.channels.fetch(channelId);
-          if (channel?.isTextBased?.()) await channel.send(alert);
-        }
+        if (alert) await sendChannelAlert(client, channelId, alert);
       } catch (error) {
         onError(error);
       }
