@@ -142,10 +142,7 @@ You can override individual adapter route paths and methods:
 | `DUNE_ADAPTER_WRITE_EXECUTE_PATH` | `/api/integrations/discord/write/execute` |
 | `DUNE_ADAPTER_WRITE_PREVIEW_PATH` | `/api/integrations/discord/write/preview` |
 | `DUNE_ADAPTER_PLAYERS_LINK_PATH` | `/api/integrations/discord/players/link` |
-<<<<<<< HEAD
-=======
 | `DUNE_ADAPTER_PLAYERS_LINK_VERIFY_PATH` | `/api/integrations/discord/players/link/verify` |
->>>>>>> origin/main
 | `DUNE_ADAPTER_PLAYERS_UNLINK_PATH` | `/api/integrations/discord/players/unlink` |
 | `DUNE_ADAPTER_PLAYERS_ME_PATH` | `/api/integrations/discord/players/me` |
 | `DUNE_ADAPTER_PLAYERS_FACTION_PATH` | `/api/integrations/discord/players/faction` |
@@ -211,26 +208,39 @@ Controls player inventory, storage, and character linking features.
 
 **Note:** Player features require no additional bot configuration. They work
 automatically once the bot is connected to a console with the Discord adapter
-enabled. Players use `/dune data link <character-name>` to link their
-<<<<<<< HEAD
-Discord account to their in-game character, then can use:
+enabled. Players run `/dune player link <character-name>` to link their
+Discord account to their in-game character (the character name is
+required); what happens next is decided automatically by the bot:
 
-- `/dune data link <character>` — Link Discord to in-game character
-=======
-Discord account to their in-game character:
+1. If the named character has no Steam account on file, a verification
+   code is sent in-game via whisper (RabbitMQ `chat.whispers`) — use
+   `/dune player verify <code>` to complete the link.
+2. If the named character already has a Steam account on file, the bot
+   instead shows a "Link via Steam" button — completing Discord's OAuth
+   consent screen links the character instantly if the connected Steam
+   account matches, or automatically falls back to sending the whisper
+   code if it doesn't.
 
-1. If Discord has a verified Steam connection, linking completes instantly
-2. Otherwise, a verification code is sent in-game via whisper
-3. Use `/dune data verify <code>` to complete the link
+**Correction (2026-07-24):** this section previously also documented a
+"Discord has a verified Steam connection, linking completes instantly" step
+as already-working; that capability did not exist in the code at the time
+this was originally written (verified against the commit history — see the
+CHANGELOG.md correction for the same claim). It has since actually been
+designed and implemented, per the corrected mechanics above — see
+`docs/steam-link-design.md` for the full design (including a mid-development
+revision correcting an initial draft where the character argument was
+optional). Command paths below are also updated from the pre-restructure
+`/dune data *` group to the current `/dune player *` group (see
+`docs/steam-link-design.md`'s "Scope Addition" section for that rename's
+rationale).
 
 Once linked, players can use:
 
-- `/dune data link <character>` — Link Discord to in-game character
-- `/dune data verify <code>` — Complete linking with verification code
->>>>>>> origin/main
-- `/dune data unlink` — Remove character link
-- `/dune data whoami` — Show linked character info
-- `/dune data faction <name>` — Set faction for themed embeds (atreides, harkonnen, fremen)
+- `/dune player link <character>` — Link Discord to in-game character (bot picks whisper or Steam automatically)
+- `/dune player verify <code>` — Complete linking with verification code (whisper path only)
+- `/dune player unlink` — Remove character link
+- `/dune player whoami` — Show linked character info
+- `/dune player faction <name>` — Set faction for themed embeds (atreides, harkonnen, fremen)
 - `/dune data inventory` — View character inventory
 - `/dune data inventory <search>` — Search items in inventory
 - `/dune data storage` — View storage containers (owned scope)
@@ -239,15 +249,24 @@ Once linked, players can use:
 
 ### Player Feature Capabilities
 
-<<<<<<< HEAD
-Player links are stored in the bot's SQLite database, scoped per guild in multi-tenant mode.
-=======
-Player links are stored in the console's PostgreSQL database (`dune.discord_player_links`).
->>>>>>> origin/main
+Player links are stored on the console (Core) side, not in this bot's own
+database. **Correction (2026-07-24):** the exact table name in the "origin/main"
+side of this conflict (`dune.discord_player_links`) was already stale even
+before this conflict was resolved — the current schema (see
+`docs/steam-link-design.md`'s "Why No New Core Schema Is Needed" section) is
+`console.discord_account_links` (FINDING-LINK-6), which supports multiple
+characters per Discord user; the single-link `console.discord_player_links`
+table this doc originally referenced is the older, superseded schema. Note
+this bot's own `src/database.js` does define a `player_links` SQLite table
+with `upsertPlayerLink()`/`getPlayerLink()`/`deletePlayerLink()` functions,
+but as of this correction none of those functions are called anywhere in
+`src/commands.js` or `src/index.js` — all `player:*` commands route through
+`adapterClient` (HTTP calls to Core) instead. That bot-side table appears to
+be unused/dead schema, not a second source of truth.
 
 | Capability | Required Role | Commands |
 |-----------|---------------|----------|
-| `inventory:read` | Observer or Admin | `/dune data link`, `/dune data unlink`, `/dune data whoami`, `/dune data faction`, `/dune data inventory`, `/dune data find` |
+| `inventory:read` | Observer or Admin | `/dune player link`, `/dune player unlink`, `/dune player whoami`, `/dune player faction`, `/dune data inventory`, `/dune data find` |
 | `storage:read` | Observer or Admin | `/dune data storage` (owned scope) |
 | `guild:read` | Observer or Admin | `/dune data storage` (guild scope), `/dune data find` (guild scope) |
 

@@ -34,13 +34,33 @@ export const PLANNED_ROUTES = new Set([
 ]);
 
 // Routes implemented in feature/discord-player-inventory but NOT yet in upstream main.
+//
+// players-accounts-link-steam and players-accounts-match-steam
+// (2026-07-24, second revision): the Core-side half of the Steam-connections
+// verification path for /dune player link <character-name> (see
+// docs/steam-link-implementation-prompt.md Part 1). This flow no longer
+// resolves a candidate list -- it checks whether ONE specific,
+// already-named character's on-file Steam ID matches the Discord user's
+// connections, so there is one fewer route than the original design (no
+// "resolve-steam" route). Tracked here the same way as every other
+// not-yet-merged route in this set — the bot-side code that calls them is
+// complete and correct, but a session in the Core repo is implementing the
+// new route(s) separately; until that PR merges, calling these routes
+// returns the same "not yet merged" error every other UNMERGED_ROUTES
+// entry does (see executeDuneCommand()'s catch block). Additionally, the
+// existing player-links-start route's response is expected to gain a new
+// hasSteam/playerControllerId field pair once Core's change lands --
+// until then it simply won't be present, and player:link's dispatch logic
+// already treats an absent/false hasSteam as "use the whisper flow",
+// which is the correct behavior either way.
 export const UNMERGED_ROUTES = new Set([
   "players-link", "players-link-verify", "players-unlink", "players-me", "players-faction",
   "players-inventory", "players-inventory-search", "players-storage", "players-find",
   "guild-storage", "guild-find",
   "player-links-start", "player-links-verify", "player-links", "player-links-unlink",
   "guild-grants", "guild-grants-enable", "guild-grants-disable", "guild-grants-default",
-  "player-inventory-v2"
+  "player-inventory-v2",
+  "players-accounts-link-steam", "players-accounts-match-steam"
 ]);
 
 // Routes that do NOT exist anywhere.
@@ -133,6 +153,17 @@ export class AdapterClient {
   guildGrantsDisable(actor, characterLinkId, guildId) { return this.request("guild-grants-disable", actor, { characterLinkId }, guildId); }
   guildGrantsDefault(actor, characterLinkId, guildId) { return this.request("guild-grants-default", actor, { characterLinkId }, guildId); }
   playerInventoryV2(actor, characterHandle, guildId) { return this.request("player-inventory-v2", actor, { characterHandle }, guildId); }
+
+  // Steam-connections-based verification for the ALREADY-NAMED character
+  // from /dune player link <character-name> — see
+  // docs/steam-link-architecture.md. Both routes reuse the existing
+  // self-scoped ACCOUNT_LINK_WRITE capability on the Core side; no new
+  // capability or bearer-auth mechanism is introduced. matchSteamCandidate
+  // checks whether the given playerControllerId's on-file Steam ID
+  // appears anywhere in steamId64List (the Discord user's connections) —
+  // it is never a candidate-resolution call across multiple characters.
+  matchSteamCandidate(actor, playerControllerId, steamId64List, guildId) { return this.request("players-accounts-match-steam", actor, { playerControllerId, steamId64List }, guildId); }
+  linkAccountViaSteam(actor, playerControllerId, guildId) { return this.request("players-accounts-link-steam", actor, { playerControllerId }, guildId); }
 
   async request(route, actor, extra = undefined, guildId = null) {
     const cfg = this._resolveConfig(guildId);
