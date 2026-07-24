@@ -26,11 +26,26 @@ user data, and this feature does not change that.
 
 ## Third-Party Data Attribution
 
-Recipe data is sourced from
-[dune.gaming.tools/crafting-calculator](https://dune.gaming.tools/crafting-calculator),
-a fan-made reference site whose own footer states it is *"not affiliated with
-Dune Awakening game, Funcom or Legendary"* and is itself derived from
-Funcom/Legendary's published game mechanics (item names, recipe ratios).
+Recipe data (15 items, each with 1–3 verified per-tier variants; see
+[Design](calculator-design.md)'s tier-availability table) is sourced from
+[dune.gaming.tools/crafting-calculator](https://dune.gaming.tools/crafting-calculator)
+and individual item pages on the same site, a fan-made reference whose own
+footer states it is *"not affiliated with Dune Awakening game, Funcom or
+Legendary"* and is itself derived from Funcom/Legendary's published game
+mechanics (item names, recipe ratios).
+
+The **calculation formula itself** (ceiling-rounding rule, the specific
+`item.mainCategoryId` condition that scopes the Crafting Contract modifier,
+batch/leftover logic) was verified by directly reading the reference site's
+own publicly-served, compiled client-side JavaScript — the same category of
+access as viewing any website's page source in a browser; no
+authentication, paywall, or access control was bypassed. See
+[Security Review §FINDING-CALC-5](calculator-security-review.md) for the
+full disclosure of this method. This is noted here specifically because it
+is a slightly deeper level of "third-party dependency" than transcribing
+numbers off a rendered page — this feature's *logic*, not just its *data*,
+is a verified port of another site's algorithm, and that provenance should
+be traceable by any future reviewer.
 
 This bot already displays other Funcom/Legendary-copyrighted game content
 throughout `embedFormat.js` (item names, faction lore text) without a
@@ -42,9 +57,10 @@ new legal-review category is introduced.
 a one-line attribution comment at the top of `craftingData.js`:
 
 ```js
-// Recipe data derived from published Dune Awakening game mechanics;
-// verified against https://dune.gaming.tools/crafting-calculator
-// (fan reference site, not affiliated with Funcom/Legendary).
+// Recipe data and calculation formula derived from published Dune
+// Awakening game mechanics; verified against
+// https://dune.gaming.tools/crafting-calculator (fan reference site, not
+// affiliated with Funcom/Legendary).
 ```
 
 ## Data-Drift Risk — The Primary Ongoing Compliance Concern
@@ -57,11 +73,11 @@ ongoing risk in this feature (see also
 
 **Audit-trail requirements:**
 
-1. Every recipe entry in `craftingData.js` must carry a structural
-   `source: { url, verifiedAt }` field, not a comment — so a future "the
-   calculator gave me the wrong numbers" report has a clear paper trail back
-   to *when* the data was last confirmed correct, without needing git
-   archaeology.
+1. Every recipe **variant** (per-tier) in `craftingData.js` must carry a
+   structural `source: { url, verifiedAt }` field, not a comment — so a
+   future "the calculator gave me the wrong numbers" report has a clear
+   paper trail back to *when* the data was last confirmed correct, without
+   needing git archaeology.
 2. A `docs/changes/PR-####-crafting-calculator.md` change note (per this
    repo's [change-note convention](changes/README.md)) must record the
    verification date and source at ship time.
@@ -69,6 +85,13 @@ ongoing risk in this feature (see also
    patch) must update the corresponding `verifiedAt` date and add a new
    change note — recipe-data PRs are not exempt from the same documentation
    discipline as code PRs.
+4. If the Crafting Contract modifier's formula ever needs re-verification
+   (e.g. the reference site changes its own calculation), the same
+   client-side-JS-reading method documented in
+   [Security Review §FINDING-CALC-5](calculator-security-review.md) should
+   be used again and re-cited, rather than guessing from UI copy alone —
+   this feature's data-drift risk covers logic drift, not just numeric
+   drift.
 
 ## Dependency and Supply-Chain Review
 
