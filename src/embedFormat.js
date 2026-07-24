@@ -354,7 +354,7 @@ export function formatInventoryEmbed(payload) {
       color: "warning",
       description: payload?.error || "Could not load inventory.",
       fields: [
-        { name: "💡 Tip", value: "Use `/dune data link <character-name>` first to link your Discord to your game character." }
+        { name: "💡 Tip", value: "Use `/dune player link <character-name>` first to link your Discord to your game character." }
       ]
     });
   }
@@ -457,7 +457,7 @@ export function formatWhoamiEmbed(payload) {
     return duneEmbed({
       title: "🔗 Not Linked",
       color: "warning",
-      description: "You are not linked to a game character.\nUse `/dune data link <name>` to link."
+      description: "You are not linked to a game character.\nUse `/dune player link <name>` to link."
     });
   }
   return duneEmbed({

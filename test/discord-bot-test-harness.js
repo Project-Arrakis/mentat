@@ -100,8 +100,9 @@ describe('Command Registration', () => {
     const expectedCommands = [
       'core:about', 'core:ping', 'core:help', 'core:setup',
       'server:health', 'server:status', 'server:summary', 'server:readiness', 'server:services',
-      'data:population', 'data:backups', 'data:maps', 'data:link', 'data:unlink', 'data:faction',
-      'data:whoami', 'data:inventory', 'data:find', 'data:storage',
+      'data:population', 'data:backups', 'data:maps', 'data:inventory', 'data:find', 'data:storage',
+      'player:link', 'player:verify', 'player:characters', 'player:enable', 'player:disable',
+      'player:default', 'player:unlink', 'player:faction', 'player:whoami',
       'ops:activity', 'ops:combat', 'ops:resources', 'ops:economy', 'ops:inventory',
       'ops:location', 'ops:soc', 'ops:prometheus', 'ops:dashboard', 'ops:announcements',
       'admin:doctor', 'admin:cooldowns', 'admin:latency', 'admin:events', 'admin:broadcast',
@@ -409,10 +410,10 @@ describe('Command Execution', () => {
     assert.ok(embed.title?.includes('Services'), 'Should have services title');
   });
 
-  test('data:verify initiates link verification', async () => {
+  test('player:verify initiates link verification', async () => {
     const { adapterClient, config } = getTestContext();
     const interaction = createMockInteraction({
-      command: 'data:verify',
+      command: 'player:verify',
       roles: ['observer-role-id'],
       options: { code: 'ACP-TEST123' }
     });
@@ -428,10 +429,10 @@ describe('Command Execution', () => {
 // ============================================================================
 
 describe('Faction Theming', () => {
-  test('data:faction sets player faction', async () => {
+  test('player:faction sets player faction', async () => {
     const { adapterClient, config } = getTestContext();
     const interaction = createMockInteraction({
-      command: 'data:faction',
+      command: 'player:faction',
       roles: ['observer-role-id'],
       options: { name: 'atreides' }
     });

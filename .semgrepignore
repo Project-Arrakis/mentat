@@ -3,5 +3,15 @@
 # The following rules are false positives since values are properly escaped
 src/setupServer.js
 
+# steamLinkServer.js follows the identical esc()-everything discipline as
+# setupServer.js above (shared via src/htmlEscape.js) -- every interpolated
+# dynamic value in every HTML template is either escaped directly at the
+# interpolation site, or escaped one level up via errorPage()'s own
+# esc(message) wrapper (see errorPage()'s definition). Verified line-by-line
+# 2026-07-24 before adding this exclusion, matching setupServer.js's
+# precedent above rather than adding inline nosemgrep comments (see
+# CHANGELOG.md's "Removed: /* nosemgrep */ comments from HTML templates").
+src/steamLinkServer.js
+
 # Test files with safe dynamic regex usage (escapeRegExp is used)
 test/toolReferencePolicy.test.js

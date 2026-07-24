@@ -45,7 +45,9 @@ const DEFAULT_PATHS = Object.freeze({
   "guild-grants-enable": "/api/integrations/discord/guild-character-grants/enable",
   "guild-grants-disable": "/api/integrations/discord/guild-character-grants/disable",
   "guild-grants-default": "/api/integrations/discord/guild-character-grants/default",
-  "player-inventory-v2": "/api/integrations/discord/player/inventory"
+  "player-inventory-v2": "/api/integrations/discord/player/inventory",
+  "players-accounts-match-steam": "/api/integrations/discord/players/accounts/match-steam",
+  "players-accounts-link-steam": "/api/integrations/discord/players/accounts/link-steam"
 });
 
 const DEFAULT_METHODS = Object.freeze({
@@ -93,7 +95,9 @@ const DEFAULT_METHODS = Object.freeze({
   "guild-grants-enable": "POST",
   "guild-grants-disable": "POST",
   "guild-grants-default": "POST",
-  "player-inventory-v2": "POST"
+  "player-inventory-v2": "POST",
+  "players-accounts-match-steam": "POST",
+  "players-accounts-link-steam": "POST"
 });
 
 const RBAC_MODES = new Set(["restricted", "open"]);
@@ -109,10 +113,39 @@ export function loadConfig(env = process.env) {
     baseUrl: optionalEnv(env, "ACP_BASE_URL") || "http://localhost:3100",
     setupPort: parsePositiveInteger(env.ACP_SETUP_PORT, 3100),
     oauthRedirectUri: optionalEnv(env, "ACP_OAUTH_REDIRECT_URI"),
+    // steamLink: the /dune player link Steam-connections feature's own
+    // small Express app (src/steamLinkServer.js), started unconditionally
+    // regardless of multiTenant -- see docs/steam-link-architecture.md's Single-Tenant
+    // Deployment Note for why this can't be gated behind multiTenant like
+    // setupServer.js is. Port defaults differently (3101, not 3100) so both
+    // servers can run simultaneously in multi-tenant mode without a
+    // collision. enabled is computed from whether a client secret is
+    // configured at all -- see the discord.clientSecret comment above.
+    steamLink: {
+      enabled: Boolean(
+        optionalEnv(env, "DISCORD_CLIENT_SECRET") ||
+        readOptionalSecretFile(env, "DISCORD_CLIENT_SECRET_FILE") ||
+        multiTenant
+      ),
+      port: parsePositiveInteger(env.ACP_STEAM_LINK_PORT, 3101),
+      baseUrl: optionalEnv(env, "ACP_STEAM_LINK_BASE_URL") || optionalEnv(env, "ACP_BASE_URL") || "http://localhost:3101"
+    },
     discord: {
       token: readSecret(env, "DISCORD_BOT_TOKEN", "DISCORD_BOT_TOKEN_FILE"),
       clientId: requiredEnv(env, "DISCORD_CLIENT_ID"),
-      clientSecret: multiTenant ? readSecret(env, "DISCORD_CLIENT_SECRET", "DISCORD_CLIENT_SECRET_FILE") : undefined,
+      // multiTenant mode has always required this secret (setupServer.js's
+      // OAuth flow). Single-tenant mode never did until the Steam-link
+      // feature -- and per docs/steam-link-security-review.md's
+      // FINDING-STEAM-5, it must remain OPTIONAL there: the bot must start
+      // and run normally with this unset. When unset, /dune player link
+      // never offers a "Link via Steam" button for any character
+      // (regardless of that character's Steam-ID-on-file status) and
+      // always falls back to the existing whisper flow silently -- no
+      // error message, since the whisper path was never contingent on
+      // this secret (see config.steamLink.enabled below).
+      clientSecret: multiTenant
+        ? readSecret(env, "DISCORD_CLIENT_SECRET", "DISCORD_CLIENT_SECRET_FILE")
+        : (optionalEnv(env, "DISCORD_CLIENT_SECRET") || readOptionalSecretFile(env, "DISCORD_CLIENT_SECRET_FILE")),
       guildId: optionalEnv(env, "DISCORD_GUILD_ID"),
       defaultEphemeral: parseBoolean(env.DISCORD_DEFAULT_EPHEMERAL, true),
       rbac: {
@@ -284,6 +317,23 @@ function readSecret(env, valueName, fileName) {
   const fileValue = readFileSync(filePath, "utf8").trim();
   if (!fileValue) throw new Error(`${fileName} points to an empty secret file.`);
   return fileValue;
+}
+
+// readOptionalSecretFile: like readSecret()'s file-path branch, but never
+// throws -- returns undefined if the *_FILE env var is unset, the file
+// doesn't exist, or it's empty. Used for secrets that are optional in
+// single-tenant mode (see discord.clientSecret / steamLink.enabled above),
+// where readSecret()'s required-throw behavior would break bots that never
+// intend to use the feature that needs this secret.
+function readOptionalSecretFile(env, fileName) {
+  const filePath = optionalEnv(env, fileName);
+  if (!filePath) return undefined;
+  try {
+    const fileValue = readFileSync(filePath, "utf8").trim();
+    return fileValue || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseCsv(value) {
