@@ -11,19 +11,11 @@ import {
   addGuildRole,
   updateGuildSettings
 } from "./database.js";
+import { esc } from "./htmlEscape.js";
 
 const DISCORD_OAUTH_URL = "https://discord.com/api/v10/oauth2/authorize";
 const DISCORD_TOKEN_URL = "https://discord.com/api/v10/oauth2/token";
 const DISCORD_USER_URL = "https://discord.com/api/v10/users/@me";
-
-function esc(str) {
-  return String(str || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#x27;");
-}
 
 export function createSetupServer(config) {
   const app = express();

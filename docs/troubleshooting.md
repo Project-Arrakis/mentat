@@ -163,15 +163,14 @@ Then only use guild-scoped registration going forward.
 **How to fix:**
 Run the link command with your exact character name:
 ```bash
-<<<<<<< HEAD
 /dune player link <your-character-name>
 ```
 Replace `<your-character-name>` with the name as it appears in the game.
-=======
-/dune data link <your-character-name>
-```
-Replace `<your-character-name>` with the name as it appears in the game. If you don't have a verified Steam connection, you'll receive a verification code in-game. Use `/dune data verify <code>` to complete the link.
->>>>>>> origin/main
+You'll receive a verification code in-game via whisper — use
+`/dune player verify <code>` to complete the link. Alternatively, run
+`/dune player link` with no character name to link via your Discord's
+connected Steam account instead (no whisper needed, works even if your
+character is offline) — see [User Guide § Linking Your Character](user-guide.md#linking-your-character).
 
 ---
 

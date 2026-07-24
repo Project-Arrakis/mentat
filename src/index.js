@@ -9,6 +9,7 @@ import { startScheduler } from "./scheduler.js";
 import { alertSubscriber } from "./notifications.js";
 import { createDatabase, getGuild, getGuildRoles, getGuildSettings, initBotStats, incrementCommandCount } from "./database.js";
 import { createSetupServer } from "./setupServer.js";
+import { createSteamLinkServer } from "./steamLinkServer.js";
 import { handleGuildCreate, handleGuildDelete } from "./onboarding.js";
 import { startStatsPusher } from "./statsPusher.js";
 
@@ -52,6 +53,19 @@ if (config.multiTenant) {
     logInfo("setup_server.started", { port: setupPort });
   });
 }
+
+// steamLinkServer starts UNCONDITIONALLY, unlike setupServer above — see
+// docs/steam-link-architecture.md's Single-Tenant Deployment Note. Most
+// real deployments of this bot are single-tenant, and /dune player link's
+// Steam-connections flow (no character argument) must work there too.
+// config.steamLink.enabled (computed from whether a Discord OAuth client
+// secret is configured at all) gates only the command's own behavior, not
+// whether this server starts — the server itself is cheap to run idle and
+// its /health route is useful either way.
+const steamLinkApp = createSteamLinkServer({ config, adapterClient, client });
+steamLinkApp.listen(config.steamLink.port, () => {
+  logInfo("steam_link_server.started", { port: config.steamLink.port, enabled: config.steamLink.enabled });
+});
 
 client.once(Events.ClientReady, (readyClient) => {
   healthState.markReady();
@@ -122,6 +136,22 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    // Closes a previously-total gap: this handler used to only ever check
+    // isChatInputCommand?.() inside executeDuneCommand() and silently fall
+    // through (return false) for anything else, including component
+    // interactions. /dune player link's Steam-connections flow's "Sign in
+    // with Discord" button is a Link-style component, which Discord's
+    // client opens directly with NO interaction event sent to the bot at
+    // all — so this branch doesn't need to do anything for that specific
+    // button today.
+    // It exists so (a) that fact is explicit and tested rather than
+    // implicitly relying on "nothing happens to reach here," and (b) any
+    // future non-Link-style component (a confirm/cancel button, a select
+    // menu) has an obvious, already-wired place to add its own handling
+    // rather than needing to discover and add this branch from scratch.
+    if (interaction.isMessageComponent?.()) {
+      return;
+    }
     await executeDuneCommand(interaction, adapterClient, config, db);
   } catch (error) {
     logError("discord.interaction_failed", error);

@@ -76,23 +76,15 @@ command line. Only available to admins.
 
 First, link your Discord account to your character:
 ```
-<<<<<<< HEAD
 /dune player link <your-character-name>
-```
-Then run:
-```
-/dune player inventory
-=======
-/dune data link <your-character-name>
 ```
 You'll receive a verification code in-game via whisper. Then run:
 ```
-/dune data verify <code>
+/dune player verify <code>
 ```
 Once linked, run:
 ```
 /dune data inventory
->>>>>>> origin/main
 ```
 
 **Q: What does "linking" mean?**
@@ -102,54 +94,57 @@ bot know which character's data to show you when you run player commands. The
 link is stored securely on the game server — your Discord account and character
 are associated, but no personal data is shared.
 
-<<<<<<< HEAD
-**Q: Can I link multiple characters to one Discord account?**
-
-No. Each Discord account can only be linked to one character at a time. If you
-want to switch characters, run `/dune player unlink` first, then link the new
-=======
 **Q: How does the verification code work?**
 
 The bot sends a 6-character code (e.g., `ACP-7X9K2`) to your character in-game as a whisper
-message. Only you can see this message. Enter the code with `/dune data verify <code>`
-to complete linking. Codes expire after 5 minutes.
+message. Only you can see this message. Enter the code with `/dune player verify <code>`
+to complete linking. Codes expire after 5 minutes. Alternatively, run
+`/dune player link` with no character name to link via your Discord's
+connected Steam account instead — no whisper code needed. See
+[User Guide § Linking Your Character](user-guide.md#linking-your-character)
+for the full walkthrough.
 
 **Q: Can I link multiple characters to one Discord account?**
 
-No. Each Discord account can only be linked to one character at a time. If you
-want to switch characters, run `/dune data unlink` first, then link the new
->>>>>>> origin/main
+Yes, as of the multi-character linking update — see `/dune player characters`
+to list all linked characters, and `/dune player enable`/`disable`/`default`
+to manage which are active in a given guild. To remove a link entirely, run
+`/dune player unlink <character>`, then link the new
 character.
 
 **Q: Can multiple Discord accounts link to the same character?**
 
 No. Each character can only be linked to one Discord account at a time.
 
-**Q: What's the difference between `/dune player inventory` and `/dune player storage`?**
+**Q: What's the difference between `/dune data inventory` and `/dune data storage`?**
 
 - **Inventory** shows items your character is currently carrying (on their person).
 - **Storage** shows items in storage containers you own (chests, shelves, etc.).
 
-**Q: What's the difference between `/dune player find` and `/dune player inventory-search`?**
+**Correction (2026-07-24):** this section and the next previously referenced
+`/dune player inventory`, `/dune player storage`, `/dune player find`, and a
+nonexistent `/dune player inventory-search` command. These commands have
+always lived in the `data` group, not `player` — `player` is (and has only
+ever been) the identity/linking command group. There is no separate
+"inventory-search" subcommand; use `/dune data inventory <search-term>`
+(the `search` option is optional on the same `inventory` subcommand).
+
+**Q: What's the difference between `/dune data find` and searching within `/dune data inventory`?**
 
 - **find** searches across all your storage containers (chests, guild storage, etc.)
-- **inventory-search** searches only in your character's personal inventory
+- **`/dune data inventory <search-term>`** searches only in your character's personal inventory
 
 **Q: Can I search guild storage?**
 
-Yes. Use `/dune player storage` with the scope set to `guild`, or use
-`/dune player find` with scope `guild`. You must be a member of the guild
+Yes. Use `/dune data storage` with the scope set to `guild`, or use
+`/dune data find` with scope `guild`. You must be a member of the guild
 to see its storage.
 
 **Q: Why do I get "Not linked" when I try to check my inventory?**
 
 You need to link your Discord account to your character first. Run:
 ```
-<<<<<<< HEAD
 /dune player link <your-character-name>
-=======
-/dune data link <your-character-name>
->>>>>>> origin/main
 ```
 Replace `<your-character-name>` with the exact name of your character in the game.
 

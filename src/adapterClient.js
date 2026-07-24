@@ -34,13 +34,24 @@ export const PLANNED_ROUTES = new Set([
 ]);
 
 // Routes implemented in feature/discord-player-inventory but NOT yet in upstream main.
+//
+// players-accounts-resolve-steam and players-accounts-link-steam
+// (2026-07-24): the Core-side half of /dune player link's
+// Steam-connections flow (invoked with no character argument)
+// (docs/steam-link-implementation-prompt.md Part 1). Tracked here the same
+// way as every other not-yet-merged route in this set — the bot-side code
+// that calls them is complete and correct, but a session in the Core repo
+// is implementing the two new routes separately; until that PR merges,
+// calling these routes returns the same "not yet merged" error every other
+// UNMERGED_ROUTES entry does (see executeDuneCommand()'s catch block).
 export const UNMERGED_ROUTES = new Set([
   "players-link", "players-link-verify", "players-unlink", "players-me", "players-faction",
   "players-inventory", "players-inventory-search", "players-storage", "players-find",
   "guild-storage", "guild-find",
   "player-links-start", "player-links-verify", "player-links", "player-links-unlink",
   "guild-grants", "guild-grants-enable", "guild-grants-disable", "guild-grants-default",
-  "player-inventory-v2"
+  "player-inventory-v2",
+  "players-accounts-resolve-steam", "players-accounts-link-steam"
 ]);
 
 // Routes that do NOT exist anywhere.
@@ -133,6 +144,13 @@ export class AdapterClient {
   guildGrantsDisable(actor, characterLinkId, guildId) { return this.request("guild-grants-disable", actor, { characterLinkId }, guildId); }
   guildGrantsDefault(actor, characterLinkId, guildId) { return this.request("guild-grants-default", actor, { characterLinkId }, guildId); }
   playerInventoryV2(actor, characterHandle, guildId) { return this.request("player-inventory-v2", actor, { characterHandle }, guildId); }
+
+  // Steam-connections-based linking (/dune player link, no character
+  // argument) — see docs/steam-link-architecture.md. Both routes reuse the
+  // existing self-scoped ACCOUNT_LINK_WRITE capability on the Core side;
+  // no new capability or bearer-auth mechanism is introduced.
+  resolveSteamCandidates(actor, steamId64List, guildId) { return this.request("players-accounts-resolve-steam", actor, { steamId64List }, guildId); }
+  linkAccountViaSteam(actor, playerControllerId, guildId) { return this.request("players-accounts-link-steam", actor, { playerControllerId }, guildId); }
 
   async request(route, actor, extra = undefined, guildId = null) {
     const cfg = this._resolveConfig(guildId);

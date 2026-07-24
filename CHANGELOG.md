@@ -77,32 +77,25 @@ and Cloudflare tunnel support.
 
 - `logs` command group with per-service subcommands (`dune-postgres`, `dune-redis`,
   `dune-nginx`, `dune-orchestrator`, `dune-console`, `dune-steamcmd`).
-<<<<<<< HEAD
-- `data:verify` subcommand for two-step character linking with RCON code verification.
-- Setup portal guide (`docs/setup-portal-guide.md`) for new users.
-- Post-receive hook fix: replaced broken `git fetch origin` with `git pull deploy`.
-=======
 - `data:verify` subcommand for two-step character linking with in-game whisper code verification.
 - Setup portal guide (`docs/setup-portal-guide.md`) for new users.
 - Post-receive hook fix: replaced broken `git fetch origin` with `git pull deploy`.
 - Stats pusher now writes to both `acp-stats-${INSTANCE_ID}` and `acp-stats-aggregate` KV keys.
->>>>>>> origin/main
 
 ### Changed
 
-- `data:link` now uses two-step verification: primary via Discord's verified Steam
-<<<<<<< HEAD
-  connection, fallback via RCON whisper code sent in-game.
-- `admin:broadcast` marked as planned until upstream implements the route.
-- Setup portal intro clarified: only console `.env` editing required, not bot config.
-- Setup portal docker restart command uses `-f docker-compose.web.yml` and service name.
-=======
-  connection (instant link), fallback via in-game whisper code sent through RabbitMQ.
+- `data:link` now uses two-step verification via an in-game whisper code sent
+  through RabbitMQ. **Correction (2026-07-24):** this entry originally also
+  claimed a "Discord's verified Steam connection (instant link)" primary
+  path; that was never actually implemented at this release — verified
+  against `a15d4a8`'s actual code (no OAuth/connections-scope code existed
+  anywhere in the repo at that commit). Only the whisper-code flow shipped.
+  The real Steam-connections-based linking feature was designed and
+  implemented starting 2026-07-24 — see `docs/steam-link-design.md`.
 - `admin:broadcast` marked as planned until upstream implements the route.
 - Setup portal intro clarified: only console `.env` editing required, not bot config.
 - Setup portal docker restart command uses `-f docker-compose.web.yml` and service name.
 - `aboutPayload` `readOnly` changed to `false` (bot supports write operations for player linking).
->>>>>>> origin/main
 
 ### Fixed
 

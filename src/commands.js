@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from "discord.js";
+import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -15,9 +15,21 @@ import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor 
 import { getLatencyHistory, isRouteMissing, routeStatus, UNMERGED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
 import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
+import { createSteamLinkSession } from "./steamLinkStore.js";
 
 // Group -> subcommand -> handler config
-// Each group can have up to 25 subcommands; we have 6 groups with room for many more.
+// Each group can have up to 25 subcommands; a top-level command can have up
+// to 25 subcommand groups. We have 8 non-write groups (9 with write
+// enabled) with room for many more.
+//
+// player group split out of data (2026-07-24): identity/linking commands
+// (link, verify, characters, enable, disable, default, unlink, faction,
+// whoami) were originally under data, which had grown to 15/25 subcommands
+// by mixing three unrelated concerns (identity/linking, inventory/storage,
+// server/world data). Moved to their own top-level group so both groups
+// have headroom and a coherent purpose. This was a deliberate, documented
+// breaking rename -- see docs/steam-link-design.md's "Scope Addition"
+// section and docs/changes/ for the full old-to-new command mapping.
 
 export function buildDuneCommand({ includeWriteGroup = false } = {}) {
   const builder = new SlashCommandBuilder()
@@ -48,8 +60,21 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("population").setDescription("Show aggregate player count and server population."))
       .addSubcommand((c) => c.setName("backups").setDescription("List recent backup metadata (read-only)."))
       .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime."))
-      .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character.")
-        .addStringOption((o) => o.setName("character").setDescription("Your character name").setRequired(true)))
+      .addSubcommand((c) => c.setName("inventory").setDescription("View your personal inventory.")
+        .addStringOption((o) => o.setName("search").setDescription("Filter by item name (optional)")))
+      .addSubcommand((c) => c.setName("storage").setDescription("View your storage containers grouped by map.")
+        .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
+          .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" })))
+      .addSubcommand((c) => c.setName("find").setDescription("Search for items across your containers.")
+        .addStringOption((o) => o.setName("query").setDescription("Item name to search for").setRequired(true))
+        .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
+          .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" }))))
+
+    // ── player group ──
+    // Split out of data (see the block comment above buildDuneCommand()).
+    .addSubcommandGroup((g) => g.setName("player").setDescription("Link your Discord to your game character, and manage linked characters.")
+      .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character (omit character to link via Steam).")
+        .addStringOption((o) => o.setName("character").setDescription("Your character name (omit to link via Discord's connected Steam account instead)")))
       .addSubcommand((c) => c.setName("verify").setDescription("Verify a pending character link with a code.")
         .addStringOption((o) => o.setName("code").setDescription("Verification code from in-game whisper").setRequired(true)))
       .addSubcommand((c) => c.setName("characters").setDescription("List your verified characters."))
@@ -64,16 +89,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("faction").setDescription("Set your faction for themed embeds.")
         .addStringOption((o) => o.setName("name").setDescription("atreides, harkonnen, or fremen").setRequired(true)
           .addChoices({ name: "Atreides", value: "atreides" }, { name: "Harkonnen", value: "harkonnen" }, { name: "Fremen", value: "fremen" })))
-      .addSubcommand((c) => c.setName("whoami").setDescription("Show your linked game character info."))
-      .addSubcommand((c) => c.setName("inventory").setDescription("View your personal inventory.")
-        .addStringOption((o) => o.setName("search").setDescription("Filter by item name (optional)")))
-      .addSubcommand((c) => c.setName("storage").setDescription("View your storage containers grouped by map.")
-        .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
-          .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" })))
-      .addSubcommand((c) => c.setName("find").setDescription("Search for items across your containers.")
-        .addStringOption((o) => o.setName("query").setDescription("Item name to search for").setRequired(true))
-        .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
-          .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" }))))
+      .addSubcommand((c) => c.setName("whoami").setDescription("Show your linked game character info.")))
 
     // ── logs group ──
     .addSubcommandGroup((g) => g.setName("logs").setDescription("View logs from specific game services.")
@@ -232,24 +248,6 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     } else if (key === "data:maps") {
       const status = await adapterClient.status(actor, false, guildId);
       payload = { maps: status?.result?.maps || [] };
-    } else if (key === "data:link") {
-      const characterName = interaction.options.getString("character");
-      payload = await adapterClient.playerLinkStart(actor, characterName, guildId);
-    } else if (key === "data:verify") {
-      const code = interaction.options.getString("code");
-      payload = await adapterClient.playerLinkVerify(actor, code, guildId);
-    } else if (key === "data:unlink") {
-      const characterLinkId = interaction.options.getString("character");
-      if (characterLinkId) {
-        payload = await adapterClient.playerUnlinkV2(actor, characterLinkId, guildId);
-      } else {
-        payload = await adapterClient.playerUnlink(actor, guildId);
-      }
-    } else if (key === "data:faction") {
-      const faction = interaction.options.getString("name");
-      payload = await adapterClient.playerFaction(actor, faction, guildId);
-    } else if (key === "data:whoami") {
-      payload = await adapterClient.whoami(actor, guildId);
     } else if (key === "data:inventory") {
       const search = interaction.options.getString("search");
       if (search) {
@@ -264,15 +262,70 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       const query = interaction.options.getString("query");
       const scope = interaction.options.getString("scope") || "owned";
       payload = await adapterClient.playerFind(actor, query, scope, guildId);
-    } else if (key === "data:characters") {
+    }
+    // ── player group ──
+    // Split out of data (2026-07-24) -- see the block comment above
+    // buildDuneCommand() for why.
+    else if (key === "player:link") {
+      const characterName = interaction.options.getString("character");
+      if (characterName) {
+        // Existing whisper-code flow -- unchanged.
+        payload = await adapterClient.playerLinkStart(actor, characterName, guildId);
+      } else {
+        // No character name given -> Steam-connections flow (2026-07-24).
+        // Originally proposed as a separate `player:link-steam` command;
+        // unified into `player:link` per design review -- see
+        // docs/steam-link-design.md's revision note for why.
+        if (!config.steamLink?.enabled) {
+          await interaction.editReply(formatError(new Error(
+            "Steam linking is not configured on this server. Ask an admin to set DISCORD_CLIENT_SECRET, " +
+            "or use /dune player link <character-name> instead."
+          )));
+          applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
+          return true;
+        }
+        const session = createSteamLinkSession({
+          discordUserId: interaction.user?.id,
+          guildId,
+          interactionToken: interaction.token,
+          commandInteractionId: interaction.id
+        });
+        const startUrl = `${config.steamLink.baseUrl}/steam-link/start?state=${session.state}`;
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setLabel("Sign in with Discord").setStyle(ButtonStyle.Link).setURL(startUrl)
+        );
+        await interaction.editReply({
+          content: "Click below to connect your Discord's linked Steam account(s). " +
+            "This link expires in 10 minutes.",
+          components: [row]
+        });
+        applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
+        return true;
+      }
+    } else if (key === "player:verify") {
+      const code = interaction.options.getString("code");
+      payload = await adapterClient.playerLinkVerify(actor, code, guildId);
+    } else if (key === "player:unlink") {
+      const characterLinkId = interaction.options.getString("character");
+      if (characterLinkId) {
+        payload = await adapterClient.playerUnlinkV2(actor, characterLinkId, guildId);
+      } else {
+        payload = await adapterClient.playerUnlink(actor, guildId);
+      }
+    } else if (key === "player:faction") {
+      const faction = interaction.options.getString("name");
+      payload = await adapterClient.playerFaction(actor, faction, guildId);
+    } else if (key === "player:whoami") {
+      payload = await adapterClient.whoami(actor, guildId);
+    } else if (key === "player:characters") {
       payload = await adapterClient.playerLinks(actor, guildId);
-    } else if (key === "data:enable") {
+    } else if (key === "player:enable") {
       const characterLinkId = interaction.options.getString("character");
       payload = await adapterClient.guildGrantsEnable(actor, characterLinkId, guildId);
-    } else if (key === "data:disable") {
+    } else if (key === "player:disable") {
       const characterLinkId = interaction.options.getString("character");
       payload = await adapterClient.guildGrantsDisable(actor, characterLinkId, guildId);
-    } else if (key === "data:default") {
+    } else if (key === "player:default") {
       const characterLinkId = interaction.options.getString("character");
       payload = await adapterClient.guildGrantsDefault(actor, characterLinkId, guildId);
     }
