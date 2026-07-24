@@ -208,28 +208,36 @@ Controls player inventory, storage, and character linking features.
 
 **Note:** Player features require no additional bot configuration. They work
 automatically once the bot is connected to a console with the Discord adapter
-enabled. Players use `/dune player link <character-name>` to link their
-Discord account to their in-game character:
+enabled. Players run `/dune player link <character-name>` to link their
+Discord account to their in-game character (the character name is
+required); what happens next is decided automatically by the bot:
 
-1. A verification code is sent in-game via whisper (RabbitMQ `chat.whispers`).
-2. Use `/dune player verify <code>` to complete the link.
+1. If the named character has no Steam account on file, a verification
+   code is sent in-game via whisper (RabbitMQ `chat.whispers`) — use
+   `/dune player verify <code>` to complete the link.
+2. If the named character already has a Steam account on file, the bot
+   instead shows a "Link via Steam" button — completing Discord's OAuth
+   consent screen links the character instantly if the connected Steam
+   account matches, or automatically falls back to sending the whisper
+   code if it doesn't.
 
 **Correction (2026-07-24):** this section previously also documented a
 "Discord has a verified Steam connection, linking completes instantly" step
 as already-working; that capability did not exist in the code at the time
-this was written (verified against the commit history — see the CHANGELOG.md
-correction for the same claim). The real Steam-connections-based linking
-feature — `/dune player link` invoked with no character name — was designed
-and implemented starting 2026-07-24; see `docs/steam-link-design.md`. Command
-paths below are also updated from the pre-restructure `/dune data *` group to
-the current `/dune player *` group (see `docs/steam-link-design.md`'s
-"Scope Addition" section for that rename's rationale).
+this was originally written (verified against the commit history — see the
+CHANGELOG.md correction for the same claim). It has since actually been
+designed and implemented, per the corrected mechanics above — see
+`docs/steam-link-design.md` for the full design (including a mid-development
+revision correcting an initial draft where the character argument was
+optional). Command paths below are also updated from the pre-restructure
+`/dune data *` group to the current `/dune player *` group (see
+`docs/steam-link-design.md`'s "Scope Addition" section for that rename's
+rationale).
 
 Once linked, players can use:
 
-- `/dune player link <character>` — Link Discord to in-game character (whisper code)
-- `/dune player link` (no character name) — Link via Discord's connected Steam account instead
-- `/dune player verify <code>` — Complete linking with verification code
+- `/dune player link <character>` — Link Discord to in-game character (bot picks whisper or Steam automatically)
+- `/dune player verify <code>` — Complete linking with verification code (whisper path only)
 - `/dune player unlink` — Remove character link
 - `/dune player whoami` — Show linked character info
 - `/dune player faction <name>` — Set faction for themed embeds (atreides, harkonnen, fremen)

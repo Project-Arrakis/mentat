@@ -98,9 +98,10 @@ are associated, but no personal data is shared.
 
 The bot sends a 6-character code (e.g., `ACP-7X9K2`) to your character in-game as a whisper
 message. Only you can see this message. Enter the code with `/dune player verify <code>`
-to complete linking. Codes expire after 5 minutes. Alternatively, run
-`/dune player link` with no character name to link via your Discord's
-connected Steam account instead — no whisper code needed. See
+to complete linking. Codes expire after 5 minutes. This only happens for
+characters with no Steam account on file — if yours has one, the bot
+shows a "Link via Steam" button instead of a whisper code, automatically,
+with no separate command to run. See
 [User Guide § Linking Your Character](user-guide.md#linking-your-character)
 for the full walkthrough.
 

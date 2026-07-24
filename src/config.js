@@ -46,7 +46,7 @@ const DEFAULT_PATHS = Object.freeze({
   "guild-grants-disable": "/api/integrations/discord/guild-character-grants/disable",
   "guild-grants-default": "/api/integrations/discord/guild-character-grants/default",
   "player-inventory-v2": "/api/integrations/discord/player/inventory",
-  "players-accounts-resolve-steam": "/api/integrations/discord/players/accounts/resolve-steam",
+  "players-accounts-match-steam": "/api/integrations/discord/players/accounts/match-steam",
   "players-accounts-link-steam": "/api/integrations/discord/players/accounts/link-steam"
 });
 
@@ -96,7 +96,7 @@ const DEFAULT_METHODS = Object.freeze({
   "guild-grants-disable": "POST",
   "guild-grants-default": "POST",
   "player-inventory-v2": "POST",
-  "players-accounts-resolve-steam": "POST",
+  "players-accounts-match-steam": "POST",
   "players-accounts-link-steam": "POST"
 });
 
@@ -137,9 +137,12 @@ export function loadConfig(env = process.env) {
       // OAuth flow). Single-tenant mode never did until the Steam-link
       // feature -- and per docs/steam-link-security-review.md's
       // FINDING-STEAM-5, it must remain OPTIONAL there: the bot must start
-      // and run normally with this unset, with only /dune player link's
-      // Steam-connections flow (no character argument) refusing to work
-      // (see config.steamLink.enabled below).
+      // and run normally with this unset. When unset, /dune player link
+      // never offers a "Link via Steam" button for any character
+      // (regardless of that character's Steam-ID-on-file status) and
+      // always falls back to the existing whisper flow silently -- no
+      // error message, since the whisper path was never contingent on
+      // this secret (see config.steamLink.enabled below).
       clientSecret: multiTenant
         ? readSecret(env, "DISCORD_CLIENT_SECRET", "DISCORD_CLIENT_SECRET_FILE")
         : (optionalEnv(env, "DISCORD_CLIENT_SECRET") || readOptionalSecretFile(env, "DISCORD_CLIENT_SECRET_FILE")),

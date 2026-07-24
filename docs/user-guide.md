@@ -66,9 +66,8 @@ Select one, then choose a command from within that group.
 
 | Command | What It Does |
 |---------|-------------|
-| `/dune player link <character-name>` | Start linking your Discord to your in-game character (whisper code) |
-| `/dune player link` (no character name) | Link via your Discord's connected Steam account instead — no whisper needed, works even if your character is offline |
-| `/dune player verify <code>` | Complete linking by entering the verification code shown in-game |
+| `/dune player link <character-name>` | Start linking your Discord to your in-game character |
+| `/dune player verify <code>` | Complete linking by entering the verification code shown in-game (only needed for the whisper flow — see below) |
 | `/dune player characters` | List all your linked characters |
 | `/dune player enable <character>` | Enable a linked character in this guild |
 | `/dune player disable <character>` | Disable a linked character in this guild |
@@ -77,19 +76,29 @@ Select one, then choose a command from within that group.
 | `/dune player faction <name>` | Set your faction for themed embeds (atreides, harkonnen, fremen) |
 | `/dune player whoami` | Show your linked character info |
 
-**Character Linking Flow (whisper-based, default):**
-1. Run `/dune player link <character-name>` — the bot sends a 6-character verification code to your character in-game via whisper
-2. Read the code in-game (it appears as a whisper message)
-3. Run `/dune player verify <code>` to complete the link
-4. Codes expire after 5 minutes
+**Character Linking Flow:**
 
-**Character Linking Flow (via Steam, alternative — works even if your character is offline):**
-1. Run `/dune player link` with no character name — the bot replies with a "Sign in with Discord" button
-2. Click it, approve the requested `identify`/`connections` permissions on Discord's own consent screen
-3. If your Discord account has a Steam connection linked (Discord Settings → Connections), the bot shows you a list of matching in-game character(s) — pick the one(s) you want to link
-4. This works even if your character is currently offline, since it doesn't rely on an in-game whisper
+Always run `/dune player link <character-name>` — the character name is
+required. What happens next depends on whether that character already has
+a Steam account linked on the game server, and the bot decides this for
+you automatically:
 
-You can link more than one character to your Discord account — see `/dune player characters` to view all of them.
+- **If the character has no Steam account on file:** the bot sends a
+  6-character verification code to your character in-game via whisper.
+  Read the code in-game and run `/dune player verify <code>` to complete
+  the link. Codes expire after 5 minutes.
+- **If the character has a Steam account on file:** the bot instead shows
+  a "Link via Steam" button — no whisper needed, and it works even if your
+  character is currently offline. Click it, approve the requested
+  `identify`/`connections` permissions on Discord's own consent screen,
+  and the bot links the character immediately if your connected Steam
+  account matches. If it doesn't match, the bot automatically falls back
+  to sending you the whisper code instead — you don't need to run the
+  command again.
+
+You can link more than one character to your Discord account — run the
+command once per character, and see `/dune player characters` to view all
+of them.
 
 ### 📋 `logs` — Container Logs
 
@@ -152,9 +161,29 @@ Run this command in Discord:
 Replace `<your-character-name>` with the exact name of your character in the game.
 For example: `/dune player link PaulAtreides`
 
-The bot will search for your character and generate a verification code. This code is sent to your character in-game as a whisper message.
+What happens next depends on whether that character already has a Steam
+account linked on the game server — the bot checks this automatically and
+shows you exactly one of the two paths below (never both):
+
+**If your character has no Steam account on file:** the bot generates a
+verification code and sends it to your character in-game as a whisper
+message. Continue to Step 2 below.
+
+**If your character has a Steam account on file:** the bot shows a "Link
+via Steam" button instead — no whisper needed, and it works even if your
+character is currently offline. Click it, approve the `identify`/
+`connections` permissions on Discord's own consent screen (this requires
+your Discord account to already have a Steam connection added in Discord
+Settings → Connections — a one-time, native Discord setting the bot has
+no part in creating, only reading with your permission). If your connected
+Steam account matches, your character links immediately — no further
+steps needed. If it doesn't match, the bot automatically sends you the
+whisper code instead, and you can continue to Step 2 below.
 
 ### Step 2: Verify Your Code
+
+*(Only needed if you received a whisper code — skip this step if your
+character linked instantly via Steam.)*
 
 Check your in-game whispers for a message like:
 
@@ -167,18 +196,6 @@ Then run:
 ```
 
 Replace `ACP-7X9K2` with the actual code you received. Codes expire after 5 minutes.
-
-**Alternative — link via Steam (no whisper needed):**
-
-If your character is offline, or you'd rather skip the whisper step
-entirely, run `/dune player link` with no character name instead of the
-two steps above. The bot will show a "Sign in with Discord" button — click it, approve the
-`identify`/`connections` permissions on Discord's own consent screen, and
-the bot will show any in-game character(s) matching a Steam account linked
-in your Discord Settings → Connections. This requires your Discord account
-to already have a Steam connection added there (a one-time, native Discord
-setting — the bot has no part in creating that link, only reading it with
-your permission).
 
 ### Step 3: Check Your Link
 
@@ -228,9 +245,8 @@ This does not affect your character in the game — it just disconnects it from 
 | "Multiple players found" | More than one character has that name | Use a more specific name |
 | "Invalid or expired code" | The code is wrong or expired | Run `/dune player link <character>` again for a new code |
 | "Code belongs to different user" | Someone else generated this code | Use your own Discord account to link |
-| "Not linked" | You haven't linked a character yet | Run `/dune player link <name>` first, or `/dune player link` with no name for the Steam-based flow |
-| "No Steam connection found" | Your Discord account has no linked Steam account | Add one in Discord Settings → Connections, or use `/dune player link <name>` instead |
-| "No characters found for your Steam account" | Your linked Steam account has no matching in-game character | Make sure you're logged into the game with the same Steam account, or use `/dune player link <name>` instead |
+| "Not linked" | You haven't linked a character yet | Run `/dune player link <name>` first |
+| Bot sent a whisper code instead of showing a Steam button | Your character has a Steam account on file, but your connected Discord Steam account didn't match it (or you don't have one linked) | Check your whispers for the code, or add the matching Steam account in Discord Settings → Connections and run `/dune player link <name>` again |
 | "Not authorized" | You don't have the Observer role | Ask a server admin to give you the role |
 
 ## Understanding the Status Card

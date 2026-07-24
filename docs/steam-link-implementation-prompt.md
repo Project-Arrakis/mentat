@@ -12,59 +12,111 @@ wrong, stop and ask before deviating — read all four companion documents in
 full first: `docs/steam-link-design.md`, `docs/steam-link-architecture.md`,
 `docs/steam-link-security-review.md`, `docs/steam-link-grc.md`.
 
+**IMPORTANT — read the revision note at the top of `docs/steam-link-design.md`
+before starting.** This feature's design has been corrected twice. The
+current, correct shape is: `/dune player link <character-name>` keeps its
+`character` argument **required**, exactly as it was before this feature
+existed. The bot decides server-side, based on whether the named
+character already has a Steam ID on file, whether to send the existing
+in-game whisper or offer a "Link via Steam" button — never both in the
+same reply, and never based on whether the player typed something or not.
+There is no candidate-selection list anywhere in this design — every
+Steam-link session is scoped to exactly one, already-named character.
+
 ---
 
 ## PART 1: Core repo (`dune-awakening-selfhost-docker`)
 
 ### Task
 
-Implement the two new Core-side routes this feature needs, reusing
+Extend the existing character-link-start path to also report whether the
+resolved character has a Steam ID on file, and add one new route to
+complete a link via a Steam-ID match instead of a whisper code. Reuse
 FINDING-LINK-6's existing schema and capability model exactly — see
 `docs/security/discord-player-link-hardening.md` for that finding's full
 history before touching any of this code.
 
 ### Files to modify
 
-1. **`console/api/src/duneDb.js`** — add one new read-only query function,
-   placed near `linkAdditionalAccount()` (around line 5346):
+1. **`console/api/src/duneDb.js`** — find the existing function the
+   whisper-link-start route calls to resolve a character by name and
+   generate/send the verification code (search for `resolvePlayerByName`
+   and the function that calls `publishCarePackageWhisper` — see
+   `docs/changes/PR-0091-upstream-feedback-resolution.md` for the exact
+   names and line references from when that flow was built). Extend its
+   return shape (or wrap it) so that, in addition to whatever it already
+   returns, the caller also learns whether this account has a Steam ID on
+   file:
 
    ```js
-   // resolveCharactersBySteamId64: read-only lookup used by the Discord bot's
+   // matchSteamIdForCharacter: read-only check used by the Discord bot's
    // Steam-connections-based linking flow (see
-   // yacketrj/Arrakis-Control-Panel:docs/steam-link-architecture.md). Given a
-   // list of raw SteamID64 strings (as returned by Discord's own
-   // GET /users/@me/connections for type=="steam" connections), returns
-   // candidate character rows. No writes. No new table.
-   export async function resolveCharactersBySteamId64(db, steamId64List) {
+   // yacketrj/Arrakis-Control-Panel:docs/steam-link-architecture.md).
+   // Given ONE specific playerControllerId (already resolved and named by
+   // the player -- this is never a bulk/candidate-list lookup) and the
+   // array of SteamID64 strings Discord's own GET /users/@me/connections
+   // returned for the linking Discord user, returns true if that
+   // character's on-file platform_id appears anywhere in the array.
+   //
+   // Live-schema verification (2026-07-24, dune-postgres container):
+   // dune.accounts is a view over encrypted_accounts (no unique
+   // constraint on platform_id); joined via dune.player_state, itself a
+   // view filtering encrypted_player_state for character_state = 'Active'.
+   export async function matchSteamIdForCharacter(db, playerControllerId, steamId64List) {
      const ids = (Array.isArray(steamId64List) ? steamId64List : [])
        .map((value) => String(value || "").trim())
        .filter((value) => /^[0-9]{17}$/.test(value)); // SteamID64 is always 17 digits
-     if (!ids.length) return [];
+     if (!ids.length || !playerControllerId) return false;
      const result = await db.query(`
-       select
-         ac.platform_id as steam_id64,
-         ps.player_controller_id::text as player_controller_id,
-         ps.player_pawn_id::text as player_pawn_id,
-         ps.character_name,
-         ps.online_status::text as online_status
+       select 1
        from dune.accounts ac
        join dune.player_state ps on ps.account_id = ac.id
        where lower(coalesce(ac.platform_name, '')) = 'steam'
          and ac.platform_id = any($1::text[])
-         and ps.player_pawn_id is not null
-       order by ps.character_name`, [ids]);
-     return result.rows;
+         and ps.player_controller_id::text = $2
+       limit 1`, [ids, String(playerControllerId)]);
+     return result.rows.length > 0;
+   }
+
+   // characterHasSteamId: read-only check used when a player first runs
+   // /dune player link <character-name>, BEFORE any OAuth flow starts --
+   // this is what decides whether the bot offers a "Link via Steam"
+   // button at all, or falls straight to the existing whisper flow with
+   // no mention of Steam. Separate from matchSteamIdForCharacter() above,
+   // which runs LATER, after the player has completed OAuth, to check
+   // whether their specific connected Steam account(s) actually match.
+   export async function characterHasSteamId(db, playerControllerId) {
+     if (!playerControllerId) return false;
+     const result = await db.query(`
+       select 1
+       from dune.accounts ac
+       join dune.player_state ps on ps.account_id = ac.id
+       where ps.player_controller_id::text = $1
+         and lower(coalesce(ac.platform_name, '')) = 'steam'
+         and ac.platform_id is not null
+         and ac.platform_id != ''
+       limit 1`, [String(playerControllerId)]);
+     return result.rows.length > 0;
    }
    ```
 
-   Cite the exact live-schema verification already done (2026-07-24,
-   `dune-postgres` container: `dune.accounts` is a view over
-   `encrypted_accounts`/no unique constraint on `platform_id`; joined via
-   `dune.player_state`, itself a view filtering `encrypted_player_state`
-   for `character_state = 'Active'`) in a comment above this function —
-   do not re-derive these facts from scratch, they are already confirmed.
+2. **Extend the existing whisper-link-start route/provider** (the one
+   `players/link` currently calls) so its response includes
+   `hasSteam: await characterHasSteamId(db, playerControllerId)` alongside
+   whatever it already returns. **Behavior for characters with
+   `hasSteam: false` must be byte-for-byte unchanged** — same whisper
+   sent, same response shape plus this one new boolean field. For
+   characters with `hasSteam: true`, the route must **still send the
+   whisper as a fallback-in-waiting is NOT required here** — sending it
+   immediately regardless would defeat the purpose of offering an instant
+   Steam-link path. Confirm with the actual `linkAccountProvider()` /
+   equivalent function's current code before deciding whether "send
+   whisper" and "check hasSteam" naturally happen in the same DB round
+   trip or need to be sequenced — do not send the whisper for
+   `hasSteam: true` characters at this stage; only send it later, from the
+   new route below, if the Steam match ultimately fails.
 
-2. **`console/api/src/integrations/discord/multiAccountLinkProvider.js`** —
+3. **`console/api/src/integrations/discord/multiAccountLinkProvider.js`** —
    add one new provider function, placed after `linkAccountProvider()`:
 
    ```js
@@ -72,17 +124,16 @@ history before touching any of this code.
    // linkAccountProvider() above. Trusts that the CALLER (the Discord bot)
    // has already completed and verified a genuine Discord OAuth
    // authorization-code grant with the "connections" scope for this exact
-   // discordUserId before calling this function -- there is no
+   // discordUserId, AND already confirmed (via matchSteamIdForCharacter())
+   // that the named character's on-file Steam ID appears in that grant's
+   // connections list, before calling this function -- there is no
    // whisper/code verification step here, because Discord's own OAuth
-   // consent screen IS the identity proof for this path (see
-   // docs/steam-link-architecture.md's "Why This Wasn't Previously
-   // Possible" section in the bot repo for the full reasoning). This
-   // function performs NO OAuth verification itself -- it is the bot's
-   // responsibility to have already done that before this route is ever
-   // called. Reuses linkAdditionalAccount() UNCHANGED, so every existing
-   // conflict-check/uniqueness guarantee (including the cross-table check
-   // against the legacy single-link flow) applies identically to links
-   // created this way.
+   // consent screen IS the identity proof for this path. This function
+   // performs NO OAuth verification and NO Steam-ID matching itself -- it
+   // is the bot's responsibility to have already done both before this
+   // route is ever called. Reuses linkAdditionalAccount() UNCHANGED, so
+   // every existing conflict-check/uniqueness guarantee applies
+   // identically to links created this way.
    export async function linkAccountViaSteamProvider(db, { discordUserId, playerControllerId }) {
      if (!discordUserId || !String(discordUserId).trim()) {
        throw policyError("invalid_request", "discordUserId is required.");
@@ -98,76 +149,59 @@ history before touching any of this code.
    Import `linkAdditionalAccount` (already imported at the top of this
    file for `linkAccountProvider`'s own use — no new import needed).
 
-3. **`console/api/src/integrations/discord/adapter.js`** — add two new
-   entries to `DISCORD_ADAPTER_ROUTES` (around line 30-34, alongside the
-   existing five `PLAYERS_ACCOUNTS_*` entries):
+4. **`console/api/src/integrations/discord/adapter.js`** — add one new
+   entry to `DISCORD_ADAPTER_ROUTES` (alongside the existing
+   `PLAYERS_ACCOUNTS_*` entries):
 
    ```js
-   PLAYERS_ACCOUNTS_RESOLVE_STEAM: "/api/integrations/discord/players/accounts/resolve-steam",
-   PLAYERS_ACCOUNTS_LINK_STEAM: "/api/integrations/discord/players/accounts/link-steam",
+   PLAYERS_ACCOUNTS_LINK_STEAM: "/api/integrations/discord/players/accounts/link-steam"
    ```
 
-4. **`console/api/src/integrations/discord/routes.js`** — add two new
-   route blocks, inserted immediately after the existing
-   `PLAYERS_ACCOUNTS_SET_DEFAULT` block (around line 329) and before
-   `PLAYERS_ME`:
+   (Only one new route in this revision — the prior revision's
+   `PLAYERS_ACCOUNTS_RESOLVE_STEAM` is no longer needed, since there is no
+   candidate list to resolve. `matchSteamIdForCharacter()` is called
+   directly inside the callback handling below, not exposed as its own
+   route — the bot's `steamLinkServer.js` calls the Core adapter's
+   existing `players-link` route shape isn't quite right either; add
+   whichever thin route shape lets the bot pass `{ playerControllerId,
+   steamId64List }` and get back `{ matched: boolean }`. Name it
+   consistently with the existing route-naming convention, e.g.
+   `PLAYERS_ACCOUNTS_MATCH_STEAM: "/api/integrations/discord/players/accounts/match-steam"`
+   if a dedicated route is cleaner than folding the check into
+   `link-steam` itself — implementer's choice, but document whichever is
+   chosen in this file's own comments so a future reader isn't confused by
+   this prompt describing two options.)
 
-   ```js
-   // Multi-account via Steam: resolve candidate characters from a list of
-   // Discord-connections-derived SteamID64 values. Read-only.
-   if (path === DISCORD_ADAPTER_ROUTES.PLAYERS_ACCOUNTS_RESOLVE_STEAM && req.method === "POST") {
-     const body = await readJson(req);
-     const actor = validateDiscordActor(body.actor);
-     requireSelfScopedCapability(actor, mapping, DISCORD_CAPABILITIES.ACCOUNT_LINK_WRITE);
-     return json(res, 200, {
-       ok: true,
-       candidates: await resolveCharactersBySteamId64(db, body.steamId64List)
-     });
-   }
+5. **`console/api/src/integrations/discord/routes.js`** — add the new
+   route block(s) following the exact same shape as the existing
+   `PLAYERS_ACCOUNTS_*` blocks: `readJson` → `validateDiscordActor` →
+   `requireSelfScopedCapability(actor, mapping,
+   DISCORD_CAPABILITIES.ACCOUNT_LINK_WRITE)` → call provider → `json(res,
+   200, result)`. Both/all new routes POST, gated by the EXISTING
+   `ACCOUNT_LINK_WRITE` capability — no new capability needed.
 
-   // Multi-account via Steam: complete the link. Caller (the bot) must
-   // have already verified the Discord OAuth grant before calling this.
-   if (path === DISCORD_ADAPTER_ROUTES.PLAYERS_ACCOUNTS_LINK_STEAM && req.method === "POST") {
-     const body = await readJson(req);
-     const actor = validateDiscordActor(body.actor);
-     requireSelfScopedCapability(actor, mapping, DISCORD_CAPABILITIES.ACCOUNT_LINK_WRITE);
-     return json(res, 200, await linkAccountViaSteamProvider(db, {
-       discordUserId: actor.userId,
-       playerControllerId: body.playerControllerId
-     }));
-   }
-   ```
-
-   Add `resolveCharactersBySteamId64` to the existing `duneDb.js` import
-   list at the top of `routes.js`, and `linkAccountViaSteamProvider` to the
-   existing `multiAccountLinkProvider.js` import list.
-
-   **Note:** `requireSelfScopedCapability()` for these two routes still
-   checks `actor.userId` against nothing but itself (it's inherently
-   self-scoped, matching every other `ACCOUNT_LINK_WRITE` route) — there is
-   no separate "target user" concept here any more than there is for the
-   existing five routes. `resolve-steam`'s response (a list of *candidate*
-   characters) is not itself a write and does not need the requesting actor
-   to already own anything; the actual ownership check happens inside
-   `linkAdditionalAccount()` when `link-steam` is called.
+   Add `matchSteamIdForCharacter`/`characterHasSteamId` to the existing
+   `duneDb.js` import list at the top of `routes.js`, and
+   `linkAccountViaSteamProvider` to the existing
+   `multiAccountLinkProvider.js` import list.
 
 ### Tests to add
 
 1. **`console/api/test/duneDb.test.js`** — add tests for
-   `resolveCharactersBySteamId64()`:
-   - Returns matching rows for a valid 17-digit SteamID64 with a real,
-     active `player_state` row.
-   - Returns an empty array for a well-formed but non-matching SteamID64.
-   - Rejects (filters out, does not throw) malformed IDs (wrong length,
-     non-numeric) — the function should silently drop invalid entries from
-     the input array rather than erroring, since the bot may pass a mixed
-     batch across multiple Steam connections.
-   - Returns multiple rows when one SteamID64 has multiple active
-     characters (this is the core cardinality case this whole feature
-     exists to handle correctly — do not skip this test).
-   - `platform_name` matching is case-insensitive (`'Steam'`, `'STEAM'`,
-     `'steam'` all match) per the existing `lower(coalesce(...))` pattern
-     already used elsewhere in this file for the same column.
+   `characterHasSteamId()` and `matchSteamIdForCharacter()`:
+   - `characterHasSteamId()` returns `true` for a character whose account
+     has a non-empty `platform_id` and `platform_name = 'steam'`
+     (case-insensitive), `false` otherwise.
+   - `matchSteamIdForCharacter()` returns `true` when the character's
+     on-file Steam ID appears anywhere in a multi-element
+     `steamId64List` (not just as the first element) — this is the core
+     cardinality case (a Discord user with multiple linked Steam
+     accounts) this whole feature exists to handle correctly.
+   - `matchSteamIdForCharacter()` returns `false` for a well-formed but
+     non-matching `steamId64List`, and silently ignores malformed entries
+     (wrong length, non-numeric) rather than throwing.
+   - Both functions return `false` (not throw) for a missing/invalid
+     `playerControllerId`.
 
 2. **`console/api/test/discordMultiAccountLinkProvider.test.js`** — add
    tests for `linkAccountViaSteamProvider()`:
@@ -175,8 +209,7 @@ history before touching any of this code.
    - Rejects (propagates `linkAdditionalAccount`'s existing error) when the
      character is already linked to a different Discord user — reuse the
      exact same mock-db conflict scenario already used for
-     `linkAccountProvider()`'s equivalent test, since this function calls
-     the identical underlying function.
+     `linkAccountProvider()`'s equivalent test.
    - Rejects with `invalid_request` if `discordUserId` or
      `playerControllerId` is missing/empty.
    - Does NOT generate or check any verification code — confirm no call is
@@ -184,22 +217,23 @@ history before touching any of this code.
      mocks would otherwise detect.
 
 3. **`console/api/test/discordAdapter.test.js`** — add end-to-end
-   integration tests for the two new routes, following the exact pattern
-   already used for the five existing `PLAYERS_ACCOUNTS_*` routes in this
-   file:
-   - A `public`-tier actor is rejected from both new routes with
-     `403 not_authorized` (or whatever the existing self-scoped rejection
-     status/code is — match it exactly, don't invent a new one).
-   - An `observer`-tier (or above) actor can reach `resolve-steam` and get
-     a normal (possibly empty) `candidates` array.
-   - A full link-steam request against a mocked db that has no conflict
+   integration tests for the new route(s), following the exact pattern
+   already used for the existing `PLAYERS_ACCOUNTS_*` routes in this file:
+   - A `public`-tier actor is rejected with `403 not_authorized` (or
+     whatever the existing self-scoped rejection status/code is).
+   - A link-via-Steam request against a mocked db that has no conflict
      succeeds and returns the updated account list.
-   - A link-steam request against a mocked db with an existing conflicting
-     link (different Discord user) returns the same generic
+   - A link-via-Steam request against a mocked db with an existing
+     conflicting link (different Discord user) returns the same generic
      `character_already_linked` error the existing whisper-based flow
      returns — assert the error message contains no identifying detail
      about the conflicting Discord user (per Security Review
      FINDING-STEAM-3).
+   - The existing `players/link` route's response now includes
+     `hasSteam: true`/`false` correctly for characters with/without a
+     Steam ID on file, with no other change to that route's existing
+     response fields or whisper-sending behavior for `hasSteam: false`
+     characters.
 
 ### Verification before considering Core-side work done
 
@@ -233,82 +267,81 @@ mocked at the HTTP layer for unit tests.
 1. **`src/steamLinkStore.js`** — state-token storage. Shape:
 
    ```js
-   // In-memory store by default (works in both single-tenant and
-   // multi-tenant mode without requiring a SQLite db to be open).
-   // If db is provided (multi-tenant mode), persists to a new
-   // steam_link_sessions table instead -- see database.js additions below.
+   // In-memory store (a plain Map, matching cooldown.js's own singleton
+   // pattern) -- works in both single-tenant and multi-tenant mode
+   // without requiring a SQLite db to be open.
    //
    // Each entry: { state, discordUserId, guildId, interactionToken,
-   //   commandInteractionId, createdAt, expiresAt, consumedAt }
+   //   commandInteractionId, playerControllerId, characterName,
+   //   createdAt, expiresAt, consumedAt }
+   //
+   // playerControllerId/characterName are the SPECIFIC character this
+   // session is scoped to, captured at /dune player link <character-name>
+   // time -- NOT a list to resolve candidates from. See Security Review
+   // FINDING-STEAM-1/-2 for why this binding is a hard security
+   // requirement, not just a convenience.
    //
    // consumedAt is set (not deleted) on first successful callback use --
    // keep the row around briefly for idempotent-retry detection, but
    // ALWAYS treat a non-null consumedAt as "reject this state" (Security
    // Review FINDING-STEAM-1, single-use enforcement).
-   export function createSteamLinkStore({ db = null, ttlMs = 10 * 60 * 1000 } = {}) { /* ... */ }
+   export function createSteamLinkSession({ discordUserId, guildId, interactionToken,
+     commandInteractionId, playerControllerId, characterName }) { /* ... */ }
+   export function getSteamLinkSession(state) { /* ... */ }
+   export function consumeSteamLinkSession(state) { /* atomic check+mark */ }
    ```
 
-   Functions: `createSession({ discordUserId, guildId, interactionToken,
-   commandInteractionId })` (generates `state` via
-   `randomBytes(16).toString("hex")`, matching `setupServer.js`'s existing
-   generation pattern exactly), `getSession(state)`, `consumeSession(state)`
-   (atomically marks consumed AND returns the row in one call — must not be
-   two separate calls with a race window between them), `pruneExpired()`.
+   `state` generated via `randomBytes(16).toString("hex")`, matching
+   `setupServer.js`'s existing generation pattern exactly.
 
 2. **`src/steamLinkServer.js`** — the new Express app. Reuses
-   `setupServer.js`'s `esc()` HTML-escaping helper (extract it to a shared
-   `src/htmlEscape.js` if it isn't already exported, rather than
-   duplicating it) and its dark/sand visual style constants (extract the
-   shared `<style>` block to `src/setupPageStyles.js` if reasonable, or
-   duplicate the CSS block if extraction is too invasive — your call, but
-   do not invent a visually different design language for this feature's
-   pages).
+   `src/htmlEscape.js`'s `esc()` and `setupServer.js`'s dark/sand visual
+   style constants.
 
    Routes:
-   - `GET /steam-link/start?state=<state>` — validates the state exists and
-     is unexpired, then redirects (`302`) to
+   - `GET /steam-link/start?state=<state>` — validates the state exists
+     and is unexpired, then redirects (`302`) to
      `https://discord.com/oauth2/authorize?response_type=code&client_id=...&redirect_uri=...&scope=identify%20connections&state=...`.
-     This is the URL the Link-style Discord button points at directly (see
-     command implementation below) — this endpoint exists so the actual
-     Discord `client_id`/`redirect_uri` never has to be embedded in a
-     Discord message component's URL in a way that's harder to rotate;
-     it's a thin indirection layer, matching why `setupServer.js`'s own
-     `/setup` route does the same thing rather than building the Discord
-     authorize URL directly in the calling code.
    - `GET /steam-link/callback?code=...&state=...&error=...` — the OAuth
      redirect target. Implements Security Review FINDING-STEAM-1 (state
-     validation, single-use enforcement) before doing anything else. On
-     success: exchanges `code` for a token (same `fetch()` pattern as
-     `setupServer.js`'s existing `/oauth/callback`), calls
-     `GET https://discord.com/api/v10/users/@me/connections` with the
-     bearer token, filters `type === "steam"`, calls the Core adapter's new
-     `resolveSteamCandidates()` method (see adapterClient.js changes below)
-     with the list of Steam connection `id` values, and renders the
-     candidate-selection page (or the zero-candidates page) per the Design
-     doc's exact response shapes. **Never logs or persists the access
-     token** (Security Review FINDING-STEAM-6).
-   - `POST /steam-link/select` — body: `{ state, playerControllerId }`.
-     Implements Security Review FINDING-STEAM-2: **re-derives** the valid
-     candidate set server-side (re-calls the Core adapter's
-     `resolveSteamCandidates()` again using the Steam connection IDs stored
-     against this `state`'s session — do not trust a cached list from the
-     callback step alone) and rejects any `playerControllerId` not in that
-     freshly-re-derived set, before calling the Core adapter's
-     `linkAccountViaSteam()` method. On success, renders a success page AND
-     calls `interaction.editReply()` on the original Discord interaction
-     (using the stored `interactionToken`/`commandInteractionId` via
-     discord.js's webhook-edit mechanism — see discord.js docs for editing
-     a deferred reply via `client.rest` or the stored interaction's own
-     `editReply()` if the interaction object itself is cached; if neither
-     is directly available this many minutes later, use Discord's
-     `PATCH /webhooks/{application.id}/{interaction.token}/messages/@original`
-     REST endpoint directly with the stored token — this does not require
-     the original `Interaction` object to still be in memory, only the
-     token string, which is exactly why it's the field being stored).
+     validation, single-use enforcement, resolving the target character
+     **exclusively** from the stored session, never from any part of the
+     request itself) before doing anything else. On success: exchanges
+     `code` for a token, calls `GET
+     https://discord.com/api/v10/users/@me/connections` with the bearer
+     token, filters `type === "steam"`, extracts the array of connection
+     `id` values (these ARE the raw SteamID64s), and calls the Core
+     adapter's match-check route with `{ playerControllerId: <from the
+     stored session>, steamId64List }`.
+     - **Match found:** call the Core adapter's `linkAccountViaSteam()`.
+       On success, render a simple success page (no confirmation step —
+       see Design doc's "Why Auto-Fallback" section for the parallel
+       reasoning on the no-match side; the match side needs no extra
+       confirmation because completing OAuth already was the
+       confirmation) and `editReply()` the original Discord interaction
+       to show the standard link-success embed.
+     - **No match:** trigger the whisper fallback now, using the
+       `characterName`/`playerControllerId` already stored in the
+       session (see Core-side Part 1 for the route this calls — reuse
+       whatever the initial `/dune player link` request's whisper-sending
+       path is, called directly rather than re-resolving the character by
+       name from scratch). Render a page explaining a whisper was sent
+       instead, and `editReply()` the original interaction to show the
+       same "check your in-game whispers" instructions the
+       `hasSteam: false` path shows directly.
+     - **Character already linked to a different Discord user:** render
+       the generic conflict message (Security Review FINDING-STEAM-3) and
+       do **not** trigger any whisper fallback in this specific case.
+     **Never logs or persists the access token** (Security Review
+     FINDING-STEAM-6).
+
+   There is no `POST /steam-link/select` route in this revision — remove
+   it if migrating from the prior implementation. There is nothing for
+   the player to select; the callback resolves directly to one of the
+   three outcomes above.
 
    Started unconditionally in `src/index.js` (not gated behind
-   `config.multiTenant` — see Architecture doc's Single-Tenant Deployment
-   Note), on `config.steamLink.port` (default `3101`).
+   `config.multiTenant`), on `config.steamLink.port` (default `3101`).
 
 ### Files to modify
 
@@ -323,224 +356,115 @@ mocked at the HTTP layer for unit tests.
    And change `discord.clientSecret` to be read **unconditionally** (not
    `multiTenant ? ... : undefined`) but **optionally** (do not throw if
    absent — use `optionalEnv`, not `readSecret`'s required-throw behavior,
-   in single-tenant mode; multi-tenant mode's existing required-secret
-   behavior is unchanged). Per Security Review FINDING-STEAM-5, the bot
-   must start normally with this unset; only `player:link`'s
-   Steam-connections branch (invoked with no `character` argument) should
-   fail cleanly if `config.steamLink.enabled` is false — the existing
-   `character`-argument flow must keep working regardless.
+   in single-tenant mode). Per Security Review FINDING-STEAM-5, the bot
+   must start normally with this unset; in that case, `player:link` must
+   **never** show a "Link via Steam" button for any character, regardless
+   of that character's `hasSteam` status — it always falls back to the
+   whisper flow. Do not show an error message about missing configuration
+   in this case; the whisper flow was never contingent on this secret and
+   should not appear degraded to a player who never asked for the Steam
+   path.
 
 2. **`src/adapterClient.js`** — add:
    ```js
-   resolveSteamCandidates(actor, steamId64List, guildId) {
-     return this.request("players-accounts-resolve-steam", actor, { steamId64List }, guildId);
-   }
    linkAccountViaSteam(actor, playerControllerId, guildId) {
      return this.request("players-accounts-link-steam", actor, { playerControllerId }, guildId);
    }
+   matchSteamCandidate(actor, playerControllerId, steamId64List, guildId) {
+     return this.request("players-accounts-match-steam", actor, { playerControllerId, steamId64List }, guildId);
+   }
    ```
-   And add the two new route path/method entries to `config.js`'s
-   `DEFAULT_PATHS`/`DEFAULT_METHODS` objects (both `POST`), following the
-   exact existing naming convention (`players-accounts-resolve-steam`,
-   `players-accounts-link-steam`, mapping to
-   `/api/integrations/discord/players/accounts/resolve-steam` and
-   `/api/integrations/discord/players/accounts/link-steam`).
+   (Method/route names for the match-check call should match whichever
+   naming choice was made on the Core side in Part 1 step 4 — keep both
+   repos' naming consistent.) Add the corresponding route path/method
+   entries to `config.js`'s `DEFAULT_PATHS`/`DEFAULT_METHODS` objects
+   (both `POST`), following the exact existing naming convention.
 
-3. **`src/commands.js`** — this step has TWO parts. Do both together, in
-   the same commit — do not ship the new command under the old `data`
-   group even temporarily, since that would mean re-registering commands
-   twice.
+   The existing `playerLinkStart()` method's response is now expected to
+   include `hasSteam` and (when true) `playerControllerId` — no method
+   signature change needed, just consume the new fields in `commands.js`.
 
-   **IMPORTANT — command shape correction (2026-07-24):** an earlier
-   version of this design proposed `/dune player link-steam` as a
-   **separate** command. That was wrong and was caught and corrected
-   after implementation, via direct user feedback, not by the design
-   review pass that should have caught it (see `docs/steam-link-design.md`'s
-   revision note at the top of that file for the full story — it's worth
-   reading before implementing this section, as a caution against
-   pattern-matching "new capability = new command" too literally). The
-   correct shape, specified below, is: **`/dune player link`'s existing
-   `character` argument becomes optional.** Provided → the existing
-   whisper-code flow, byte-for-byte unchanged. Omitted → the new
-   Steam-connections flow. There is no `link-steam` subcommand anywhere
-   in the final `SlashCommandBuilder` definition.
+3. **`src/commands.js`** — **no `SlashCommandBuilder` schema change** in
+   this revision. The `character` option on `player:link` keeps
+   `.setRequired(true)` exactly as it had before this feature (if a prior
+   implementation attempt removed `.setRequired(true)`, restore it).
 
-   **Part A — create the new `player` subcommand group and move the 9
-   existing identity/linking subcommands into it, renaming their dispatch
-   keys to match.** This was a deliberate scope decision made during design
-   review (see `docs/steam-link-design.md`'s "Scope Addition" section for
-   the full rationale) — `data` had grown to 15 of Discord's 25-per-group
-   cap by mixing three unrelated concerns; splitting identity/linking out
-   leaves both groups with headroom and a coherent purpose.
-
-   In the `SlashCommandBuilder` construction (around line 47 today), REMOVE
-   these 9 `.addSubcommand(...)` blocks from the `data` group: `link`,
-   `verify`, `characters`, `enable`, `disable`, `default`, `unlink`,
-   `faction`, `whoami`. ADD a new top-level group:
-   ```js
-   // ── player group ──
-   .addSubcommandGroup((g) => g.setName("player").setDescription("Link your Discord to your game character, and manage linked characters.")
-     .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character. Omit the character name to link via your Discord's connected Steam account instead.")
-       .addStringOption((o) => o.setName("character").setDescription("Your character name (omit to link via Discord's connected Steam account instead)")))
-     .addSubcommand((c) => c.setName("verify").setDescription("Verify a pending character link with a code.")
-       .addStringOption((o) => o.setName("code").setDescription("Verification code from in-game whisper").setRequired(true)))
-     .addSubcommand((c) => c.setName("characters").setDescription("List your verified characters."))
-     .addSubcommand((c) => c.setName("enable").setDescription("Enable a character in this guild.")
-       .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
-     .addSubcommand((c) => c.setName("disable").setDescription("Disable a character in this guild.")
-       .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
-     .addSubcommand((c) => c.setName("default").setDescription("Set your default character for this guild.")
-       .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
-     .addSubcommand((c) => c.setName("unlink").setDescription("Unlink a character from your Discord.")
-       .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
-     .addSubcommand((c) => c.setName("faction").setDescription("Set your faction for themed embeds.")
-       .addStringOption((o) => o.setName("name").setDescription("atreides, harkonnen, or fremen").setRequired(true)
-         .addChoices({ name: "Atreides", value: "atreides" }, { name: "Harkonnen", value: "harkonnen" }, { name: "Fremen", value: "fremen" })))
-     .addSubcommand((c) => c.setName("whoami").setDescription("Show your linked game character info.")))
-   ```
-   Note the `character` option on `link` has **no `.setRequired(true)`
-   call at all** (Discord options default to optional) — this is the
-   entire schema-level change that makes the unification possible.
-   (Place this new group alongside the other `addSubcommandGroup` calls,
-   order doesn't matter functionally — grouping it near the now-slimmer
-   `data` group is a reasonable readability choice but not required.)
-
-   In `executeDuneCommand()`'s dispatch chain, RENAME every
-   `key === "data:link"` / `"data:verify"` / `"data:characters"` /
-   `"data:enable"` / `"data:disable"` / `"data:default"` /
-   `"data:unlink"` / `"data:faction"` / `"data:whoami"` check to
-   `"player:link"` / `"player:verify"` / etc. (same handler bodies,
-   unchanged — only the string literal `key` is being matched against
-   changes). Do this as a careful rename, not a copy — the old `data:*`
-   dispatch branches must be fully removed, not left dead alongside new
-   ones.
-
-   Update `docs/changes/`, `test/discord-bot-test-harness.js`, and any
-   other test file that references the old `data:link`/`data:verify`/etc.
-   dispatch keys or `/dune data link` command strings — search the whole
-   repo for `"data:link"`, `"data:verify"`, `"data:unlink"`,
-   `"data:whoami"`, `"data:faction"`, `"data:characters"`, `"data:enable"`,
-   `"data:disable"`, `"data:default"` and `/dune data link`, `/dune data
-   verify`, etc. as literal strings before considering this rename
-   complete — do not rely on memory of "which files probably reference
-   this," grep for it.
-
-   **Part B — extend the existing `player:link` dispatch case** with an
-   `if/else` on whether `character` was supplied, rather than adding a
-   separate `else if` branch for a different command:
+   Extend the existing `player:link` dispatch case:
    ```js
    } else if (key === "player:link") {
      const characterName = interaction.options.getString("character");
-     if (characterName) {
-       // Existing whisper-code flow -- unchanged.
-       payload = await adapterClient.playerLinkStart(actor, characterName, guildId);
-     } else {
-       // No character name given -> Steam-connections flow. Originally
-       // proposed as a separate `player:link-steam` command; unified into
-       // `player:link` per design review -- see docs/steam-link-design.md's
-       // revision note for why.
-       if (!config.steamLink?.enabled) {
-         await interaction.editReply(formatError(new Error(
-           "Steam linking is not configured on this server. Ask an admin to set DISCORD_CLIENT_SECRET, " +
-           "or use /dune player link <character-name> instead."
-         )));
-         applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
-         return true;
-       }
+     const result = await adapterClient.playerLinkStart(actor, characterName, guildId);
+     if (result?.hasSteam && config.steamLink?.enabled) {
+       // Character has a Steam ID on file AND Steam linking is configured
+       // on this server -- offer the instant path instead of the whisper
+       // reply. (If hasSteam is true but steamLink is NOT enabled, fall
+       // through to the normal whisper payload below -- see
+       // FINDING-STEAM-5, this must degrade silently to whisper-only.)
        const session = createSteamLinkSession({
          discordUserId: interaction.user?.id,
          guildId,
          interactionToken: interaction.token,
-         commandInteractionId: interaction.id
+         commandInteractionId: interaction.id,
+         playerControllerId: result.playerControllerId,
+         characterName
        });
        const startUrl = `${config.steamLink.baseUrl}/steam-link/start?state=${session.state}`;
        const row = new ActionRowBuilder().addComponents(
-         new ButtonBuilder().setLabel("Sign in with Discord").setStyle(ButtonStyle.Link).setURL(startUrl)
+         new ButtonBuilder().setLabel("Link via Steam").setStyle(ButtonStyle.Link).setURL(startUrl)
        );
        await interaction.editReply({
-         content: "Click below to connect your Discord's linked Steam account(s). " +
-           "This link expires in 10 minutes.",
+         content: `**${characterName}** is linked to a Steam account. Click below to verify instantly ` +
+           "using your Discord's connected Steam account -- no in-game whisper needed. This link expires in 10 minutes.",
          components: [row]
        });
        applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
        return true;
      }
+     // No Steam ID on file, or Steam linking not configured on this
+     // server -- existing whisper-code flow, UNCHANGED response shape.
+     payload = result;
    } else if (key === "player:verify") {
    ```
-   Note this REPLACES the single `payload = await
-   adapterClient.playerLinkStart(...)` line that `player:link` used to be,
-   with the `if (characterName) { ... } else { ... }` structure shown
-   above — it is still exactly one `else if (key === "player:link")`
-   branch in the overall chain, not two.
 
    Import `ActionRowBuilder`, `ButtonBuilder`, `ButtonStyle` from
-   `discord.js` at the top of the file (new imports — confirm these aren't
-   already imported before adding, but per the research pass, no
-   component-builder imports exist anywhere in this file today). Also
-   import `createSteamLinkSession` from `./steamLinkStore.js` and
-   `formatError` from wherever the rest of this file's error-formatting
-   already comes from (check existing imports before adding a duplicate).
+   `discord.js` at the top of the file (new imports — confirm these
+   aren't already imported before adding). Also import
+   `createSteamLinkSession` from `./steamLinkStore.js`.
 
-   **Known implementation bugs to avoid** (found and fixed during the
-   first implementation pass — a future rewrite should not have to
-   rediscover these):
+   **Known implementation bugs to avoid** (found and fixed during a prior
+   implementation pass of an earlier revision of this design — still
+   applicable to this revision's code, do not rediscover these):
    - **Embed color:** use the exact hex `0x2ECC71` for a Steam-link
      success embed, matching `embedFormat.js`'s existing
-     `DUNE_COLORS.success` constant. A transposed digit (`0x3066993` or
-     similar) will still compile and render an embed, just with the wrong
-     (and invalid — out of the valid 0x000000–0xFFFFFF range in some
-     transposition variants) color; there is no type-level check that
-     catches this, only visual review.
+     `DUNE_COLORS.success` constant.
    - **Field naming on the link result:** the Core adapter's
      `linkAccountViaSteam()` response's `accounts` array entries use
-     **snake_case** (`character_name`, `player_controller_id`), matching
-     every other `dune.player_state`-derived payload shape in this
-     codebase — do not assume camelCase. Additionally, do not index the
-     result array by position (`accounts[0]`) to find "the account that
-     was just linked" — multiple accounts may be present in the response
-     for unrelated reasons (e.g. the player's other, already-linked
-     characters). Use `.find(a => a.player_controller_id === playerControllerId)`
-     against the `playerControllerId` that was actually just submitted.
+     **snake_case** (`character_name`, `player_controller_id`). Do not
+     index the result array by position (`accounts[0]`) — use
+     `.find(a => a.player_controller_id === playerControllerId)` against
+     the `playerControllerId` the session was scoped to.
    - **No `Authorization` header on the webhook-edit PATCH call:** when
      completing the flow via `PATCH
      /webhooks/{application.id}/{interaction.token}/messages/@original`,
      do not add an `Authorization: Bot <token>` header — this endpoint
      authenticates via the interaction token embedded in the URL path
-     itself. Adding the header does not necessarily break the request, but
-     it's dead code implying a security property (bot-token-gated) this
-     endpoint doesn't actually have, and it's inconsistent with how
-     nothing else needs the bot token for interaction-token-authenticated
-     endpoints.
-   - **Use the injectable `fetchImpl` parameter, not the global `fetch`,
-     for every outbound HTTP call in `steamLinkServer.js`** (Discord token
+     itself.
+   - **Use the injectable `fetchImpl` parameter, not the global `fetch`,**
+     for every outbound HTTP call in `steamLinkServer.js` (Discord token
      exchange, `connections` fetch, webhook-edit PATCH, and the Core
-     adapter calls). One call site was found hardcoded to the global
-     `fetch` during the first pass instead of the constructor-injected
-     `fetchImpl` every other call site correctly used — this silently
-     breaks that one code path's testability (tests that inject a mock
-     `fetchImpl` won't see calls made via the global) without breaking
-     runtime behavior, so it's easy to miss without a test that actually
-     exercises that specific path.
+     adapter calls) — a prior pass found one call site hardcoded to the
+     global `fetch` instead of the constructor-injected `fetchImpl` every
+     other call site correctly used.
 
 4. **`src/index.js`** — add a new `MessageComponentInteraction` branch to
-   the existing `Events.InteractionCreate` handler, per Architecture doc
-   (defensive; the Link-style button itself needs no bot-side handler since
-   Discord opens it directly, but this closes the "no component handling
-   exists at all" gap generally and is required if any future
-   confirm/cancel button is added to this or another feature). At minimum,
-   add:
+   the existing `Events.InteractionCreate` handler (defensive; the
+   Link-style button itself needs no bot-side handler since Discord opens
+   it directly, but this closes the "no component handling exists at all"
+   gap generally):
    ```js
    client.on(Events.InteractionCreate, async (interaction) => {
      try {
        if (interaction.isMessageComponent?.()) {
-         // No bot-owned components exist yet that need handling here --
-         // the Steam-link flow's only button is a Link-style component
-         // Discord handles client-side with no interaction event fired to
-         // the bot at all. This branch exists so future component-based
-         // features have a home, and so an unexpected/unhandled component
-         // interaction fails loudly (via Discord's own "interaction failed"
-         // UI) rather than being silently swallowed by falling through to
-         // executeDuneCommand's isChatInputCommand?.() early-return.
          return;
        }
        await executeDuneCommand(interaction, adapterClient, config, db);
@@ -550,78 +474,57 @@ mocked at the HTTP layer for unit tests.
    });
    ```
 
-5. **`src/index.js`** — start `steamLinkServer` unconditionally (not inside
-   the `if (config.multiTenant)` block that starts `setupServer`):
+5. **`src/index.js`** — start `steamLinkServer` unconditionally (not
+   inside the `if (config.multiTenant)` block that starts `setupServer`):
    ```js
-   const steamLinkStore = createSteamLinkStore({ db: config.multiTenant ? db : null });
-   const steamLinkApp = createSteamLinkServer({ config, adapterClient, client, steamLinkStore });
+   const steamLinkApp = createSteamLinkServer({ config, adapterClient, client });
    steamLinkApp.listen(config.steamLink.port, () => {
      logInfo("steam_link_server.started", { port: config.steamLink.port, enabled: config.steamLink.enabled });
    });
    ```
 
-6. **`docs/user-guide.md`** — **NOTE: as of this design pass, the
-   pre-existing unresolved git merge-conflict markers this file had (three
-   blocks, describing two contradictory versions of the whisper-link flow)
-   were already found and fixed directly during design review** — confirm
-   this is still true when you start implementation (`grep -n "<<<<<<<"
-   docs/user-guide.md` should return nothing; if it does, something
-   regressed and must be fixed the same way: keep the 6-character
-   `ACP-XXXXXX` whisper-code version matching what `linkProvider.js`
-   actually implements, discard the stale RCON-whisper-only version).
-
-   What you DO need to do here: update every `/dune data link`, `/dune
-   data verify`, `/dune data characters`, `/dune data enable`, `/dune data
-   disable`, `/dune data default`, `/dune data unlink`, `/dune data
-   faction`, `/dune data whoami` reference in this file's command tables
-   and walkthrough prose to `/dune player <same-subcommand>`, matching the
-   `commands.js` rename from step 3 above exactly. Grep for `dune data
-   link`, `dune data verify`, etc. across this file and fix every match —
-   do not assume the "Linking Your Character" section is the only place
-   these appear (the top command-group summary table near the start of the
-   file also lists them). Document `/dune player link` with no character
-   argument as an alternative to the whisper-code flow within the same
-   walkthrough (NOT a separate command — see the shape correction called
-   out at the top of Part B above), per `docs/steam-link-design.md`'s exact
-   wording — a design-review pass already drafted this exact prose; reuse
-   it rather than re-deriving new copy, so the implementation matches what
-   was actually reviewed.
+6. **`docs/user-guide.md`** — update the "Linking Your Character"
+   walkthrough and command table to describe the corrected flow: running
+   `/dune player link <character-name>` either sends a whisper (as
+   always) or shows a "Link via Steam" button, decided automatically by
+   the bot — not by anything the player does differently. Remove any
+   prior wording suggesting an optional argument or a "run the command
+   with nothing after it" alternative path.
 
 ### Files to add (tests)
 
 **`test/steamLinkServer.test.js`** — new. Must cover, at minimum:
 - `state` validation: missing, expired, and already-consumed `state`
-  values are all rejected with a clear error page, not a crash or a 500
-  with no body (FINDING-STEAM-1).
-- Successful callback flow end-to-end with a mocked Discord token-exchange
-  and mocked `connections` response, mocked Core adapter response,
-  resulting in the correct candidate-list HTML being rendered.
-- `/steam-link/select` rejects a `playerControllerId` not present in the
-  re-derived candidate set, even when that ID is a "valid-looking" string
-  (FINDING-STEAM-2) — mock the Core adapter to return a DIFFERENT candidate
-  set on the second call than the first, and assert the originally-shown
-  (now-stale) candidate is rejected.
-- Conflict error message (character already linked to another user)
-  contains no Discord snowflake, username, or timestamp
-  (FINDING-STEAM-3) — assert this via a regex/substring check against the
-  rendered response body.
-- The bot's HTTP server starts successfully and `/dune player link` with
-  no `character` argument returns the "not configured" message when
-  `DISCORD_CLIENT_SECRET` is unset, while `/dune player link
-  <character-name>` (with the argument) still works completely unaffected
-  (FINDING-STEAM-5) — do not skip this test, it's the one proving
-  backward compatibility for existing single-tenant deployments.
+  values are all rejected with a clear error page (FINDING-STEAM-1).
+- The callback's Steam-ID match check always uses the `playerControllerId`
+  stored against the `state`'s own session, never a value from anywhere
+  else in the request, even if one happens to be present (FINDING-STEAM-2).
+- Match-found path: mocked Discord token-exchange, mocked `connections`
+  response containing the matching Steam ID, mocked Core adapter success
+  response — results in the success page and an `editReply()` call
+  showing the standard link-success embed.
+- No-match path: mocked `connections` response with no matching Steam
+  ID — results in the whisper-fallback being triggered (assert the
+  correct Core route/function was called with the session's stored
+  character) and the "sent a whisper instead" page.
+- Conflict path: mocked Core response indicating the character is already
+  linked to a different Discord user — asserts the generic conflict
+  message (no identifying detail, FINDING-STEAM-3) AND asserts the
+  whisper fallback is NOT triggered in this specific case.
+- The bot's HTTP server starts successfully and, with
+  `DISCORD_CLIENT_SECRET` unset, `/dune player link <character>` never
+  offers a Steam button for any character (FINDING-STEAM-5) — do not skip
+  this test, it's the one proving backward compatibility for existing
+  single-tenant deployments.
 - No log line at any level contains a raw OAuth access token or refresh
-  token value, even in an injected-error scenario (FINDING-STEAM-6) —
-  spy on the logger and assert.
+  token value, even in an injected-error scenario (FINDING-STEAM-6).
 
 **`test/discord-bot-test-harness.js`** — extend the existing "Command
-Execution" suite with two new `player:link` cases (not a `player:link-steam`
-case — there is no separate command): one with `character` provided
-(asserting the existing whisper-flow behavior is unaffected) and one
-without it (asserting the Steam-flow branch triggers), following the exact
-pattern already used for the other `player:*` cases (post-rename from
-`data:*` — see step 3 above) in this file.
+Execution" suite with two `player:link` cases: one for a character with
+`hasSteam: false` (asserting the existing whisper-flow reply, byte-for-byte
+unchanged from before this feature), and one for a character with
+`hasSteam: true` (asserting the Steam-button reply appears instead, with
+no whisper text present in that reply).
 
 ### Verification before considering bot-side work done
 
@@ -652,7 +555,7 @@ Problem/Solution/Commands/Implementation Details), and a row in
   (`docs/steam-link-design.md`/`-architecture.md`/`-security-review.md`/`-grc.md`)
   in both PR descriptions.
 - Core's PR should land and be verified first; the bot's PR depends on its
-  new routes existing.
+  new route(s) existing.
 
 ## Sources
 
