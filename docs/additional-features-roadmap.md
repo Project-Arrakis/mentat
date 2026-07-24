@@ -98,13 +98,54 @@ contains the buttons; confirmation is a button interaction, not a text match.
 **Implementation:** Add Discord `ActionRowBuilder`/`ButtonBuilder` support;
 handle button interactions in InteractionCreate; non-iinteractive timeout.
 
-### R2.x-FEAT-8: Command usage audit view (PRIORITY: MEDIUM)
+### R2.x-FEAT-8: Persistent audit log for destructive/state-changing commands (PRIORITY: HIGH — rescoped 2026-07-24)
 
-**Branch:** `release/v2.4.0`
-**Description:** `/dune audit [limit]` shows recent command executions
-(who ran what, when, result) for operator accountability. Admin/owner only.
-**Implementation:** In-memory audit log ring buffer (last N events);
-queryable via audit command; output redacted.
+**Branch:** TBD — separate feature branch/PR, own design/architecture/
+security/GRC docs, planned for **after** the Steam-link feature
+(`feat/steam-link-bot-side`) ships. Not folded into that PR.
+
+**Description:** Every command that mutates player, guild, or game-server
+state must produce a durable, queryable audit record — not just the
+`write` group. Confirmed in-scope command set as of this rescoping (grep
+of `src/commands.js`'s subcommand definitions, 2026-07-24):
+- `write:restart`, `write:update`, `write:cache`, `write:backup` — restart
+  a game service, trigger an update, clear caches, create a DB backup.
+- `write:maintenance-note`, `write:maintenance-window` — player-visible
+  maintenance state.
+- `write:alert-channel`, `write:alert-threshold`, `write:digest-schedule`,
+  `write:post-schedule`, `write:add-channel`, `write:remove-channel` — bot
+  config mutations.
+- `admin:broadcast` — sends a message to all in-game players.
+- `player:link`, `player:unlink`, `player:enable`, `player:disable`,
+  `player:default`, `player:faction` — player identity/link state
+  (includes the Steam-connections branch of `player:link` once that
+  feature ships — this closes FINDING-LINK-6's known, accepted audit gap
+  cited in `docs/steam-link-security-review.md`).
+
+**Implementation (superseding the original in-memory-ring-buffer idea):**
+Persist to a new append-only table in this bot's existing `database.js`
+SQLite schema (guild-scoped, following the existing
+`SCHEMA_VERSION`/`ALTER TABLE` migration pattern — see `database.js`'s
+current schema, which has no existing event/audit-shaped table to extend).
+Reuse the existing `writeAuditEvent()` field shape from `src/writes.js`
+(`source`, `timestamp`, `actor`, `action`, `capability`, `idempotencyKey`,
+`result`, `detail`) rather than inventing a new schema — several docs
+already reference that shape. Actually wire it in: today `writeHandler.js`
+imports `writeAuditEvent` but never calls it, `writeCommands.js` calls it
+but is dead code (unreferenced), and `broadcast.js` calls it but discards
+the result after building the Discord reply payload — none of the three
+live/dead paths persist anything anywhere today. `/dune audit [limit]`
+(admin/owner only, redacted output) becomes a read query against the new
+table instead of an in-memory ring buffer, so history survives a bot
+restart.
+
+**Note:** most `write:*` commands (`restart`, `update`, `cache`, etc.) are
+themselves still non-functional stubs today — `handleWriteCommand()`
+returns a `"pending-upstream"` scaffold and never calls the adapter. Audit
+logging should still be wired in now (logging the *attempt*, including
+denied/scaffold-only outcomes), so it's already correct once the
+write-adapter contract work lands and these commands start actually
+executing.
 
 ### R2.x-FEAT-9: Webhook integration (PRIORITY: MEDIUM)
 

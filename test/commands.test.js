@@ -44,9 +44,9 @@ function mockInteraction(group, subcommand, opts = {}) {
 test("buildDuneCommand uses subcommand groups", () => {
   const cmd = buildDuneCommand().toJSON();
   const groups = cmd.options.filter(o => o.type === 2); // SUB_COMMAND_GROUP = 2
-  assert.ok(groups.length >= 6, `expected 6+ groups, got ${groups.length}`);
+  assert.ok(groups.length >= 7, `expected 7+ groups, got ${groups.length}`);
   const names = groups.map(g => g.name).sort();
-  assert.deepEqual(names, ["admin", "core", "data", "infra", "logs", "ops", "server"]);
+  assert.deepEqual(names, ["admin", "core", "data", "infra", "logs", "ops", "player", "server"]);
 });
 
 test("buildDuneCommand includes write group only when enabled", () => {
