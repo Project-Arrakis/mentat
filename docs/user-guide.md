@@ -67,20 +67,19 @@ Select one, then choose a command from within that group.
 | `/dune data storage <scope>` | View storage with scope (owned, guild, or all) |
 | `/dune data find <item-name>` | Search for an item across all your storage containers |
 
-**Character Linking Flow:**
-<<<<<<< HEAD
-1. Run `/dune data link <character-name>` — the bot sends a verification code to your character in-game via RCON whisper
-2. Read the code in-game (it appears as a whisper message)
-3. Run `/dune data verify <code>` to complete the link
-4. If you don't receive a code, your Discord account must have a verified Steam connection linked in Discord Settings → Connections
-=======
+**Character Linking Flow (whisper-based, default):**
 1. Run `/dune data link <character-name>` — the bot sends a 6-character verification code to your character in-game via whisper
 2. Read the code in-game (it appears as a whisper message)
 3. Run `/dune data verify <code>` to complete the link
 4. Codes expire after 5 minutes
->>>>>>> origin/main
 
-Each Discord account can only link to one character, and each character can only link to one Discord account.
+**Character Linking Flow (via Steam, alternative — requires your character to be online is NOT required):**
+1. Run `/dune data link-steam` — the bot replies with a "Sign in with Discord" button
+2. Click it, approve the requested `identify`/`connections` permissions on Discord's own consent screen
+3. If your Discord account has a Steam connection linked (Discord Settings → Connections), the bot shows you a list of matching in-game character(s) — pick the one(s) you want to link
+4. This works even if your character is currently offline, since it doesn't rely on an in-game whisper
+
+Each linking flow supports linking **more than one** character to your Discord account — see `/dune data characters` to view all of them.
 
 ### 📋 `logs` — Container Logs
 
@@ -143,12 +142,6 @@ Run this command in Discord:
 Replace `<your-character-name>` with the exact name of your character in the game.
 For example: `/dune data link PaulAtreides`
 
-<<<<<<< HEAD
-The bot will search for your character and link it to your Discord account.
-If it finds your character, you'll see a confirmation message.
-
-### Step 2: Check Your Link
-=======
 The bot will search for your character and generate a verification code. This code is sent to your character in-game as a whisper message.
 
 ### Step 2: Verify Your Code
@@ -165,8 +158,19 @@ Then run:
 
 Replace `ACP-7X9K2` with the actual code you received. Codes expire after 5 minutes.
 
+**Alternative — link via Steam (no whisper needed):**
+
+If your character is offline, or you'd rather skip the whisper step
+entirely, run `/dune data link-steam` instead of the two steps above. The
+bot will show a "Sign in with Discord" button — click it, approve the
+`identify`/`connections` permissions on Discord's own consent screen, and
+the bot will show any in-game character(s) matching a Steam account linked
+in your Discord Settings → Connections. This requires your Discord account
+to already have a Steam connection added there (a one-time, native Discord
+setting — the bot has no part in creating that link, only reading it with
+your permission).
+
 ### Step 3: Check Your Link
->>>>>>> origin/main
 
 Run this command to see your linked character:
 
@@ -201,7 +205,7 @@ Once linked, you can use all the player commands:
 If you want to remove the link between your Discord and character:
 
 ```
-/dune player unlink
+/dune data unlink
 ```
 
 This does not affect your character in the game — it just disconnects it from Discord.
@@ -212,13 +216,11 @@ This does not affect your character in the game — it just disconnects it from 
 |---------|--------------|------------|
 | "No player found" | The character name doesn't exist | Check the spelling — it must match exactly |
 | "Multiple players found" | More than one character has that name | Use a more specific name |
-<<<<<<< HEAD
-| "Not linked" | You haven't linked a character yet | Run `/dune player link <name>` first |
-=======
 | "Invalid or expired code" | The code is wrong or expired | Run `/dune data link <character>` again for a new code |
 | "Code belongs to different user" | Someone else generated this code | Use your own Discord account to link |
-| "Not linked" | You haven't linked a character yet | Run `/dune data link <name>` first |
->>>>>>> origin/main
+| "Not linked" | You haven't linked a character yet | Run `/dune data link <name>` first, or `/dune data link-steam` |
+| "No Steam connection found" | Your Discord account has no linked Steam account | Add one in Discord Settings → Connections, or use `/dune data link <name>` instead |
+| "No characters found for your Steam account" | Your linked Steam account has no matching in-game character | Make sure you're logged into the game with the same Steam account, or use `/dune data link <name>` instead |
 | "Not authorized" | You don't have the Observer role | Ask a server admin to give you the role |
 
 ## Understanding the Status Card
