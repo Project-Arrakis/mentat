@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -70,9 +70,42 @@ CREATE TABLE IF NOT EXISTS bot_stats (
   value INTEGER DEFAULT 0
 );
 
+-- audit_log: append-only record of every destructive/state-changing
+-- command attempt (write:*, admin:broadcast, player:link/unlink/enable/
+-- disable/default/faction) regardless of outcome (success, denied,
+-- failed, scaffold-only). See docs/audit-log-design.md for the full
+-- design and docs/audit-log-security-review.md for FINDING-AUDIT-*.
+--
+-- guild_id is intentionally NOT a foreign key to guilds(guild_id) --
+-- single-tenant deployments (the majority of real installs) never
+-- populate the guilds table at all (it's only written by onboarding.js/
+-- setupServer.js, both multi-tenant-only code paths), so an FK here
+-- would make every single-tenant audit write fail. guild_id is simply
+-- an empty string in single-tenant mode, matching guild_settings'
+-- existing convention for optional/inapplicable text fields elsewhere
+-- in this schema.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source TEXT NOT NULL DEFAULT 'discord-command',
+  guild_id TEXT NOT NULL DEFAULT '',
+  discord_user_id TEXT NOT NULL DEFAULT '',
+  discord_username TEXT NOT NULL DEFAULT '',
+  channel_id TEXT NOT NULL DEFAULT '',
+  command TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL DEFAULT '',
+  capability TEXT NOT NULL DEFAULT '',
+  idempotency_key TEXT NOT NULL DEFAULT '',
+  result TEXT NOT NULL DEFAULT 'unknown' CHECK(result IN ('success', 'denied', 'failed', 'pending', 'unknown')),
+  detail TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_guild_roles_guild ON guild_roles(guild_id);
 CREATE INDEX IF NOT EXISTS idx_guild_roles_type ON guild_roles(guild_id, role_type);
 CREATE INDEX IF NOT EXISTS idx_player_links_guild_user ON player_links(guild_id, discord_user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_guild ON audit_log(guild_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_command ON audit_log(command);
 `;
 
 function ensureDataDir(dbPath) {
@@ -101,6 +134,14 @@ export function createDatabase(dbPath = "./data/acp.db") {
     } catch {
       // Column may already exist from a previous migration attempt
     }
+  }
+  if (currentVersion && currentVersion.version < 3) {
+    // audit_log is a brand-new table, not a new column on an existing
+    // one -- CREATE TABLE IF NOT EXISTS in the schema above already
+    // handles this idempotently for both fresh and pre-existing
+    // databases, so there's no ALTER TABLE needed here. Just advance the
+    // version marker.
+    db.prepare("UPDATE schema_version SET version = 3").run();
   }
 
   return db;
@@ -248,4 +289,84 @@ export function getGuildFaction(db, guildId) {
 
 export function setGuildFaction(db, guildId, faction) {
   db.prepare("UPDATE guild_settings SET faction = ? WHERE guild_id = ?").run(faction, guildId);
+}
+
+// insertAuditLog: append-only write, never updates or deletes an existing
+// row (matching an audit trail's core property -- once written, a record
+// is never silently altered). `detail` is JSON.stringify'd before storage;
+// callers are responsible for redacting anything sensitive from `detail`
+// BEFORE calling this function (see src/auditLog.js's buildAuditDetail()
+// helper, which applies format.js's existing redactSecrets()) -- this
+// function does not redact on your behalf, so a caller that skips that
+// step would persist unredacted data permanently.
+export function insertAuditLog(db, {
+  source = "discord-command", guildId = "", discordUserId = "", discordUsername = "",
+  channelId = "", command = "", action = "", capability = "", idempotencyKey = "",
+  result = "unknown", detail = {}
+} = {}) {
+  db.prepare(`
+    INSERT INTO audit_log (
+      source, guild_id, discord_user_id, discord_username, channel_id,
+      command, action, capability, idempotency_key, result, detail
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    String(source || "discord-command"),
+    String(guildId || ""),
+    String(discordUserId || ""),
+    String(discordUsername || ""),
+    String(channelId || ""),
+    String(command || ""),
+    String(action || ""),
+    String(capability || ""),
+    String(idempotencyKey || ""),
+    String(result || "unknown"),
+    JSON.stringify(detail || {})
+  );
+}
+
+// getAuditLog: read-only query, newest first, capped at `limit` (default
+// 50, hard max 200 to bound a single Discord embed/response). guildId
+// filters to a single guild's records when provided (multi-tenant mode);
+// pass null/undefined to return across all guilds (matches single-tenant
+// mode's convention elsewhere in this file of using an empty-string
+// guild_id for "not applicable").
+export function getAuditLog(db, { guildId = null, limit = 50 } = {}) {
+  // Number(limit) || 50 would silently treat a caller-supplied 0 as "use
+  // the default" (0 is falsy in JS), not "clamp to the floor of 1" --
+  // checked explicitly with Number.isFinite() instead so limit:0 and
+  // other falsy-but-numeric inputs are still floored correctly rather
+  // than surprising a caller who explicitly asked for 0.
+  const parsedLimit = Number(limit);
+  const cappedLimit = Math.max(1, Math.min(Number.isFinite(parsedLimit) ? parsedLimit : 50, 200));
+  const rows = guildId
+    ? db.prepare("SELECT * FROM audit_log WHERE guild_id = ? ORDER BY id DESC LIMIT ?").all(String(guildId), cappedLimit)
+    : db.prepare("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?").all(cappedLimit);
+  return rows.map((row) => ({ ...row, detail: safeParseJson(row.detail) }));
+}
+
+// pruneAuditLog: deletes audit rows older than `maxAgeMs` (default 14
+// days, matching this feature's retention decision -- see
+// docs/audit-log-design.md's Retention section). Returns the number of
+// rows deleted. Called on a periodic timer from index.js, matching
+// statsPusher.js's own setInterval+unref() convention for background
+// maintenance tasks -- not on every command execution, since pruning is
+// a maintenance concern independent of any single request.
+export function pruneAuditLog(db, maxAgeMs = 14 * 24 * 60 * 60 * 1000) {
+  const cutoffIso = new Date(Date.now() - maxAgeMs).toISOString();
+  // audit_log.created_at is stored via SQLite's datetime('now') (UTC,
+  // "YYYY-MM-DD HH:MM:SS" format, no "Z"/timezone suffix) -- compare
+  // against an equivalently-formatted cutoff rather than the ISO-with-Z
+  // string cutoffIso would otherwise produce, since SQLite's string
+  // comparison of these two formats would not sort correctly.
+  const cutoff = cutoffIso.replace("T", " ").replace(/\.\d+Z$/, "");
+  const result = db.prepare("DELETE FROM audit_log WHERE created_at < ?").run(cutoff);
+  return result.changes;
+}
+
+function safeParseJson(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
 }

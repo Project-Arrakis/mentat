@@ -12,10 +12,25 @@ import { createSetupServer } from "./setupServer.js";
 import { createSteamLinkServer } from "./steamLinkServer.js";
 import { handleGuildCreate, handleGuildDelete } from "./onboarding.js";
 import { startStatsPusher } from "./statsPusher.js";
+import { runAuditLogPruning } from "./auditLog.js";
 
 const config = loadConfig();
-const db = config.multiTenant ? createDatabase(config.dbPath) : null;
-if (db) initBotStats(db);
+// SQLite is now opened UNCONDITIONALLY, regardless of config.multiTenant
+// (2026-07-24, audit-log feature) -- see docs/audit-log-design.md's
+// Single-Tenant Persistence section. Every other table this db object
+// serves (guilds, guild_roles, guild_settings, oauth_sessions,
+// player_links) is only ever WRITTEN in multi-tenant-only code paths
+// (onboarding.js, setupServer.js), so this has no behavioral effect on
+// single-tenant deployments for anything except audit_log, which is the
+// one table this feature specifically needs to work in BOTH modes --
+// most real deployments of this bot are single-tenant, and an audit log
+// that silently does nothing for the majority of installs would defeat
+// the entire point of building one. dbPath still defaults to the same
+// "data/acp.db" path either way (ACP_DB_PATH), so a single-tenant
+// operator gains one new local SQLite file they didn't have before, with
+// no other observable change to existing single-tenant behavior.
+const db = createDatabase(config.dbPath);
+initBotStats(db);
 const adapterClient = new AdapterClient(config, {
   getGuildConfig: db ? (guildId) => {
     const guild = getGuild(db, guildId);
@@ -135,6 +150,21 @@ client.once(Events.ClientReady, (readyClient) => {
   statsPusher = startStatsPusher({ client, db, adapterClient });
 });
 
+// Audit log pruning: runs once at startup, then every 24 hours, matching
+// statsPusher.js's setInterval+unref() convention for background
+// maintenance tasks. 14-day retention -- see docs/audit-log-design.md's
+// Retention section. unref() so this timer never keeps the process alive
+// on its own during shutdown (same reasoning as every other timer in
+// this file).
+const AUDIT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+function pruneAuditLogNow() {
+  const deleted = runAuditLogPruning(db);
+  if (deleted > 0) logInfo("audit.pruned", { deleted });
+}
+pruneAuditLogNow();
+const auditPruneTimer = setInterval(pruneAuditLogNow, AUDIT_PRUNE_INTERVAL_MS);
+auditPruneTimer.unref?.();
+
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     // Closes a previously-total gap: this handler used to only ever check
@@ -182,6 +212,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     announcementBridge.stop();
     alerts.stop();
     statsPusher.stop();
+    clearInterval(auditPruneTimer);
     if (db) db.close();
     await client.destroy();
     healthState.stop();

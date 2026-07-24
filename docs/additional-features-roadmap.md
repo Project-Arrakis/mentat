@@ -98,54 +98,52 @@ contains the buttons; confirmation is a button interaction, not a text match.
 **Implementation:** Add Discord `ActionRowBuilder`/`ButtonBuilder` support;
 handle button interactions in InteractionCreate; non-iinteractive timeout.
 
-### R2.x-FEAT-8: Persistent audit log for destructive/state-changing commands (PRIORITY: HIGH — rescoped 2026-07-24)
+### R2.x-FEAT-8: Persistent audit log for destructive/state-changing commands — ✅ IMPLEMENTED (2026-07-24)
 
-**Branch:** TBD — separate feature branch/PR, own design/architecture/
-security/GRC docs, planned for **after** the Steam-link feature
-(`feat/steam-link-bot-side`) ships. Not folded into that PR.
+**Branch:** `feat/audit-log` (based on `feat/steam-link-bot-side`, so
+`player:*` dispatch keys and the `player` command group already existed
+when this landed). See `docs/audit-log-design.md`,
+`-architecture.md`, `-security-review.md`, `-grc.md`,
+`-implementation-prompt.md` for the full design, wiring, and findings.
 
-**Description:** Every command that mutates player, guild, or game-server
-state must produce a durable, queryable audit record — not just the
-`write` group. Confirmed in-scope command set as of this rescoping (grep
-of `src/commands.js`'s subcommand definitions, 2026-07-24):
-- `write:restart`, `write:update`, `write:cache`, `write:backup` — restart
-  a game service, trigger an update, clear caches, create a DB backup.
-- `write:maintenance-note`, `write:maintenance-window` — player-visible
-  maintenance state.
-- `write:alert-channel`, `write:alert-threshold`, `write:digest-schedule`,
-  `write:post-schedule`, `write:add-channel`, `write:remove-channel` — bot
-  config mutations.
-- `admin:broadcast` — sends a message to all in-game players.
-- `player:link`, `player:unlink`, `player:enable`, `player:disable`,
-  `player:default`, `player:faction` — player identity/link state
-  (includes the Steam-connections branch of `player:link` once that
-  feature ships — this closes FINDING-LINK-6's known, accepted audit gap
-  cited in `docs/steam-link-security-review.md`).
-
-**Implementation (superseding the original in-memory-ring-buffer idea):**
-Persist to a new append-only table in this bot's existing `database.js`
-SQLite schema (guild-scoped, following the existing
-`SCHEMA_VERSION`/`ALTER TABLE` migration pattern — see `database.js`'s
-current schema, which has no existing event/audit-shaped table to extend).
-Reuse the existing `writeAuditEvent()` field shape from `src/writes.js`
-(`source`, `timestamp`, `actor`, `action`, `capability`, `idempotencyKey`,
-`result`, `detail`) rather than inventing a new schema — several docs
-already reference that shape. Actually wire it in: today `writeHandler.js`
-imports `writeAuditEvent` but never calls it, `writeCommands.js` calls it
-but is dead code (unreferenced), and `broadcast.js` calls it but discards
-the result after building the Discord reply payload — none of the three
-live/dead paths persist anything anywhere today. `/dune audit [limit]`
-(admin/owner only, redacted output) becomes a read query against the new
-table instead of an in-memory ring buffer, so history survives a bot
-restart.
-
-**Note:** most `write:*` commands (`restart`, `update`, `cache`, etc.) are
-themselves still non-functional stubs today — `handleWriteCommand()`
-returns a `"pending-upstream"` scaffold and never calls the adapter. Audit
-logging should still be wired in now (logging the *attempt*, including
-denied/scaffold-only outcomes), so it's already correct once the
-write-adapter contract work lands and these commands start actually
-executing.
+**What actually shipped**, vs. what this entry originally scoped:
+- New `audit_log` SQLite table (`SCHEMA_VERSION` 2 → 3), with
+  `insertAuditLog()`/`getAuditLog()`/`pruneAuditLog()` in `database.js`
+  and a new `src/auditLog.js` module wiring them into
+  `writeHandler.js`/`broadcast.js`/`commands.js`.
+- All 12 `write:*` subcommands, `admin:broadcast`, and the 6 `player:*`
+  identity/link commands (`link`, `unlink`, `enable`, `disable`,
+  `default`, `faction`) now record a real, persisted audit event —
+  matching this entry's originally-confirmed in-scope command set exactly.
+- **SQLite is now opened unconditionally** in `index.js`, not just when
+  `config.multiTenant` is true — this was not in the original scoping
+  note and turned out to be the load-bearing decision: without it, audit
+  persistence would have silently done nothing for single-tenant
+  deployments (the majority of real installs). See Design doc's
+  Single-Tenant Persistence section.
+- **14-day age-based retention** (not the fixed-row-count cap originally
+  sketched), enforced by a periodic pruning timer matching
+  `statsPusher.js`'s own `setInterval`+`.unref()` convention.
+- Read command landed as `/dune admin audit [limit]` (a new subcommand
+  in the existing `admin` group), not a new top-level `/dune audit`
+  command — matches `admin:cooldowns`/`admin:events`'s existing
+  precedent for "recent history" reads rather than spending a 9th
+  top-level subcommand-group slot on one command.
+- `player:link`'s Steam-connections branch (offering a "Link via Steam"
+  button) records its own `"pending"` event at the point the button is
+  shown — the actual link/fallback completes later, asynchronously, in
+  `steamLinkServer.js`'s OAuth callback, which is not wired into this
+  audit table (see Architecture doc's explanation of why, and Design
+  doc's Non-Goals for the explicit scope boundary).
+- Found and fixed a real bug during implementation: the `result` column's
+  CHECK constraint didn't include its own `DEFAULT` value (`'unknown'`)
+  in the allowed set — caught via a genuine test failure, not by
+  inspection. See Security Review's Informational Finding.
+- Found and fixed a real, unrelated pre-existing broken link while
+  writing the GRC doc: `compliance/controls/soc2-matrix.md`'s MD-03 row
+  links to a `policies/log-retention.md` that doesn't exist anywhere in
+  this repo — flagged in `docs/audit-log-grc.md`'s Retention section,
+  not fixed as part of this feature (out of scope).
 
 ### R2.x-FEAT-9: Webhook integration (PRIORITY: MEDIUM)
 

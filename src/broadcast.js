@@ -1,4 +1,17 @@
-import { writesEnabled, canWrite, requireConfirmation, generateIdempotencyKey, writeAuditEvent } from "./writes.js";
+import { writesEnabled, canWrite, requireConfirmation, generateIdempotencyKey } from "./writes.js";
+import { recordAuditEvent } from "./auditLog.js";
+
+// actorFieldsFromInteraction: local helper, matching writeHandler.js's
+// own copy of this shape -- see that file's comment for why it's not
+// imported from commands.js (circular import).
+function actorFieldsFromInteraction(interaction) {
+  return {
+    guildId: interaction?.guildId || "",
+    discordUserId: interaction?.user?.id || "",
+    discordUsername: interaction?.user?.username || "",
+    channelId: interaction?.channelId || ""
+  };
+}
 
 export const BROADCAST_COMMAND = "broadcast";
 
@@ -37,13 +50,24 @@ export async function executeBroadcast({
   interaction,
   adapterClient,
   config,
-  userRequest
+  userRequest,
+  db = null
 } = {}) {
   if (!broadcastEnabled(config)) {
+    recordAuditEvent({
+      db, ...actorFieldsFromInteraction(interaction),
+      command: "admin:broadcast", action: "discord.broadcast", capability: "broadcast:disabled",
+      result: "denied", detail: { reason: "writes_disabled" }
+    });
     return { ok: false, error: "Broadcast command is disabled. Set DUNE_DISCORD_WRITES_ENABLED=true." };
   }
 
   if (!canBroadcast(interaction, config)) {
+    recordAuditEvent({
+      db, ...actorFieldsFromInteraction(interaction),
+      command: "admin:broadcast", action: "discord.broadcast", capability: "broadcast:send",
+      result: "denied", detail: { reason: "not_authorized" }
+    });
     return { ok: false, error: "Not authorized. Broadcast requires moderator or admin role." };
   }
 
@@ -71,18 +95,16 @@ export async function executeBroadcast({
 
     applyBroadcastCooldown(userId);
 
-    const auditEvent = writeAuditEvent({
-      actor: {
-        userId: interaction?.user?.id,
-        guildId: interaction?.guildId,
-        channelId: interaction?.channelId,
-        username: interaction?.user?.username
-      },
-      action: "discord.broadcast",
-      capability: "broadcast:send",
-      idempotencyKey,
-      result: "pending",
-      detail: { message, confirmed: false }
+    // Logged as "pending" (not "success") because sendBroadcastToAdapter()
+    // -- the function that would actually deliver this to the adapter --
+    // is never called anywhere in commands.js today (confirmed: it's
+    // imported but unused). This function only ever gets as far as a
+    // confirmation-required scaffold response, matching write:* commands'
+    // own "pending-upstream" status.
+    recordAuditEvent({
+      db, ...actorFieldsFromInteraction(interaction),
+      command: "admin:broadcast", action: "discord.broadcast", capability: "broadcast:send",
+      idempotencyKey, result: "pending", detail: { message, confirmed: false }
     });
 
     return {
@@ -90,8 +112,7 @@ export async function executeBroadcast({
       idempotencyKey,
       message,
       needsConfirmation: confirmation.needsConfirmation,
-      confirmationMessage: confirmation.message,
-      audit: auditEvent
+      confirmationMessage: confirmation.message
     };
   } finally {
     setTimeout(() => {

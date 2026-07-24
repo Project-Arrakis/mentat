@@ -134,6 +134,7 @@ of them.
 | `/dune admin cooldowns` | Admins | Shows who is rate-limited |
 | `/dune admin latency` | Admins | Adapter request timing history |
 | `/dune admin events` | Admins | Recent server incidents and alerts |
+| `/dune admin audit [limit]` | Admins | Recent audit log of destructive commands (who ran what, when, outcome) |
 | `/dune admin broadcast` | Mods+ | Send a message to all in-game players |
 
 ### 🖥️ `infra` — Infrastructure

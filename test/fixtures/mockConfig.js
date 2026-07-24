@@ -56,6 +56,7 @@ export function createMockConfig(overrides = {}) {
           'admin:cooldowns': ['admin-role-id'],
           'admin:latency': ['admin-role-id'],
           'admin:events': ['admin-role-id'],
+          'admin:audit': ['admin-role-id'],
           'admin:broadcast': ['admin-role-id'],
           'infra:version': ['observer-role-id', 'admin-role-id'],
           'infra:servers': ['observer-role-id', 'admin-role-id'],

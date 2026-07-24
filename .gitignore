@@ -11,5 +11,16 @@ tmp/
 .env
 secrets/
 
+# SQLite db files (data/acp.db by default, ACP_DB_PATH otherwise) --
+# previously only created in multi-tenant mode; as of the audit-log
+# feature (2026-07-24), every deployment mode creates one. Never commit
+# a real database file, which may contain guild config, OAuth session
+# state, or audit-log records.
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
 # Added by ggshield
 .cache_ggshield

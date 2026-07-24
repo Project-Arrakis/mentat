@@ -25,6 +25,7 @@ import { sendStatusCard } from '../src/statusCard.js';
 import { generateStatusCard } from '../scripts/generate-status-card.js';
 import { duneEmbed } from '../src/embedFormat.js';
 import { resetCooldowns } from '../src/cooldown.js';
+import { createDatabase } from '../src/database.js';
 
 const VERBOSE = process.argv.includes('--verbose');
 const FILTER = process.argv.find(arg => arg.startsWith('--filter='))?.split('=')[1];
@@ -756,6 +757,89 @@ describe('Audit Logging', () => {
     const embedData = embed.data || embed;
     const errorField = embedData.fields?.find(f => f.name === 'Error');
     assert.ok(errorField?.value?.includes('not authorized') || errorField?.value?.includes('disabled'), 'Should deny access');
+  });
+
+  test('player:unlink persists a real audit_log row when a db is provided', async () => {
+    const { adapterClient, config } = getTestContext();
+    const db = createDatabase(':memory:');
+    const interaction = createMockInteraction({
+      command: 'player:unlink',
+      roles: ['observer-role-id'],
+      userId: 'audit-test-user',
+      guildId: 'audit-test-guild'
+    });
+
+    await executeDuneCommand(interaction, adapterClient, config, db);
+
+    const rows = db.prepare('SELECT * FROM audit_log WHERE discord_user_id = ?').all('audit-test-user');
+    assert.equal(rows.length, 1, 'player:unlink should write exactly one audit_log row');
+    assert.equal(rows[0].command, 'player:unlink');
+    assert.equal(rows[0].capability, 'ACCOUNT_LINK_WRITE');
+    assert.ok(['success', 'failed'].includes(rows[0].result), 'result should reflect the actual outcome');
+  });
+
+  test('player:faction persists a real audit_log row when a db is provided', async () => {
+    const { adapterClient, config } = getTestContext();
+    const db = createDatabase(':memory:');
+    const interaction = createMockInteraction({
+      command: 'player:faction',
+      roles: ['observer-role-id'],
+      options: { name: 'atreides' },
+      userId: 'audit-test-user-2'
+    });
+
+    await executeDuneCommand(interaction, adapterClient, config, db);
+
+    const rows = db.prepare('SELECT * FROM audit_log WHERE discord_user_id = ?').all('audit-test-user-2');
+    assert.equal(rows.length, 1, 'player:faction should write exactly one audit_log row');
+    assert.equal(rows[0].command, 'player:faction');
+  });
+
+  test('read commands (server:status) do NOT write any audit_log row', async () => {
+    const { adapterClient, config } = getTestContext();
+    const db = createDatabase(':memory:');
+    const interaction = createMockInteraction({
+      command: 'server:status',
+      roles: ['observer-role-id'],
+      userId: 'audit-test-user-3'
+    });
+
+    await executeDuneCommand(interaction, adapterClient, config, db);
+
+    const rows = db.prepare('SELECT * FROM audit_log WHERE discord_user_id = ?').all('audit-test-user-3');
+    assert.equal(rows.length, 0, 'server:status is not a tracked command and must not write an audit row');
+  });
+
+  test('admin:audit returns persisted entries to an admin', async () => {
+    const { adapterClient, config } = getTestContext();
+    const db = createDatabase(':memory:');
+    db.prepare(`
+      INSERT INTO audit_log (source, guild_id, discord_user_id, command, action, capability, result, detail)
+      VALUES ('discord-command', 'test-guild-456', 'user-1', 'player:link', 'player:link', 'ACCOUNT_LINK_WRITE', 'success', '{}')
+    `).run();
+
+    const interaction = createMockInteraction({ command: 'admin:audit', roles: ['admin-role-id'] });
+    const result = await executeDuneCommand(interaction, adapterClient, config, db);
+
+    assert.ok(result, 'Command should succeed');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
+    assert.ok(embed.title?.includes('Audit'), 'Should have an audit-log title');
+  });
+
+  test('admin:audit is denied to a non-admin observer', async () => {
+    const { adapterClient, config } = getTestContext();
+    const db = createDatabase(':memory:');
+    const interaction = createMockInteraction({ command: 'admin:audit', roles: ['observer-role-id'] });
+    const result = await executeDuneCommand(interaction, adapterClient, config, db);
+
+    assert.ok(result, 'Command should be handled');
+    // Rejected by isCommandAllowed()'s RBAC check before the command
+    // dispatch is ever reached -- surfaces via interaction.reply(), not
+    // editReply(), matching the exact assertion shape used elsewhere in
+    // this file for the same kind of RBAC rejection (see "observer cannot
+    // execute admin commands" above).
+    assert.ok(interaction._reply?.content?.includes('not authorized'), 'Error should mention authorization');
   });
 });
 

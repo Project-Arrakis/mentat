@@ -2,7 +2,8 @@
 // All commands return "disabled" until DUNE_DISCORD_WRITES_ENABLED=true
 // AND the upstream write-adapter contract is implemented.
 
-import { writesEnabled, canWrite, requireConfirmation, generateIdempotencyKey, writeAuditEvent } from "./writes.js";
+import { writesEnabled, canWrite, requireConfirmation, generateIdempotencyKey } from "./writes.js";
+import { recordAuditEvent } from "./auditLog.js";
 
 export const WRITE_COMMANDS = Object.freeze([
   // Maintenance (admin tier)
@@ -45,20 +46,67 @@ export const WRITE_COMMANDS = Object.freeze([
     desc: "Clear server caches.", params: [{ name: "type", type: "string", desc: "Cache type (steam/maps/derived)", required: true }] },
 ]);
 
-export async function handleWriteCommand({ subcommand, interaction, adapterClient, config }) {
+// actorFieldsFromInteraction: local helper so this file doesn't need to
+// import commands.js's actorFromInteraction() (which would create a
+// circular import -- commands.js imports handleWriteCommand FROM this
+// file). Field names deliberately match writes.js's writeAuditEvent()
+// actor shape / recordAuditEvent()'s expected fields.
+function actorFieldsFromInteraction(interaction) {
+  return {
+    guildId: interaction?.guildId || "",
+    discordUserId: interaction?.user?.id || "",
+    discordUsername: interaction?.user?.username || "",
+    channelId: interaction?.channelId || ""
+  };
+}
+
+export async function handleWriteCommand({ subcommand, interaction, adapterClient, config, db = null }) {
+  const key = `write:${subcommand}`;
+
   if (!writesEnabled(config)) {
+    recordAuditEvent({
+      db, ...actorFieldsFromInteraction(interaction),
+      command: key, action: `write:${subcommand}`, capability: "write:disabled",
+      result: "denied", detail: { reason: "writes_disabled" }
+    });
     return { ok: false, error: "Write commands are disabled. Set DUNE_DISCORD_WRITES_ENABLED=true.", disabled: true };
   }
 
   const def = WRITE_COMMANDS.find(c => c.name === subcommand);
-  if (!def) return { ok: false, error: `Unknown write command: ${subcommand}` };
+  if (!def) {
+    recordAuditEvent({
+      db, ...actorFieldsFromInteraction(interaction),
+      command: key, action: `write:${subcommand}`, capability: "write:unknown",
+      result: "failed", detail: { reason: "unknown_command" }
+    });
+    return { ok: false, error: `Unknown write command: ${subcommand}` };
+  }
 
   if (!canWrite(interaction, config)) {
+    recordAuditEvent({
+      db, ...actorFieldsFromInteraction(interaction),
+      command: key, action: def.action, capability: def.tier,
+      result: "denied", detail: { reason: "not_authorized", tier: def.tier }
+    });
     return { ok: false, error: "Not authorized for write operations. Requires write-admin or write-owner role." };
   }
 
   const idempotencyKey = generateIdempotencyKey();
   const confirmation = requireConfirmation({ action: def.action, target: def.tier, risk: def.risk });
+
+  // Logged as "pending" (not "success") because handleWriteCommand()
+  // never actually executes the underlying action yet -- it returns a
+  // scaffolded confirmation-required response and stops there, awaiting
+  // upstream write-adapter contract implementation (see this file's
+  // module comment). This is intentional per
+  // docs/additional-features-roadmap.md's R2.x-FEAT-8 Note: audit the
+  // ATTEMPT now so this is already correct once these commands start
+  // actually executing.
+  recordAuditEvent({
+    db, ...actorFieldsFromInteraction(interaction),
+    command: key, action: def.action, capability: def.tier, idempotencyKey,
+    result: "pending", detail: { risk: def.risk, tier: def.tier, status: "pending-upstream" }
+  });
 
   return {
     ok: true,

@@ -7,7 +7,7 @@ const pkgVersion = JSON.parse(readFileSync(join(__dirname, "..", "package.json")
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload, redactSecrets } from "./format.js";
-import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed } from "./embedFormat.js";
+import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatAuditLogEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed } from "./embedFormat.js";
 import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { writesEnabled } from "./writes.js";
@@ -16,6 +16,7 @@ import { getLatencyHistory, isRouteMissing, routeStatus, UNMERGED_ROUTES } from 
 import { getIncidentHistory } from "./scheduler.js";
 import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
+import { recordAuditEventForCommand, queryAuditLog } from "./auditLog.js";
 
 // Group -> subcommand -> handler config
 // Each group can have up to 25 subcommands; a top-level command can have up
@@ -120,6 +121,8 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("cooldowns").setDescription("Show active command cooldowns."))
       .addSubcommand((c) => c.setName("latency").setDescription("Show adapter request latency history."))
       .addSubcommand((c) => c.setName("events").setDescription("Show recent server incidents and events."))
+      .addSubcommand((c) => c.setName("audit").setDescription("Show recent audit log entries for destructive commands.")
+        .addIntegerOption((o) => o.setName("limit").setDescription("Number of entries (default 20, max 200)").setMinValue(1).setMaxValue(200)))
       .addSubcommand((c) => c.setName("broadcast").setDescription("Send a message to all in-game players (moderator+).")
         .addStringOption((o) => o.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500))))
 
@@ -304,6 +307,14 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
             "This link expires in 10 minutes.",
           components: [row]
         });
+        // "pending" -- the actual link only completes later, in
+        // steamLinkServer.js's callback handler, once the player finishes
+        // the OAuth flow. This event just records that the Steam-link
+        // path was OFFERED for this character, not that a link occurred.
+        recordAuditEventForCommand({
+          db, interaction, key, result: "pending",
+          detail: { characterName, path: "steam-offered" }
+        });
         applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
         return true;
       }
@@ -366,9 +377,22 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = getLatencyHistory();
     } else if (key === "admin:events") {
       payload = getIncidentHistory();
+    } else if (key === "admin:audit") {
+      if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Audit log viewer requires admin or owner role.");
+      const limit = interaction.options.getInteger("limit") || 20;
+      // Scoped to this guild in multi-tenant mode (matching every other
+      // guild-scoped read in this file); returns across all guilds in
+      // single-tenant mode, where there's only ever one guild's worth of
+      // records anyway. Output is redacted the same way every other
+      // command's payload is (see the redactSecrets() call below, applied
+      // uniformly to every command's payload) -- detail fields are ALSO
+      // already redacted once at write-time (see auditLog.js's
+      // recordAuditEvent()), so this is redaction-in-depth, not the only
+      // layer.
+      payload = { entries: queryAuditLog(db, { guildId: config.multiTenant ? guildId : null, limit }) };
     } else if (key === "admin:broadcast") {
       const msg = interaction.options.getString("message");
-      const result = await executeBroadcast({ interaction, adapterClient, config, userRequest: msg, guildId });
+      const result = await executeBroadcast({ interaction, adapterClient, config, userRequest: msg, guildId, db });
       if (result.ok && result.needsConfirmation) {
         payload = redactSecrets({ ok: true, action: "broadcast", message: result.message, idempotencyKey: result.idempotencyKey, confirmation: result.confirmationMessage });
       } else {
@@ -387,11 +411,25 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     }
     // ── write group ──
     else if (group === "write") {
-      payload = await handleWriteCommand({ subcommand, interaction, adapterClient, config, guildId });
+      payload = await handleWriteCommand({ subcommand, interaction, adapterClient, config, guildId, db });
     }
     else {
       payload = { ok: false, error: `Unknown command: ${key}` };
     }
+
+    // player:link's Steam-connections branch already recorded its own
+    // "pending" audit event above and returned early -- this call is a
+    // no-op for that path (actionForCommand() only matches the
+    // player:unlink/enable/disable/default/faction keys reached here,
+    // since player:link's whisper-flow branch falls through to this
+    // point too but recordAuditEventForCommand() records it exactly once
+    // either way, not twice, because the early-return path already
+    // returned before reaching this line).
+    recordAuditEventForCommand({
+      db, interaction, key,
+      result: payload?.ok === false ? "failed" : "success",
+      detail: { subcommand }
+    });
 
     // Sanitize all output before sending to Discord
     payload = redactSecrets(payload);
@@ -448,6 +486,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatLatencyEmbed(payload);
     } else if (subcommand === "events") {
       embed = formatEventsEmbed(payload);
+    } else if (subcommand === "audit") {
+      embed = formatAuditLogEmbed(payload);
     } else if (subcommand === "servers") {
       embed = formatServersEmbed(payload);
     } else if (subcommand === "ports") {
@@ -464,6 +504,17 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       await interaction.editReply(formatPayload(`Dune ${key}`, payload));
     }
   } catch (error) {
+    // Record the failure for any tracked player:* command that threw
+    // BEFORE reaching the success/failure audit call above (e.g.
+    // isAdminActor() throwing, or the adapter call itself rejecting) --
+    // recordAuditEventForCommand() is a no-op for untracked keys, so this
+    // is safe to call unconditionally for every command, not just the
+    // player:* ones.
+    recordAuditEventForCommand({
+      db, interaction, key, result: "failed",
+      detail: { subcommand, error: error?.message || String(error) }
+    });
+
     // Provide better error messages for unmerged routes
     if (error instanceof Error && UNMERGED_ROUTES.has(error.route)) {
       const routeName = error.route.replace(/-/g, " ");
@@ -610,6 +661,7 @@ function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "admin:cooldowns", desc: "Show active cooldowns.", role: "admin" },
     { name: "admin:latency", desc: "Adapter latency history.", role: "admin" },
     { name: "admin:events", desc: "Recent incident log.", role: "admin" },
+    { name: "admin:audit", desc: "Recent audit log of destructive commands.", role: "admin" },
     { name: "admin:broadcast", desc: "Send a message to all players.", role: "admin" },
     { name: "infra:version", desc: "Dune stack version.", role: "observer" },
     { name: "infra:servers", desc: "List game servers.", role: "observer" },

@@ -522,6 +522,26 @@ export function formatEventsEmbed(incidents) {
   });
 }
 
+// ── Audit log ──
+const AUDIT_RESULT_ICON = { success: "✅", denied: "🚫", failed: "❌", pending: "⏳" };
+export function formatAuditLogEmbed(payload) {
+  const entries = payload?.entries || [];
+  const desc = entries.length === 0
+    ? "— No audit entries recorded —"
+    : entries.slice(0, 15).map((e) => {
+      const icon = AUDIT_RESULT_ICON[e.result] || "❔";
+      const who = e.discord_username ? `**${e.discord_username}**` : (e.discord_user_id ? `\`${e.discord_user_id}\`` : "unknown");
+      const when = e.created_at ? `_${e.created_at}_` : "";
+      return `${icon} ${who} → \`${e.command || e.action}\` (${e.result}) ${when}`;
+    }).join("\n");
+  return duneEmbed({
+    title: "🔍 Audit Log",
+    color: entries.length > 0 ? "warning" : "success",
+    description: desc.slice(0, 2048),
+    fields: [{ name: "📝 Entries Shown", value: fmtCount(entries.length), inline: true }]
+  });
+}
+
 // ── Readiness detail ──
 export function formatReadinessDetailEmbed(payload) {
   const r = payload?.result || payload || {};
