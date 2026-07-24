@@ -1,6 +1,8 @@
 // steamLinkServer.js — Express app implementing the Discord OAuth2
-// "connections"-scope flow for /dune player link (no character argument).
-// See docs/steam-link-design.md, docs/steam-link-architecture.md, and
+// "connections"-scope verification path for /dune player link
+// <character-name>. This is offered automatically, server-side, only for
+// characters that already have a Steam ID on file — see
+// docs/steam-link-design.md, docs/steam-link-architecture.md, and
 // docs/steam-link-security-review.md for the full design and the
 // FINDING-STEAM-* items this implementation must satisfy.
 //
@@ -8,25 +10,30 @@
 // like setupServer.js is) — see docs/steam-link-architecture.md's
 // Single-Tenant Deployment Note for why.
 //
-// NOTE ON CORE INTEGRATION: the actual resolveSteamCandidates() /
-// linkAccountViaSteam() adapter calls this module makes depend on two new
-// Core-side routes (/players/accounts/resolve-steam,
+// NOTE ON CORE INTEGRATION: the actual matchSteamCandidate() /
+// linkAccountViaSteam() adapter calls this module makes depend on new
+// Core-side route(s) (/players/accounts/match-steam,
 // /players/accounts/link-steam) that are tracked as UNMERGED_ROUTES in
 // adapterClient.js pending a separate Core-repo PR (see
 // docs/steam-link-implementation-prompt.md Part 1). Everything in THIS
 // file that talks only to Discord's own API (state validation, token
 // exchange, connections fetch) is fully independent of that and works
-// today; only the final /steam-link/select step's adapter calls will
-// return the UNMERGED_ROUTES error until Core ships its half.
+// today; only the callback's final match/link/fallback step will return
+// the UNMERGED_ROUTES error until Core ships its half.
+//
+// Unlike the design's first revision, there is NO /steam-link/select
+// route here — a session is always scoped to exactly one, already-named
+// character (see steamLinkStore.js), so /steam-link/callback resolves
+// directly to one of three outcomes (match, no-match, conflict) with
+// nothing for the player to choose between.
 
 import express from "express";
 import { esc } from "./htmlEscape.js";
 import {
   getSteamLinkSession,
-  consumeSteamLinkSession,
-  updateSteamLinkSession
+  consumeSteamLinkSession
 } from "./steamLinkStore.js";
-import { logError, logInfo } from "./logger.js";
+import { logError } from "./logger.js";
 
 const DISCORD_OAUTH_URL = "https://discord.com/api/v10/oauth2/authorize";
 const DISCORD_TOKEN_URL = "https://discord.com/api/v10/oauth2/token";
@@ -52,11 +59,6 @@ const PAGE_STYLE = `
   h1 { font-family: var(--font-heading); font-size: clamp(24px, 4vw, 34px); color: var(--sand-light); margin-bottom: 16px; }
   .panel { background: var(--bg-board); border: 1px solid var(--border-strong); border-radius: 12px; padding: 24px; margin-bottom: 16px; }
   .panel p { color: var(--muted); margin-bottom: 12px; }
-  .candidate-group h3 { font-family: var(--font-heading); color: var(--sand-light); font-size: 16px; margin-bottom: 8px; }
-  .candidate-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; margin-bottom: 8px; border: 1px solid var(--border-strong); border-radius: 8px; }
-  .candidate-row.disabled { opacity: 0.5; }
-  .btn { display: inline-flex; align-items: center; gap: 8px; background: linear-gradient(135deg, var(--spice-glow), var(--sand-mid)); color: var(--bg-deep); border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; text-decoration: none; }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 `;
 
 function renderPage(title, bodyHtml) {
@@ -124,29 +126,6 @@ async function resolveSteamConnections({ code, redirectUri, config, fetchImpl })
   }
 }
 
-// resolveServerName: best-effort lookup of the game server's own display
-// name (statusData.title, the same field server:status/sendStatusCard()
-// already use — see commands.js's "server:status" branch), so the
-// "No Characters Found" error can name the specific server a player's
-// Steam-linked accounts were checked against. This matters for operators
-// running (or players who belong to) more than one Dune server — "no
-// character found on this server" is meaningfully less useful than
-// "no character found on Tabr-Tau" when a player might have a real
-// character on a DIFFERENT server they're also in Discord with. Never
-// throws — a status-lookup failure falls back to a generic phrase rather
-// than blocking the (already-determined) "no characters found" response
-// from rendering at all.
-async function resolveServerName({ adapterClient, session }) {
-  try {
-    const actor = { userId: session.discordUserId, guildId: session.guildId };
-    const status = await adapterClient.status(actor, false, session.guildId);
-    const title = status?.result?.title || status?.title;
-    return title ? `**${title}**` : "this server";
-  } catch {
-    return "this server";
-  }
-}
-
 // findLinkedCharacterName: linkAccountViaSteamProvider()'s response is
 // { ok, accounts } (listLinkedAccounts()'s full row set for this Discord
 // user, snake_case character_name field) — find the row matching the
@@ -155,6 +134,37 @@ function findLinkedCharacterName(linkResult, playerControllerId) {
   const accounts = Array.isArray(linkResult?.accounts) ? linkResult.accounts : [];
   const match = accounts.find((a) => String(a.player_controller_id) === String(playerControllerId));
   return match?.character_name || "your character";
+}
+
+// editOriginalInteraction: pushes an update into the Discord interaction
+// that started this flow, using the stored interaction token (works up to
+// 15 minutes after the original interaction, per Discord's
+// webhook-message-edit semantics — does not require the original
+// Interaction object to still be in memory).
+async function editOriginalInteraction({ client, fetchImpl, session, embed }) {
+  if (!session.interactionToken || !client?.application?.id) return;
+  try {
+    // PATCH /webhooks/{application.id}/{interaction.token}/messages/@original
+    // authenticates via the interaction token embedded in the URL path
+    // itself (per Discord's own docs: "functions the same as Edit
+    // Webhook Message") — no Authorization header is needed or sent.
+    // Confirmed directly against
+    // https://discord.com/developers/docs/interactions/receiving-and-responding#edit-original-interaction-response,
+    // 2026-07-24.
+    await fetchImpl(
+      `https://discord.com/api/v10/webhooks/${client.application.id}/${session.interactionToken}/messages/@original`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "", embeds: [embed], components: [] })
+      }
+    );
+  } catch (err) {
+    // The underlying link/whisper action already succeeded server-side; a
+    // failure to edit the original Discord message is a cosmetic/UX gap,
+    // not a correctness failure. Log and continue.
+    logError("steam_link.original_interaction_edit_failed", err);
+  }
 }
 
 export function createSteamLinkServer({ config, adapterClient, client, fetchImpl = globalThis.fetch } = {}) {
@@ -169,7 +179,7 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
     const session = state ? getSteamLinkSession(String(state)) : undefined;
     if (!session) {
       return errorPage(res, 400, "Link Expired",
-        "This link has expired or is invalid. Run /dune player link again in Discord (no character name).");
+        "This link has expired or is invalid. Run /dune player link <character-name> again in Discord.");
     }
 
     const authUrl = new URL(DISCORD_OAUTH_URL);
@@ -184,22 +194,32 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
   app.get("/steam-link/callback", async (req, res) => {
     const { code, state, error } = req.query;
 
-    if (error) {
-      return errorPage(res, 400, "Linking Cancelled",
-        "Linking was cancelled. Run /dune player link again (no character name) if you'd like to try.");
-    }
-    if (!code || !state) {
-      return errorPage(res, 400, "Invalid Request", "Missing code or state parameter.");
-    }
-
     // FINDING-STEAM-1: single-use enforcement. This is the ONLY place a
-    // session's consumedAt is set for the callback step — a second request
-    // with the same state (replay) is rejected here, before any further
-    // work (token exchange, adapter calls) happens.
-    const session = consumeSteamLinkSession(String(state));
+    // session's consumedAt is set — a second request with the same state
+    // (replay) is rejected here, before any further work happens. Note
+    // this also resolves the specific playerControllerId/characterName
+    // this whole callback is scoped to (FINDING-STEAM-1/-2) — every
+    // decision below reads from THIS session object, never from the
+    // request itself.
+    const session = consumeSteamLinkSession(String(state || ""));
     if (!session) {
       return errorPage(res, 400, "Link Expired",
-        "This link has expired or has already been used. Run /dune player link again in Discord (no character name).");
+        "This link has expired or has already been used. Run /dune player link <character-name> again in Discord.");
+    }
+
+    if (error) {
+      // Player denied the OAuth consent screen. Per Design doc's Error UX
+      // table, auto-fall-back to the whisper path using the character
+      // already known from the session -- the player never has to re-run
+      // the command.
+      return sendWhisperFallbackAndRespond({
+        res, adapterClient, client, fetchImpl, session,
+        pageTitle: "Linking Cancelled",
+        pageMessage: "Linking via Steam was cancelled — we sent a verification code to your character in-game instead."
+      });
+    }
+    if (!code) {
+      return errorPage(res, 400, "Invalid Request", "Missing code parameter.");
     }
 
     let steamConnections;
@@ -211,168 +231,98 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
         "We couldn't complete the sign-in with Discord. Please try again in a moment.");
     }
 
-    if (!steamConnections.length) {
-      return errorPage(res, 200, "No Steam Connection Found",
-        "No Steam connection found in your Discord account. Add one in Discord Settings → Connections, " +
-        "or use /dune player link <character-name> instead.");
-    }
-
     const steamId64List = steamConnections
       .map((c) => String(c.id || ""))
       .filter((id) => STEAM_ID64_PATTERN.test(id));
 
-    // Persist the resolved Steam IDs against the (already-consumed, but
-    // still readable) session so /steam-link/select can re-derive the
-    // candidate set server-side rather than trusting this page's own
-    // rendered list (FINDING-STEAM-2).
-    updateSteamLinkSession(session.state, { steamId64List });
-
-    let candidates;
+    // FINDING-STEAM-2: the match check always targets session.playerControllerId
+    // -- the ONE character this session was scoped to at
+    // /dune player link <character-name> time -- never anything derived
+    // from this request. There is no candidate list to choose from.
+    let matched = false;
     try {
       const actor = { userId: session.discordUserId, guildId: session.guildId };
-      const result = await adapterClient.resolveSteamCandidates(actor, steamId64List, session.guildId);
-      candidates = Array.isArray(result?.candidates) ? result.candidates : [];
+      const result = await adapterClient.matchSteamCandidate(
+        actor, session.playerControllerId, steamId64List, session.guildId
+      );
+      matched = Boolean(result?.matched);
     } catch (err) {
-      logError("steam_link.resolve_candidates_failed", err);
+      logError("steam_link.match_check_failed", err);
       return errorPage(res, 502, "Something Went Wrong",
-        "We couldn't look up your characters right now. Please try again in a moment.");
+        "We couldn't verify your Steam account right now. Please try again in a moment.");
     }
 
-    if (!candidates.length) {
-      const serverName = await resolveServerName({ adapterClient, session });
-      return errorPage(res, 200, "No Characters Found",
-        `We checked your linked Steam account(s) but couldn't find a matching character on ${serverName}. ` +
-        "Make sure the Steam account you're logged into the game with is the same one linked in Discord " +
-        "Settings → Connections, or use /dune player link <character-name> instead.");
-    }
-
-    const rows = candidates.map((c) => `
-      <div class="candidate-row">
-        <span>${esc(c.character_name || "Unknown")} ${c.online_status ? `(${esc(c.online_status)})` : ""}</span>
-        <form method="POST" action="/steam-link/select">
-          <input type="hidden" name="state" value="${esc(session.state)}">
-          <input type="hidden" name="playerControllerId" value="${esc(c.player_controller_id)}">
-          <button type="submit" class="btn">Link this character</button>
-        </form>
-      </div>`).join("");
-
-    res.send(renderPage("Choose Your Character", `
-      <div class="panel">
-        <p>You can link more than one — just click each one you want.</p>
-        <div class="candidate-group">${rows}</div>
-      </div>`));
-  });
-
-  app.post("/steam-link/select", async (req, res) => {
-    const { state, playerControllerId } = req.body || {};
-    if (!state || !playerControllerId) {
-      return errorPage(res, 400, "Invalid Request", "Missing required fields.");
-    }
-
-    // NOTE: this session was already consumedAt-marked during the callback
-    // step above. getSteamLinkSession() does not check consumedAt (it only
-    // checks expiry) — this endpoint intentionally reads the already-used
-    // session to recover the discordUserId/guildId/steamId64List/etc. it
-    // needs, rather than requiring a second single-use token for what is,
-    // from the player's perspective, still one continuous linking session.
-    // The actual security boundary (FINDING-STEAM-1) is that the state
-    // could never be replayed to re-trigger a NEW token exchange/OAuth
-    // flow — this endpoint makes no Discord OAuth calls at all, only Core
-    // adapter calls gated by the already-completed identity resolution.
-    const session = getSteamLinkSession(String(state));
-    if (!session || !Array.isArray(session.steamId64List)) {
-      return errorPage(res, 400, "Link Expired",
-        "This link has expired. Run /dune player link again in Discord (no character name).");
-    }
-
-    // FINDING-STEAM-2: re-derive the valid candidate set server-side,
-    // RIGHT NOW, rather than trusting that playerControllerId was actually
-    // shown to this session on the callback page. A submitted ID not in
-    // this freshly-re-derived set is rejected, even if it's a real,
-    // valid-looking character ID for some OTHER Steam account.
-    let candidates;
-    try {
-      const actor = { userId: session.discordUserId, guildId: session.guildId };
-      const result = await adapterClient.resolveSteamCandidates(actor, session.steamId64List, session.guildId);
-      candidates = Array.isArray(result?.candidates) ? result.candidates : [];
-    } catch (err) {
-      logError("steam_link.select_resolve_failed", err);
-      return errorPage(res, 502, "Something Went Wrong", "Please try again in a moment.");
-    }
-
-    const isValidCandidate = candidates.some((c) => String(c.player_controller_id) === String(playerControllerId));
-    if (!isValidCandidate) {
-      return errorPage(res, 400, "Invalid Selection",
-        "That character is no longer available to link. Run /dune player link again (no character name).");
+    if (!matched) {
+      return sendWhisperFallbackAndRespond({
+        res, adapterClient, client, fetchImpl, session,
+        pageTitle: "Sent a Verification Code Instead",
+        pageMessage: `We checked your linked Steam account(s) but couldn't confirm ${session.characterName || "that character"} that way. ` +
+          `We've sent a verification code to ${session.characterName || "your character"} in-game via whisper instead — ` +
+          "check your whispers and run /dune player verify <code> to complete the link."
+      });
     }
 
     let linkResult;
     try {
       const actor = { userId: session.discordUserId, guildId: session.guildId };
-      linkResult = await adapterClient.linkAccountViaSteam(actor, String(playerControllerId), session.guildId);
+      linkResult = await adapterClient.linkAccountViaSteam(actor, session.playerControllerId, session.guildId);
     } catch (err) {
       // FINDING-STEAM-3: the conflict error from linkAdditionalAccount()
       // (via linkAccountViaSteamProvider()) is already generic ("already
       // linked to another Discord account") with no other-user identifying
-      // detail — pass it through UNCHANGED, do not enrich it with any
-      // additional lookup that could leak who the conflicting owner is.
-      const message = err?.body?.error || err?.message || "Unable to complete linking.";
+      // detail — pass it through UNCHANGED. Per the Design doc's Error UX
+      // table, do NOT trigger a whisper fallback in this specific case --
+      // the character is already claimed by someone else, so a whisper
+      // code could never successfully complete a NEW link and would be
+      // actively misleading to send.
+      const message = err?.body?.error || err?.message || "This character is already linked to a different Discord account.";
       return errorPage(res, 409, "Unable to Link", String(message));
     }
 
-    // Success: update the callback page AND push an update into the
-    // original Discord interaction that started this flow, using the
-    // stored interaction token (works up to 15 minutes after the original
-    // interaction, per Discord's webhook-message-edit semantics — does not
-    // require the original Interaction object to still be in memory).
-    if (session.interactionToken && client?.application?.id) {
-      try {
-        // PATCH /webhooks/{application.id}/{interaction.token}/messages/@original
-        // authenticates via the interaction token embedded in the URL path
-        // itself (per Discord's own docs: "functions the same as Edit
-        // Webhook Message") — no Authorization header is needed or sent.
-        // Confirmed directly against
-        // https://discord.com/developers/docs/interactions/receiving-and-responding#edit-original-interaction-response,
-        // 2026-07-24.
-        await fetchImpl(
-          `https://discord.com/api/v10/webhooks/${client.application.id}/${session.interactionToken}/messages/@original`,
-          {
-            method: "PATCH",
-            headers: {
-              "content-type": "application/json"
-            },
-            body: JSON.stringify({
-              content: "",
-              embeds: [{
-                title: "🔗 Character Linked",
-                // linkAccountViaSteamProvider()'s response shape is
-                // { ok, accounts } where accounts is listLinkedAccounts()'s
-                // rows -- snake_case character_name, not characterName. The
-                // just-linked character is the most recently linked, which
-                // (per linkAdditionalAccount()'s ORDER BY is_default desc,
-                // linked_at asc) is NOT necessarily accounts[0] once a user
-                // has more than one link -- find it by playerControllerId
-                // instead of assuming array position.
-                description: `Linked as **${esc(findLinkedCharacterName(linkResult, playerControllerId))}** via Steam.\nUse \`/dune data inventory\` to view your inventory.`,
-                // Matches embedFormat.js's own DUNE_COLORS.success value
-                // exactly, so a Steam-linked success embed renders with the
-                // identical color as the whisper-flow's formatLinkEmbed().
-                color: 0x2ECC71
-              }],
-              components: []
-            })
-          }
-        );
-      } catch (err) {
-        // The link itself already succeeded server-side; a failure to edit
-        // the original Discord message is a cosmetic/UX gap, not a
-        // correctness failure. Log and continue to the success page.
-        logError("steam_link.original_interaction_edit_failed", err);
+    await editOriginalInteraction({
+      client, fetchImpl, session,
+      embed: {
+        title: "🔗 Character Linked",
+        // Matches embedFormat.js's own DUNE_COLORS.success value exactly,
+        // so a Steam-linked success embed renders with the identical
+        // color as the whisper-flow's formatLinkEmbed().
+        description: `Linked as **${esc(findLinkedCharacterName(linkResult, session.playerControllerId))}** via Steam.\nUse \`/dune data inventory\` to view your inventory.`,
+        color: 0x2ECC71
       }
-    }
+    });
 
     res.send(renderPage("Linked!", `<div class="panel"><p>Your character is now linked. You can close this tab and return to Discord.</p></div>`));
   });
+
+  // sendWhisperFallbackAndRespond: shared by the "player denied consent"
+  // and "no Steam match" paths -- both resolve to the same outcome (send
+  // the whisper now, using the character already known from the session,
+  // and tell the player to check their whispers), just reached via
+  // different callback conditions. See Design doc's "Why Auto-Fallback"
+  // section for why this doesn't just show an error and ask the player to
+  // re-run the command.
+  async function sendWhisperFallbackAndRespond({ res, adapterClient, client, fetchImpl, session, pageTitle, pageMessage }) {
+    try {
+      const actor = { userId: session.discordUserId, guildId: session.guildId };
+      await adapterClient.playerLinkStart(actor, session.characterName, session.guildId);
+    } catch (err) {
+      logError("steam_link.whisper_fallback_failed", err);
+      return errorPage(res, 502, "Something Went Wrong",
+        "We couldn't send a verification code right now. Please try again in a moment.");
+    }
+
+    await editOriginalInteraction({
+      client, fetchImpl, session,
+      embed: {
+        title: "🔗 Character Link Started",
+        description: `We sent a verification code to **${esc(session.characterName || "your character")}** in-game via whisper. ` +
+          "Use `/dune player verify <code>` to complete the link. Codes expire after 5 minutes.",
+        color: 0x2ECC71
+      }
+    });
+
+    return res.send(renderPage(pageTitle, `<div class="panel"><p>${esc(pageMessage)}</p></div>`));
+  }
 
   app.get("/health", (req, res) => {
     res.json({ ok: true, service: "acp-steam-link", enabled: config.steamLink.enabled });

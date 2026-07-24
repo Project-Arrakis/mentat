@@ -1,34 +1,42 @@
 # Discord → Steam → Character Linking — Design
 
-**Revision note (2026-07-24):** the original version of this document
-proposed `/dune player link-steam` as a separate command alongside the
-existing `/dune player link <character>`. During implementation, this was
-reconsidered and merged: `/dune player link`'s `character` argument is now
-**optional**. Provide it to use the existing whisper flow directly (no
-change in behavior); omit it to trigger the Steam-connections flow this
-document describes. See [§Unified Command Design](#unified-command-design-revised)
-below for the full rationale — this was a deliberate correction, not a
-minor edit, and is called out explicitly because the four-role design
-review that produced the original version did not catch it on its own; a
-direct follow-up question surfaced it. `link-steam` no longer exists as its
-own command anywhere in this document or the implementation.
+**Revision note (2026-07-24, second revision):** this document has now been
+corrected twice. The **first** revision merged a proposed separate
+`/dune player link-steam` command into `/dune player link`'s `character`
+argument becoming *optional* (omit it to trigger a Steam-connections
+flow). That design shipped in an initial implementation, but direct user
+feedback surfaced a real UX problem with it: **omitting an argument is not
+a discoverable UI signal.** Discord's slash-command autocomplete shows the
+`character` option as available the whole time a player is typing: nearly
+every player will type a name out of habit and never discover that leaving
+it blank does something completely different. A hidden behavior reachable
+only by *not* typing something is a bad command surface, full stop.
+
+**This second revision corrects that:** `character` is **required again**,
+exactly as it was before this feature existed. The choice of whisper vs.
+Steam is no longer made by what the player types — it's made **entirely by
+the backend**, based on data it already has, and shown to the player as
+**one deterministic outcome**, never a choice between two competing
+instruction sets in the same reply. See
+[§Unified Command Design](#unified-command-design-second-revision) below
+for the full mechanics. `link-steam` still does not exist as its own
+command anywhere in this document or the implementation — that part of the
+original correction stands.
 
 ## Overview
 
-`/dune player link` (with no `character` argument) links a player's Discord
-account to their in-game character via **Discord's own OAuth2
-`connections` scope** — the player authorizes the bot to read their linked
-third-party accounts (already visible in Discord Settings → Connections),
-the bot reads any Steam connections, matches the returned `SteamID64`
-against the game's own `dune.accounts.platform_id` column, and resolves to
-the matching character(s).
+`/dune player link <character-name>` — unchanged command surface, exactly
+as it existed before this feature — now does one additional thing
+server-side before deciding how to respond: it checks whether the named
+character's account already has a Steam ID on file
+(`dune.accounts.platform_name = 'steam'`). If it does, the bot offers to
+complete the link **instantly via Discord's own OAuth2 `connections`
+scope** instead of the in-game whisper. If it doesn't, nothing changes —
+the player sees exactly the same whisper-code reply they always have.
 
 **v1 scope is Discord-connections-only.** A Steam OpenID fallback (for
 players who don't want to link Steam↔Discord natively) is explicitly
-deferred — see [§Non-Goals](#explicit-non-goals-v1) and the companion
-architecture doc's rationale for why both paths need the same new piece of
-infrastructure (a public HTTPS OAuth callback) regardless, so deferring the
-fallback defers a *second code path*, not the infrastructure itself.
+deferred — see [§Non-Goals](#explicit-non-goals-v1).
 
 This supersedes prior guidance that Steam-based Discord linking was
 infeasible for this bot. That conclusion was correct for a different
@@ -41,121 +49,70 @@ for the full reasoning.
 
 ## Problem Statement
 
-The existing character-linking flow (`/dune data link <character-name>` →
-in-game whisper code → `/dune data verify <code>` — see
-[§Scope Addition](#scope-addition-new-dune-player-command-group-decided-during-design-review)
-below for why these move to `/dune player` as part of this same feature)
-requires the character to be **online** to receive the whisper, AND
-requires the player to already know and type their character's exact
-name. Players who are offline, or whose whisper delivery fails for any
-reason, cannot complete linking that way. Discord's `connections` OAuth
-scope offers an alternative that solves both problems at once: if a player
-has already linked Steam to their Discord account (a one-time, native
-Discord Settings action, not something the bot does), the bot can resolve
-their character(s) with zero in-game round-trip AND with no need for the
-player to type a name at all — the bot already knows every character
-reachable from their Steam identity.
+The existing character-linking flow (`/dune player link <character-name>`
+→ in-game whisper code → `/dune player verify <code>`) requires the
+character to be **online** to receive the whisper. Players who are
+offline, or whose whisper delivery fails for any reason, cannot complete
+linking that way — even though many of those players already did a
+one-time, native Discord action (linking Steam to their Discord account in
+Discord's own Settings) that could prove the same thing instantly, with no
+in-game round-trip at all.
+
+**Important constraint this revision is built around:** the bot cannot
+silently check whether a Discord user has authorized *this bot specifically*
+to read their Steam connection. Discord's `connections` OAuth scope
+requires a live, user-initiated consent redirect **every time a new app
+requests it for the first time** — there is no bot-token lookup, no cached
+check, no way to "peek" ahead of time. The player having already linked
+Steam to Discord natively is necessary but not sufficient; granting *this
+bot* permission to read that fact is a separate, unavoidable step. This
+single fact is why the design below still requires exactly one click
+through Discord's own consent screen for the Steam path — it is a platform
+requirement, not a design choice, and no version of this feature can
+remove it.
 
 This is **additive to the underlying whisper mechanism**, not a
-replacement — `player:verify`'s whisper-code consumption is untouched. But
-per the Unified Command Design below, it is **not** a separate entry point
-from the player's perspective: `/dune player link` is the single command
-for "link my Discord to my character," and it picks the right mechanism
-based on whether a character name was provided.
+replacement — `player:verify`'s whisper-code consumption is untouched for
+every character that doesn't have a Steam ID on file.
 
-## Unified Command Design (Revised)
+## Unified Command Design (Second Revision)
 
-The original design (see the revision note at the top of this document)
-proposed `link-steam` as its own command. This was corrected after
-implementation-time review surfaced that it created an unnecessary second
-entry point for a single user intent ("link my Discord to my character"),
-and that the *original* whisper flow already had its own unaddressed UX
-gap: a player must already know their exact in-game character name to use
-it at all, with no way to ask the bot "which characters could even be
-mine?"
-
-**Revised command:**
+**Command surface (unchanged from before this feature existed):**
 
 ```
-/dune player link [character:<optional string>]
+/dune player link character:<required string>
 ```
 
-Dispatch logic inside `executeDuneCommand()`:
+There is no optional argument, no hidden branch reachable by omission, and
+no separate command. The player always names their character, exactly as
+today. Everything else happens **after** that, server-side, invisibly to
+the player until the bot has already decided which single path to show
+them.
+
+**Dispatch logic inside `executeDuneCommand()`:**
 
 ```
-if character argument IS provided:
-    → existing whisper flow, UNCHANGED (resolvePlayerByName, pending code, whisper delivery)
-if character argument is NOT provided:
-    → Steam-connections flow (this document's main subject)
+1. Resolve the named character (existing logic, unchanged).
+2. Ask Core: does this character's account have a Steam ID on file?
+   a. NO  -> send the whisper exactly as today. Show the existing
+             "check your in-game whispers" reply. (Byte-for-byte
+             unchanged behavior and response shape.)
+   b. YES -> do NOT send a whisper. Show a reply with ONLY a
+             "Link via Steam" button. No whisper text anywhere in
+             this reply.
 ```
 
-This means a player who already knows their character name keeps the
-exact same fast path they have today (`/dune player link PaulAtreides`).
-A player who doesn't want to type a name, doesn't remember it exactly, or
-whose character is offline, just runs `/dune player link` with nothing
-after it, and the bot figures out the rest from their Discord-linked Steam
-account(s).
+The player is never shown both a whisper instruction and a Steam button in
+the same message — the backend has already determined, before generating
+any reply at all, which single path applies to this specific character.
+This directly avoids the confusion of presenting two different sets of
+instructions and asking the player to guess which one is "for them."
 
-### Three-Case Resolution (After the Player Completes Discord OAuth Consent)
+### Handling Multiple Steam Accounts and Multiple Characters (Cardinality)
 
-Once the player has clicked "Sign in with Discord" and approved the
-`identify`/`connections` scopes (this step cannot be skipped or checked in
-advance — see [§Why a Web Callback Page](#why-a-web-callback-page-not-a-discord-native-confirmation)
-for why Discord requires this to be a real browser redirect, not something
-the bot can pre-check silently), the callback resolves to exactly one of
-three cases:
-
-1. **No Steam connection linked in Discord at all** (`connections` scope
-   returns zero `type === "steam"` entries) — distinct error: "no Steam
-   connection found, link one in Discord Settings → Connections, or use
-   `/dune player link <character-name>` instead."
-2. **Steam connection(s) found, zero matching characters on this server**
-   (the Core adapter's `resolveCharactersBySteamId64()` returns an empty
-   candidate list for every linked Steam ID) — a **different**, more
-   specific error naming the actual server (see
-   [§Server Name in Error Messages](#server-name-in-error-messages)):
-   "couldn't find a matching character on **{server name}** — make sure
-   you're logged into the game with the same Steam account." These two
-   error cases are kept **distinct on purpose** — they point at different
-   fixes (link Steam in Discord vs. log into the game with the right Steam
-   account), and collapsing them into one generic message would leave the
-   player guessing which fix applies to them.
-3. **One or more matching characters found** — this is a single
-   unified branch regardless of whether the matches came from one Steam
-   account or several, and regardless of whether one Steam account
-   contributed one or several characters (see the cardinality section
-   above: 1:N:N means "single Steam connection" does NOT imply "single
-   character"). **Any time the total candidate count is exactly 1, the bot
-   links it directly with a lightweight confirmation; any time it's greater
-   than 1, the bot always shows the full selection list — it never
-   auto-picks "the most recent" or "the first" character when real
-   ambiguity exists,** whether that ambiguity comes from multiple Steam
-   accounts, multiple characters under one Steam account, or both at once.
-
-This resolves cleanly to your original three-case framing (single
-connection → show the one match; multiple connections → show a list; no
-connection → show the "link Steam first" error) while additionally
-handling the case that framing didn't explicitly cover: a *single* Steam
-connection that itself has more than one character. Per the earlier
-cardinality correction, this is not a hypothetical — the database schema
-has no constraint preventing it.
-
-### Server Name in Error Messages
-
-The "no matching character" error (case 2 above) names the actual game
-server, rather than saying "this server" — relevant for players who might
-be in Discord with more than one Dune server community, where they may
-have a real character on a *different* server than the one they just tried
-`/dune player link` on. Resolved via the same `adapterClient.status()` call
-`server:status`/`sendStatusCard()` already use for `statusData.title` — a
-best-effort lookup that falls back to a generic "this server" phrase if the
-status call itself fails, so a transient status-lookup issue never blocks
-the (already-determined) "no characters found" response from rendering.
-
-## Corrected Cardinality (Load-Bearing Fact)
-
-Verified directly against the live schema and Discord's own API docs
-(not assumed):
+The live-schema/API cardinality fact from the original design still holds
+and still matters, but it now resolves far more simply because a specific
+character is always named up front:
 
 ```
 1 Discord user ──< N Steam accounts   (GET /users/@me/connections returns an array;
@@ -167,39 +124,216 @@ Verified directly against the live schema and Discord's own API docs
                                         game account to one character)
 ```
 
-**Net: Discord user → Steam account(s) → character(s) is 1:N:N, not 1:1.**
-Every part of this design — the selection UI, the link table shape, and the
-conflict-check logic — is built around this, not around a simplifying "one
-Steam account, one character" assumption that the schema does not actually
-enforce.
+**Multiple Steam accounts on one Discord user:** when the OAuth callback
+completes, the bot has an *array* of Steam connections (Discord's
+`GET /users/@me/connections` response, filtered to `type === "steam"`).
+The match check is: does the **named character's** on-file Steam ID appear
+**anywhere in that array**, not just as the first or only entry? A player
+with three linked Steam accounts and a character tied to the third one
+still matches correctly.
 
-### Scope Addition: New `/dune player` Command Group (Decided During Design Review)
+**Multiple characters under one Steam account:** does not need any special
+handling in this flow at all, because the player already told the bot
+which character they mean by naming it in step 1. If a Steam account has
+three characters linked to it and the player named one of them, only that
+one is ever checked or linked — the other two are simply irrelevant to
+this specific command invocation.
+
+**Linking more than one character:** the player runs `/dune player link
+<name>` once per character, exactly as the existing whisper flow and
+FINDING-LINK-6's multi-account design already require — there has never
+been a "link all my characters in one command" concept anywhere in this
+codebase, and this feature does not introduce one. Each invocation
+independently resolves one named character and performs its own
+independent Steam-ID-array membership check.
+
+This eliminates the entire "candidate selection list" UI the original
+two-revision-ago design required (grouped-by-Steam-account lists, "never
+auto-pick when ambiguous," a whole Case 3a/3b split) — there is never more
+than one character being resolved at a time, so there is never a list to
+show.
+
+## Flow
+
+1. Player runs `/dune player link <character-name>` (character required,
+   exactly as before this feature existed).
+2. Bot resolves the character (existing logic, unchanged) and — as part of
+   that same request — Core checks whether the resolved account has a
+   Steam ID on file (`platform_name = 'steam'`, `platform_id` set).
+3. **Character has no Steam ID on file:** Core generates and sends the
+   in-game whisper code exactly as today; the bot's reply is the existing
+   "check your in-game whispers" embed, completely unchanged. Nothing
+   below this point applies to this player.
+4. **Character has a Steam ID on file:** Core does **not** send a whisper.
+   It returns enough information for the bot to start a Steam-link
+   session scoped to this one character (`playerControllerId`,
+   `characterName`). The bot's reply is a **link-style button** ("Link via
+   Steam") and nothing else — no whisper text, no "or you could also..."
+   framing. This is a **new interaction-handling requirement**: no
+   button/select-menu interaction handling existed anywhere in this
+   codebase before this feature.
+5. Player clicks the button, which opens
+   `GET {ACP_STEAM_LINK_BASE_URL}/steam-link/start?state=<opaque>` in
+   their browser, which redirects to Discord's OAuth authorize URL with
+   `scope=identify connections`.
+6. Player completes Discord's own consent screen (shows exactly
+   `identify`, `connections` — no Discord password or 2FA is ever seen by
+   the bot). **This step cannot be skipped or pre-checked** — see the
+   constraint called out in [§Problem Statement](#problem-statement).
+7. Discord redirects to
+   `{ACP_STEAM_LINK_BASE_URL}/steam-link/callback?code=...&state=...`. The
+   bot validates `state` (single-use, unexpired, correctly bound — see
+   Security Review FINDING-STEAM-1, unchanged from before), exchanges
+   `code` for a token, and calls `GET /users/@me/connections`, filtering
+   for `type === "steam"`.
+8. **Match found** (the named character's on-file Steam ID appears
+   anywhere in the returned Steam connections array): the bot calls the
+   Core adapter's `linkAccountViaSteam()` (re-verified server-side against
+   fresh data — see Security Review FINDING-STEAM-2), which links
+   immediately. **No confirmation screen, no further prompts** — the
+   player already proved ownership by completing OAuth; asking them to
+   confirm again would be redundant. The callback page shows success, and
+   the bot's original ephemeral reply is edited in place (via
+   `interaction.editReply()`, using the stored interaction token) to show
+   the same success shape a completed whisper-verified link would show.
+9. **No match** (the player has no Steam connections at all, or none of
+   them match this character's on-file Steam ID): the bot **automatically
+   triggers the in-game whisper now**, using the character name it
+   already has from step 1 — the player never has to re-run the command.
+   The callback page explains what happened ("that Steam account didn't
+   match — we sent a verification code to your character in-game
+   instead") and the bot's original ephemeral reply is edited to show the
+   normal "check your in-game whispers" instructions.
+
+### Why Auto-Fallback to Whisper, Not Just an Error
+
+If the Steam check fails, the character named in step 1 still exists and
+is still linkable via whisper — the bot already has everything it needs
+to send that whisper immediately, with no extra input from the player.
+Making them re-run the whole command from scratch after a failed Steam
+attempt would be a worse experience than just completing the fallback
+automatically. This was an explicit design decision, not a default.
+
+### Why a Web Callback Page, Not a Discord-Native Confirmation
+
+Discord's OAuth redirect **must** land on a real HTTP page (the
+`redirect_uri`) before the bot can act on anything — there is no way to
+short-circuit that back into a pure Discord interaction. The callback page
+itself is deliberately minimal (reuses `setupServer.js`'s existing
+`esc()`-based HTML templating and dark/sand visual style for consistency)
+and, in this revised design, needs **no interactive element at all** in
+the common case — it only needs to show a result (success, or "sent a
+whisper instead"), since the match/no-match decision requires no further
+player input.
+
+## Response Shapes
+
+### Reply when character has no Steam ID on file (unchanged from before this feature)
+
+```
+🔗 Character Link Started
+
+We sent a verification code to PaulAtreides in-game via whisper.
+Use /dune player verify <code> to complete the link. Codes expire
+after 5 minutes.
+```
+
+### Reply when character has a Steam ID on file
+
+```
+🔗 Link via Steam
+
+PaulAtreides is linked to a Steam account. Click below to verify
+instantly using your Discord's connected Steam account — no
+in-game whisper needed.
+
+[ Link via Steam ]  (Link-style button, opens browser)
+
+This link expires in 10 minutes. If it expires, just run this
+command again.
+```
+
+### Callback page — success (Steam match found)
+
+```
+✅ Linked!
+
+PaulAtreides is now linked to your Discord account. You can
+close this tab and return to Discord.
+```
+
+The bot's original ephemeral reply is edited to match the existing
+successful-link embed shape used elsewhere in this codebase — no new
+embed format is needed for the success case, only the *path* to reach it
+differs from the whisper flow.
+
+### Callback page — no match, whisper sent automatically
+
+```
+🏜️ Sent a Verification Code Instead
+
+We checked your linked Steam account(s) but couldn't confirm
+PaulAtreides that way. We've sent a verification code to
+PaulAtreides in-game via whisper instead — check your whispers
+and run /dune player verify <code> to complete the link.
+```
+
+The bot's original ephemeral reply is edited to show the same
+"check your in-game whispers" instructions the no-Steam-ID path shows
+directly — from the player's perspective, they end up at the same next
+step either way, just via a slightly different route depending on which
+error message they saw on the callback page.
+
+## Multi-Character Linking (Reusing FINDING-LINK-6)
+
+This feature is designed to link into the **existing**
+`console.discord_account_links` multi-account table (FINDING-LINK-6,
+already implemented server-side, not yet bot-integrated) rather than the
+older single-link `console.discord_player_links` table. Reasons:
+
+- `discord_account_links` already supports N characters per Discord user —
+  the correct cardinality for a bot where a player might legitimately have
+  more than one linked character. The single-link table's
+  `UNIQUE(discord_user_id)`-style constraint (one link, ever, silently
+  overwritten on re-link) is structurally wrong for that.
+- FINDING-LINK-6's cross-table conflict check (`otherTableLinkConflict()`)
+  already guards against a character being claimed by two different
+  Discord users regardless of which of the two tables the claim comes
+  through — this feature inherits that protection for free.
+- FINDING-LINK-6's routes (`/players/accounts/link`,
+  `/players/accounts/link/verify`, etc.) already exist server-side but
+  have **zero bot-side integration** today. This feature's whisper path is
+  the first real consumer of that route set — closing that gap is a side
+  effect of this work, not a separate task.
+
+**Important distinction from FINDING-LINK-6's original verification
+design:** the existing `linkAccountProvider()` still requires an **online,
+whisper-delivered code** for each additional character. Steam-linking uses
+a **parallel verification path** that trusts Discord's OAuth grant
+instead. See the Architecture doc for the new
+`linkAccountViaSteamProvider()` this requires on the Core side.
+
+## Scope Addition: New `/dune player` Command Group (Decided During Design Review, Unaffected by This Revision)
+
+**This section is unchanged from the original design** — the command-group
+restructuring decision below was orthogonal to the argument-optionality
+question this revision corrects, and remains exactly as designed.
 
 While designing this feature's command placement, a related structural gap
-was surfaced and decided: the existing `data` subcommand group has grown to
-**15 of Discord's 25-per-group hard cap** by mixing three genuinely
+was surfaced and decided: the existing `data` subcommand group had grown
+to **15 of Discord's 25-per-group hard cap** by mixing three genuinely
 different concerns — player identity/linking (9 subcommands: `link`,
 `verify`, `characters`, `enable`, `disable`, `default`, `unlink`,
 `faction`, `whoami`), inventory/storage (3: `inventory`, `storage`,
 `find`), and server/world data (3: `population`, `backups`, `maps`).
-Adding `link-steam` as a 16th `data` subcommand would still fit
-numerically, but would deepen an already-crowded, conceptually-mixed group.
 
 **Decision: split the 9 existing identity/linking subcommands out of
-`data` into a new top-level `player` subcommand group**, as part of this
-same feature's implementation. Discord's top-level command has 8 of 25
-subcommand-group slots used today
-(`core`/`server`/`data`/`logs`/`ops`/`admin`/`infra`/`write`) — a 9th group
-is well within the cap. (Note: `link-steam` does NOT become a 10th
-subcommand here — per the Unified Command Design revision above, the
-Steam-connections flow is reached through `player:link` itself, via an
-optional argument, not a separate subcommand name.)
-
-This is a **breaking rename** for every existing user's command habits:
+`data` into a new top-level `player` subcommand group.** This is a
+**breaking rename** for every existing user's command habits:
 
 | Old (removed) | New |
 |---|---|
-| `/dune data link <character>` | `/dune player link [character]` — `character` is now OPTIONAL; provided = whisper flow (unchanged), omitted = Steam-connections flow (new) |
+| `/dune data link <character>` | `/dune player link <character>` — `character` remains REQUIRED (see this document's revision note — an earlier draft made it optional; that was corrected) |
 | `/dune data verify <code>` | `/dune player verify <code>` |
 | `/dune data characters` | `/dune player characters` |
 | `/dune data enable <character>` | `/dune player enable <character>` |
@@ -210,281 +344,69 @@ This is a **breaking rename** for every existing user's command habits:
 | `/dune data whoami` | `/dune player whoami` |
 
 `data` retains exactly `population`, `backups`, `maps`, `inventory`,
-`storage`, `find` (6 subcommands) — a coherent "server/world data and my
-stuff" group with substantial headroom for future growth, matching the
-group's own description text ("Server population, backups, map, inventory,
-and storage") far more accurately than it did with 9 identity commands
-mixed in.
+`storage`, `find` (6 subcommands).
 
 This rename must be:
 1. Documented prominently in the implementation PR's description and
-   change note (not buried) — this breaks muscle memory for any existing
-   server that has this bot installed.
+   change note — this breaks muscle memory for any existing server that
+   has this bot installed.
 2. Reflected in `docs/user-guide.md`'s command tables and the "Linking
-   Your Character" walkthrough section in full (not partially).
-3. Discord's own slash-command re-registration (`commandDefinitions()` /
-   whatever deployment step pushes command definitions to Discord's API)
-   picks this up automatically the next time commands are re-registered —
-   no special migration step is needed on Discord's side beyond a normal
-   command-definition push, since old command names simply cease to exist
-   and new ones are registered in their place.
-
-### Flow
-
-1. Player runs `/dune player link` — **with no `character` argument**. (If
-   a `character` argument is provided, none of the rest of this section
-   applies — the bot uses the existing, unchanged whisper flow instead.)
-2. Bot replies (ephemeral) with a **link button** (Discord's
-   `ButtonBuilder` with `style: Link`) pointing to
-   `GET {ACP_STEAM_LINK_BASE_URL}/steam-link/start?state=<opaque>`, which
-   itself redirects to Discord's OAuth authorize URL with
-   `scope=identify connections`. This is a **new interaction-handling
-   requirement**: no button/select-menu interaction handling existed
-   anywhere in this codebase before this feature (confirmed by direct
-   search) — this requires a new `Events.InteractionCreate` branch for
-   `MessageComponentInteraction`, not just extending the existing
-   `ChatInputCommandInteraction` branch.
-3. Player clicks the button, completes Discord's own consent screen (which
-   shows exactly what's being requested: `identify`, `connections` — no
-   Discord password or 2FA is ever seen by the bot, this is Discord's
-   native OAuth consent page). This step cannot be skipped, pre-checked, or
-   short-circuited — Discord only exposes a user's connections after that
-   specific user completes this consent screen; there is no way for the
-   bot to "peek" at connections ahead of time with just a bot token.
-4. Discord redirects to
-   `{ACP_STEAM_LINK_BASE_URL}/steam-link/callback?code=...&state=...`. The
-   bot's callback handler exchanges `code` for a token, calls
-   `GET /users/@me/connections`, and filters for `type === "steam"`.
-5. **Case 1 — no Steam connections at all:** callback page shows "No Steam
-   connection found in your Discord account. Add one in Discord Settings →
-   Connections, or use `/dune player link <character-name>` instead." This
-   is a distinct error from Case 2 below on purpose — it points at a
-   different fix (link Steam in Discord, not log into the right game
-   account).
-6. For every Steam connection found, the bot queries the Core adapter for
-   characters whose `platform_id` matches that Steam account's `id` field
-   (Discord's connection `id` **is** the raw SteamID64 for Steam
-   connections — confirmed via Discord's own Connection Object schema,
-   `id: string — id of the connection account`), across **all** linked
-   Steam connections at once, not just the first one found.
-7. **Case 2 — Steam connection(s) found, but zero matching characters
-   anywhere:** callback page shows "We checked your linked Steam
-   account(s) but couldn't find a matching character on **{server
-   name}**" (the actual game server's display name, resolved via
-   `adapterClient.status()` — see
-   [§Server Name in Error Messages](#server-name-in-error-messages) — not
-   a generic "this server" unless that lookup itself fails). "Make sure
-   the Steam account you're logged into the game with is the same one
-   linked in Discord Settings → Connections, or use
-   `/dune player link <character-name>` instead."
-8. **Case 3 — one or more matching characters found:** if the total
-   candidate count across all Steam connections is exactly 1, the callback
-   page shows a lightweight confirmation for that one character. If it's
-   greater than 1 — whether from multiple Steam connections, multiple
-   characters under one Steam connection, or both — the callback page
-   shows the **full selection list**, grouped by which Steam account each
-   character came from. **Never auto-selects "the first one" or "the most
-   recently active one" whenever real ambiguity exists.** This directly
-   implements the requirement surfaced by the corrected cardinality — a
-   player with two Steam accounts and three total characters across them
-   must be able to pick exactly which one(s) to link, not have the bot
-   guess; the same is true even for a single Steam account with two
-   characters under it.
-9. On confirming a character (single-match case) or clicking a specific
-   row's confirm button (list case), the bot writes the link and the
-   interaction that started this (`/dune player link`'s original ephemeral
-   reply) is edited to show success — matching the existing
-   `formatLinkEmbed()` success shape.
-10. Player can repeat step 8's selection multiple times in the same
-    session to link more than one character (see
-    [§Multi-Character Linking](#multi-character-linking-reusing-finding-link-6) below) —
-    each selection is its own explicit confirm action, never a bulk "link
-    all" default.
-
-### Why a Web Callback Page, Not a Discord-Native Confirmation
-
-Discord's OAuth redirect **must** land on a real HTTP page (that's the
-`redirect_uri`) before the bot can act on anything — there is no way to
-short-circuit that back into a pure Discord interaction. The callback page
-itself is deliberately minimal (reuses `setupServer.js`'s existing
-esc()-based HTML templating and dark/sand visual style for consistency, not
-a new design system) and its **only** required action is presenting the
-candidate list and letting the player confirm — everything else (the actual
-write) happens server-side, authenticated by the same `state` token that
-tied this callback back to the original Discord interaction.
-
-## Response Shapes
-
-### Initial `/dune player link` (no character argument) reply (ephemeral)
-
-```
-🔗 Link via Steam
-
-Click below to connect your Discord's linked Steam account(s).
-This uses Discord's own "Connections" feature — the bot never
-sees your Discord password or any Steam credentials.
-
-[ Sign in with Discord ]  (Link-style button, opens browser)
-
-This link expires in 10 minutes. If it expires, just run this
-command again.
-```
-
-### Callback page — Case 1: no Steam connection linked at all
-
-```
-🏜️ No Steam Connection Found
-
-No Steam connection found in your Discord account. Add one in
-Discord Settings → Connections, or use
-/dune player link <character-name> instead.
-```
-
-### Callback page — Case 2: Steam connection(s) found, zero matching characters
-
-```
-🏜️ No Characters Found
-
-We checked your linked Steam account(s) but couldn't find a
-matching character on Tabr-Tau.
-
-- Make sure the Steam account you're logged into the game with
-  is the same one linked in Discord Settings → Connections.
-- If you're not sure, use /dune player link <character-name>
-  instead — it works even without a Steam connection.
-```
-
-("Tabr-Tau" here is the actual game server's own display name, resolved
-live — not a placeholder string the bot would ever literally send. See
-[§Server Name in Error Messages](#server-name-in-error-messages).)
-
-### Callback page — Case 3a: exactly one match (no list needed)
-
-```
-🔗 Link This Character?
-
-PaulAtreides
-
-[ Confirm Link ]
-```
-
-### Callback page — Case 3b: more than one match (list, grouped by Steam account)
-
-```
-🏜️ Choose Your Character(s)
-
-Steam account "PaulA_76561198012345678":
-  ○ PaulAtreides         [ Link this character ]
-  ○ Muad'Dib             [ Link this character ]
-
-Steam account "StilgarPlayer_76561198098765432":
-  ○ Stilgar-Prime        [ Link this character ]
-
-You can link more than one — just click each one you want.
-```
-
-This exact shape also covers the case of a SINGLE Steam account
-contributing more than one character (e.g. only "PaulA_76561198012345678"
-is linked, but it has both PaulAtreides and Muad'Dib) — the "more than one
-candidate → always show the list" rule applies regardless of how many
-distinct Steam accounts contributed the candidates.
-
-### Success (both the callback page AND the original Discord ephemeral reply update)
-
-Matches the existing `formatLinkEmbed()` shape exactly — same title, same
-color, same "Linked as **X**" phrasing — so a player linking via Steam sees
-a visually identical confirmation to a player linking via the whisper flow.
-No new embed format needed for the success case; only the *path to get
-there* differs.
-
-## Multi-Character Linking (Reusing FINDING-LINK-6)
-
-This feature is designed to link into the **existing** `console.discord_account_links`
-multi-account table (FINDING-LINK-6, already implemented server-side, not
-yet bot-integrated) rather than the older single-link `console.discord_player_links`
-table. Reasons:
-
-- `discord_account_links` already supports N characters per Discord user —
-  exactly the cardinality this feature needs. The single-link table's
-  `UNIQUE(discord_user_id)`-style constraint (one link, ever, silently
-  overwritten on re-link) is structurally wrong for a feature whose entire
-  premise is "you might have more than one."
-- FINDING-LINK-6's cross-table conflict check (`otherTableLinkConflict()`)
-  already guards against a character being claimed by two different Discord
-  users regardless of which of the two tables the claim comes through — this
-  feature inherits that protection for free by using the same table, with no
-  new conflict-check code needed on the Core side.
-- FINDING-LINK-6's routes (`/players/accounts/link`, `/players/accounts/link/verify`,
-  etc.) already exist server-side but have **zero bot-side integration**
-  today (documented as an open item in
-  `docs/security/discord-player-link-hardening.md`). This feature is the
-  first real consumer of those routes — closing that long-standing gap is a
-  side effect of building this, not a separate task.
-
-**Important distinction from FINDING-LINK-6's original verification
-design:** the existing `linkAccountProvider()` still requires an **online,
-whisper-delivered code** for each additional character — it was designed
-before this Steam-linking feature existed. Steam-linking needs a
-**parallel verification path** that trusts Discord's OAuth grant instead of
-an in-game whisper. See the architecture doc for the new
-`linkAccountViaSteamProvider()` this requires on the Core side — it reuses
-`discord_account_links`'s schema and `otherTableLinkConflict()` check, but
-calls a different, new verification function, not the whisper-based one.
+   Your Character" walkthrough section in full.
+3. Picked up automatically by Discord's own slash-command re-registration
+   — no special migration step needed beyond a normal command-definition
+   push.
 
 ## Autocomplete / UI Details
 
-- No autocomplete needed for the Steam-connections flow itself (it takes no
-  new parameters — it's reached via `player:link`'s existing, optional
-  `character` argument simply being omitted).
+- No autocomplete needed for the Steam-connections decision itself — it
+  takes no new parameters and is decided entirely server-side after the
+  (unchanged) `character` argument is resolved.
 - The Link-style button (`ButtonStyle.Link`) requires no interaction
   response beyond opening the URL in the player's browser — Discord
-  handles this natively, no bot-side click handler needed for that specific
-  button.
-- The **candidate-selection buttons on the web callback page** are plain
-  HTML `<button>` elements posting to the callback service (not Discord
-  components) — the selection happens on the web page, not back inside
-  Discord, because that's where the OAuth-derived candidate list already
-  lives. After a successful selection, the bot proactively edits the
-  original Discord ephemeral reply (via `interaction.editReply()`, using
-  the stored interaction token) to reflect the result — this is the one
-  place a background process pushes an update into a Discord interaction
-  after its initial reply, which `discord.js` supports for up to 15 minutes
-  after the original interaction.
+  handles this natively.
+- The callback page itself needs no interactive `<button>` elements in the
+  common case (unlike the prior design's candidate-selection list) — it
+  renders a single outcome (success, or "sent a whisper instead") and the
+  bot proactively edits the original Discord ephemeral reply via
+  `interaction.editReply()` using the stored interaction token, which
+  `discord.js` supports for up to 15 minutes after the original
+  interaction.
 
 ## Error UX
 
 | Condition | Response |
 |---|---|
-| OAuth `state` expired or invalid (player waited too long, or reused an old link) | Callback page: "This link has expired. Run `/dune player link` again in Discord." |
-| Player denies the OAuth consent screen | Discord redirects with an `error` query param; callback page: "Linking was cancelled. Run `/dune player link` again if you'd like to try." |
-| No Steam connections found at all (player has Discord connected accounts but none are Steam) | "No Steam connection found in your Discord account. Add one in Discord Settings → Connections, or use `/dune player link <character-name>` instead." |
-| Steam connection found, zero character matches | See zero-candidates response above. |
-| Character already linked to a different Discord user (cross-table conflict) | Callback page shows that specific row as "Already linked to another Discord account" (not which account — no cross-user information disclosure), button disabled for that row only; other rows remain selectable. |
+| OAuth `state` expired or invalid (player waited too long, or reused an old link) | Callback page: "This link has expired. Run `/dune player link <character-name>` again in Discord." |
+| Player denies the OAuth consent screen | Discord redirects with an `error` query param; callback page auto-sends the whisper fallback and explains: "Linking via Steam was cancelled — we sent a verification code to your character in-game instead." |
+| No Steam connections found at all, or none match this character | Auto-sends the whisper fallback (see [§Flow](#flow) step 9) — this is not treated as a dead-end error, it's a graceful degrade to the always-available path. |
+| Character already linked to a different Discord user (cross-table conflict) | Callback page: "This character is already linked to a different Discord account." (No identifying detail about which account — see Security Review FINDING-STEAM-3.) No whisper fallback in this case, since sending one wouldn't help — the character is already claimed by someone else. |
 | Rate limit exceeded (see security doc) | Callback page: "Too many attempts. Try again in a few minutes." |
 
 ## Explicit Non-Goals (v1)
 
 - **Steam OpenID fallback** — deferred. If a player doesn't want to link
-  Steam↔Discord natively (privacy preference), they have no Steam-based
-  path in v1; they use the existing whisper flow. Revisit only if this
-  becomes a real, observed support request, not speculatively.
-- **Unlinking via the web callback page** — unlinking remains exclusively a
-  Discord-side action (`/dune player unlink`, `/dune player disable`), matching
-  the existing FINDING-LINK-6 command surface. The web page only ever adds
-  links, never removes them.
+  Steam↔Discord natively (privacy preference), their character simply has
+  no Steam ID on file from the bot's perspective, and they always see the
+  whisper path. Revisit only if this becomes a real, observed support
+  request.
+- **Unlinking via the web callback page** — unlinking remains exclusively
+  a Discord-side action (`/dune player unlink`, `/dune player disable`).
+  The web page only ever adds links, never removes them.
 - **Auto re-sync** — once linked, a character's link is not automatically
   re-verified if the player's Steam connection is later removed from
-  Discord. This matches the existing whisper flow's behavior (a completed
-  link persists until explicitly unlinked) and is a deliberate consistency
-  choice, not an oversight.
+  Discord. This matches the existing whisper flow's behavior.
+- **A candidate-selection UI of any kind.** The previous revision of this
+  design required one (to handle "which of your several Steam-matched
+  characters did you mean?"). This revision removes that need entirely by
+  requiring the character name up front — see
+  [§Unified Command Design](#unified-command-design-second-revision).
 - **Any change to the existing whisper-based flow's internal behavior,
-  tables, or routes.** `player:verify`'s whisper-code consumption is
-  completely untouched. Two things about `player:link` DO change relative
-  to the pre-feature `data:link`: its command group (`data` → `player`,
-  per the Scope Addition above) and its `character` argument becoming
-  optional (per the Unified Command Design revision above) — but providing
-  a character name still produces byte-for-byte the same behavior as
-  before.
+  tables, or routes for characters with no Steam ID on file.**
+  `player:verify`'s whisper-code consumption is completely untouched, and
+  the `character` argument on `player:link` is required exactly as it was
+  before this feature — the *only* command-surface change from the
+  pre-feature state is the group rename (`data` → `player`, per the Scope
+  Addition above).
 
 ## Sources
 

@@ -2,12 +2,23 @@
 
 ## Status
 
-Compliance review for the Steam-connections flow of `/dune player link`
-(invoked with no `character` argument; the existing character-argument
-flow is unchanged and out of scope for this review). This feature
-introduces a genuinely new data-handling category for this bot:
-third-party OAuth tokens and Steam platform identifiers, however briefly
-held. It does not assert any certification claim — see
+Compliance review for the Steam-connections-based verification path of
+`/dune player link <character-name>` — reached automatically, server-side,
+when the named character already has a Steam ID on file; the whisper path
+for characters without one is unchanged and out of scope for this review.
+
+**Revision note (2026-07-24):** this review originally covered a design
+where `player:link`'s `character` argument was optional and a
+candidate-selection list could be shown. That design was corrected — see
+`docs/steam-link-design.md`'s revision note. `character` is required
+again; the backend decides which single path to show based on data it
+already has. This affects the scope description above but not the
+underlying data-classification or third-party-handling analysis below,
+which remains accurate.
+
+This feature introduces a genuinely new data-handling category for this
+bot: third-party OAuth tokens and Steam platform identifiers, however
+briefly held. It does not assert any certification claim — see
 [Arrakis-Control-Panel's SOC 2 Alignment Notes](soc2-alignment.md) for the
 ecosystem-wide compliance posture this feature's evidence feeds into.
 

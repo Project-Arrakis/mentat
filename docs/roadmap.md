@@ -160,9 +160,8 @@ Only add commands backed by safe upstream adapter responses.
 
 ### Player Features — Implemented
 
-- `/dune player link <character>` — Link Discord account to character (whisper code)
-- `/dune player link` (no character name) — Link via Discord's connected Steam account instead (instant, no whisper needed)
-- `/dune player verify <code>` — Complete linking with in-game verification code
+- `/dune player link <character>` — Link Discord account to character; bot automatically offers a whisper code or an instant "Link via Steam" button depending on whether the character has a Steam account on file
+- `/dune player verify <code>` — Complete linking with in-game verification code (whisper path only)
 - `/dune player unlink` — Remove character link
 - `/dune player whoami` — Show linked character info
 - `/dune data inventory` — View character inventory

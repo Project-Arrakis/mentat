@@ -73,8 +73,8 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
     // ── player group ──
     // Split out of data (see the block comment above buildDuneCommand()).
     .addSubcommandGroup((g) => g.setName("player").setDescription("Link your Discord to your game character, and manage linked characters.")
-      .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character (omit character to link via Steam).")
-        .addStringOption((o) => o.setName("character").setDescription("Your character name (omit to link via Discord's connected Steam account instead)")))
+      .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character.")
+        .addStringOption((o) => o.setName("character").setDescription("Your character name").setRequired(true)))
       .addSubcommand((c) => c.setName("verify").setDescription("Verify a pending character link with a code.")
         .addStringOption((o) => o.setName("code").setDescription("Verification code from in-game whisper").setRequired(true)))
       .addSubcommand((c) => c.setName("characters").setDescription("List your verified characters."))
@@ -267,41 +267,49 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     // Split out of data (2026-07-24) -- see the block comment above
     // buildDuneCommand() for why.
     else if (key === "player:link") {
+      // character stays REQUIRED (2026-07-24, second revision) -- an
+      // earlier implementation made it optional and branched on whether
+      // it was provided, but that made the Steam-connections flow
+      // reachable only by NOT typing something, which is not a
+      // discoverable UI signal (Discord's autocomplete shows the option
+      // as available the whole time a player is typing, so nearly every
+      // player types a name out of habit). The bot now decides server-side,
+      // from Core's response, whether to show the whisper reply or a
+      // "Link via Steam" button -- never both, and never based on
+      // argument presence. See docs/steam-link-design.md's revision note.
       const characterName = interaction.options.getString("character");
-      if (characterName) {
-        // Existing whisper-code flow -- unchanged.
-        payload = await adapterClient.playerLinkStart(actor, characterName, guildId);
-      } else {
-        // No character name given -> Steam-connections flow (2026-07-24).
-        // Originally proposed as a separate `player:link-steam` command;
-        // unified into `player:link` per design review -- see
-        // docs/steam-link-design.md's revision note for why.
-        if (!config.steamLink?.enabled) {
-          await interaction.editReply(formatError(new Error(
-            "Steam linking is not configured on this server. Ask an admin to set DISCORD_CLIENT_SECRET, " +
-            "or use /dune player link <character-name> instead."
-          )));
-          applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
-          return true;
-        }
+      const result = await adapterClient.playerLinkStart(actor, characterName, guildId);
+      if (result?.hasSteam && config.steamLink?.enabled) {
+        // Character has a Steam ID on file AND Steam linking is
+        // configured on this server -- offer the instant path instead of
+        // the whisper reply. If hasSteam is true but steamLink is NOT
+        // enabled, fall through below to the normal whisper payload --
+        // per FINDING-STEAM-5 this must degrade silently to whisper-only,
+        // with no "not configured" error shown to the player.
         const session = createSteamLinkSession({
           discordUserId: interaction.user?.id,
           guildId,
           interactionToken: interaction.token,
-          commandInteractionId: interaction.id
+          commandInteractionId: interaction.id,
+          playerControllerId: result.playerControllerId,
+          characterName
         });
         const startUrl = `${config.steamLink.baseUrl}/steam-link/start?state=${session.state}`;
         const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setLabel("Sign in with Discord").setStyle(ButtonStyle.Link).setURL(startUrl)
+          new ButtonBuilder().setLabel("Link via Steam").setStyle(ButtonStyle.Link).setURL(startUrl)
         );
         await interaction.editReply({
-          content: "Click below to connect your Discord's linked Steam account(s). " +
+          content: `**${characterName}** is linked to a Steam account. Click below to verify instantly ` +
+            "using your Discord's connected Steam account -- no in-game whisper needed. " +
             "This link expires in 10 minutes.",
           components: [row]
         });
         applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
         return true;
       }
+      // No Steam ID on file, or Steam linking not configured on this
+      // server -- existing whisper-code flow, UNCHANGED response shape.
+      payload = result;
     } else if (key === "player:verify") {
       const code = interaction.options.getString("code");
       payload = await adapterClient.playerLinkVerify(actor, code, guildId);

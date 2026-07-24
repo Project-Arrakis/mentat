@@ -57,11 +57,12 @@ if (config.multiTenant) {
 // steamLinkServer starts UNCONDITIONALLY, unlike setupServer above — see
 // docs/steam-link-architecture.md's Single-Tenant Deployment Note. Most
 // real deployments of this bot are single-tenant, and /dune player link's
-// Steam-connections flow (no character argument) must work there too.
+// Steam-connections verification path (offered automatically for
+// characters with a Steam ID on file) must work there too.
 // config.steamLink.enabled (computed from whether a Discord OAuth client
-// secret is configured at all) gates only the command's own behavior, not
-// whether this server starts — the server itself is cheap to run idle and
-// its /health route is useful either way.
+// secret is configured at all) gates only whether the "Link via Steam"
+// button is ever offered, not whether this server starts — the server
+// itself is cheap to run idle and its /health route is useful either way.
 const steamLinkApp = createSteamLinkServer({ config, adapterClient, client });
 steamLinkApp.listen(config.steamLink.port, () => {
   logInfo("steam_link_server.started", { port: config.steamLink.port, enabled: config.steamLink.enabled });
