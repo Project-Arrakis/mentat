@@ -3,6 +3,13 @@
 Per-command specifications for all 12 write commands across 4 families.
 All commands require `DUNE_DISCORD_WRITES_ENABLED=true` and write-specific RBAC.
 
+**Command group note:** the actual registered command group is `write`, not
+`admin` (see `src/commands.js`'s `write` subcommand group, added behind
+`includeWriteGroup`). Example commands below use `/dune admin ...`, which
+does not match the live command tree — read them as `/dune write ...`. See
+`docs/rw-confirmation-flow.md` for the current (confirmation-only, no
+execution) behavior of these commands.
+
 ## Maintenance Family
 
 ### set-maintenance-note

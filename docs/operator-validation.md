@@ -78,15 +78,13 @@ Use a test guild for fast command propagation:
 DISCORD_GUILD_ID=your-test-guild-id npm run register
 ```
 
-Expected result: Discord shows one `/dune` command with these subcommands:
-
-- `about`
-- `ping`
-- `health`
-- `status`
-- `status-summary`
-- `readiness`
-- `services`
+Expected result: Discord shows one `/dune` command with subcommand groups
+`core`, `server`, `data`, `logs`, `ops`, `admin`, and `infra` (plus `write`
+only when `DUNE_DISCORD_WRITES_ENABLED=true`). Run
+`node -e "import('./src/commands.js').then(({commandDefinitions}) => console.log(JSON.stringify(commandDefinitions(), null, 2)))"`
+against the commit under test to print the exact current subcommand list
+instead of relying on a hand-maintained list here, since the surface grows
+across releases.
 
 Do not record real guild names, user names, role names, or screenshots that
 identify people. Record only pass/fail and the commit under test.
@@ -99,17 +97,29 @@ Start the bot against the local mock or live adapter:
 npm start
 ```
 
-In the test guild, run:
+In the test guild, exercise at minimum one command per group:
 
-- `/dune about`
-- `/dune ping`
-- `/dune health`
-- `/dune status-summary`
-- `/dune readiness`
-- `/dune services`
+- `/dune core about`
+- `/dune core ping`
+- `/dune server health`
+- `/dune server status-summary`
+- `/dune server readiness`
+- `/dune server services`
+- `/dune server maintenance` (unverified upstream route; expect either a
+  maintenance status or an explicit "Unknown" state, never a false-positive
+  "no maintenance scheduled")
+- `/dune data population`
+- `/dune infra version`
 
-Use `/dune status` only when the channel and RBAC settings are appropriate for
-the returned status detail. Command output should be ephemeral by default.
+Use `/dune server status` only when the channel and RBAC settings are
+appropriate for the returned status detail. Command output should be
+ephemeral by default.
+
+Commands under `logs`, `data` (linked-character routes), and any route marked
+`UNMERGED_ROUTES` in `src/adapterClient.js` will return a specific "not yet
+merged to upstream" message rather than live data until the console applies
+the corresponding feature branch. That message is the expected pass result
+for those commands, not a failure.
 
 Expected result: commands complete without leaking tokens, authorization
 headers, emails, SteamIDs, FuncomIDs, real names, private server addresses, or
