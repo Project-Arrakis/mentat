@@ -3,7 +3,12 @@
 # Usage: bash scripts/dev-status.sh <event> [branch] [pr-number] [details]
 set -euo pipefail
 
-WEBHOOK_URL_FILE="${DUNE_DEV_WEBHOOK_FILE:-${HOME}/dune-docker-addon/e2e-integration/secrets/dev-webhook-url.txt}"
+# BUG FIX (2026-07-25): this used to default to
+# ~/dune-docker-addon/e2e-integration/secrets/dev-webhook-url.txt --
+# deleted along with the 15GB scratch directory it lived in during a
+# home-directory cleanup audit. Moved to the same stable, non-project
+# location used by acp-ops-monitor's notify-discord.sh.
+WEBHOOK_URL_FILE="${DUNE_DEV_WEBHOOK_FILE:-${HOME}/.config/acp-ops-monitor/dev-webhook-url.txt}"
 WEBHOOK_URL="$(cat "$WEBHOOK_URL_FILE" 2>/dev/null || echo "")"
 
 if [ -z "$WEBHOOK_URL" ]; then
