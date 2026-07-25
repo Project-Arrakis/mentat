@@ -10,6 +10,7 @@ tmp/
 .security-audit/
 .env
 secrets/
+logs/
 
 # Added by ggshield
 .cache_ggshield
