@@ -22,19 +22,43 @@
 
 ### Bot Recovery
 
+<!-- Corrected 2026-07-25: this previously named the wrong systemd unit
+     (discord-bot.service) and described a manual git-pull recovery
+     flow that doesn't match how the real production bot is actually
+     deployed. Verified directly against the real OCI production
+     instance (acp-bot-vnic). -->
+
+**Real production bot**: runs as `acp-bot.service` on the OCI instance
+(`acp-bot-vnic`), working directory `/home/ubuntu/arrakis-control-panel`.
+Deployment is via `git push deploy deploy` from a dev machine, which
+triggers a `post-receive` hook on the OCI instance
+(`~/acp-deploy.git/hooks/post-receive`) that fetches the `deploy` branch,
+runs the test suite as a guardrail, and only restarts the service if
+tests pass.
+
 **Scenario**: Bot process failed, needs restart.
 ```bash
-sudo systemctl restart discord-bot.service
-sudo systemctl status discord-bot.service
+ssh ubuntu@<oci-host>
+sudo systemctl restart acp-bot.service
+sudo systemctl status acp-bot.service
 ```
 
 **Scenario**: Bot code corrupted, needs redeploy.
 ```bash
-cd /home/darkdante/arrakis-control-panel
-git pull origin main
-npm ci
-sudo systemctl restart discord-bot.service
+# From a dev machine with the 'deploy' remote configured:
+git push deploy deploy --force
+# This triggers post-receive on the OCI instance: fetch, test, restart.
+# To verify manually on the OCI instance instead:
+ssh ubuntu@<oci-host>
+cd ~/arrakis-control-panel
+git fetch deploy deploy && git reset --hard deploy/deploy
+npm ci --omit=dev
+sudo systemctl restart acp-bot.service
 ```
+
+**Note**: a `discord-bot.service` may also exist on local dev machines
+as a leftover test instance -- confirm which host and which service
+you're actually operating on before running any of the above.
 
 **Scenario**: Token compromised, needs rotation.
 1. Generate new token in Discord Developer Portal

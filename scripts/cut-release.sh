@@ -160,7 +160,7 @@ cut_release() {
   echo -e "${GREEN}============================================${NC}"
   echo -e "${GREEN}  Release $VERSION cut and pushed.${NC}"
   echo -e "${GREEN}  GitHub Release workflow should trigger automatically.${NC}"
-  echo -e "${GREEN}  Monitor: https://github.com/darkdante/Arrakis-Control-Panel/actions${NC}"
+  echo -e "${GREEN}  Monitor: https://github.com/yacketrj/arrakis-control-panel/actions${NC}"
   echo -e "${GREEN}============================================${NC}"
 }
 

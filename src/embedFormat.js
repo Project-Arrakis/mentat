@@ -739,7 +739,7 @@ export function formatSetupEmbed(setup) {
       "DISCORD_GUILD_ID=" + (guildId || "your-server-id"),
       "```",
       "",
-      "📖 **Full documentation:** [Admin Guide](https://github.com/darkdante/Arrakis-Control-Panel/blob/main/docs/admin-guide.md)"
+      "📖 **Full documentation:** [Admin Guide](https://github.com/yacketrj/arrakis-control-panel/blob/main/docs/admin-guide.md)"
     ].join("\n").slice(0, 2048)
   });
 }

@@ -39,7 +39,7 @@ echo "Train:   $TRAIN"
 echo "Branch:  $HEAD_BRANCH"
 echo "Body:    $BODY_FILE"
 echo "Title:   $TITLE"
-echo "Repo:    darkdante/Arrakis-Control-Panel"
+echo "Repo:    yacketrj/arrakis-control-panel"
 echo "Base:    main"
 echo ""
 echo "=== Pre-flight checks ==="
@@ -81,7 +81,7 @@ echo ""
 echo "Creating PR..."
 
 PR_URL=$(gh pr create \
-  --repo darkdante/Arrakis-Control-Panel \
+  --repo yacketrj/arrakis-control-panel \
   --base main \
   --head "$HEAD_BRANCH" \
   --title "$TITLE" \
