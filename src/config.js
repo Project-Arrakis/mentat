@@ -272,7 +272,12 @@ export function loadConfig(env = process.env) {
 
 export function validateConfig(config) {
   if (!config.multiTenant) {
-    const url = new URL(config.adapter.baseUrl);
+    let url;
+    try {
+      url = new URL(config.adapter.baseUrl);
+    } catch {
+      throw new Error("DUNE_CONSOLE_API_URL must be a valid absolute URL.");
+    }
     if (!["http:", "https:"].includes(url.protocol)) {
       throw new Error("DUNE_CONSOLE_API_URL must use http or https.");
     }

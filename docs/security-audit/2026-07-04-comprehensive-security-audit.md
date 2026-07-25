@@ -243,8 +243,24 @@ Scanner outputs are stored in `.security-audit/` (gitignored) on each repo branc
 | FINDING-BOT-1 Dependabot cooldown | Implemented | `security/bot-dependabot-cooldown` | Semgrep 0 findings; `npm run check` passes |
 | FINDING-BOT-2 Gitleaks false positive | Implemented | `security/bot-gitleaks-allowlist` | Gitleaks 0 findings; `npm run check` passes |
 | FINDING-BOT-3 Health-state permissions | Implemented | `security/bot-health-state-permissions` | `npm run check` passes |
-| FINDING-CORE-1 Hardcoded command-auth token | Implemented | `security/core-remove-hardcoded-command-token` | Gitleaks 0 findings; `npm test` 220/220 pass |
+| FINDING-CORE-1 Hardcoded command-auth token | **Regressed 2026-07-07, revert is deliberate — not simply "stale."** A separate fix (`security/generated-command-auth-token-fix`) was merged to the core repo's `main` on 2026-06-27/28, then explicitly reverted by upstream maintainer Red-Blink in commit `52008a7` ("Restore built-in command auth token fallback"). This was already discussed and closed upstream as `Red-Blink/dune-awakening-selfhost-docker#72`: the maintainer clarified the `AuthToken` is validated by the game server/director's command consumer (not RabbitMQ), so a console-only generated token breaks any deployment where the game-server side still expects the built-in default — the real fix needs a synchronized override on both sides, which does not exist yet. The hardcoded fallback is present again on `origin/main`/`upstream/main` (`e188c87`) as of this update. Do not re-attempt a console-only fix; see `dune-awakening-selfhost-docker:docs/security/discord-player-link-hardening.md` (FINDING-LINK-4) for the full writeup. | `security/core-remove-hardcoded-command-token` (superseded — predates issue #72's discussion; do not revive as-is) | Not currently passing against `main`; needs a two-sided design before any re-verification |
 | FINDING-CORE-7 Gitleaks false positives | Implemented | `security/core-gitleaks-allowlist` | Gitleaks 0 findings |
+
+### Update — Discord Player-Link Hardening (see companion audit)
+
+A follow-up manual code review of the Discord player-link/verify/unlink flow
+(not covered by the automated scanners above) found five new findings,
+documented separately in the core repo:
+`dune-awakening-selfhost-docker:docs/security/discord-player-link-hardening.md`.
+Summary: unauthenticated actor identity in adapter requests (HIGH), the
+`player-link:write` capability requiring only `moderator` tier (MEDIUM), no
+rate limiting on verification code attempts (MEDIUM), the FINDING-CORE-1
+regression above (HIGH), whisper transport architecture fragility (LOW), and
+a design gap where multi-character/multi-account linking has no server-side
+implementation despite bot-side client scaffolding
+(`Arrakis-Control-Panel:src/adapterClient.js` `UNMERGED_ROUTES`) and
+conflicting documentation claims. None of these are yet implemented; no
+remediation branch exists.
 
 ## Next Local Steps
 

@@ -116,6 +116,11 @@ export class AdapterClient {
   backups(actor, guildId) { return this.request("backups", actor, undefined, guildId); }
   logs(actor, service, guildId) { return this.request("logs", actor, service ? { service } : undefined, guildId); }
   mapState(actor, guildId) { return this.request("map-state", actor, undefined, guildId); }
+  // Route provenance is unverified against upstream main (see docs/adapter-contract.md,
+  // which currently documents only health/status/readiness/services). Left out of
+  // LIVE_ROUTES/PLANNED_ROUTES/UNMERGED_ROUTES until confirmed; routeStatus("maintenance")
+  // returns "unknown" so callers can surface that honestly instead of assuming success.
+  maintenance(actor, guildId) { return this.request("maintenance", actor, undefined, guildId); }
   broadcast(actor, message, guildId) { return this.request("broadcast", actor, { message }, guildId); }
   opsActivity(actor, guildId) { return this.request("ops-activity", actor, undefined, guildId); }
   opsCombat(actor, guildId) { return this.request("ops-combat", actor, undefined, guildId); }
@@ -134,7 +139,11 @@ export class AdapterClient {
   writeExecute(actor, body, guildId) { return this.request("write-execute", actor, body, guildId); }
   writePreview(actor, body, guildId) { return this.request("write-preview", actor, body, guildId); }
   playerLink(actor, characterName, guildId) { return this.request("players-link", actor, { characterName }, guildId); }
-  playerLinkVerify(actor, code, guildId) { return this.request("players-link-verify", actor, { code }, guildId); }
+  // Note: "players-link-verify" (V1) has no dedicated method. The V1 verify route is
+  // superseded by the V2 playerLinkVerify()/"player-links-verify" method below; keeping
+  // two methods named playerLinkVerify silently shadowed the V1 one (dead code; the class
+  // only ever exposed the last definition). Call request("players-link-verify", ...)
+  // directly if V1 verify is ever needed again.
   playerUnlink(actor, guildId) { return this.request("players-unlink", actor, undefined, guildId); }
   whoami(actor, guildId) { return this.request("players-me", actor, undefined, guildId); }
   playerFaction(actor, faction, guildId) { return this.request("players-faction", actor, { faction }, guildId); }

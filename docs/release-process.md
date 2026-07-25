@@ -27,9 +27,17 @@ Pre-1.0 versions may change operator-facing behavior, but every release still
 requires the same security gates and documentation evidence.
 
 The current planning baseline is `R0.9.0` release candidate freeze for
-`v1.0.0-rc.1`. The current stable release is `v1.5.0`. Before a new stable
-stable release-preparation pull request intentionally promotes a verified
+`v1.0.0-rc.1`. The current release candidate is `v1.0.0-rc.2` (see
+`package.json`, `addon/addon.json`, and `CHANGELOG.md`); no stable `v1.0.0`
+has shipped yet. Before promoting a stable release, open a
+release-preparation pull request that intentionally promotes a verified
 candidate.
+
+An earlier numbering line reached `v1.5.0` in `package.json` before the
+project was renamed to Arrakis Control Panel; that line was never tagged or
+released, and versioning restarted from `v1.0.0-rc.1` after the rename. Treat
+any reference to `v1.1.0`&ndash;`v1.5.0` as historical planning artifacts, not
+the current release state.
 
 ## Production Release Train
 

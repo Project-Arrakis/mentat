@@ -212,7 +212,16 @@ describe('Command Execution', () => {
     assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
     const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
     assert.ok(embed.fields?.some(f => f.name.includes('Bot') && f.value.includes('arrakis-control-panel')), 'Should have bot name');
-    assert.ok(embed.fields?.some(f => f.name.includes('ReadOnly') && f.value.includes('Yes')), 'Should be read-only (bot has no direct DB or RMQ access)');
+    // BUG FIX: PR #70 (af63ca4) updated this expectation to 'Yes' without
+    // updating aboutPayload()'s actual readOnly value to match -- V2
+    // character-linking commands (link/verify/unlink/faction/enable/
+    // disable/default, shipped in #69/1ea3316) write to the local database,
+    // so readOnly: true has been a false claim since #69 merged. Restoring
+    // the accurate 'No' expectation to match this branch's corrected
+    // aboutPayload() (readOnly: false, see "fix: correct read-only state
+    // reporting..." commit) rather than re-breaking the code to match a
+    // stale test assertion.
+    assert.ok(embed.fields?.some(f => f.name.includes('ReadOnly') && f.value.includes('No')), 'Should not be read-only (character linking writes to the database)');
   });
 
   test('core:ping measures latency', async () => {
@@ -408,6 +417,29 @@ describe('Command Execution', () => {
     assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
     const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
     assert.ok(embed.title?.includes('Services'), 'Should have services title');
+  });
+
+  test('server:maintenance returns maintenance status (read-only)', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({ command: 'server:maintenance', roles: ['observer-role-id'] });
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+
+    assert.ok(result, 'Command should succeed');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
+    assert.ok(embed.title?.includes('Maintenance'), 'Should have maintenance title');
+    assert.ok(embed.description?.includes('No maintenance scheduled'), 'Should report no active maintenance from mock data');
+  });
+
+  test('server:maintenance reports unknown when adapter omits ok:true', async () => {
+    const { config } = getTestContext();
+    const interaction = createMockInteraction({ command: 'server:maintenance', roles: ['observer-role-id'] });
+    const failingAdapter = { maintenance: async () => ({ ok: false }) };
+    const result = await executeDuneCommand(interaction, failingAdapter, config);
+
+    assert.ok(result, 'Command should succeed without throwing');
+    const embed = interaction._editReply?.embeds?.[0]?.data || interaction._editReply?.embeds?.[0];
+    assert.ok(embed?.description?.includes('Unknown'), 'Missing/failed maintenance data must read as unknown, not healthy');
   });
 
   test('player:verify initiates link verification', async () => {

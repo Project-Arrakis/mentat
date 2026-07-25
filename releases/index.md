@@ -4,70 +4,98 @@ Staging area for **future** upstream PRs. **No upstream PRs are open.**
 All feature work is implemented on local branches, tested, and staged.
 When a train is validated, use `pr-body.md` with `gh pr create --body-file`.
 
-## Current Implementation State — main (v1.5.0)
+## Version History Note
+
+This project's version numbering restarted at `v1.0.0-rc.1` when the repo
+was renamed from `dune-awakening-selfhost-discordbot` to
+`arrakis-control-panel` (commit `a15d4a8`, 2026-07-20). An earlier numbering
+line reached `v1.5.0` in `package.json` before that rename, but **no
+`v1.1.0`&ndash;`v1.5.0` git tag or GitHub Release was ever created** — that
+work landed on `main` under the old name and its features are still present
+in the codebase, but the version *number* itself was abandoned, not the code.
+The `Release Train Manifest` below is kept as a historical record of what was
+implemented under the old numbering; see `## Current Implementation State`
+for the real, current version.
+
+## Current Implementation State — main (v1.0.0-rc.2)
 
 | Feature | Status | Source |
 |---------|--------|--------|
-| 7 read-only commands | Implemented | `src/commands.js` |
+| 7 read-only commands (original R1.0.0 scope) | Implemented | `src/commands.js` |
 | Population command | Implemented | `src/commands.js`, `src/adapterClient.js` |
 | Backup list command | Implemented | `src/commands.js`, `src/adapterClient.js` |
-| Operator validation | Implemented | `scripts/validate-operator.js` |
+| Operator validation | Implemented | `scripts/validate-operator.js`, `test/operatorValidation.test.js` |
 | Notification scheduler | Implemented | `src/scheduler.js`, `src/notifications.js` |
 | Adapter compatibility check | Implemented | `scripts/check-compatibility.js` |
 | Command cooldowns | Implemented | `src/cooldown.js` |
-| Write-safety foundation | Implemented | `src/writes.js` (R2.0.0 branch) |
-| Write command stubs | Implemented | `src/writeCommands.js` (R2.1-3.0 branches) |
+| Write-safety foundation | Implemented (never executes) | `src/writes.js`, `src/writeHandler.js` |
+| Write confirmation UI | Implemented (never executes) | `src/writeConfirmation.js` |
+| Write command stubs (unused, dead code) | Present but not imported by `commands.js` | `src/writeCommands.js` |
 | Health-state permissions | Implemented | `src/healthState.js` |
+| Multi-tenant architecture, OAuth2 setup portal | Implemented | `src/setupServer.js`, `src/database.js` |
+| Status cards, faction theming | Implemented | `src/statusCard.js`, `src/embedFormat.js` |
 | Dependabot cooldown | Implemented | `.github/dependabot.yml` |
 | Gitleaks allowlist | Implemented | `.gitleaksignore` |
 
-## Strict Gates — main (v1.5.0)
+## Strict Gates — main (v1.0.0-rc.2)
 
-| Gate | Result |
+Re-run and record actual numbers before relying on this table; the values
+below are a point-in-time snapshot and will drift as tests are added.
+
+| Gate | Result (as of 2026-07-22) |
 |------|--------|
-| `npm run check` | 109/109 pass |
-| Release metadata | OK for v1.5.0 |
-| `npm audit --audit-level=moderate` | 0 vulnerabilities |
-| Semgrep | 0 findings |
-| Gitleaks | 0 leaks |
-| Trivy filesystem | 0 findings |
-| Trivy image | 0 findings |
-| Docker build | Success |
+| `npm run check` | 328/328 tests pass (268 via `node --test`, 60 via `discord-bot-test-harness.js`) |
+| Release metadata | OK for v1.0.0-rc.2 |
+| `npm audit --audit-level=moderate` | Re-run before relying on this |
+| Semgrep / Gitleaks / Trivy | Re-run before relying on this |
 | Addon package | Zero-permission, checksum verified |
-| SBOM | Generated, 25 components |
+| SBOM | Generated |
 
-## Release Train Manifest
+## Release Train Manifest (Historical — Old Numbering, Never Tagged)
 
-| Train | Version | Scope | Branch | Feature Branch | Status |
-|-------|---------|-------|--------|----------------|--------|
-| R1.0.0 | v1.0.0 | Stable read-only GA | `release/v1.0.0` | — | Merged into main |
-| R1.1 | v1.1.0 | Operator validation | `release/v1.1.0` | — | Merged into main |
-| R1.2 | v1.2.0 | Population command | `release/v1.2.0` | — | Merged into main |
-| R1.3 | v1.3.0 | Notification scheduler | `release/v1.3.0` | — | Merged into main |
-| R1.4 | v1.4.0 | Compatibility check | `release/v1.4.0` | — | Merged into main |
-| R1.5 | v1.5.0 | R2 readiness review | `release/v1.5.0` | — | Merged into main |
-| — | v1.5.0 | Command cooldowns | — | `feature/command-cooldowns` | Merged into main |
-| — | v1.5.0 | Backup list | — | `feature/backup-list` | Merged into main |
-| R2.0.0+ | v2.0.0 | Write foundation + 12 command families | `feature/r2-write-foundation` | [#63](https://github.com/yacketrj/dune-awakening-selfhost-discordbot/pull/63) | Open |
-| R2.1 | v2.1.0 | Maintenance writes | `release/v2.1.0` | — | Feature branch |
-| R2.2 | v2.2.0 | Notification writes | `release/v2.2.0` | — | Feature branch |
-| R2.3 | v2.3.0 | Schedule writes | `release/v2.3.0` | — | Feature branch |
-| R2.4 | v2.4.0 | R3 readiness | `release/v2.4.0` | — | Feature branch |
-| R3.0.0 | v3.0.0 | Operational writes | `release/v3.0.0` | — | Feature branch |
-| R4.0.0 | v4.0.0 | Highest-risk ops | `release/v4.0.0` | — | Feature branch |
+The trains below describe real feature work that landed on `main`, using a
+version-number scheme that was later abandoned. None of these versions were
+ever tagged or released; do not treat this table as current release status.
+
+| Train | Old Version Label | Scope | Status |
+|-------|---------|-------|--------|
+| R1.0.0 | v1.0.0 (old label) | Stable read-only GA | Superseded — real target is now `v1.0.0-rc.2` → `v1.0.0` |
+| R1.1 | v1.1.0 (old label) | Operator validation | Feature work merged to main; version number abandoned |
+| R1.2 | v1.2.0 (old label) | Population command | Feature work merged to main; version number abandoned |
+| R1.3 | v1.3.0 (old label) | Notification scheduler | Feature work merged to main; version number abandoned |
+| R1.4 | v1.4.0 (old label) | Compatibility check | Feature work merged to main; version number abandoned |
+| R1.5 | v1.5.0 (old label) | R2 readiness review | Feature work merged to main; version number abandoned |
+| — | v1.5.0 (old label) | Command cooldowns | Feature work merged to main; version number abandoned |
+| — | v1.5.0 (old label) | Backup list | Feature work merged to main; version number abandoned |
+| R2.0.0+ | v2.0.0 (old label) | Write foundation + 12 command families | Feature work merged to main (`src/writes.js`, `src/writeHandler.js`); still disabled by default, execution not wired |
+
+## R2/Write-Capable Status
+
+Write commands are scaffolded (`src/writeHandler.js`, `src/writeConfirmation.js`)
+but disabled by default and never call `adapterClient.writeExecute()`/
+`writePreview()` — no upstream write-adapter contract exists yet. See
+`docs/upstream-write-adapter-rfc.md` and `docs/r1-r2-release-roadmap.md`.
 
 ## Staging Rules
 
-1. **Read-only first**: All R1.x read-only features are implemented and merged.
+1. **Read-only first**: R1.x read-only features are implemented on `main`.
 2. **Upstream dependency**: R2+ releases require upstream write-adapter contract approval.
 3. **Gates**: All universal gates from `docs/full-release-roadmap.md` are met on main.
 4. **Security**: Zero unresolved medium/high/critical security findings.
 5. **No upstream PRs created**: All work is local, staged in `releases/<train>/pr-body.md`.
+6. **Version continuity**: Before creating any new version-bump PR, confirm the
+   target version follows from `package.json`'s actual current value
+   (`1.0.0-rc.2` as of this writing), not from any value in this file's
+   historical manifest above.
 
 ## Next Steps
 
-1. Implement remaining additional features from `docs/additional-features-roadmap.md`.
-2. Create staging branches for each additional feature.
-3. Merge into main; re-run strict gates.
+1. Decide whether to promote `v1.0.0-rc.2` to stable `v1.0.0`, or cut another
+   release candidate first.
+2. Implement remaining additional features from `docs/additional-features-roadmap.md`
+   (note: that document also needs its version/branch references corrected
+   to match the current `v1.0.0-rc.2` baseline — do not follow its old
+   `v1.1.0`&ndash;`v1.5.0` branch names literally).
+3. Merge into main; re-run strict gates and update the snapshot above.
 4. Only when all gates pass and upstream write contract is approved,
    open PRs using the staged `gh-create.sh` scripts.

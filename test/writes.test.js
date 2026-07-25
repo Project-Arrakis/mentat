@@ -69,6 +69,47 @@ test("canWrite allows owner role when writes enabled", () => {
   }
 });
 
+test("canWrite enforces tier separation when requiredTier is given", () => {
+  const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
+  const oldAdminIds = process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
+  const oldOwnerIds = process.env.DISCORD_WRITE_OWNER_ROLE_IDS;
+  process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
+  process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = "write-admin-role";
+  process.env.DISCORD_WRITE_OWNER_ROLE_IDS = "write-owner-role";
+  try {
+    const config = { discord: { writes: { enabled: true } } };
+    const adminInteraction = { member: { roles: { cache: new Map([["write-admin-role", {}]]) } } };
+    const ownerInteraction = { member: { roles: { cache: new Map([["write-owner-role", {}]]) } } };
+
+    // Admin cannot reach owner-tier actions.
+    assert.equal(canWrite(adminInteraction, config, "owner"), false);
+    // Admin can reach admin-tier actions.
+    assert.equal(canWrite(adminInteraction, config, "admin"), true);
+    // Owner outranks admin: can reach both tiers.
+    assert.equal(canWrite(ownerInteraction, config, "owner"), true);
+    assert.equal(canWrite(ownerInteraction, config, "admin"), true);
+  } finally {
+    process.env.DUNE_DISCORD_WRITES_ENABLED = oldEnabled;
+    process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = oldAdminIds;
+    process.env.DISCORD_WRITE_OWNER_ROLE_IDS = oldOwnerIds;
+  }
+});
+
+test("canWrite without requiredTier preserves legacy union behavior", () => {
+  const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
+  const oldAdminIds = process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
+  process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
+  process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = "write-admin-role";
+  try {
+    const config = { discord: { writes: { enabled: true } } };
+    const adminInteraction = { member: { roles: { cache: new Map([["write-admin-role", {}]]) } } };
+    assert.equal(canWrite(adminInteraction, config), true);
+  } finally {
+    process.env.DUNE_DISCORD_WRITES_ENABLED = oldEnabled;
+    process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = oldAdminIds;
+  }
+});
+
 test("canWrite returns false without member roles", () => {
   const old = process.env.DUNE_DISCORD_WRITES_ENABLED;
   process.env.DUNE_DISCORD_WRITES_ENABLED = "true";

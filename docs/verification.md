@@ -106,9 +106,12 @@ After `npm run check`, verify local release artifact checksums with:
 
 ```bash
 cd dist
-sha256sum -c discord-readonly-bot-v1.5.0.tar.gz.sha256
+sha256sum -c discord-readonly-bot-v1.0.0-rc.2.tar.gz.sha256
 sha256sum -c arrakis-control-panel.cdx.json.sha256
 ```
+
+(Replace `v1.0.0-rc.2` with the current value of `package.json`'s `version`
+field if it has changed since this document was last updated.)
 
 ## Regression Checklist
 
