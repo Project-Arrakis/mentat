@@ -5,7 +5,7 @@
 set -euo pipefail
 
 BRANCH="${1:-$(git rev-parse --abbrev-ref HEAD)}"
-REPO="darkdante/Arrakis-Control-Panel"
+REPO="yacketrj/arrakis-control-panel"
 
 echo "=== Checking CI status for $BRANCH ==="
 echo ""
