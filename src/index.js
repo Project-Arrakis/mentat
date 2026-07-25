@@ -13,10 +13,26 @@ import { createSteamLinkServer } from "./steamLinkServer.js";
 import { handleGuildCreate, handleGuildDelete } from "./onboarding.js";
 import { startStatsPusher } from "./statsPusher.js";
 import { handleWriteButtonInteraction } from "./writeConfirmation.js";
+import { isEncryptionConfigured } from "./secretsCrypto.js";
 
 const config = loadConfig();
 const db = config.multiTenant ? createDatabase(config.dbPath) : null;
 if (db) initBotStats(db);
+// In multi-tenant mode, guilds.adapter_token holds a live credential for
+// every connected operator's Core adapter API in one shared SQLite file.
+// secretsCrypto.js encrypts it transparently once ACP_SECRETS_KEY(_FILE)
+// is set, but falls back to plaintext-compatible storage when it is not
+// (see secretsCrypto.js's own module comment for why this is a soft
+// warning rather than a hard startup failure). Surface it loudly here so
+// a host operator notices at boot rather than discovering it during an
+// incident.
+if (config.multiTenant && db && !isEncryptionConfigured()) {
+  logInfo("security.secrets_at_rest_unencrypted", {
+    detail: "ACP_SECRETS_KEY/ACP_SECRETS_KEY_FILE is not set. Per-guild adapter tokens and " +
+      "OAuth access tokens are being stored in plaintext in this bot's shared database. " +
+      "See docs/security/multi-tenant-secrets-at-rest.md to generate and configure a key."
+  });
+}
 const adapterClient = new AdapterClient(config, {
   getGuildConfig: db ? (guildId) => {
     const guild = getGuild(db, guildId);
