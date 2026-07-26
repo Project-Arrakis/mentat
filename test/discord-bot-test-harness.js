@@ -387,6 +387,40 @@ describe('Command Execution', () => {
     assert.ok(interaction._editReply, 'Should have reply');
   });
 
+  test('admin:roles shows configured roles resolved to live Discord role names (single-tenant)', async () => {
+    const { adapterClient, config } = getTestContext();
+    // admin-role-id exists in both the caller's roles AND the mock
+    // guild's role list, so it resolves to a real name. observer-role-id
+    // is configured but NOT present in guildRoles here, proving the
+    // "Unknown Role (id)" path fires for a stale/removed role -- the
+    // exact real-world case this feature exists to catch.
+    const interaction = createMockInteraction({
+      command: 'admin:roles',
+      roles: ['admin-role-id'],
+      guildRoles: [{ id: 'admin-role-id', name: 'Server Admins' }]
+    });
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+
+    assert.ok(result, 'Command should succeed');
+    const reply = interaction._editReply;
+    assert.ok(reply, 'Should have reply');
+    const text = JSON.stringify(reply);
+    assert.ok(text.includes('Server Admins (admin-role-id)'), 'Should show the resolved live role name alongside its ID');
+    assert.ok(text.includes('Unknown Role (observer-role-id)'), 'Should flag the configured-but-nonexistent observer role');
+  });
+
+  test('admin:roles is rejected for a non-admin actor', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({ command: 'admin:roles', roles: ['observer-role-id'] });
+    await executeDuneCommand(interaction, adapterClient, config);
+
+    // isCommandAllowed() rejects with the shared generic message, not a
+    // per-command "requires admin" string -- verified against the real
+    // reply text (src/commands.js's executeDuneCommand() catch-all reject
+    // path), not assumed.
+    assert.ok(interaction._reply?.content?.includes('not authorized'), 'Should reject non-admin actor with a role-requirement message');
+  });
+
   test('infra:version shows version info', async () => {
     const { adapterClient, config } = getTestContext();
     const interaction = createMockInteraction({ command: 'infra:version', roles: ['observer-role-id'] });
@@ -452,6 +486,81 @@ describe('Command Execution', () => {
 
     assert.ok(result, 'Command should succeed');
     assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+  });
+
+  test('player:link calls adapterClient.playerLink() (the real, live V1 route), not playerLinkStart() (still-unmerged V2 route)', async () => {
+    // Regression test for a real production bug (found via a live test,
+    // 2026-07-26): commands.js's player:link handler called
+    // adapterClient.playerLinkStart() -- which hits Core's still-unmerged
+    // player-links-start route -- instead of adapterClient.playerLink(),
+    // which hits the real, live players-link route
+    // (linkPlayerProvider(), the function FINDING-LINK-7's hasSteam
+    // extension actually targets). This went undetected because the mock
+    // adapter had no playerLinkStart() method at all, and no test ever
+    // exercised player:link's actual execution path -- only its presence
+    // in a command-name list. Every real /dune player link attempt in
+    // production failed with an "unmerged route" error until this was
+    // found and fixed.
+    const { config } = getTestContext();
+    let calledMethod = null;
+    const trackingAdapter = createMockAdapter();
+    trackingAdapter.playerLink = async (actor, characterName) => {
+      calledMethod = 'playerLink';
+      return { ok: true, hasSteam: false, characterName, message: 'A private verification code was sent in game.' };
+    };
+    trackingAdapter.playerLinkStart = async () => {
+      calledMethod = 'playerLinkStart';
+      const err = new Error('player links start is implemented in feature/discord-player-inventory but not yet merged to upstream.');
+      err.route = 'player-links-start';
+      throw err;
+    };
+
+    const interaction = createMockInteraction({
+      command: 'player:link',
+      roles: ['observer-role-id'],
+      options: { character: 'Sihaya' }
+    });
+    const result = await executeDuneCommand(interaction, trackingAdapter, config);
+
+    assert.ok(result, 'Command should succeed');
+    assert.equal(calledMethod, 'playerLink', 'Must call playerLink(), not playerLinkStart()');
+    assert.ok(interaction._editReply, 'Should have a reply');
+    assert.ok(!interaction._reply, 'Should not hit the generic error-reply path (would indicate the wrong/unmerged route was called)');
+  });
+
+  test('player:link offers the Steam-link button when hasSteam is true and steamLink is enabled', async () => {
+    const { config } = getTestContext();
+    config.steamLink = { enabled: true, baseUrl: 'https://acp-setup.darkdante.org' };
+    const trackingAdapter = createMockAdapter();
+    trackingAdapter.playerLink = async () => ({ ok: true, hasSteam: true, playerControllerId: '1', characterName: 'Sihaya' });
+
+    const interaction = createMockInteraction({
+      command: 'player:link',
+      roles: ['observer-role-id'],
+      options: { character: 'Sihaya' }
+    });
+    const result = await executeDuneCommand(interaction, trackingAdapter, config);
+
+    assert.ok(result, 'Command should succeed');
+    assert.ok(interaction._editReply?.content?.includes('Link via Steam') || interaction._editReply?.components?.length, 'Should offer the Steam-link button');
+  });
+
+  test('player:link falls back to the whisper flow when hasSteam is true but steamLink is not enabled (FINDING-STEAM-5)', async () => {
+    const { config } = getTestContext();
+    config.steamLink = { enabled: false, baseUrl: 'https://acp-setup.darkdante.org' };
+    const trackingAdapter = createMockAdapter();
+    trackingAdapter.playerLink = async () => ({ ok: true, hasSteam: true, playerControllerId: '1', characterName: 'Sihaya', pending: true, message: 'A private verification code was sent in game.' });
+
+    const interaction = createMockInteraction({
+      command: 'player:link',
+      roles: ['observer-role-id'],
+      options: { character: 'Sihaya' }
+    });
+    const result = await executeDuneCommand(interaction, trackingAdapter, config);
+
+    assert.ok(result, 'Command should succeed');
+    const replyText = JSON.stringify(interaction._editReply || {});
+    assert.ok(!replyText.includes('Link via Steam'), 'Must NOT offer Steam-link when steamLink.enabled is false, even if hasSteam is true');
   });
 });
 

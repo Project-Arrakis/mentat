@@ -12,7 +12,14 @@ export function createMockInteraction(options = {}) {
     includeWriteGroup = false,
     userId = 'test-user-123',
     username = 'TestUser',
-    guildId = 'test-guild-456'
+    guildId = 'test-guild-456',
+    // guildRoles: the full set of roles that EXIST in the mock guild
+    // (name lookups, e.g. resolveRoleLabel(), need this) -- distinct from
+    // `roles` above, which is only the subset the TEST USER currently
+    // holds. Defaults to the same set as `roles` plus a couple of
+    // additional named roles, so tests can exercise "role exists but
+    // user doesn't have it" and "role ID doesn't exist at all" cases.
+    guildRoles = roles.map((roleId) => ({ id: roleId, name: roleId }))
   } = options;
 
   const [group, subcommand] = command.split(':');
@@ -26,6 +33,12 @@ export function createMockInteraction(options = {}) {
       displayName: username
     },
     guildId: guildId,
+    guild: {
+      id: guildId,
+      roles: {
+        cache: new Map(guildRoles.map((role) => [role.id, role]))
+      }
+    },
     member: {
       roles: {
         cache: new Map(roles.map(roleId => [roleId, { id: roleId, name: roleId }]))

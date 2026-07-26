@@ -15,6 +15,7 @@ import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor 
 import { getLatencyHistory, UNMERGED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
 import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
+import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
 
 // Group -> subcommand -> handler config
@@ -121,6 +122,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("cooldowns").setDescription("Show active command cooldowns."))
       .addSubcommand((c) => c.setName("latency").setDescription("Show adapter request latency history."))
       .addSubcommand((c) => c.setName("events").setDescription("Show recent server incidents and events."))
+      .addSubcommand((c) => c.setName("roles").setDescription("Show configured admin/observer roles, with current Discord role names."))
       .addSubcommand((c) => c.setName("broadcast").setDescription("Send a message to all in-game players (moderator+).")
         .addStringOption((o) => o.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500))))
 
@@ -292,7 +294,17 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       // "Link via Steam" button -- never both, and never based on
       // argument presence. See docs/steam-link-design.md's revision note.
       const characterName = interaction.options.getString("character");
-      const result = await adapterClient.playerLinkStart(actor, characterName, guildId);
+      // playerLink() (not playerLinkStart()) is the correct call here --
+      // playerLink() hits the real, live V1 route (players-link ->
+      // linkPlayerProvider(), the function tonight's FINDING-LINK-7 work
+      // extended with hasSteam/playerControllerId). playerLinkStart()
+      // hits player-links-start, the V2 multi-character route that is
+      // still genuinely unmerged on Core -- calling it here was a
+      // pre-existing bug (not introduced by tonight's work) that made
+      // every /dune player link attempt fail with an "unmerged route"
+      // error, regardless of the Steam-link fixes. Found via a live test
+      // 2026-07-26.
+      const result = await adapterClient.playerLink(actor, characterName, guildId);
       if (result?.hasSteam && config.steamLink?.enabled) {
         // Character has a Steam ID on file AND Steam linking is
         // configured on this server -- offer the instant path instead of
@@ -380,6 +392,9 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = getLatencyHistory();
     } else if (key === "admin:events") {
       payload = getIncidentHistory();
+    } else if (key === "admin:roles") {
+      if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Role viewer requires admin or owner role.");
+      payload = rolesConfigPayload(interaction, config, db, guildId);
     } else if (key === "admin:broadcast") {
       const msg = interaction.options.getString("message");
       const result = await executeBroadcast({ interaction, adapterClient, config, userRequest: msg, guildId });
@@ -556,6 +571,44 @@ export function extractRoleIds(interaction) {
   return [];
 }
 
+// rolesConfigPayload: shows the currently configured admin/observer roles
+// for this guild, resolved to "RoleName (RoleID)" using the live Discord
+// role cache (interaction.guild.roles.cache) -- added 2026-07-26 after a
+// real incident where stale role IDs in guild_roles silently caused every
+// non-open-mode command to reject a legitimate admin, with no way to spot
+// the mismatch from a bare numeric ID. Covers both multiTenant (DB-backed
+// guild_roles table) and single-tenant (config.discord.rbac env vars)
+// configuration paths, since isCommandAllowed()/isAdminActor() branch on
+// the same two paths for the actual authorization decision.
+function rolesConfigPayload(interaction, config, db = null, guildId = null) {
+  const guild = interaction.guild;
+  if (config.multiTenant && db && guildId) {
+    const roles = getGuildRoles(db, guildId);
+    const settings = getGuildSettings(db, guildId);
+    const resolved = resolveRoleLabels(guild, roles);
+    return {
+      ok: true,
+      source: "database (multi-tenant)",
+      rbacMode: settings?.rbac_mode || "restricted",
+      roles: resolved.length
+        ? resolved.map((r) => `${r.roleType}: ${r.label}`)
+        : ["(no roles configured -- only allowedUserIds or open mode can authorize commands)"]
+    };
+  }
+
+  const rbac = config.discord.rbac;
+  const adminLabels = (rbac.adminRoleIds || []).map((id) => resolveRoleLabel(guild, id));
+  const observerLabels = (rbac.observerRoleIds || []).map((id) => resolveRoleLabel(guild, id));
+  return {
+    ok: true,
+    source: "environment variables (single-tenant)",
+    rbacMode: rbac.mode,
+    admin: adminLabels.length ? adminLabels : ["(none configured)"],
+    observer: observerLabels.length ? observerLabels : ["(none configured)"],
+    allowedUserIds: rbac.allowedUserIds?.length ? rbac.allowedUserIds : ["(none configured)"]
+  };
+}
+
 // ── Helpers ──
 function isAdminActor(interaction, config, db = null, guildId = null) {
   if (config.multiTenant && db && guildId) {
@@ -647,6 +700,7 @@ function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "admin:cooldowns", desc: "Show active cooldowns.", role: "admin" },
     { name: "admin:latency", desc: "Adapter latency history.", role: "admin" },
     { name: "admin:events", desc: "Recent incident log.", role: "admin" },
+    { name: "admin:roles", desc: "Show configured admin/observer roles with current names.", role: "admin" },
     { name: "admin:broadcast", desc: "Send a message to all players.", role: "admin" },
     { name: "infra:version", desc: "Dune stack version.", role: "observer" },
     { name: "infra:servers", desc: "List game servers.", role: "observer" },
