@@ -25,6 +25,7 @@ import { sendStatusCard } from '../src/statusCard.js';
 import { generateStatusCard } from '../scripts/generate-status-card.js';
 import { duneEmbed } from '../src/embedFormat.js';
 import { resetCooldowns } from '../src/cooldown.js';
+import { debugPeekSteamLinkSession, resetSteamLinkStoreForTests } from '../src/steamLinkStore.js';
 
 const VERBOSE = process.argv.includes('--verbose');
 const FILTER = process.argv.find(arg => arg.startsWith('--filter='))?.split('=')[1];
@@ -40,6 +41,7 @@ function getTestContext() {
 // Reset cooldowns before each test
 beforeEach(() => {
   resetCooldowns();
+  resetSteamLinkStoreForTests();
 });
 
 // ============================================================================
@@ -543,6 +545,48 @@ describe('Command Execution', () => {
 
     assert.ok(result, 'Command should succeed');
     assert.ok(interaction._editReply?.content?.includes('Link via Steam') || interaction._editReply?.components?.length, 'Should offer the Steam-link button');
+  });
+
+  test('player:link creates a Steam-link session with a real username/channelId/roleIds, not just userId/guildId (regression, real bug found 2026-07-26)', async () => {
+    // Every real Core call steamLinkServer.js makes later (after the
+    // OAuth redirect round-trip) is built from THIS session -- Core's
+    // normalizeDiscordActor() hard-requires username/channelId on every
+    // actor object, and requireSelfScopedCapability() needs real roleIds.
+    // A session created with only userId/guildId (the shape before this
+    // fix) meant every real link-steam attempt in production failed with
+    // a 400 "actor.username is required" error. This asserts the session
+    // commands.js actually creates has the full, real actor shape.
+    const { config } = getTestContext();
+    config.steamLink = { enabled: true, baseUrl: 'https://acp-setup.darkdante.org' };
+    const trackingAdapter = createMockAdapter();
+    trackingAdapter.playerLink = async () => ({ ok: true, hasSteam: true, playerControllerId: '1', characterName: 'Sihaya' });
+
+    const interaction = createMockInteraction({
+      command: 'player:link',
+      roles: ['observer-role-id'],
+      userId: 'real-user-id',
+      username: 'RealDiscordUsername',
+      guildId: 'real-guild-id',
+      channelId: 'real-channel-id',
+      options: { character: 'Sihaya' }
+    });
+    const result = await executeDuneCommand(interaction, trackingAdapter, config);
+
+    assert.ok(result, 'Command should succeed');
+    // Find the session this call created by checking the button URL's
+    // state query param, then peek the real stored session.
+    const startUrl = interaction._editReply?.components?.[0]?.components?.[0]?.data?.url
+      || interaction._editReply?.components?.[0]?.components?.[0]?.url;
+    assert.ok(startUrl, 'Should have a Steam-link start URL');
+    const state = new URL(startUrl).searchParams.get('state');
+    assert.ok(state, 'URL should include a state token');
+    const session = debugPeekSteamLinkSession(state);
+    assert.ok(session, 'Session should exist in the store');
+    assert.equal(session.discordUserId, 'real-user-id');
+    assert.equal(session.username, 'RealDiscordUsername');
+    assert.equal(session.guildId, 'real-guild-id');
+    assert.equal(session.channelId, 'real-channel-id');
+    assert.deepEqual(session.roleIds, ['observer-role-id']);
   });
 
   test('player:link falls back to the whisper flow when hasSteam is true but steamLink is not enabled (FINDING-STEAM-5)', async () => {

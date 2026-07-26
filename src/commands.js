@@ -312,9 +312,23 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
         // enabled, fall through below to the normal whisper payload --
         // per FINDING-STEAM-5 this must degrade silently to whisper-only,
         // with no "not configured" error shown to the player.
+        // username/channelId/roleIds captured here (via actorFromInteraction(),
+        // the same helper every other command uses) because they're only
+        // available from the real Discord interaction right now -- the
+        // OAuth redirect round-trip that follows has no way to recover
+        // them later. Core's normalizeDiscordActor() hard-requires
+        // username/channelId on every actor object, and
+        // requireSelfScopedCapability() needs real roleIds to resolve the
+        // actor's tier correctly. Found missing via a live test 2026-07-26
+        // (every real link-steam call failed with a 400 until this was
+        // added).
+        const callerActor = actorFromInteraction(interaction);
         const session = createSteamLinkSession({
           discordUserId: interaction.user?.id,
+          username: callerActor.username,
           guildId,
+          channelId: callerActor.channelId,
+          roleIds: callerActor.roleIds,
           interactionToken: interaction.token,
           commandInteractionId: interaction.id,
           playerControllerId: result.playerControllerId,

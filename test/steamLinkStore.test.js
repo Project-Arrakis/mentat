@@ -47,6 +47,30 @@ test("createSteamLinkSession scopes the session to exactly one character", () =>
   assert.equal(session.characterName, "Atreides Fan");
 });
 
+// Regression test for a real bug (found 2026-07-26): the session
+// previously only captured discordUserId/guildId, but Core's
+// normalizeDiscordActor() hard-requires username/channelId on every
+// actor object, and requireSelfScopedCapability() needs real roleIds --
+// without these captured here at session-creation time (only available
+// from the real Discord interaction, never recoverable after the OAuth
+// redirect round-trip), every real link-steam call failed with a 400.
+test("createSteamLinkSession stores username, channelId, and roleIds", () => {
+  const session = createSteamLinkSession(baseSessionArgs({
+    username: "RealDiscordUsername",
+    channelId: "channel-42",
+    roleIds: ["role-a", "role-b"]
+  }));
+  assert.equal(session.username, "RealDiscordUsername");
+  assert.equal(session.channelId, "channel-42");
+  assert.deepEqual(session.roleIds, ["role-a", "role-b"]);
+});
+
+test("createSteamLinkSession defaults username to 'unknown' and roleIds to an empty array when omitted", () => {
+  const session = createSteamLinkSession(baseSessionArgs({ username: undefined, roleIds: undefined }));
+  assert.equal(session.username, "unknown");
+  assert.deepEqual(session.roleIds, []);
+});
+
 test("getSteamLinkSession returns the session for a valid state", () => {
   const created = createSteamLinkSession(baseSessionArgs());
   const fetched = getSteamLinkSession(created.state);
