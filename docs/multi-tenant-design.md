@@ -39,8 +39,23 @@ its own Dune Awakening console.
 | Config | `.env` file | SQLite database |
 | Auth | Bot token + adapter token | Discord OAuth2 + per-guild adapter tokens |
 | RBAC | Global role IDs in `.env` | Per-guild role configuration |
-| Player Links | Console database | Bot database (guild-scoped) |
+| Player Links | Console database | Console database (unchanged, per-guild via adapter) |
 | Setup | Manual `.env` editing | DM wizard + web portal |
+
+**Player Links stays in each operator's own console database, by design,
+in both self-hosted and multi-tenant mode.** This is a deliberate,
+permanent decision, not a transitional state: player-linking data
+(character names, controller IDs, Steam/Discord identity mappings) is
+player-owned data belonging to a specific operator's Dune Awakening
+server, not metadata about the bot's own operation. Centralizing it in
+the hosted bot's shared database would mean every connected operator's
+players' identity-linking data lives in one file this bot host controls
+-- a materially larger trust/privacy concern than centralizing adapter
+routing config (console_url, adapter_token), which is what this
+document's multi-tenant design actually centralizes. The bot's own
+`player_links` table (see Database Schema below) predates this decision,
+was never wired into any command path, and is scheduled for removal --
+see the Migration Path section below; it must not be revived.
 
 ## Database Schema
 
@@ -101,20 +116,19 @@ Discord OAuth2 state for setup flow.
 | `expires_at` | TEXT | Token expiry |
 | `created_at` | TEXT | ISO 8601 timestamp |
 
-### player_links
+### player_links (deprecated, unused -- scheduled for removal)
 
-Per-guild character linking (replaces console-side linking).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | INTEGER PRIMARY KEY | Auto-increment |
-| `guild_id` | TEXT | FK → guilds.guild_id |
-| `discord_user_id` | TEXT | Discord user ID |
-| `character_name` | TEXT | In-game character name |
-| `player_controller_id` | TEXT | Game server player ID |
-| `player_pawn_id` | TEXT | Game server pawn ID |
-| `linked_at` | TEXT | ISO 8601 timestamp |
-| UNIQUE(guild_id, discord_user_id) | | |
+This table exists in the schema but is **not used by any code path**.
+No command handler, provider, or route in this codebase calls
+`getPlayerLink()`, `upsertPlayerLink()`, or `deletePlayerLink()` --
+confirmed by searching every caller in `src/`. It predates the decision
+recorded above (Player Links stays in each operator's own console
+database) and must not be wired up or revived. Linking is implemented
+entirely via `adapterClient.js`'s `playerLink`/`playerLinkStart`/
+`playerLinkVerify`/`playerUnlink*` methods, which call through to each
+guild's own Core adapter API (see docs/rw-adapter-contract.md), backed
+by `console.discord_player_links`/`console.discord_account_links` in
+that operator's own Postgres.
 
 ## Onboarding Flow
 
@@ -186,10 +200,15 @@ Run /dune core help for all commands.
 - DM wizard with setup link
 - Status notifications
 
-### Phase 5: Player Links Migration
-- Move player links from console DB to bot DB
-- Guild-scoped linking
-- Update all player commands
+### Phase 5: Player Links Migration (superseded -- will not be done)
+This phase originally planned to move player links from the console
+database to the bot database. That direction was reversed: player-linking
+data stays in each operator's own console database permanently -- see
+the Player Links row and note under Key Changes above. The bot-side
+`player_links` table this phase would have used already exists in the
+schema but was never wired into any command path; it is dead code
+scheduled for removal, not a partially-completed migration. No further
+work under this phase should be planned.
 
 ### Phase 6: RBAC Migration
 - Move role config from `.env` to database

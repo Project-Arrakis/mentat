@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { encryptSecret, decryptSecret } from "./secretsCrypto.js";
 
 const SCHEMA_VERSION = 2;
 
@@ -106,12 +107,28 @@ export function createDatabase(dbPath = "./data/acp.db") {
   return db;
 }
 
+// adapter_token is a credential (not player data): it authenticates this
+// bot process to a specific operator's Core adapter API. In
+// ACP_MULTI_TENANT mode, one shared guilds table holds one row per
+// connected operator, so this column is encrypted at rest (see
+// secretsCrypto.js) -- a single compromise of the SQLite file should not
+// hand over every connected operator's adapter credential at once.
+// getGuild() transparently decrypts; every existing caller (index.js,
+// onboarding.js) continues to receive a plain adapterToken string exactly
+// as before.
 export function getGuild(db, guildId) {
-  return db.prepare("SELECT * FROM guilds WHERE guild_id = ?").get(guildId);
+  const row = db.prepare("SELECT * FROM guilds WHERE guild_id = ?").get(guildId);
+  if (!row) return row;
+  return { ...row, adapter_token: decryptSecret(row.adapter_token) };
 }
 
 export function upsertGuild(db, { guildId, guildName, consoleUrl, adapterToken, status = "pending" }) {
-  const existing = getGuild(db, guildId);
+  const encryptedToken = encryptSecret(adapterToken);
+  // Compare against the raw stored row, not the decrypting getGuild(), so
+  // an UPDATE vs INSERT decision never depends on successfully decrypting
+  // an existing row (e.g. after a key rotation where old rows can't be
+  // read back yet -- this must still be able to overwrite them).
+  const existing = db.prepare("SELECT guild_id FROM guilds WHERE guild_id = ?").get(guildId);
   if (existing) {
     db.prepare(`
       UPDATE guilds SET
@@ -121,12 +138,12 @@ export function upsertGuild(db, { guildId, guildName, consoleUrl, adapterToken, 
         status = ?,
         updated_at = datetime('now')
       WHERE guild_id = ?
-    `).run(guildName, consoleUrl, adapterToken, status, guildId);
+    `).run(guildName, consoleUrl, encryptedToken, status, guildId);
   } else {
     db.prepare(`
       INSERT INTO guilds (guild_id, guild_name, console_url, adapter_token, status)
       VALUES (?, ?, ?, ?, ?)
-    `).run(guildId, guildName, consoleUrl, adapterToken, status);
+    `).run(guildId, guildName, consoleUrl, encryptedToken, status);
 
     db.prepare(`
       INSERT OR IGNORE INTO guild_settings (guild_id)
@@ -180,14 +197,21 @@ export function createOauthSession(db, { state, discordUserId, discordUsername, 
   `).run(state, discordUserId, discordUsername, guildId);
 }
 
+// access_token is a live Discord OAuth token captured during the setup
+// wizard flow. It is short-lived (expires_at is checked by callers) but
+// still a real bearer credential for that Discord user's account, so it
+// is encrypted at rest for the same reason adapter_token is -- see the
+// comment on getGuild()/upsertGuild() above.
 export function getOauthSession(db, state) {
-  return db.prepare("SELECT * FROM oauth_sessions WHERE state = ?").get(state);
+  const row = db.prepare("SELECT * FROM oauth_sessions WHERE state = ?").get(state);
+  if (!row) return row;
+  return { ...row, access_token: decryptSecret(row.access_token) };
 }
 
 export function updateOauthSession(db, state, { accessToken, expiresAt }) {
   db.prepare(`
     UPDATE oauth_sessions SET access_token = ?, expires_at = ? WHERE state = ?
-  `).run(accessToken, expiresAt, state);
+  `).run(encryptSecret(accessToken), expiresAt, state);
 }
 
 export function deleteOauthSession(db, state) {
