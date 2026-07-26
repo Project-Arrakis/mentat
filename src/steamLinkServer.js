@@ -330,7 +330,19 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
     // would throw "Unsupported adapter route" on the first call.
     let linkResult;
     try {
-      const actor = { userId: session.discordUserId, guildId: session.guildId };
+      // Built from the FULL session (username/channelId/roleIds included,
+      // captured at session-creation time in commands.js) -- Core's
+      // normalizeDiscordActor() hard-requires username/channelId on every
+      // actor object, and requireSelfScopedCapability() needs real
+      // roleIds to resolve tier correctly. A userId/guildId-only actor
+      // (the pre-2026-07-26 shape) always failed with a 400.
+      const actor = {
+        userId: session.discordUserId,
+        username: session.username,
+        guildId: session.guildId,
+        channelId: session.channelId,
+        roleIds: session.roleIds
+      };
       linkResult = await adapterClient.linkAccountViaSteam(
         actor, session.playerControllerId, steamId64List, session.guildId
       );
@@ -394,8 +406,22 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
   // re-run the command.
   async function sendWhisperFallbackAndRespond({ res, adapterClient, client, fetchImpl, session, pageTitle, pageMessage }) {
     try {
-      const actor = { userId: session.discordUserId, guildId: session.guildId };
-      await adapterClient.playerLinkStart(actor, session.characterName, session.guildId);
+      // Same fixes as the actor object above: full session fields, not
+      // just userId/guildId (real 400 bug, found 2026-07-26). Also:
+      // playerLink() is the correct method here, not playerLinkStart() --
+      // playerLinkStart() hits Core's still-unmerged player-links-start
+      // (V2) route; playerLink() hits the real, live players-link (V1)
+      // route (linkPlayerProvider()). This is the exact same
+      // wrong-method bug fixed in commands.js's player:link handler
+      // earlier tonight -- this second call site was missed at the time.
+      const actor = {
+        userId: session.discordUserId,
+        username: session.username,
+        guildId: session.guildId,
+        channelId: session.channelId,
+        roleIds: session.roleIds
+      };
+      await adapterClient.playerLink(actor, session.characterName, session.guildId);
     } catch (err) {
       logError("steam_link.whisper_fallback_failed", err);
       return errorPage(res, 502, "Something Went Wrong",

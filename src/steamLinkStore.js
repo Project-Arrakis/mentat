@@ -32,7 +32,7 @@ const sessions = new Map();
 // Matches setupServer.js's existing randomBytes(16).toString("hex")
 // state-generation pattern exactly (128 bits, not a predictable value).
 export function createSteamLinkSession({
-  discordUserId, guildId, interactionToken, commandInteractionId,
+  discordUserId, username, guildId, channelId, roleIds, interactionToken, commandInteractionId,
   playerControllerId, characterName, ttlMs = DEFAULT_TTL_MS
 } = {}) {
   if (!discordUserId) throw new Error("discordUserId is required to create a Steam-link session.");
@@ -45,7 +45,22 @@ export function createSteamLinkSession({
   const session = {
     state,
     discordUserId: String(discordUserId),
+    // username/channelId/roleIds: added 2026-07-26 after a real, live
+    // bug -- every Core adapter call this module's callback handler makes
+    // builds its own actor object, and Core's normalizeDiscordActor()
+    // hard-requires username and channelId (not just userId/guildId).
+    // Without these captured here at session-creation time (when they're
+    // available from the real Discord interaction), the callback handler
+    // has no way to reconstruct a valid actor after the OAuth redirect
+    // round-trip -- every real link-steam call was guaranteed to fail
+    // with a 400 "actor.username is required" error. roleIds matters too:
+    // requireSelfScopedCapability() checks the actor's role tier, so an
+    // actor with an empty roleIds list would be rejected as public tier
+    // regardless of the real Discord user's actual roles.
+    username: username ? String(username) : "unknown",
     guildId: guildId ? String(guildId) : null,
+    channelId: channelId ? String(channelId) : null,
+    roleIds: Array.isArray(roleIds) ? roleIds.map(String) : [],
     interactionToken: interactionToken || null,
     commandInteractionId: commandInteractionId || null,
     // The single character this session is scoped to (Security Review

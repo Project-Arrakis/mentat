@@ -16,7 +16,10 @@ const BASE_CONFIG = {
 function baseSessionArgs(overrides = {}) {
   return {
     discordUserId: "user-1",
+    username: "TestUser",
     guildId: "guild-1",
+    channelId: "channel-1",
+    roleIds: ["observer-role-id"],
     interactionToken: "token-1",
     commandInteractionId: "interaction-1",
     playerControllerId: "pc-1",
@@ -33,7 +36,11 @@ function makeMockAdapterClient(overrides = {}) {
     async linkAccountViaSteam() {
       return { ok: true, matched: true, accounts: [{ player_controller_id: "pc-1", character_name: "TestCharacter" }] };
     },
-    async playerLinkStart() {
+    // playerLink() (not playerLinkStart()) is the correct whisper-fallback
+    // method -- see steamLinkServer.js's sendWhisperFallbackAndRespond()
+    // comment for why (playerLinkStart() hits Core's still-unmerged
+    // player-links-start route).
+    async playerLink() {
       return { ok: true, result: { linked: true, code: "ACP-TEST123" } };
     },
     ...overrides
@@ -169,6 +176,42 @@ test("GET /steam-link/callback succeeds when the completing user matches the ses
   });
 });
 
+test("GET /steam-link/callback's actor object sent to Core includes username/channelId/roleIds, not just userId/guildId (regression, real bug found 2026-07-26)", async () => {
+  // Core's normalizeDiscordActor() hard-requires username and channelId
+  // on EVERY actor object -- an actor built with only userId/guildId
+  // (this file's shape before this fix) always failed with a real 400
+  // "actor.username is required" error on every genuine link-steam
+  // attempt in production. This test asserts the full actor shape is
+  // forwarded, so this specific regression can't silently reappear.
+  const session = createSteamLinkSession(baseSessionArgs({
+    discordUserId: "user-1",
+    username: "RealDiscordUsername",
+    channelId: "real-channel-id",
+    roleIds: ["real-role-id"]
+  }));
+  let receivedActor = null;
+  await withServer(async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/steam-link/callback?state=${session.state}&code=abc`);
+    assert.equal(res.status, 200);
+    assert.ok(receivedActor, "linkAccountViaSteam should have been called");
+    assert.equal(receivedActor.userId, "user-1");
+    assert.equal(receivedActor.username, "RealDiscordUsername");
+    assert.equal(receivedActor.guildId, "guild-1");
+    assert.equal(receivedActor.channelId, "real-channel-id");
+    assert.deepEqual(receivedActor.roleIds, ["real-role-id"]);
+  }, {
+    adapterClient: makeMockAdapterClient({
+      async linkAccountViaSteam(actor) {
+        receivedActor = actor;
+        return { ok: true, matched: true, accounts: [{ player_controller_id: "pc-1", character_name: "TestCharacter" }] };
+      }
+    }),
+    fetchOverrides: {
+      "users/@me": () => jsonResponse(200, { id: "user-1" })
+    }
+  });
+});
+
 test("GET /steam-link/callback with error=access_denied falls back to the whisper flow", async () => {
   const session = createSteamLinkSession(baseSessionArgs());
   let whisperCalled = false;
@@ -180,7 +223,7 @@ test("GET /steam-link/callback with error=access_denied falls back to the whispe
     assert.equal(whisperCalled, true);
   }, {
     adapterClient: makeMockAdapterClient({
-      async playerLinkStart() {
+      async playerLink() {
         whisperCalled = true;
         return { ok: true, result: { linked: true, code: "ACP-TEST123" } };
       }
@@ -226,7 +269,7 @@ test("GET /steam-link/callback returns 409 without a whisper fallback when the c
         err.body = { ok: false, code: "character_already_linked", error: "This character is already linked to a different Discord account." };
         throw err;
       },
-      async playerLinkStart() {
+      async playerLink() {
         whisperCalled = true;
         return { ok: true };
       }
