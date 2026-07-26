@@ -201,11 +201,11 @@ test("actorFromInteraction emits minimal Discord context", () => {
 test("aboutPayload exposes safe metadata without secrets", () => {
   const payload = aboutPayload({ adapter: { baseUrl: "https://user:pass@example.com:8443/console", timeoutMs: 5000 }, discord: { defaultEphemeral: true, rbac: { mode: "restricted" } } });
   assert.equal(payload.bot.version, packageVersion);
-  // BUG FIX: aboutPayload() hardcoded readOnly: true even though V2
+  // aboutPayload() previously hardcoded readOnly: true even though V2
   // character-linking commands (link/verify/unlink/faction/enable/
   // disable/default, shipped in #69) write to the local database -- see
   // "fix: correct read-only state reporting..." commit. This is a
-  // second, independent test asserting the same now-corrected value
+  // second, independent test asserting the correct value
   // (test/discord-bot-test-harness.js's "core:about" test asserts the
   // rendered embed field; this one asserts the raw payload directly).
   assert.equal(payload.bot.readOnly, false);
