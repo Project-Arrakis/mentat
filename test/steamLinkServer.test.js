@@ -27,11 +27,11 @@ function baseSessionArgs(overrides = {}) {
 
 function makeMockAdapterClient(overrides = {}) {
   return {
-    async matchSteamCandidate() {
-      return { matched: true };
-    },
+    // linkAccountViaSteam is a SINGLE call doing match+link together (see
+    // adapterClient.js's own comment) -- there is no separate
+    // matchSteamCandidate() call/route.
     async linkAccountViaSteam() {
-      return { ok: true, accounts: [{ player_controller_id: "pc-1", character_name: "TestCharacter" }] };
+      return { ok: true, matched: true, accounts: [{ player_controller_id: "pc-1", character_name: "TestCharacter" }] };
     },
     async playerLinkStart() {
       return { ok: true, result: { linked: true, code: "ACP-TEST123" } };
@@ -197,8 +197,8 @@ test("GET /steam-link/callback with no Steam match falls back to the whisper flo
     assert.ok(body.includes("Sent a Verification Code Instead"));
   }, {
     adapterClient: makeMockAdapterClient({
-      async matchSteamCandidate() {
-        return { matched: false };
+      async linkAccountViaSteam() {
+        return { ok: false, matched: false };
       }
     })
   });
@@ -216,7 +216,14 @@ test("GET /steam-link/callback returns 409 without a whisper fallback when the c
   }, {
     adapterClient: makeMockAdapterClient({
       async linkAccountViaSteam() {
-        const err = new Error("This character is already linked to a different Discord account.");
+        // Real shape of an AdapterHttpError from a Core 409 conflict
+        // response (see adapterClient.js's AdapterHttpError class and
+        // Core's discordSafeError() serialization) -- .status and .body,
+        // not .statusCode/.code, which belong to Core's OWN internal
+        // error object before it's serialized into the HTTP response body.
+        const err = new Error("Adapter players-accounts-link-steam returned HTTP 409.");
+        err.status = 409;
+        err.body = { ok: false, code: "character_already_linked", error: "This character is already linked to a different Discord account." };
         throw err;
       },
       async playerLinkStart() {

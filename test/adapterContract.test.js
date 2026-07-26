@@ -76,6 +76,7 @@ const UPSTREAM_CONTRACT = Object.freeze({
   "ops-prometheus": { method: "POST", path: "/api/integrations/discord/ops/prometheus", fixture: "ops.json" },
   "ops-dashboard": { method: "POST", path: "/api/integrations/discord/ops/dashboard", fixture: "ops.json" },
   "players-link": { method: "POST", path: "/api/integrations/discord/players/link", fixture: "ops.json" },
+  "players-link-verify": { method: "POST", path: "/api/integrations/discord/players/link/verify", fixture: "ops.json" },
   "players-unlink": { method: "POST", path: "/api/integrations/discord/players/unlink", fixture: "ops.json" },
   "players-me": { method: "POST", path: "/api/integrations/discord/players/me", fixture: "ops.json" },
   "players-faction": { method: "POST", path: "/api/integrations/discord/players/faction", fixture: "ops.json" },

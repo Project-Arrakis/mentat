@@ -35,32 +35,31 @@ export const PLANNED_ROUTES = new Set([
 
 // Routes implemented in feature/discord-player-inventory but NOT yet in upstream main.
 //
-// players-accounts-link-steam and players-accounts-match-steam
-// (2026-07-24, second revision): the Core-side half of the Steam-connections
-// verification path for /dune player link <character-name> (see
-// docs/steam-link-implementation-prompt.md Part 1). This flow no longer
-// resolves a candidate list -- it checks whether ONE specific,
-// already-named character's on-file Steam ID matches the Discord user's
-// connections, so there is one fewer route than the original design (no
-// "resolve-steam" route). Tracked here the same way as every other
-// not-yet-merged route in this set — the bot-side code that calls them is
-// complete and correct, but a session in the Core repo is implementing the
-// new route(s) separately; until that PR merges, calling these routes
-// returns the same "not yet merged" error every other UNMERGED_ROUTES
-// entry does (see executeDuneCommand()'s catch block). Additionally, the
-// existing player-links-start route's response is expected to gain a new
-// hasSteam/playerControllerId field pair once Core's change lands --
-// until then it simply won't be present, and player:link's dispatch logic
-// already treats an absent/false hasSteam as "use the whisper flow",
-// which is the correct behavior either way.
+// Reconciled against Core's real DISCORD_LIVE_ADAPTER_ROUTES 2026-07-26
+// (dune-awakening-selfhost-docker#130/FINDING-LINK-7 merge). This set had
+// drifted stale in BOTH directions: several routes below (players-link,
+// players-unlink, players-me, players-inventory, players-inventory-search,
+// players-storage, players-find, guild-storage, guild-find) had actually
+// been live on Core since the discord-player-link-hardening work
+// (2026-07-22) but were never removed from here; players-accounts-link-steam
+// went live in the same PR that removed players-accounts-match-steam
+// entirely (see adapterClient.linkAccountViaSteam()'s own comment for why
+// there is no separate match-only route); and players-link-verify had no
+// corresponding config.js path/method entry at all, an orphaned key
+// independent of Core's state (fixed alongside this cleanup). See
+// arrakis-control-panel#86 for the full reconciliation.
+//
+// Routes still genuinely absent from Core, confirmed by direct grep of
+// DISCORD_ADAPTER_ROUTES: players-faction, the player-links/* family
+// (a different, never-built naming/path convention than Core's real
+// players/accounts/* multi-link routes -- not simply a rename), the
+// guild-character-grants/* family, and player-inventory-v2 (Core only has
+// the plural, non-versioned players/inventory).
 export const UNMERGED_ROUTES = new Set([
-  "players-link", "players-link-verify", "players-unlink", "players-me", "players-faction",
-  "players-inventory", "players-inventory-search", "players-storage", "players-find",
-  "guild-storage", "guild-find",
+  "players-faction",
   "player-links-start", "player-links-verify", "player-links", "player-links-unlink",
   "guild-grants", "guild-grants-enable", "guild-grants-disable", "guild-grants-default",
-  "player-inventory-v2",
-  "players-accounts-link-steam", "players-accounts-match-steam"
+  "player-inventory-v2"
 ]);
 
 // Routes that do NOT exist anywhere.
@@ -165,14 +164,26 @@ export class AdapterClient {
 
   // Steam-connections-based verification for the ALREADY-NAMED character
   // from /dune player link <character-name> — see
-  // docs/steam-link-architecture.md. Both routes reuse the existing
-  // self-scoped ACCOUNT_LINK_WRITE capability on the Core side; no new
-  // capability or bearer-auth mechanism is introduced. matchSteamCandidate
-  // checks whether the given playerControllerId's on-file Steam ID
-  // appears anywhere in steamId64List (the Discord user's connections) —
-  // it is never a candidate-resolution call across multiple characters.
-  matchSteamCandidate(actor, playerControllerId, steamId64List, guildId) { return this.request("players-accounts-match-steam", actor, { playerControllerId, steamId64List }, guildId); }
-  linkAccountViaSteam(actor, playerControllerId, guildId) { return this.request("players-accounts-link-steam", actor, { playerControllerId }, guildId); }
+  // docs/steam-link-architecture.md. Reuses the existing self-scoped
+  // ACCOUNT_LINK_WRITE capability on the Core side; no new capability or
+  // bearer-auth mechanism is introduced.
+  //
+  // ONE call, not two: an earlier draft of this feature planned a
+  // separate matchSteamCandidate() route (checking whether
+  // playerControllerId's on-file Steam ID appears in steamId64List) ahead
+  // of a separate link call. A pre-implementation security review of
+  // Core's actual implementation (dune-awakening-selfhost-docker#130,
+  // FINDING-LINK-7) found that shape would have created a
+  // character-enumeration oracle -- a route with no discordUserId binding,
+  // gated only by capability tier, letting any authorized actor probe an
+  // arbitrary character they don't own for a Steam-ID match. Core's real
+  // linkAccountViaSteamProvider() folds the match check and the link into
+  // ONE actor-bound call instead: it returns { ok: false, matched: false }
+  // for a genuine non-match (not an error -- the caller falls back to the
+  // whisper flow), or { ok: true, matched: true, accounts } on success, or
+  // throws a 409 character_already_linked conflict. There is no
+  // standalone match-only route on Core to call.
+  linkAccountViaSteam(actor, playerControllerId, steamId64List, guildId) { return this.request("players-accounts-link-steam", actor, { playerControllerId, steamId64List }, guildId); }
 
   async request(route, actor, extra = undefined, guildId = null) {
     const cfg = this._resolveConfig(guildId);
