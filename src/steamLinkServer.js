@@ -26,6 +26,12 @@
 // character (see steamLinkStore.js), so /steam-link/callback resolves
 // directly to one of three outcomes (match, no-match, conflict) with
 // nothing for the player to choose between.
+//
+// FINDING-STEAM-4/-7 (added 2026-07-26): both public endpoints are now
+// rate-limited (see steamLinkRateLimit.js), and the callback now verifies
+// the completing Discord user matches the session's original user via
+// /users/@me, rather than trusting only the state token's validity. See
+// the inline comments at each site for the full rationale.
 
 import express from "express";
 import { esc } from "./htmlEscape.js";
@@ -33,10 +39,15 @@ import {
   getSteamLinkSession,
   consumeSteamLinkSession
 } from "./steamLinkStore.js";
+import {
+  checkSteamLinkRateLimit,
+  recordSteamLinkAttempt
+} from "./steamLinkRateLimit.js";
 import { logError } from "./logger.js";
 
 const DISCORD_OAUTH_URL = "https://discord.com/api/v10/oauth2/authorize";
 const DISCORD_TOKEN_URL = "https://discord.com/api/v10/oauth2/token";
+const DISCORD_USER_URL = "https://discord.com/api/v10/users/@me";
 const DISCORD_CONNECTIONS_URL = "https://discord.com/api/v10/users/@me/connections";
 // Steam's SteamID64 identifiers are always 17 decimal digits. Discord's
 // Connection Object `id` field is the raw platform account ID for a Steam
@@ -84,10 +95,23 @@ function errorPage(res, status, title, message) {
 }
 
 // resolveSteamConnections: exchanges the OAuth code for a token, fetches
-// /users/@me/connections, and returns only type==="steam" connections.
+// /users/@me (to identify who actually completed this OAuth flow) and
+// /users/@me/connections, and returns the completing user's Discord ID
+// alongside only type==="steam" connections.
 // NEVER logs or persists the access token beyond this function's own
 // execution (FINDING-STEAM-6) — the token exists only in this function's
 // local scope and is discarded when it returns.
+//
+// FINDING-STEAM-7: prior to this, the callback validated only the `state`
+// CSRF token and never confirmed the Discord user completing the OAuth
+// flow was the same user who started it -- every downstream action simply
+// trusted session.discordUserId. state-token entropy (128-bit, single-use,
+// short expiry) made this hard to exploit in practice, but a leaked
+// not-yet-consumed state value (logged, referrer-leaked, shared link)
+// could otherwise let a different Discord user complete someone else's
+// link. Fetching /users/@me and returning the completing user's real ID
+// lets the caller reject a mismatch explicitly instead of trusting the
+// session alone.
 async function resolveSteamConnections({ code, redirectUri, config, fetchImpl }) {
   const tokenRes = await fetchImpl(DISCORD_TOKEN_URL, {
     method: "POST",
@@ -110,6 +134,16 @@ async function resolveSteamConnections({ code, redirectUri, config, fetchImpl })
   if (!accessToken) throw new Error("steam_link.token_exchange_missing_access_token");
 
   try {
+    const userRes = await fetchImpl(DISCORD_USER_URL, {
+      headers: { authorization: `Bearer ${accessToken}` }
+    });
+    if (!userRes.ok) {
+      throw new Error(`steam_link.identify_fetch_failed status=${userRes.status}`);
+    }
+    const userData = await userRes.json();
+    const completingUserId = userData?.id ? String(userData.id) : "";
+    if (!completingUserId) throw new Error("steam_link.identify_missing_user_id");
+
     const connectionsRes = await fetchImpl(DISCORD_CONNECTIONS_URL, {
       headers: { authorization: `Bearer ${accessToken}` }
     });
@@ -117,7 +151,8 @@ async function resolveSteamConnections({ code, redirectUri, config, fetchImpl })
       throw new Error(`steam_link.connections_fetch_failed status=${connectionsRes.status}`);
     }
     const connections = await connectionsRes.json();
-    return (Array.isArray(connections) ? connections : []).filter((c) => c?.type === "steam");
+    const steamConnections = (Array.isArray(connections) ? connections : []).filter((c) => c?.type === "steam");
+    return { completingUserId, steamConnections };
   } finally {
     // accessToken goes out of scope here; nothing further in this module
     // ever holds a reference to it. See the module-level comment and
@@ -176,6 +211,20 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
 
   app.get("/steam-link/start", (req, res) => {
     const { state } = req.query;
+
+    // FINDING-STEAM-4: rate limit before doing any session lookup, keyed
+    // by the state token itself (see steamLinkRateLimit.js for why state
+    // rather than IP). A missing/garbage state is still a real attempt for
+    // rate-limiting purposes -- record it under the raw (possibly empty)
+    // key rather than skipping the check.
+    const rateKey = String(state || "");
+    const rate = recordSteamLinkAttempt(rateKey);
+    if (!rate.allowed) {
+      res.set("retry-after", String(rate.retryAfterSeconds));
+      return errorPage(res, 429, "Too Many Attempts",
+        "Too many attempts. Please wait a few minutes and run /dune player link <character-name> again.");
+    }
+
     const session = state ? getSteamLinkSession(String(state)) : undefined;
     if (!session) {
       return errorPage(res, 400, "Link Expired",
@@ -193,6 +242,18 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
 
   app.get("/steam-link/callback", async (req, res) => {
     const { code, state, error } = req.query;
+
+    // FINDING-STEAM-4: same rate limit as /steam-link/start, keyed by the
+    // same state token -- both endpoints share one attempt budget per
+    // session, since a single real link attempt normally hits each of them
+    // exactly once.
+    const rateKey = String(state || "");
+    const rate = recordSteamLinkAttempt(rateKey);
+    if (!rate.allowed) {
+      res.set("retry-after", String(rate.retryAfterSeconds));
+      return errorPage(res, 429, "Too Many Attempts",
+        "Too many attempts. Please wait a few minutes and run /dune player link <character-name> again.");
+    }
 
     // FINDING-STEAM-1: single-use enforcement. This is the ONLY place a
     // session's consumedAt is set — a second request with the same state
@@ -222,13 +283,27 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
       return errorPage(res, 400, "Invalid Request", "Missing code parameter.");
     }
 
-    let steamConnections;
+    let completingUserId, steamConnections;
     try {
-      steamConnections = await resolveSteamConnections({ code: String(code), redirectUri, config, fetchImpl });
+      ({ completingUserId, steamConnections } = await resolveSteamConnections({ code: String(code), redirectUri, config, fetchImpl }));
     } catch (err) {
       logError("steam_link.callback_failed", err);
       return errorPage(res, 502, "Something Went Wrong",
         "We couldn't complete the sign-in with Discord. Please try again in a moment.");
+    }
+
+    // FINDING-STEAM-7: reject if the Discord user who just completed this
+    // OAuth flow isn't the same user who started it. The state token was
+    // already validated above (consumeSteamLinkSession), but that only
+    // proves this is a not-yet-used, not-yet-expired session -- it doesn't
+    // prove WHO is completing it. Treat a mismatch as a security event
+    // (logged), not a silent retry prompt.
+    if (completingUserId !== String(session.discordUserId || "")) {
+      logError("steam_link.identity_mismatch", new Error("completing user does not match session owner"), {
+        sessionGuildId: session.guildId
+      });
+      return errorPage(res, 403, "Account Mismatch",
+        "The Discord account you signed in with doesn't match the account that started this link. Run /dune player link <character-name> again with the correct Discord account.");
     }
 
     const steamId64List = steamConnections
