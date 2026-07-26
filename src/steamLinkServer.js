@@ -10,16 +10,17 @@
 // like setupServer.js is) — see docs/steam-link-architecture.md's
 // Single-Tenant Deployment Note for why.
 //
-// NOTE ON CORE INTEGRATION: the actual matchSteamCandidate() /
-// linkAccountViaSteam() adapter calls this module makes depend on new
-// Core-side route(s) (/players/accounts/match-steam,
-// /players/accounts/link-steam) that are tracked as UNMERGED_ROUTES in
-// adapterClient.js pending a separate Core-repo PR (see
-// docs/steam-link-implementation-prompt.md Part 1). Everything in THIS
-// file that talks only to Discord's own API (state validation, token
-// exchange, connections fetch) is fully independent of that and works
-// today; only the callback's final match/link/fallback step will return
-// the UNMERGED_ROUTES error until Core ships its half.
+// NOTE ON CORE INTEGRATION: the callback's final match/link step calls
+// adapterClient.linkAccountViaSteam(), which is now a real, live Core
+// route (dune-awakening-selfhost-docker#130/FINDING-LINK-7,
+// /players/accounts/link-steam) as of 2026-07-26 -- this is no longer
+// blocked on Core-side work. Core folds the Steam-ID match check and the
+// link into that single call (see linkAccountViaSteam()'s own comment in
+// adapterClient.js for why there is no separate match-only call). This
+// feature is still not reachable by a real user in production, though --
+// the bot's own OAuth callback server (this file, port 3101) has no
+// Cloudflare Tunnel ingress rule on the live OCI deployment; see
+// arrakis-control-panel#86 for that separate, independent gap.
 //
 // Unlike the design's first revision, there is NO /steam-link/select
 // route here — a session is always scoped to exactly one, already-named
@@ -314,33 +315,25 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
     // -- the ONE character this session was scoped to at
     // /dune player link <character-name> time -- never anything derived
     // from this request. There is no candidate list to choose from.
-    let matched = false;
-    try {
-      const actor = { userId: session.discordUserId, guildId: session.guildId };
-      const result = await adapterClient.matchSteamCandidate(
-        actor, session.playerControllerId, steamId64List, session.guildId
-      );
-      matched = Boolean(result?.matched);
-    } catch (err) {
-      logError("steam_link.match_check_failed", err);
-      return errorPage(res, 502, "Something Went Wrong",
-        "We couldn't verify your Steam account right now. Please try again in a moment.");
-    }
-
-    if (!matched) {
-      return sendWhisperFallbackAndRespond({
-        res, adapterClient, client, fetchImpl, session,
-        pageTitle: "Sent a Verification Code Instead",
-        pageMessage: `We checked your linked Steam account(s) but couldn't confirm ${session.characterName || "that character"} that way. ` +
-          `We've sent a verification code to ${session.characterName || "your character"} in-game via whisper instead — ` +
-          "check your whispers and run /dune player verify <code> to complete the link."
-      });
-    }
-
+    //
+    // Core's actual implementation (linkAccountViaSteamProvider(), see
+    // dune-awakening-selfhost-docker#130/FINDING-LINK-7) performs the
+    // match check AND the link in ONE call, not two -- an earlier draft of
+    // this feature specced a separate matchSteamCandidate() route, but a
+    // pre-implementation security review found that shape would have
+    // created a character-enumeration oracle (a target-unbound route
+    // gated only by capability tier, not actor ownership), so Core folded
+    // the match into the single, actor-bound link-steam call instead.
+    // adapterClient.matchSteamCandidate() / the standalone match-steam
+    // route never existed as separate things server-side -- calling this
+    // as two sequential requests (as an earlier draft of this file did)
+    // would throw "Unsupported adapter route" on the first call.
     let linkResult;
     try {
       const actor = { userId: session.discordUserId, guildId: session.guildId };
-      linkResult = await adapterClient.linkAccountViaSteam(actor, session.playerControllerId, session.guildId);
+      linkResult = await adapterClient.linkAccountViaSteam(
+        actor, session.playerControllerId, steamId64List, session.guildId
+      );
     } catch (err) {
       // FINDING-STEAM-3: the conflict error from linkAdditionalAccount()
       // (via linkAccountViaSteamProvider()) is already generic ("already
@@ -350,8 +343,31 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
       // the character is already claimed by someone else, so a whisper
       // code could never successfully complete a NEW link and would be
       // actively misleading to send.
-      const message = err?.body?.error || err?.message || "This character is already linked to a different Discord account.";
-      return errorPage(res, 409, "Unable to Link", String(message));
+      // AdapterHttpError (adapterClient.js) sets .status (an HTTP status
+      // code) and .body (the parsed JSON response), NOT .statusCode/.code
+      // -- those property names belong to Core's OWN internal error object
+      // (duneDb.js's thrown Error, policyError()'s return value), which is
+      // already serialized into { ok: false, code, error } by
+      // discordSafeError() before it ever reaches this process. Checking
+      // the wrong property names here would silently never match a real
+      // conflict response.
+      if (err?.status === 409 || err?.body?.code === "character_already_linked") {
+        const message = err?.body?.error || err?.message || "This character is already linked to a different Discord account.";
+        return errorPage(res, 409, "Unable to Link", String(message));
+      }
+      logError("steam_link.match_check_failed", err);
+      return errorPage(res, 502, "Something Went Wrong",
+        "We couldn't verify your Steam account right now. Please try again in a moment.");
+    }
+
+    if (!linkResult?.matched) {
+      return sendWhisperFallbackAndRespond({
+        res, adapterClient, client, fetchImpl, session,
+        pageTitle: "Sent a Verification Code Instead",
+        pageMessage: `We checked your linked Steam account(s) but couldn't confirm ${session.characterName || "that character"} that way. ` +
+          `We've sent a verification code to ${session.characterName || "your character"} in-game via whisper instead — ` +
+          "check your whispers and run /dune player verify <code> to complete the link."
+      });
     }
 
     await editOriginalInteraction({

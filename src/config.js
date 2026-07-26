@@ -46,8 +46,14 @@ const DEFAULT_PATHS = Object.freeze({
   "guild-grants-disable": "/api/integrations/discord/guild-character-grants/disable",
   "guild-grants-default": "/api/integrations/discord/guild-character-grants/default",
   "player-inventory-v2": "/api/integrations/discord/player/inventory",
-  "players-accounts-match-steam": "/api/integrations/discord/players/accounts/match-steam",
-  "players-accounts-link-steam": "/api/integrations/discord/players/accounts/link-steam"
+  "players-accounts-link-steam": "/api/integrations/discord/players/accounts/link-steam",
+  // players-link-verify: was in UNMERGED_ROUTES with no corresponding
+  // path/method entry here at all (an orphaned key -- calling it would
+  // have thrown "Unsupported adapter route" regardless of Core's state).
+  // Core's PLAYERS_LINK_VERIFY route (/players/link/verify) has been live
+  // since before this fix; added 2026-07-26 during UNMERGED_ROUTES cleanup
+  // (see arrakis-control-panel#86).
+  "players-link-verify": "/api/integrations/discord/players/link/verify"
 });
 
 const DEFAULT_METHODS = Object.freeze({
@@ -96,8 +102,8 @@ const DEFAULT_METHODS = Object.freeze({
   "guild-grants-disable": "POST",
   "guild-grants-default": "POST",
   "player-inventory-v2": "POST",
-  "players-accounts-match-steam": "POST",
-  "players-accounts-link-steam": "POST"
+  "players-accounts-link-steam": "POST",
+  "players-link-verify": "POST"
 });
 
 const RBAC_MODES = new Set(["restricted", "open"]);
@@ -215,7 +221,8 @@ export function loadConfig(env = process.env) {
         "guild-grants-enable": optionalEnv(env, "DUNE_ADAPTER_GUILD_GRANTS_ENABLE_PATH") || DEFAULT_PATHS["guild-grants-enable"],
         "guild-grants-disable": optionalEnv(env, "DUNE_ADAPTER_GUILD_GRANTS_DISABLE_PATH") || DEFAULT_PATHS["guild-grants-disable"],
         "guild-grants-default": optionalEnv(env, "DUNE_ADAPTER_GUILD_GRANTS_DEFAULT_PATH") || DEFAULT_PATHS["guild-grants-default"],
-        "player-inventory-v2": optionalEnv(env, "DUNE_ADAPTER_PLAYER_INVENTORY_V2_PATH") || DEFAULT_PATHS["player-inventory-v2"]
+        "player-inventory-v2": optionalEnv(env, "DUNE_ADAPTER_PLAYER_INVENTORY_V2_PATH") || DEFAULT_PATHS["player-inventory-v2"],
+        "players-link-verify": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_LINK_VERIFY_PATH") || DEFAULT_PATHS["players-link-verify"]
       },
       methods: {
         health: parseMethod(env.DUNE_ADAPTER_HEALTH_METHOD, DEFAULT_METHODS.health),
@@ -262,7 +269,8 @@ export function loadConfig(env = process.env) {
         "guild-grants-enable": parseMethod(env.DUNE_ADAPTER_GUILD_GRANTS_ENABLE_METHOD, DEFAULT_METHODS["guild-grants-enable"]),
         "guild-grants-disable": parseMethod(env.DUNE_ADAPTER_GUILD_GRANTS_DISABLE_METHOD, DEFAULT_METHODS["guild-grants-disable"]),
         "guild-grants-default": parseMethod(env.DUNE_ADAPTER_GUILD_GRANTS_DEFAULT_METHOD, DEFAULT_METHODS["guild-grants-default"]),
-        "player-inventory-v2": parseMethod(env.DUNE_ADAPTER_PLAYER_INVENTORY_V2_METHOD, DEFAULT_METHODS["player-inventory-v2"])
+        "player-inventory-v2": parseMethod(env.DUNE_ADAPTER_PLAYER_INVENTORY_V2_METHOD, DEFAULT_METHODS["player-inventory-v2"]),
+        "players-link-verify": parseMethod(env.DUNE_ADAPTER_PLAYERS_LINK_VERIFY_METHOD, DEFAULT_METHODS["players-link-verify"])
       }
     }
   };
