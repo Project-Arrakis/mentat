@@ -212,15 +212,14 @@ describe('Command Execution', () => {
     assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
     const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
     assert.ok(embed.fields?.some(f => f.name.includes('Bot') && f.value.includes('arrakis-control-panel')), 'Should have bot name');
-    // BUG FIX: PR #70 (af63ca4) updated this expectation to 'Yes' without
-    // updating aboutPayload()'s actual readOnly value to match -- V2
+    // PR #70 (af63ca4) updated this expectation to 'Yes' without updating
+    // aboutPayload()'s actual readOnly value to match -- V2
     // character-linking commands (link/verify/unlink/faction/enable/
     // disable/default, shipped in #69/1ea3316) write to the local database,
-    // so readOnly: true has been a false claim since #69 merged. Restoring
-    // the accurate 'No' expectation to match this branch's corrected
-    // aboutPayload() (readOnly: false, see "fix: correct read-only state
-    // reporting..." commit) rather than re-breaking the code to match a
-    // stale test assertion.
+    // so readOnly: true has been a false claim since #69 merged. This
+    // asserts the accurate 'No' expectation, matching aboutPayload()'s
+    // corrected readOnly: false (see "fix: correct read-only state
+    // reporting..." commit).
     assert.ok(embed.fields?.some(f => f.name.includes('ReadOnly') && f.value.includes('No')), 'Should not be read-only (character linking writes to the database)');
   });
 
