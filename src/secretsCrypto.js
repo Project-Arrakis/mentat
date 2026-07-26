@@ -122,7 +122,17 @@ export function encryptSecret(plaintext, env = process.env) {
     return `${PLAINTEXT_PREFIX}${plaintext}`;
   }
   const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv(ALGORITHM, key, iv);
+  // authTagLength is pinned explicitly (not left to GCM's 16-byte default)
+  // so encrypt and decrypt both assert the same, fixed tag length rather
+  // than trusting whatever length happens to be embedded in the stored
+  // payload. This closes a real semgrep finding
+  // (javascript.node-crypto.security.gcm-no-tag-length): without an
+  // explicit length, a shorter-than-expected tag could in principle be
+  // accepted, weakening GCM's forgery resistance. Node itself has been
+  // moving the same direction -- as of v20.13.0/v22.0.0, decrypting with
+  // authTagLength unset and a non-default tag length is deprecated, and
+  // v26.0.0 made it a hard error.
+  const cipher = createCipheriv(ALGORITHM, key, iv, { authTagLength: TAG_BYTES });
   const ciphertext = Buffer.concat([cipher.update(String(plaintext), "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   const payload = Buffer.concat([iv, tag, ciphertext]).toString("base64");
@@ -166,7 +176,9 @@ export function decryptSecret(stored, env = process.env) {
   const tag = payload.subarray(IV_BYTES, IV_BYTES + TAG_BYTES);
   const ciphertext = payload.subarray(IV_BYTES + TAG_BYTES);
 
-  const decipher = createDecipheriv(ALGORITHM, key, iv);
+  // See the matching comment in encryptSecret() above for why
+  // authTagLength is pinned explicitly here.
+  const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: TAG_BYTES });
   decipher.setAuthTag(tag);
   const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   return plaintext.toString("utf8");
