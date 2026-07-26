@@ -222,7 +222,8 @@ export function loadConfig(env = process.env) {
         "guild-grants-disable": optionalEnv(env, "DUNE_ADAPTER_GUILD_GRANTS_DISABLE_PATH") || DEFAULT_PATHS["guild-grants-disable"],
         "guild-grants-default": optionalEnv(env, "DUNE_ADAPTER_GUILD_GRANTS_DEFAULT_PATH") || DEFAULT_PATHS["guild-grants-default"],
         "player-inventory-v2": optionalEnv(env, "DUNE_ADAPTER_PLAYER_INVENTORY_V2_PATH") || DEFAULT_PATHS["player-inventory-v2"],
-        "players-link-verify": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_LINK_VERIFY_PATH") || DEFAULT_PATHS["players-link-verify"]
+        "players-link-verify": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_LINK_VERIFY_PATH") || DEFAULT_PATHS["players-link-verify"],
+        "players-accounts-link-steam": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_ACCOUNTS_LINK_STEAM_PATH") || DEFAULT_PATHS["players-accounts-link-steam"]
       },
       methods: {
         health: parseMethod(env.DUNE_ADAPTER_HEALTH_METHOD, DEFAULT_METHODS.health),
@@ -270,7 +271,8 @@ export function loadConfig(env = process.env) {
         "guild-grants-disable": parseMethod(env.DUNE_ADAPTER_GUILD_GRANTS_DISABLE_METHOD, DEFAULT_METHODS["guild-grants-disable"]),
         "guild-grants-default": parseMethod(env.DUNE_ADAPTER_GUILD_GRANTS_DEFAULT_METHOD, DEFAULT_METHODS["guild-grants-default"]),
         "player-inventory-v2": parseMethod(env.DUNE_ADAPTER_PLAYER_INVENTORY_V2_METHOD, DEFAULT_METHODS["player-inventory-v2"]),
-        "players-link-verify": parseMethod(env.DUNE_ADAPTER_PLAYERS_LINK_VERIFY_METHOD, DEFAULT_METHODS["players-link-verify"])
+        "players-link-verify": parseMethod(env.DUNE_ADAPTER_PLAYERS_LINK_VERIFY_METHOD, DEFAULT_METHODS["players-link-verify"]),
+        "players-accounts-link-steam": parseMethod(env.DUNE_ADAPTER_PLAYERS_ACCOUNTS_LINK_STEAM_METHOD, DEFAULT_METHODS["players-accounts-link-steam"])
       }
     }
   };
