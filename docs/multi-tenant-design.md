@@ -136,8 +136,12 @@ that operator's own Postgres.
 
 User clicks OAuth2 invite link:
 ```
-https://discord.com/oauth2/authorize?client_id=BOT_ID&scope=bot%20applications.commands
+https://discord.com/oauth2/authorize?client_id=BOT_ID&scope=bot%20applications.commands&permissions=128
 ```
+
+`permissions=128` (View Audit Log) is optional but recommended -- see
+Step 3 below for what it enables. An older `permissions=0` link still
+works; it just changes who gets DMed.
 
 ### Step 2: Bot Detects New Guild
 
@@ -147,7 +151,18 @@ Bot receives `guildCreate` event, checks if guild is registered:
 
 ### Step 3: DM Setup Wizard
 
-Bot sends DM to guild owner/admin:
+Real implementation (onboarding.js, 2026-07-27): Discord's bot-invite
+OAuth flow only requires "Manage Server" permission, not guild
+ownership, so the person who actually invites the bot is often NOT the
+guild owner. If the bot has View Audit Log permission, it looks up the
+real inviter from the guild's BOT_ADD audit log entry and DMs them the
+full setup instructions below; the owner instead gets a short notice
+naming who invited the bot (not a duplicate setup DM), unless the owner
+IS the inviter, in which case only one DM is sent. Without View Audit
+Log permission (or if the lookup fails for any reason), this falls back
+to the original behavior: DM the guild owner directly.
+
+Setup DM content:
 ```
 Welcome to ACP! To get started, click the link below to configure
 your server's connection to your Dune Awakening console.

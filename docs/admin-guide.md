@@ -62,16 +62,21 @@ Replace `YOUR_APP_ID` with your Application ID from Step 3, then open this in
 your browser:
 
 ```
-https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot%20applications.commands
+https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot%20applications.commands&permissions=128
 ```
 
 | Setting | Value |
 |----------|-------|
 | Client ID | Your Application ID from Step 3 |
 | Scopes | `bot` + `applications.commands` |
-| Permissions | `0` (slash commands don't need extra permissions) |
+| Permissions | `128` (View Audit Log -- lets the bot identify who invited it, so setup DMs reach the right person, not always the server owner; slash commands themselves don't need any extra permissions) |
 
 Select your server from the dropdown and click **Authorize**.
+
+See `discord-setup.md`'s Step 4 for the full explanation of why this
+permission is requested, and what happens if you've already invited the
+bot with the old `permissions=0` link (short answer: it still works,
+just falls back to DMing the owner directly).
 
 The bot will appear in your server's member list as **offline** — this is
 normal. It shows as offline until the bot process is actually running.

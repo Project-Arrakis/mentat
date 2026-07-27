@@ -75,7 +75,7 @@ Now let's add the bot to your Discord server.
 
 1. Replace `YOUR_APP_ID` in this URL with your Application ID from Step 3:
    ```
-   https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot%20applications.commands
+   https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot%20applications.commands&permissions=128
    ```
 2. Open the URL in your browser
 3. Select your server from the dropdown
@@ -85,7 +85,19 @@ Now let's add the bot to your Discord server.
 |----------|-------|
 | Client ID | Your Application ID from Step 3 |
 | Scopes | `bot` + `applications.commands` (already in the URL) |
-| Permissions | `0` (slash commands don't need extra permissions) |
+| Permissions | `128` (View Audit Log -- see below; slash commands themselves don't need any extra permissions) |
+
+**Why `128` and not `0`:** the bot uses `View Audit Log` (2026-07-27) to
+identify who actually invited it to your server, so it can send the
+setup DM to the real inviter rather than always defaulting to the
+server owner (who may not be the person who did the inviting -- Discord
+only requires "Manage Server" to complete this OAuth flow, not
+ownership). This is optional: if you've already invited the bot with
+`permissions=0` (the old default), it still works exactly as before --
+it just falls back to DMing the server owner directly, since it can't
+look up who really invited it without this permission. Re-invite with
+the URL above (Discord will prompt to update permissions on an
+already-added bot) if you'd like the owner-vs-inviter distinction.
 
 The bot will appear in your server's member list as **offline**. This is
 normal — it shows as offline until the bot process is actually running on
