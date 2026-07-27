@@ -68,7 +68,7 @@ This bot uses only the **Guilds** intent (no privileged intents required).
 Replace `YOUR_CLIENT_ID` in the URL below and open it in a browser:
 
 ```
-https://discord.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&scope=bot%20applications.commands
+https://discord.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&scope=bot%20applications.commands&permissions=128
 ```
 
 Or build manually:
@@ -77,7 +77,7 @@ Or build manually:
 |-------|-------|
 | **Client ID** | Your Application ID |
 | **Scopes** | `bot`, `applications.commands` |
-| **Permissions** | `0` (slash commands only, no extra permissions) |
+| **Permissions** | `128` (View Audit Log -- optional, lets the bot's setup DM reach whoever actually invited it rather than always the server owner; slash commands themselves need no extra permissions) |
 
 This URL adds the bot to your Discord server. Select the target server from the
 dropdown and authorize.
