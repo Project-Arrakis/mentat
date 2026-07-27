@@ -383,47 +383,64 @@ export function formatInventoryEmbed(payload) {
   });
 }
 
+// FIX (2026-07-27, found via a real live user report: /dune player
+// storage showed "No owned storage containers found" despite a real
+// base with 5 real containers, including a Spice Silo full of Stone).
+// This formatter previously read payload.groups / totalContainers /
+// totalItems (a nested map-of-arrays shape with camelCase c.name /
+// c.itemCount fields) -- a contract that Core's playerStorageProvider
+// (console/api/src/integrations/discord/inventoryProvider.js) has
+// NEVER actually returned, since this formatter was first added
+// (commit a15d4a8, 2026-07-20). Core has always returned a flat
+// { grouped: [...], rows: [...], count } shape: grouped is an array of
+// containers, each with container_id/container_name/item_count/items
+// (see groupByContainer() in inventoryProvider.js). Rewritten to match
+// Core's real, current shape.
 export function formatStorageEmbed(payload) {
-  const groups = payload?.groups || {};
-  const totalContainers = payload?.totalContainers || 0;
-  const totalItems = payload?.totalItems || 0;
+  const containers = payload?.grouped || [];
   const scope = payload?.scope || "owned";
   const scopeLabel = scope === "guild" ? "Guild" : "Owned";
-  const desc = Object.keys(groups).length === 0
+  const desc = containers.length === 0
     ? `— No ${scope} storage containers found —`
-    : Object.entries(groups).map(([map, containers]) => {
-        return `**${map}** (${containers.length})\n` +
-          containers.map(c => `  📦 \`${c.name}\` — ${c.itemCount} items`).join("\n");
-      }).join("\n\n");
+    : containers.map(c => `📦 \`${c.container_name}\` — ${c.item_count} item${c.item_count === 1 ? "" : "s"}`).join("\n");
+  const totalItems = containers.reduce((sum, c) => sum + (Number(c.item_count) || 0), 0);
   return duneEmbed({
     title: `🗄️ ${scopeLabel} Storage`,
     color: "spice",
     description: desc.slice(0, 2048),
     fields: [
-      { name: "📦 Containers", value: fmtCount(totalContainers), inline: true },
+      { name: "📦 Containers", value: fmtCount(payload?.count ?? containers.length), inline: true },
       { name: "📊 Items", value: fmtCount(totalItems), inline: true }
     ]
   });
 }
 
+// Same class of fix as formatStorageEmbed above, same live bug report.
+// Core's itemSearchProvider groups matches by item type (template_id),
+// not by container -- each item in a group now carries its own
+// container_name/map (added directly in duneDb.js's
+// searchItemsInContainers() SQL, a companion fix to this one, since
+// Core never supplied those fields either). Grouping by item type
+// rather than by container matches what a player actually wants from
+// "find": "where are all my X", not "what's in container Y".
 export function formatFindEmbed(payload) {
   const query = payload?.query || "";
-  const matches = payload?.matches || [];
-  const totalContainers = payload?.totalContainers || 0;
-  const totalStacks = payload?.totalItemStacks || 0;
-  const desc = matches.length === 0
+  const groups = payload?.grouped || [];
+  const rows = payload?.rows || [];
+  const desc = groups.length === 0
     ? `— No items matching "${query}" found —`
-    : matches.map(m => {
-        return `**${m.containerName}** (${m.map || "Unknown"})\n` +
-          (m.items || []).map(i => `  \`${i.display_name || i.displayName || i.template_id || i.templateId}\` ×${i.stack_size || i.stackSize || 0}${Number(i.quality_level || i.qualityLevel || 0) > 0 ? ` G${Number(i.quality_level || i.qualityLevel || 0)}` : ""}`).join("\n");
+    : groups.map(g => {
+        const name = g.items?.[0]?.display_name || g.items?.[0]?.displayName || g.template_id;
+        const byContainer = g.items.map(i => `  📍 \`${i.container_name || "Unknown"}\` (${i.map || "Unknown"}) ×${i.stack_size || i.stackSize || 0}${Number(i.quality_level || i.qualityLevel || 0) > 0 ? ` G${Number(i.quality_level || i.qualityLevel || 0)}` : ""}`).join("\n");
+        return `**${name}** — ${g.total_count} total\n${byContainer}`;
       }).join("\n\n");
   return duneEmbed({
     title: `🔍 Search: "${query}"`,
-    color: matches.length > 0 ? "success" : "warning",
+    color: groups.length > 0 ? "success" : "warning",
     description: desc.slice(0, 2048),
     fields: [
-      { name: "📦 Containers", value: fmtCount(totalContainers), inline: true },
-      { name: "📊 Stacks", value: fmtCount(totalStacks), inline: true }
+      { name: "📦 Item Types", value: fmtCount(groups.length), inline: true },
+      { name: "📊 Stacks", value: fmtCount(rows.length), inline: true }
     ]
   });
 }
