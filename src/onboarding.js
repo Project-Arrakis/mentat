@@ -33,6 +33,36 @@ function ownerNoticeFor(guild, inviter) {
   ].join("\n");
 }
 
+// fallbackNoticeFor: used only when the inviter genuinely could not be
+// identified (audit log permission truly missing, or a real, non-timing
+// error) -- as opposed to the retry-exhausted case, which is a
+// different, more specific message (see findInviter()'s own comment).
+// Explicitly addresses "if you're the person who just invited me" since
+// in a single-owner install (the common case today, before operators
+// have re-invited with the recommended permissions=128) the inviter and
+// the owner are almost always the same person anyway -- this message
+// should make sense whether the reader is the owner, the inviter, or
+// both.
+function fallbackNoticeFor(guild, setupLink) {
+  return [
+    `🐛 **Welcome to ACP!**`,
+    ``,
+    `I've been added to **${guild.name}**. If you're the one who just invited me, here's how to get started:`,
+    ``,
+    `**Setup takes 2 minutes:**`,
+    `1. Click the setup link below`,
+    `2. Sign in with Discord`,
+    `3. Enter your console URL and adapter token`,
+    `4. Configure your roles`,
+    ``,
+    `🔗 **Setup Link:** ${setupLink}`,
+    ``,
+    `Once configured, commands like \`/dune server status\` and \`/dune player inventory\` will work immediately.`,
+    ``,
+    `(You're getting this as the server owner. If someone else invited me, ask them to run \`/dune core setup\` for their own copy of this link.)`
+  ].join("\n");
+}
+
 // findInviter: looks up the guild's BOT_ADD audit log entry to identify
 // the real Discord user who completed the bot-invite OAuth flow --
 // distinct from guild.fetchOwner() (the guild's owner, who may not be
@@ -42,24 +72,60 @@ function ownerNoticeFor(guild, inviter) {
 // Requires the bot to hold VIEW_AUDIT_LOG on the guild. The documented
 // invite link (docs/discord-setup.md) requests permissions=0, so most
 // existing installs will NOT have this permission yet -- this is
-// expected and handled as a normal, silent fallback (not an error): any
-// failure here (missing permission, no matching entry yet due to
-// Discord's own audit-log propagation delay, etc.) returns null, and
-// the caller falls back to owner-only behavior, unchanged from before
-// this feature existed.
-async function findInviter(guild) {
-  try {
-    const logs = await guild.fetchAuditLogs({ type: AuditLogEvent.BotAdd, limit: 5 });
-    const entry = logs.entries.find((e) => e.target?.id === guild.client.user.id);
-    return entry?.executor || null;
-  } catch (err) {
-    logInfo("onboarding.audit_log_unavailable", {
-      guildId: guild.id,
-      guildName: guild.name,
-      reason: err.message
-    });
-    return null;
+// expected and handled as a normal, silent fallback (not an error): a
+// genuinely missing permission returns null immediately, no retry.
+//
+// FIX (2026-07-27, found via a live test immediately after this
+// function was first added): even WITH the permission correctly
+// granted (confirmed directly via the Discord API -- the bot's own
+// guild role really did have the View Audit Log bit set), the very
+// first fetchAuditLogs() call made from inside the guildCreate handler
+// itself failed with "Missing Permissions" -- while the exact same call
+// made about a minute later, from a separate one-off script, succeeded
+// and returned the real BOT_ADD entry. This is a real timing race:
+// guildCreate fires the instant the bot's membership is created, but
+// Discord's own permission-grant propagation for that brand new guild
+// membership had not yet finished at that exact moment. Retries up to
+// 3 times with a short, fixed backoff (errors specifically matching
+// "Missing Permissions" only -- any other error, e.g. a genuinely
+// missing permission grant, still fails fast with no retry, since
+// retrying that would just waste time before falling back).
+// retryDelayMs is injectable (defaults to a real 1500ms) specifically so
+// tests can pass 0 and exercise the full 3-attempt retry path without
+// each test actually taking 3+ real seconds -- found necessary when the
+// very first version of this retry logic made this file's own test
+// suite noticeably slower for no real benefit; a real delay is only
+// meaningful in production, never in a test asserting the retry logic
+// itself runs.
+async function findInviter(guild, retryDelayMs = 1500) {
+  const MAX_ATTEMPTS = 3;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const logs = await guild.fetchAuditLogs({ type: AuditLogEvent.BotAdd, limit: 5 });
+      const entry = logs.entries.find((e) => e.target?.id === guild.client.user.id);
+      return entry?.executor || null;
+    } catch (err) {
+      const isPermissionPropagationRace = /missing permissions/i.test(err.message || "");
+      if (!isPermissionPropagationRace || attempt === MAX_ATTEMPTS) {
+        logInfo("onboarding.audit_log_unavailable", {
+          guildId: guild.id,
+          guildName: guild.name,
+          reason: err.message,
+          attempts: attempt
+        });
+        return null;
+      }
+      logInfo("onboarding.audit_log_retry", {
+        guildId: guild.id,
+        guildName: guild.name,
+        attempt,
+        reason: err.message
+      });
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
   }
+  return null;
 }
 
 // FIX (2026-07-27, found via a real live report: bot added to a new
@@ -86,13 +152,34 @@ async function findInviter(guild) {
 // the full setup instructions; if the inviter is a different person
 // than the owner, the owner instead gets a short informational notice
 // (who added the bot, that setup is already in progress) rather than a
-// second, redundant full setup DM. Falls back to the original
-// owner-only behavior whenever the inviter can't be determined (no
-// VIEW_AUDIT_LOG permission -- true for most existing installs using
-// the current documented permissions=0 invite link -- or any other
-// audit-log lookup failure), so this is purely additive, not a
-// breaking change to any existing deployment.
-export async function handleGuildCreate(bot, guild, db) {
+// second, redundant full setup DM. When the inviter genuinely can't be
+// determined (no VIEW_AUDIT_LOG permission, or every retry attempt
+// failed -- see findInviter()'s own comment), the owner gets
+// fallbackNoticeFor()'s message instead of setupMessageFor()'s: worded
+// to make sense whether the reader is the owner, the actual inviter, or
+// both, since a real live test (2026-07-27) confirmed a non-owner
+// inviter genuinely receives nothing in this fallback case -- an
+// intentional, documented limitation (there is no way to identify a
+// non-owner inviter without VIEW_AUDIT_LOG), not a silent gap.
+//
+// LIVE VERIFICATION (2026-07-27): confirmed end-to-end in production
+// against a real guild-join event (a non-owner account inviting the
+// bot to a real guild) after two additional, unrelated Discord
+// Developer Portal issues were found and fixed the same session: (1)
+// this site's own "Add to Discord" links (acp-landing repo) requested
+// permissions=0, so the audit-log lookup could never succeed for any
+// real user until fixed; (2) the application's Default Install
+// Settings (used by Discord's own "Add App" button, a separate entry
+// point from any custom link) was missing the bot scope entirely
+// (would install slash commands without ever adding the bot to the
+// guild) and had Permissions briefly over-corrected to Administrator
+// before being scoped down to the actual minimum, View Audit Log. With
+// both fixed, the real log trace showed: guild.joined ->
+// onboarding.setup_dm_sent (recipient: "inviter") ->
+// onboarding.owner_notice_sent -- no audit_log_unavailable/retry
+// entries at all, confirming the fast path works correctly end-to-end,
+// not just in unit tests.
+export async function handleGuildCreate(bot, guild, db, { auditLogRetryDelayMs = 1500 } = {}) {
   const existing = getGuild(db, guild.id);
   if (existing && existing.status === "active") {
     logInfo("onboarding.skipped_already_active", { guildId: guild.id, guildName: guild.name });
@@ -111,28 +198,44 @@ export async function handleGuildCreate(bot, guild, db) {
     return;
   }
 
-  const inviter = await findInviter(guild);
+  const inviter = await findInviter(guild, auditLogRetryDelayMs);
   const setupLink = `${SETUP_URL}/setup?guildId=${guild.id}`;
-  const inviterIsOwner = !inviter || inviter.id === owner.id;
+  // Three distinct outcomes, each with its own message copy:
+  // 1. inviter identified AND is a different person than the owner ->
+  //    full setup DM to the inviter, short notice to the owner.
+  // 2. inviter identified AND is the same person as the owner -> one
+  //    full setup DM to the owner (identical to the pre-inviter-detection
+  //    behavior, just now confirmed rather than assumed).
+  // 3. inviter could NOT be identified at all (no permission, retries
+  //    exhausted, etc.) -> fallbackNoticeFor() to the owner, explicitly
+  //    written to make sense whether the reader is the owner, the real
+  //    inviter, or both -- see that function's own comment for why this
+  //    is a different message than case 2, not just a copy-paste.
+  const inviterKnown = Boolean(inviter);
+  const inviterIsOwner = inviterKnown && inviter.id === owner.id;
+  const primaryRecipient = inviterKnown && !inviterIsOwner ? inviter : owner;
+  const primaryMessage = inviterKnown
+    ? setupMessageFor(guild, setupLink)
+    : fallbackNoticeFor(guild, setupLink);
+  const primaryRecipientLabel = inviterKnown ? (inviterIsOwner ? "owner" : "inviter") : "owner-fallback";
 
-  const primaryRecipient = inviterIsOwner ? owner : inviter;
   try {
     const dm = await primaryRecipient.createDM();
-    await dm.send({ content: setupMessageFor(guild, setupLink) });
+    await dm.send({ content: primaryMessage });
     logInfo("onboarding.setup_dm_sent", {
       guildId: guild.id,
       guildName: guild.name,
-      recipient: inviterIsOwner ? "owner" : "inviter"
+      recipient: primaryRecipientLabel
     });
   } catch (err) {
     logError("onboarding.setup_dm_failed", err, {
       guildId: guild.id,
       guildName: guild.name,
-      recipient: inviterIsOwner ? "owner" : "inviter"
+      recipient: primaryRecipientLabel
     });
   }
 
-  if (!inviterIsOwner) {
+  if (inviterKnown && !inviterIsOwner) {
     try {
       const ownerDm = await owner.createDM();
       await ownerDm.send({ content: ownerNoticeFor(guild, inviter) });
