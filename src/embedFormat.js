@@ -44,7 +44,7 @@ const MAX_MELEE_AUGMENTS = 3;
 const MAX_ARMOR_AUGMENTS = 2;
 
 function augmentMax(item) {
-  const name = (item.displayName || item.template_id || item.templateId || "").toString();
+  const name = (item.display_name || item.displayName || item.template_id || item.templateId || "").toString();
   if (/chest|armor|guard|garment|helmet|boots|gloves|suit/i.test(name)) return MAX_ARMOR_AUGMENTS;
   return MAX_RANGED_AUGMENTS;
 }
@@ -364,7 +364,7 @@ export function formatInventoryEmbed(payload) {
   const desc = items.length === 0
     ? "— No items in inventory —"
     : items.slice(0, 25).map((item, i) => {
-        const id = item.displayName || item.template_id || item.templateId || "Unknown";
+        const id = item.display_name || item.displayName || item.template_id || item.templateId || "Unknown";
         const qty = item.stack_size || item.stackSize || 0;
         const g = Number(item.quality_level || item.qualityLevel || 0);
         const grade = g > 0 ? ` G${g}` : "";
@@ -415,7 +415,7 @@ export function formatFindEmbed(payload) {
     ? `— No items matching "${query}" found —`
     : matches.map(m => {
         return `**${m.containerName}** (${m.map || "Unknown"})\n` +
-          (m.items || []).map(i => `  \`${i.displayName || i.template_id || i.templateId}\` ×${i.stack_size || i.stackSize || 0}${Number(i.quality_level || i.qualityLevel || 0) > 0 ? ` G${Number(i.quality_level || i.qualityLevel || 0)}` : ""}`).join("\n");
+          (m.items || []).map(i => `  \`${i.display_name || i.displayName || i.template_id || i.templateId}\` ×${i.stack_size || i.stackSize || 0}${Number(i.quality_level || i.qualityLevel || 0) > 0 ? ` G${Number(i.quality_level || i.qualityLevel || 0)}` : ""}`).join("\n");
       }).join("\n\n");
   return duneEmbed({
     title: `🔍 Search: "${query}"`,
