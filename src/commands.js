@@ -86,7 +86,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("default").setDescription("Set your default character for this guild.")
         .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
       .addSubcommand((c) => c.setName("unlink").setDescription("Unlink a character from your Discord.")
-        .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
+        .addStringOption((o) => o.setName("character").setDescription("Player controller ID from /dune player characters (omit to unlink your single-link character)")))
       .addSubcommand((c) => c.setName("faction").setDescription("Set your faction for themed embeds.")
         .addStringOption((o) => o.setName("name").setDescription("atreides, harkonnen, or fremen").setRequired(true)
           .addChoices({ name: "Atreides", value: "atreides" }, { name: "Harkonnen", value: "harkonnen" }, { name: "Fremen", value: "fremen" })))
@@ -334,12 +334,28 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       // server -- existing whisper-code flow, UNCHANGED response shape.
       payload = result;
     } else if (key === "player:verify") {
+      // FIX (2026-07-27, found via a real live production error --
+      // /dune player unlink <character> failed with "not yet merged to
+      // upstream"; verify was separately broken the same way, calling a
+      // route that has never existed on Core at all). playerLinkVerify()
+      // now calls Core's real, live PLAYERS_LINK_VERIFY route
+      // (/players/link/verify) -- see its own comment in adapterClient.js
+      // for the full history.
       const code = interaction.options.getString("code");
       payload = await adapterClient.playerLinkVerify(actor, code, guildId);
     } else if (key === "player:unlink") {
-      const characterLinkId = interaction.options.getString("character");
-      if (characterLinkId) {
-        payload = await adapterClient.playerUnlinkV2(actor, characterLinkId, guildId);
+      // FIX (2026-07-27, same live production error): the "character"
+      // option now expects a real playerControllerId (obtainable via
+      // /dune player characters, fixed in the same session), not an
+      // arbitrary "Character link ID" as the option's old description
+      // suggested -- Core's real unlinkAccountProvider() has always
+      // required playerControllerId specifically. playerUnlinkV2() (which
+      // called a route that never existed on Core) is replaced by
+      // playerAccountsUnlink(), which calls Core's real, live
+      // PLAYERS_ACCOUNTS_UNLINK route.
+      const playerControllerId = interaction.options.getString("character");
+      if (playerControllerId) {
+        payload = await adapterClient.playerAccountsUnlink(actor, playerControllerId, guildId);
       } else {
         payload = await adapterClient.playerUnlink(actor, guildId);
       }
@@ -349,7 +365,13 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     } else if (key === "player:whoami") {
       payload = await adapterClient.whoami(actor, guildId);
     } else if (key === "player:characters") {
-      payload = await adapterClient.playerLinks(actor, guildId);
+      // FIX (2026-07-27, same live production error): playerLinks()
+      // called a route that has never existed on Core at all.
+      // playerAccountsList() calls Core's real, live PLAYERS_ACCOUNTS_LIST
+      // route, returning each linked character's real playerControllerId
+      // (needed for /dune player unlink above, since a user must be able
+      // to see their own playerControllerId to actually use that command).
+      payload = await adapterClient.playerAccountsList(actor, guildId);
     } else if (key === "player:enable") {
       const characterLinkId = interaction.options.getString("character");
       payload = await adapterClient.guildGrantsEnable(actor, characterLinkId, guildId);

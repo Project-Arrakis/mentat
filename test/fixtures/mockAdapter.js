@@ -39,6 +39,17 @@ export function createMockAdapter(options = {}) {
     playerLink: { ok: true, result: { linked: true, code: 'ACP-TEST123' } },
     playerLinkVerify: { ok: true, result: { verified: true, character: 'TestCharacter' } },
     playerUnlink: { ok: true, result: { unlinked: true } },
+    // FIX (2026-07-27, found via a real live production error: /dune
+    // player unlink <character> and /dune player characters both called
+    // routes that have never existed on Core -- see
+    // adapterClient.js's playerAccountsList()/playerAccountsUnlink() for
+    // the full history). This harness previously had zero mock coverage
+    // for either method at all -- the pre-fix broken methods
+    // (playerLinks()/playerUnlinkV2()) were never exercised by this test
+    // suite, which is exactly how the real production bug went
+    // undetected until a live user hit it.
+    playerAccountsList: { ok: true, accounts: [{ playerControllerId: '1', characterName: 'Sihaya', isDefault: true, onlineStatus: 'Offline' }], count: 1 },
+    playerAccountsUnlink: { ok: true, message: 'Unlinked.' },
     playerFaction: { ok: true, faction: 'atreides' },
     whoami: { ok: true, result: { character: 'TestCharacter' } },
     playerInventory: { ok: true, result: { items: [] } },
@@ -269,6 +280,18 @@ export function createMockAdapter(options = {}) {
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       if (error) throw new Error(error);
       return mockData.playerUnlink;
+    },
+
+    async playerAccountsList(actor) {
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      if (error) throw new Error(error);
+      return mockData.playerAccountsList;
+    },
+
+    async playerAccountsUnlink(actor, playerControllerId) {
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      if (error) throw new Error(error);
+      return { ...mockData.playerAccountsUnlink, playerControllerId };
     },
 
     async playerFaction(actor, faction) {

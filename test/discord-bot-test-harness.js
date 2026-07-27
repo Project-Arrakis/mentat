@@ -121,6 +121,23 @@ describe('Command Registration', () => {
       assert.ok(commandNames.includes(cmd), `Should include ${cmd}`);
     });
   });
+
+  // Real bug, found via a live production error (2026-07-27): /dune
+  // player unlink's "character" option was marked required, forcing every
+  // caller to pass a value even for the single-link fallback path that
+  // commands.js's own dispatch logic has always supported (payload =
+  // adapterClient.playerUnlink(actor, guildId) when no character is
+  // given). Fixed alongside repointing the option's underlying route to
+  // Core's real players/accounts/unlink -- see adapterClient.js's
+  // playerAccountsUnlink() for the full history.
+  test('player:unlink character option is optional, not required (supports the single-link fallback path)', () => {
+    const command = buildDuneCommand().toJSON();
+    const playerGroup = command.options.find((opt) => opt.name === 'player');
+    const unlink = playerGroup.options.find((opt) => opt.name === 'unlink');
+    const characterOption = unlink.options?.[0];
+    assert.ok(characterOption, 'unlink should still have a character option');
+    assert.ok(!characterOption.required, 'the character option must be optional, not required, to support unlinking a single-link character with no argument');
+  });
 });
 
 // ============================================================================
@@ -694,6 +711,75 @@ describe('Adapter Methods', () => {
     const result = await adapterClient.playerLinkVerify(actor, 'ACP-TEST123');
     assert.ok(result, 'Should return result');
     assert.ok(result.ok !== false, 'Should succeed');
+  });
+
+  // ─── Real bug, found via a live production error (2026-07-27):
+  // /dune player unlink <character> failed with "player links unlink is
+  // implemented in feature/discord-player-inventory but not yet merged
+  // to upstream" -- and /dune player characters was separately broken
+  // the same way, both calling a route family (player-links/*) that has
+  // never existed on Core at all. Core's real routes are
+  // players/accounts/list and players/accounts/unlink. This harness
+  // previously had ZERO test coverage for either the old broken methods
+  // (playerLinks()/playerUnlinkV2()) or their replacements
+  // (playerAccountsList()/playerAccountsUnlink()) -- exactly how this
+  // production bug went undetected until a real user hit it. These
+  // tests exercise the full /dune player characters and
+  // /dune player unlink command paths end-to-end through
+  // executeDuneCommand(), not just the adapter method in isolation.
+
+  test('adapterClient.playerAccountsList() returns linked accounts with real playerControllerId', async () => {
+    const { adapterClient } = getTestContext();
+    const actor = { userId: 'test-user', guildId: 'test-guild', channelId: 'test-channel', roleIds: ['observer-role-id'] };
+
+    const result = await adapterClient.playerAccountsList(actor);
+    assert.ok(result, 'Should return result');
+    assert.ok(result.ok !== false, 'Should succeed');
+    assert.ok(Array.isArray(result.accounts), 'Should return an accounts array');
+    assert.ok(result.accounts[0].playerControllerId, 'Each account must expose a real playerControllerId -- this is the value /dune player unlink actually needs');
+  });
+
+  test('adapterClient.playerAccountsUnlink() unlinks by playerControllerId', async () => {
+    const { adapterClient } = getTestContext();
+    const actor = { userId: 'test-user', guildId: 'test-guild', channelId: 'test-channel', roleIds: ['observer-role-id'] };
+
+    const result = await adapterClient.playerAccountsUnlink(actor, '1');
+    assert.ok(result, 'Should return result');
+    assert.ok(result.ok !== false, 'Should succeed');
+  });
+
+  test('/dune player characters calls the real players/accounts/list route, not the never-built player-links route', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({
+      command: 'player:characters',
+      roles: ['observer-role-id']
+    });
+
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+    assert.ok(result, '/dune player characters should be handled successfully, not throw');
+  });
+
+  test('/dune player unlink with a playerControllerId calls playerAccountsUnlink, not the never-built player-links-unlink route', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({
+      command: 'player:unlink',
+      roles: ['observer-role-id'],
+      options: { character: '1' }
+    });
+
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+    assert.ok(result, '/dune player unlink <character> should be handled successfully, not throw');
+  });
+
+  test('/dune player unlink with no argument falls back to single-link playerUnlink, not a required-argument error', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({
+      command: 'player:unlink',
+      roles: ['observer-role-id']
+    });
+
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+    assert.ok(result, '/dune player unlink with no character argument should still be handled successfully -- the option is optional, not required');
   });
 });
 
