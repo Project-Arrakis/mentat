@@ -67,6 +67,45 @@ test("AdapterClient posts actor context to POST routes", async () => {
   });
 });
 
+test("AdapterClient does not attach actor-signature headers when DUNE_DISCORD_ACTOR_SECRET is unset (default, backward-compatible state)", async () => {
+  const originalSecret = process.env.DUNE_DISCORD_ACTOR_SECRET;
+  delete process.env.DUNE_DISCORD_ACTOR_SECRET;
+  try {
+    let seenHeaders;
+    const client = new AdapterClient(config(), {
+      fetchImpl: async (_url, options) => {
+        seenHeaders = options.headers;
+        return jsonResponse({ ok: true, services: [] });
+      }
+    });
+    await client.services({ userId: "user-1", roleIds: ["role-1"] });
+    assert.equal(seenHeaders["x-dune-actor-signature"], undefined);
+    assert.equal(seenHeaders["x-dune-actor-timestamp"], undefined);
+  } finally {
+    if (originalSecret !== undefined) process.env.DUNE_DISCORD_ACTOR_SECRET = originalSecret;
+  }
+});
+
+test("AdapterClient attaches a real, verifiable actor-signature when DUNE_DISCORD_ACTOR_SECRET is configured", async () => {
+  const originalSecret = process.env.DUNE_DISCORD_ACTOR_SECRET;
+  process.env.DUNE_DISCORD_ACTOR_SECRET = "test-secret";
+  try {
+    let seenHeaders;
+    const client = new AdapterClient(config(), {
+      fetchImpl: async (_url, options) => {
+        seenHeaders = options.headers;
+        return jsonResponse({ ok: true, services: [] });
+      }
+    });
+    await client.services({ userId: "user-1", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-1"] });
+    assert.match(seenHeaders["x-dune-actor-signature"], /^[0-9a-f]{64}$/);
+    assert.ok(Number(seenHeaders["x-dune-actor-timestamp"]) > 0);
+  } finally {
+    if (originalSecret === undefined) delete process.env.DUNE_DISCORD_ACTOR_SECRET;
+    else process.env.DUNE_DISCORD_ACTOR_SECRET = originalSecret;
+  }
+});
+
 test("AdapterClient raises typed HTTP errors", async () => {
   const client = new AdapterClient(config(), {
     fetchImpl: async () => jsonResponse({ ok: false, error: "nope" }, { status: 503 })

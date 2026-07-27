@@ -1,3 +1,5 @@
+import { signedHeaders } from "./actorSignature.js";
+
 export class AdapterHttpError extends Error {
   constructor(message, { status, route, body }) {
     super(message);
@@ -206,6 +208,15 @@ export class AdapterClient {
       if (method === "POST") {
         headers["content-type"] = "application/json";
         options.body = JSON.stringify({ actor: actor || null, ...(extra || {}) });
+        // signedHeaders() no-ops (returns {}) unless
+        // DUNE_DISCORD_ACTOR_SECRET/_FILE is configured -- fully backward
+        // compatible with every deployment that hasn't opted in yet.
+        // `path` (the full adapter URL path), not `route` (this client's
+        // internal key), MUST be what's signed -- Core's routes.js signs
+        // against the exact request path, not an internal identifier this
+        // bot invented. See actorSignature.js's own comment for why a
+        // mismatch here would make every signed request fail verification.
+        Object.assign(headers, signedHeaders(actor, path));
       }
 
       const response = await this.fetchImpl(url, options);
