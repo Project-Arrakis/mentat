@@ -24,10 +24,24 @@ the Discord side in about 15 minutes.
 
 **Q: Is this bot secure?**
 
-Yes. It never accesses the Docker socket, game files, or database directly.
-All commands go through a bearer-token protected API. Secrets use file-based
-storage with restricted permissions (0600). Security scanning runs on every
-commit (Semgrep, Gitleaks, Trivy, ggshield, npm audit).
+It never accesses the Docker socket, game files, or database directly.
+Secrets use file-based storage with restricted permissions (0600).
+Security scanning runs on every commit (Semgrep, Gitleaks, Trivy,
+ggshield, npm audit).
+
+On authentication specifically, being precise rather than just saying
+"yes": every command reaches the console through a bearer-token
+protected API, but that token alone only proves "this is the bot
+process" — by itself, it does not cryptographically prove which Discord
+user is making a given request. As of 2026-07-26, the bot can also sign
+each request's Discord-user identity (`DUNE_DISCORD_ACTOR_SECRET`) with
+a second, independent secret, which the console verifies before trusting
+who a request claims to be from. This is currently opt-in on the
+console side while the ecosystem migrates — see
+`docs/security/discord-player-link-hardening.md` (FINDING-LINK-1) in the
+Core repo for the full technical detail, current status, and the
+stronger alternative (Discord's own Ed25519 interaction signatures)
+being tracked as a future option.
 
 **Q: Is the bot read-only?**
 
@@ -84,7 +98,7 @@ You'll receive a verification code in-game via whisper. Then run:
 ```
 Once linked, run:
 ```
-/dune data inventory
+/dune player inventory
 ```
 
 **Q: What does "linking" mean?**
@@ -117,28 +131,30 @@ character.
 
 No. Each character can only be linked to one Discord account at a time.
 
-**Q: What's the difference between `/dune data inventory` and `/dune data storage`?**
+**Q: What's the difference between `/dune player inventory` and `/dune player storage`?**
 
 - **Inventory** shows items your character is currently carrying (on their person).
 - **Storage** shows items in storage containers you own (chests, shelves, etc.).
 
-**Correction (2026-07-24):** this section and the next previously referenced
-`/dune player inventory`, `/dune player storage`, `/dune player find`, and a
-nonexistent `/dune player inventory-search` command. These commands have
-always lived in the `data` group, not `player` — `player` is (and has only
-ever been) the identity/linking command group. There is no separate
-"inventory-search" subcommand; use `/dune data inventory <search-term>`
-(the `search` option is optional on the same `inventory` subcommand).
+**Correction (2026-07-26):** these three commands (`inventory`, `storage`,
+`find`) moved from the `data` group to `player` on this date, since they
+are all scoped to the calling player's own character/account, not
+server-wide data — every player-related command now consistently lives
+under `/dune player`. An earlier version of this note (2026-07-24)
+described the opposite move and is now itself the stale claim being
+corrected here. There is no separate "inventory-search" subcommand; use
+`/dune player inventory <search-term>` (the `search` option is optional
+on the same `inventory` subcommand).
 
-**Q: What's the difference between `/dune data find` and searching within `/dune data inventory`?**
+**Q: What's the difference between `/dune player find` and searching within `/dune player inventory`?**
 
 - **find** searches across all your storage containers (chests, guild storage, etc.)
-- **`/dune data inventory <search-term>`** searches only in your character's personal inventory
+- **`/dune player inventory <search-term>`** searches only in your character's personal inventory
 
 **Q: Can I search guild storage?**
 
-Yes. Use `/dune data storage` with the scope set to `guild`, or use
-`/dune data find` with scope `guild`. You must be a member of the guild
+Yes. Use `/dune player storage` with the scope set to `guild`, or use
+`/dune player find` with scope `guild`. You must be a member of the guild
 to see its storage.
 
 **Q: Why do I get "Not linked" when I try to check my inventory?**
@@ -148,6 +164,22 @@ You need to link your Discord account to your character first. Run:
 /dune player link <your-character-name>
 ```
 Replace `<your-character-name>` with the exact name of your character in the game.
+
+**Q: What's the difference between `/dune player inventory` and `/dune ops armory`?**
+
+These sound similar but return completely different data:
+
+- **`/dune player inventory`** shows YOUR character's own items — what
+  you're personally carrying. Requires linking (see above).
+- **`/dune ops armory`** shows a server-wide aggregate — total item counts
+  across every container on the whole server, grouped by item type. It's
+  not about you or any specific character, and requires the OPS addon to
+  be installed on the console.
+
+Renamed from `/dune ops inventory` on 2026-07-26 specifically because the
+old name was easy to confuse with `/dune player inventory` despite showing
+entirely different data — if you're looking for your own items, use
+`/dune player inventory`.
 
 **Q: Why do I get "No player found" when linking?**
 

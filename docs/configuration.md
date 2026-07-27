@@ -241,11 +241,11 @@ Once linked, players can use:
 - `/dune player unlink` — Remove character link
 - `/dune player whoami` — Show linked character info
 - `/dune player faction <name>` — Set faction for themed embeds (atreides, harkonnen, fremen)
-- `/dune data inventory` — View character inventory
-- `/dune data inventory <search>` — Search items in inventory
-- `/dune data storage` — View storage containers (owned scope)
-- `/dune data storage <scope>` — View storage (owned, guild, or all)
-- `/dune data find <item>` — Search items in storage
+- `/dune player inventory` — View character inventory
+- `/dune player inventory <search>` — Search items in inventory
+- `/dune player storage` — View storage containers (owned scope)
+- `/dune player storage <scope>` — View storage (owned, guild, or all)
+- `/dune player find <item>` — Search items in storage
 
 ### Player Feature Capabilities
 
@@ -266,9 +266,9 @@ be unused/dead schema, not a second source of truth.
 
 | Capability | Required Role | Commands |
 |-----------|---------------|----------|
-| `inventory:read` | Observer or Admin | `/dune player link`, `/dune player unlink`, `/dune player whoami`, `/dune player faction`, `/dune data inventory`, `/dune data find` |
-| `storage:read` | Observer or Admin | `/dune data storage` (owned scope) |
-| `guild:read` | Observer or Admin | `/dune data storage` (guild scope), `/dune data find` (guild scope) |
+| `inventory:read` | Observer or Admin | `/dune player link`, `/dune player unlink`, `/dune player whoami`, `/dune player faction`, `/dune player inventory`, `/dune player find` |
+| `storage:read` | Observer or Admin | `/dune player storage` (owned scope) |
+| `guild:read` | Observer or Admin | `/dune player storage` (guild scope), `/dune player find` (guild scope) |
 
 ---
 

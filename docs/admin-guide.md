@@ -261,10 +261,10 @@ Players use these commands:
 - `/dune data unlink` — Remove their character link
 - `/dune data whoami` — Check their linked character
 - `/dune data faction <name>` — Set their faction for themed embeds
-- `/dune data inventory` — View their inventory
-- `/dune data inventory <search>` — Search their inventory
-- `/dune data storage` — View their storage
-- `/dune data find <item>` — Search for items
+- `/dune player inventory` — View their inventory
+- `/dune player inventory <search>` — Search their inventory
+- `/dune player storage` — View their storage
+- `/dune player find <item>` — Search for items
 
 ## Multi-Tenant Mode (Optional)
 

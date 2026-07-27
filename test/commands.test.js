@@ -127,11 +127,11 @@ test("executeDuneCommand handles server:summary through the status route", async
   assert.ok(edited?.embeds?.[0]?.data?.title, "summary embed has title");
 });
 
-test("executeDuneCommand routes data:storage scope=owned to playerStorage", async () => {
+test("executeDuneCommand routes player:storage scope=owned to playerStorage", async () => {
   let calledPlayerStorage = false, calledGuildStorage = false;
-  const interaction = mockInteraction("data", "storage", {
+  const interaction = mockInteraction("player", "storage", {
     user: { id: "storage-owned-user" }, roles: ["role-a"],
-    options: mockOptions("data", "storage", { getString: (name) => (name === "scope" ? "owned" : "") })
+    options: mockOptions("player", "storage", { getString: (name) => (name === "scope" ? "owned" : "") })
   });
   interaction.deferReply = async () => { };
   interaction.editReply = async () => { };
@@ -141,17 +141,17 @@ test("executeDuneCommand routes data:storage scope=owned to playerStorage", asyn
   };
 
   await executeDuneCommand(interaction, client, {
-    discord: { defaultEphemeral: true, rbac: { mode: "restricted", commandRoleIds: { "data:storage": ["role-a"] } } }
+    discord: { defaultEphemeral: true, rbac: { mode: "restricted", commandRoleIds: { "player:storage": ["role-a"] } } }
   });
   assert.equal(calledPlayerStorage, true, "owned scope should call playerStorage");
   assert.equal(calledGuildStorage, false, "owned scope must not call guildStorage");
 });
 
-test("executeDuneCommand routes data:storage scope=guild to guildStorage, not playerStorage", async () => {
+test("executeDuneCommand routes player:storage scope=guild to guildStorage, not playerStorage", async () => {
   let calledPlayerStorage = false, calledGuildStorage = false;
-  const interaction = mockInteraction("data", "storage", {
+  const interaction = mockInteraction("player", "storage", {
     user: { id: "storage-guild-user" }, roles: ["role-a"],
-    options: mockOptions("data", "storage", { getString: (name) => (name === "scope" ? "guild" : "") })
+    options: mockOptions("player", "storage", { getString: (name) => (name === "scope" ? "guild" : "") })
   });
   interaction.deferReply = async () => { };
   interaction.editReply = async () => { };
@@ -161,17 +161,17 @@ test("executeDuneCommand routes data:storage scope=guild to guildStorage, not pl
   };
 
   await executeDuneCommand(interaction, client, {
-    discord: { defaultEphemeral: true, rbac: { mode: "restricted", commandRoleIds: { "data:storage": ["role-a"] } } }
+    discord: { defaultEphemeral: true, rbac: { mode: "restricted", commandRoleIds: { "player:storage": ["role-a"] } } }
   });
   assert.equal(calledGuildStorage, true, "guild scope should call the guild-scoped route");
   assert.equal(calledPlayerStorage, false, "guild scope must never fall back to the requester's own player storage");
 });
 
-test("executeDuneCommand routes data:find scope=guild to guildFind, not playerFind", async () => {
+test("executeDuneCommand routes player:find scope=guild to guildFind, not playerFind", async () => {
   let calledPlayerFind = false, calledGuildFind = false, seenQuery;
-  const interaction = mockInteraction("data", "find", {
+  const interaction = mockInteraction("player", "find", {
     user: { id: "find-guild-user" }, roles: ["role-a"],
-    options: mockOptions("data", "find", { getString: (name) => (name === "scope" ? "guild" : name === "query" ? "spice" : "") })
+    options: mockOptions("player", "find", { getString: (name) => (name === "scope" ? "guild" : name === "query" ? "spice" : "") })
   });
   interaction.deferReply = async () => { };
   interaction.editReply = async () => { };
@@ -181,7 +181,7 @@ test("executeDuneCommand routes data:find scope=guild to guildFind, not playerFi
   };
 
   await executeDuneCommand(interaction, client, {
-    discord: { defaultEphemeral: true, rbac: { mode: "restricted", commandRoleIds: { "data:find": ["role-a"] } } }
+    discord: { defaultEphemeral: true, rbac: { mode: "restricted", commandRoleIds: { "player:find": ["role-a"] } } }
   });
   assert.equal(calledGuildFind, true, "guild scope should call the guild-scoped route");
   assert.equal(calledPlayerFind, false, "guild scope must never fall back to the requester's own player search");

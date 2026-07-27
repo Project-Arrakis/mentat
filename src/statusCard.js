@@ -204,8 +204,8 @@ export async function sendOpsCard({ interaction, payload, subcommand, adapterCli
       latency = 0;
       break;
     }
-    case "inventory": {
-      title = "OPS Inventory";
+    case "armory": {
+      title = "Armory";
       const items = r.totalItems || 0;
       isError = items === 0;
       overall = items > 0 ? "TRACKED" : "EMPTY";

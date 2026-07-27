@@ -23,11 +23,24 @@ export const OPS_COMMANDS = Object.freeze({
     method: "POST",
     description: "Show economy statistics (currency, orders, taxes)."
   },
-  inventory: {
+  // Renamed from "inventory" to "armory" (2026-07-26) after real user
+  // confusion with /dune player inventory -- the two commands sound
+  // identical but return completely different data: this one counts
+  // every item across every container on the whole server, grouped by
+  // item template, top 50 by count (see addonOpsInventorySummary() in
+  // Core's duneDb.js) -- it is NOT a per-player view. "armory" was
+  // chosen over a more literal alternative (e.g. "items") to match this
+  // group's existing Dune-thematic naming style (activity, combat,
+  // resources, economy) while still being unambiguous with player
+  // inventory. The route/path (ops-inventory,
+  // /api/integrations/discord/ops/inventory) are unchanged -- only the
+  // user-facing Discord subcommand name changed; there is no
+  // corresponding rename needed on the Core side.
+  armory: {
     route: "ops-inventory",
     path: "/api/integrations/discord/ops/inventory",
     method: "POST",
-    description: "Show inventory and crafting statistics."
+    description: "Show server-wide aggregate inventory/crafting stats (not personal -- see /dune player inventory)."
   },
   location: {
     route: "ops-location",

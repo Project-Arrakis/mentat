@@ -56,11 +56,11 @@ Select one, then choose a command from within that group.
 | `/dune data population` | Shows how many players are online |
 | `/dune data backups` | Lists recent game backups |
 | `/dune data maps` | Shows which game maps are running |
-| `/dune data inventory` | View everything in your character's inventory |
-| `/dune data inventory <search>` | Search for an item in your inventory |
-| `/dune data storage` | View items in your storage containers (owned or guild) |
-| `/dune data storage <scope>` | View storage with scope (owned, guild, or all) |
-| `/dune data find <item-name>` | Search for an item across all your storage containers |
+| `/dune player inventory` | View everything in your character's inventory |
+| `/dune player inventory <search>` | Search for an item in your inventory |
+| `/dune player storage` | View items in your storage containers (owned or guild) |
+| `/dune player storage <scope>` | View storage with scope (owned, guild, or all) |
+| `/dune player find <item-name>` | Search for an item across all your storage containers |
 
 ### 🔗 `player` — Character Linking & Identity
 
@@ -120,7 +120,7 @@ of them.
 | `/dune ops combat` | Combat and death statistics |
 | `/dune ops resources` | Resource field data (spice, water, etc.) |
 | `/dune ops economy` | Currency, trading, and tax data |
-| `/dune ops inventory` | Item and crafting statistics |
+| `/dune ops armory` | Item and crafting statistics |
 | `/dune ops location` | Map markers and player density |
 | `/dune ops soc` | OPS bridge health and request stats |
 | `/dune ops prometheus` | Container CPU, memory, and uptime |
@@ -147,7 +147,7 @@ of them.
 
 ## Linking Your Character
 
-Before you can use the player commands (`/dune data inventory`, `/dune data storage`, etc.),
+Before you can use the player commands (`/dune player inventory`, `/dune player storage`, etc.),
 you need to link your Discord account to your in-game character.
 
 ### Step 1: Link Your Character
@@ -221,11 +221,11 @@ You can set your faction to get themed embed colors and quotes:
 
 Once linked, you can use all the player commands:
 
-- `/dune data inventory` — See everything your character is carrying
-- `/dune data inventory <search>` — Search for an item in your inventory
-- `/dune data storage` — See items in your storage containers
-- `/dune data storage guild` — See items in guild storage
-- `/dune data find <item>` — Search for an item across all your storage
+- `/dune player inventory` — See everything your character is carrying
+- `/dune player inventory <search>` — Search for an item in your inventory
+- `/dune player storage` — See items in your storage containers
+- `/dune player storage guild` — See items in guild storage
+- `/dune player find <item>` — Search for an item across all your storage
 
 ### Step 6: Unlink (Optional)
 
