@@ -57,7 +57,7 @@ branch for this bot.
 | `server` | `health`, `status`, `summary`, `readiness`, `services` | Game server health checks |
 | `data` | `population`, `backups`, `maps` | Game world data |
 | `player` | `link`, `unlink`, `me`, `inventory`, `storage`, `find`, `inventory-search` | Player character and inventory (requires linking) |
-| `ops` | `activity`, `combat`, `resources`, `economy`, `inventory`, `location`, `soc`, `prometheus`, `dashboard` | Operational statistics (requires OPS addon) |
+| `ops` | `activity`, `combat`, `resources`, `economy`, `armory`, `location`, `soc`, `prometheus`, `dashboard` | Operational statistics (requires OPS addon) |
 | `admin` | `doctor`, `cooldowns`, `latency`, `events`, `broadcast` | Administration tools (restricted) |
 | `infra` | `version`, `servers`, `ports`, `db` | Infrastructure status |
 
@@ -140,7 +140,7 @@ Only add commands backed by safe upstream adapter responses.
 - `/dune ops combat` — Combat and death statistics
 - `/dune ops resources` — Resource field data
 - `/dune ops economy` — Currency, trading, and tax data
-- `/dune ops inventory` — Item and crafting statistics
+- `/dune ops armory` — Item and crafting statistics
 - `/dune ops location` — Map markers and player density
 - `/dune ops soc` — OPS bridge health
 - `/dune ops prometheus` — Container CPU, memory, and uptime
@@ -164,10 +164,10 @@ Only add commands backed by safe upstream adapter responses.
 - `/dune player verify <code>` — Complete linking with in-game verification code (whisper path only)
 - `/dune player unlink` — Remove character link
 - `/dune player whoami` — Show linked character info
-- `/dune data inventory` — View character inventory
-- `/dune data inventory <search>` — Search items in inventory
-- `/dune data storage` — View storage containers (owned or guild)
-- `/dune data find` — Search items in storage
+- `/dune player inventory` — View character inventory
+- `/dune player inventory <search>` — Search items in inventory
+- `/dune player storage` — View storage containers (owned or guild)
+- `/dune player find` — Search items in storage
 - `/dune player faction <name>` — Set faction for themed embeds
 
 **Upstream PR:** [Red-Blink/dune-awakening-selfhost-docker#91](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/91)

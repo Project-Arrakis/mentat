@@ -58,23 +58,22 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("maintenance").setDescription("Show current maintenance note or window (read-only).")))
 
     // ── data group ──
-    .addSubcommandGroup((g) => g.setName("data").setDescription("Server population, backups, map, inventory, and storage.")
+    // inventory/storage/find moved to player (2026-07-26) -- these are
+    // per-player data (YOUR inventory, YOUR storage), not server-wide
+    // data like population/backups/maps. Every player-related subcommand
+    // now lives under /dune player, consistently, per explicit operator
+    // direction -- do not add a new player-scoped subcommand here again.
+    .addSubcommandGroup((g) => g.setName("data").setDescription("Server population, backups, and map data.")
       .addSubcommand((c) => c.setName("population").setDescription("Show aggregate player count and server population."))
       .addSubcommand((c) => c.setName("backups").setDescription("List recent backup metadata (read-only)."))
-      .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime."))
-      .addSubcommand((c) => c.setName("inventory").setDescription("View your personal inventory.")
-        .addStringOption((o) => o.setName("search").setDescription("Filter by item name (optional)")))
-      .addSubcommand((c) => c.setName("storage").setDescription("View your storage containers grouped by map.")
-        .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
-          .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" })))
-      .addSubcommand((c) => c.setName("find").setDescription("Search for items across your containers.")
-        .addStringOption((o) => o.setName("query").setDescription("Item name to search for").setRequired(true))
-        .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
-          .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" }))))
+      .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime.")))
 
     // ── player group ──
     // Split out of data (see the block comment above buildDuneCommand()).
-    .addSubcommandGroup((g) => g.setName("player").setDescription("Link your Discord to your game character, and manage linked characters.")
+    // inventory/storage/find joined this group 2026-07-26, moved from data
+    // -- every subcommand here is scoped to the calling player's own
+    // character/account, never server-wide data.
+    .addSubcommandGroup((g) => g.setName("player").setDescription("Your character: linking, inventory, storage, and account management.")
       .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character.")
         .addStringOption((o) => o.setName("character").setDescription("Your character name").setRequired(true)))
       .addSubcommand((c) => c.setName("verify").setDescription("Verify a pending character link with a code.")
@@ -91,7 +90,16 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("faction").setDescription("Set your faction for themed embeds.")
         .addStringOption((o) => o.setName("name").setDescription("atreides, harkonnen, or fremen").setRequired(true)
           .addChoices({ name: "Atreides", value: "atreides" }, { name: "Harkonnen", value: "harkonnen" }, { name: "Fremen", value: "fremen" })))
-      .addSubcommand((c) => c.setName("whoami").setDescription("Show your linked game character info.")))
+      .addSubcommand((c) => c.setName("whoami").setDescription("Show your linked game character info."))
+      .addSubcommand((c) => c.setName("inventory").setDescription("View your personal inventory.")
+        .addStringOption((o) => o.setName("search").setDescription("Filter by item name (optional)")))
+      .addSubcommand((c) => c.setName("storage").setDescription("View your storage containers grouped by map.")
+        .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
+          .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" })))
+      .addSubcommand((c) => c.setName("find").setDescription("Search for items across your containers.")
+        .addStringOption((o) => o.setName("query").setDescription("Item name to search for").setRequired(true))
+        .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
+          .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" }))))
 
     // ── logs group ──
     .addSubcommandGroup((g) => g.setName("logs").setDescription("View logs from specific game services.")
@@ -109,7 +117,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("combat").setDescription(opsDescriptionFor("combat")))
       .addSubcommand((c) => c.setName("resources").setDescription(opsDescriptionFor("resources")))
       .addSubcommand((c) => c.setName("economy").setDescription(opsDescriptionFor("economy")))
-      .addSubcommand((c) => c.setName("inventory").setDescription(opsDescriptionFor("inventory")))
+      .addSubcommand((c) => c.setName("armory").setDescription(opsDescriptionFor("armory")))
       .addSubcommand((c) => c.setName("location").setDescription(opsDescriptionFor("location")))
       .addSubcommand((c) => c.setName("soc").setDescription(opsDescriptionFor("soc")))
       .addSubcommand((c) => c.setName("prometheus").setDescription(opsDescriptionFor("prometheus")))
@@ -253,31 +261,6 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     } else if (key === "data:maps") {
       const status = await adapterClient.status(actor, false, guildId);
       payload = { maps: status?.result?.maps || [] };
-    } else if (key === "data:inventory") {
-      const search = interaction.options.getString("search");
-      if (search) {
-        payload = await adapterClient.playerInventorySearch(actor, search, guildId);
-      } else {
-        payload = await adapterClient.playerInventory(actor, guildId);
-      }
-    } else if (key === "data:storage") {
-      const scope = interaction.options.getString("scope") || "owned";
-      // "guild" scope has a dedicated guild-scoped route; do not silently
-      // fall back to the requester's own player-scoped storage, which would
-      // mislabel one player's containers as guild-wide data.
-      payload = scope === "guild"
-        ? await adapterClient.guildStorage(actor, guildId)
-        : await adapterClient.playerStorage(actor, scope, guildId);
-    } else if (key === "data:find") {
-      const query = interaction.options.getString("query");
-      const scope = interaction.options.getString("scope") || "owned";
-      // "guild" scope has a dedicated guild-scoped route; do not silently
-      // fall back to the requester's own player-scoped find, which would
-      // mislabel one player's results as guild-wide data (same fix as
-      // data:storage above).
-      payload = scope === "guild"
-        ? await adapterClient.guildFind(actor, query, guildId)
-        : await adapterClient.playerFind(actor, query, scope, guildId);
     }
     // ── player group ──
     // Split out of data (2026-07-24) -- see the block comment above
@@ -376,6 +359,31 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     } else if (key === "player:default") {
       const characterLinkId = interaction.options.getString("character");
       payload = await adapterClient.guildGrantsDefault(actor, characterLinkId, guildId);
+    } else if (key === "player:inventory") {
+      const search = interaction.options.getString("search");
+      if (search) {
+        payload = await adapterClient.playerInventorySearch(actor, search, guildId);
+      } else {
+        payload = await adapterClient.playerInventory(actor, guildId);
+      }
+    } else if (key === "player:storage") {
+      const scope = interaction.options.getString("scope") || "owned";
+      // "guild" scope has a dedicated guild-scoped route; do not silently
+      // fall back to the requester's own player-scoped storage, which would
+      // mislabel one player's containers as guild-wide data.
+      payload = scope === "guild"
+        ? await adapterClient.guildStorage(actor, guildId)
+        : await adapterClient.playerStorage(actor, scope, guildId);
+    } else if (key === "player:find") {
+      const query = interaction.options.getString("query");
+      const scope = interaction.options.getString("scope") || "owned";
+      // "guild" scope has a dedicated guild-scoped route; do not silently
+      // fall back to the requester's own player-scoped find, which would
+      // mislabel one player's results as guild-wide data (same fix as
+      // player:storage above).
+      payload = scope === "guild"
+        ? await adapterClient.guildFind(actor, query, guildId)
+        : await adapterClient.playerFind(actor, query, scope, guildId);
     }
     // ── logs group ──
     else if (group === "logs") {
@@ -704,7 +712,7 @@ function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "ops:combat", desc: opsDescriptionFor("combat"), role: "observer" },
     { name: "ops:resources", desc: opsDescriptionFor("resources"), role: "observer" },
     { name: "ops:economy", desc: opsDescriptionFor("economy"), role: "observer" },
-    { name: "ops:inventory", desc: opsDescriptionFor("inventory"), role: "observer" },
+    { name: "ops:armory", desc: opsDescriptionFor("armory"), role: "observer" },
     { name: "ops:location", desc: opsDescriptionFor("location"), role: "observer" },
     { name: "ops:soc", desc: opsDescriptionFor("soc"), role: "observer" },
     { name: "ops:prometheus", desc: opsDescriptionFor("prometheus"), role: "observer" },

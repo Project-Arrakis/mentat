@@ -102,12 +102,18 @@ describe('Command Registration', () => {
     const expectedCommands = [
       'core:about', 'core:ping', 'core:help', 'core:setup',
       'server:health', 'server:status', 'server:summary', 'server:readiness', 'server:services',
-      'data:population', 'data:backups', 'data:maps', 'data:inventory', 'data:find', 'data:storage',
+      'data:population', 'data:backups', 'data:maps',
+      // inventory/storage/find moved from data to player (2026-07-26) --
+      // every player-scoped subcommand now lives under /dune player.
       'player:link', 'player:verify', 'player:characters', 'player:enable', 'player:disable',
       'player:default', 'player:unlink', 'player:faction', 'player:whoami',
-      'ops:activity', 'ops:combat', 'ops:resources', 'ops:economy', 'ops:inventory',
+      'player:inventory', 'player:storage', 'player:find',
+      // ops:inventory renamed to ops:armory (2026-07-26) -- real user
+      // confusion with player:inventory, since the two sounded identical
+      // but return completely different (per-player vs. server-wide) data.
+      'ops:activity', 'ops:combat', 'ops:resources', 'ops:economy', 'ops:armory',
       'ops:location', 'ops:soc', 'ops:prometheus', 'ops:dashboard', 'ops:announcements',
-      'admin:doctor', 'admin:cooldowns', 'admin:latency', 'admin:events', 'admin:broadcast',
+      'admin:doctor', 'admin:cooldowns', 'admin:latency', 'admin:events', 'admin:roles', 'admin:broadcast',
       'infra:version', 'infra:servers', 'infra:ports', 'infra:db'
     ];
 
@@ -314,9 +320,9 @@ describe('Command Execution', () => {
     assert.deepEqual(interaction._editReply.embeds, [], 'Should not have embeds');
   });
 
-  test('ops:inventory returns inventory statistics', async () => {
+  test('ops:armory returns inventory statistics (renamed from ops:inventory 2026-07-26)', async () => {
     const { adapterClient, config } = getTestContext();
-    const interaction = createMockInteraction({ command: 'ops:inventory', roles: ['observer-role-id'] });
+    const interaction = createMockInteraction({ command: 'ops:armory', roles: ['observer-role-id'] });
     const result = await executeDuneCommand(interaction, adapterClient, config);
 
     assert.ok(result, 'Command should succeed');
