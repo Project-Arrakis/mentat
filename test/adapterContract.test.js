@@ -78,6 +78,17 @@ const UPSTREAM_CONTRACT = Object.freeze({
   "players-link": { method: "POST", path: "/api/integrations/discord/players/link", fixture: "ops.json" },
   "players-link-verify": { method: "POST", path: "/api/integrations/discord/players/link/verify", fixture: "ops.json" },
   "players-accounts-link-steam": { method: "POST", path: "/api/integrations/discord/players/accounts/link-steam", fixture: "ops.json" },
+  // FIX (2026-07-27, found via a real live production error:
+  // "Unsupported adapter route: players-accounts-unlink"). This contract
+  // table's whole purpose is catching exactly this class of bug --
+  // a route added to adapterClient.js/DEFAULT_PATHS but never added to
+  // config.js's actual runtime paths/methods object -- and it would have
+  // caught this one immediately had these two entries been added here
+  // (and this test file actually run) when playerAccountsList()/
+  // playerAccountsUnlink() were first added, instead of only being
+  // caught by a real user hitting it in production.
+  "players-accounts-list": { method: "POST", path: "/api/integrations/discord/players/accounts/list", fixture: "ops.json" },
+  "players-accounts-unlink": { method: "POST", path: "/api/integrations/discord/players/accounts/unlink", fixture: "ops.json" },
   "players-unlink": { method: "POST", path: "/api/integrations/discord/players/unlink", fixture: "ops.json" },
   "players-me": { method: "POST", path: "/api/integrations/discord/players/me", fixture: "ops.json" },
   "players-faction": { method: "POST", path: "/api/integrations/discord/players/faction", fixture: "ops.json" },

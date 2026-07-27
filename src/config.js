@@ -241,7 +241,21 @@ export function loadConfig(env = process.env) {
         "guild-grants-default": optionalEnv(env, "DUNE_ADAPTER_GUILD_GRANTS_DEFAULT_PATH") || DEFAULT_PATHS["guild-grants-default"],
         "player-inventory-v2": optionalEnv(env, "DUNE_ADAPTER_PLAYER_INVENTORY_V2_PATH") || DEFAULT_PATHS["player-inventory-v2"],
         "players-link-verify": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_LINK_VERIFY_PATH") || DEFAULT_PATHS["players-link-verify"],
-        "players-accounts-link-steam": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_ACCOUNTS_LINK_STEAM_PATH") || DEFAULT_PATHS["players-accounts-link-steam"]
+        "players-accounts-link-steam": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_ACCOUNTS_LINK_STEAM_PATH") || DEFAULT_PATHS["players-accounts-link-steam"],
+        // FIX (2026-07-27, found via a real live production error:
+        // "Unsupported adapter route: players-accounts-unlink"). These two
+        // keys were added to DEFAULT_PATHS/DEFAULT_METHODS earlier the same
+        // session but never added HERE -- request() (adapterClient.js)
+        // resolves a route through THIS runtime paths/methods object, not
+        // DEFAULT_PATHS/DEFAULT_METHODS directly, so the two new methods
+        // (playerAccountsList()/playerAccountsUnlink()) were unreachable in
+        // production despite compiling, passing tests, and deploying
+        // successfully -- the exact same class of gap players-link-verify
+        // itself once had (see that entry's own comment above), just
+        // reintroduced by not checking for it against every existing entry
+        // in this block before considering the earlier fix complete.
+        "players-accounts-list": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_ACCOUNTS_LIST_PATH") || DEFAULT_PATHS["players-accounts-list"],
+        "players-accounts-unlink": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_ACCOUNTS_UNLINK_PATH") || DEFAULT_PATHS["players-accounts-unlink"]
       },
       methods: {
         health: parseMethod(env.DUNE_ADAPTER_HEALTH_METHOD, DEFAULT_METHODS.health),
@@ -290,7 +304,9 @@ export function loadConfig(env = process.env) {
         "guild-grants-default": parseMethod(env.DUNE_ADAPTER_GUILD_GRANTS_DEFAULT_METHOD, DEFAULT_METHODS["guild-grants-default"]),
         "player-inventory-v2": parseMethod(env.DUNE_ADAPTER_PLAYER_INVENTORY_V2_METHOD, DEFAULT_METHODS["player-inventory-v2"]),
         "players-link-verify": parseMethod(env.DUNE_ADAPTER_PLAYERS_LINK_VERIFY_METHOD, DEFAULT_METHODS["players-link-verify"]),
-        "players-accounts-link-steam": parseMethod(env.DUNE_ADAPTER_PLAYERS_ACCOUNTS_LINK_STEAM_METHOD, DEFAULT_METHODS["players-accounts-link-steam"])
+        "players-accounts-link-steam": parseMethod(env.DUNE_ADAPTER_PLAYERS_ACCOUNTS_LINK_STEAM_METHOD, DEFAULT_METHODS["players-accounts-link-steam"]),
+        "players-accounts-list": parseMethod(env.DUNE_ADAPTER_PLAYERS_ACCOUNTS_LIST_METHOD, DEFAULT_METHODS["players-accounts-list"]),
+        "players-accounts-unlink": parseMethod(env.DUNE_ADAPTER_PLAYERS_ACCOUNTS_UNLINK_METHOD, DEFAULT_METHODS["players-accounts-unlink"])
       }
     }
   };
