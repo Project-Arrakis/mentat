@@ -26,7 +26,13 @@ export const LIVE_ROUTES = new Set([
   "health", "status", "readiness", "services", "population",
   "version", "servers", "ports", "db",
   "logs", "map-state",
-  "ops-activity", "ops-combat", "ops-resources", "ops-economy"
+  "ops-activity", "ops-combat", "ops-resources", "ops-economy",
+  // Added 2026-07-27 (see UNMERGED_ROUTES's "SECOND reconciliation" comment
+  // above for the full history): all three are real, live Core routes,
+  // confirmed via direct grep of Core's real DISCORD_ADAPTER_ROUTES/
+  // routes.js, now actually called by adapterClient.js instead of the
+  // never-built player-links/* path family.
+  "players-link-verify", "players-accounts-list", "players-accounts-unlink"
 ]);
 
 // Routes that exist in upstream but return "planned" stubs or placeholder data.
@@ -51,15 +57,29 @@ export const PLANNED_ROUTES = new Set([
 // independent of Core's state (fixed alongside this cleanup). See
 // arrakis-control-panel#86 for the full reconciliation.
 //
+// SECOND reconciliation (2026-07-27, found via a real live production
+// error): players-link-verify, players-accounts-list, and
+// players-accounts-unlink were moved OUT of this set -- all three are
+// real, live routes on Core (playerLinkVerify()/playerAccountsList()/
+// playerAccountsUnlink() in adapterClient.js now call them directly).
+// player-links, player-links-unlink were removed from this set entirely
+// (no method calls those route keys anymore -- see
+// playerAccountsList()/playerAccountsUnlink()'s own comment for the full
+// player-links/* vs. players/accounts/* distinction). player-links-verify
+// is ALSO removed since nothing calls that route key anymore either
+// (playerLinkVerify() now calls players-link-verify, the real V1 route).
+// player-links-start remains -- it is still genuinely absent from Core,
+// and still genuinely unreachable dead code (see playerLinkStart()'s own
+// comment) -- listing it here is accurate but currently has no live
+// effect on any real command.
+//
 // Routes still genuinely absent from Core, confirmed by direct grep of
-// DISCORD_ADAPTER_ROUTES: players-faction, the player-links/* family
-// (a different, never-built naming/path convention than Core's real
-// players/accounts/* multi-link routes -- not simply a rename), the
-// guild-character-grants/* family, and player-inventory-v2 (Core only has
-// the plural, non-versioned players/inventory).
+// DISCORD_ADAPTER_ROUTES: players-faction, player-links-start (see above),
+// the guild-character-grants/* family, and player-inventory-v2 (Core only
+// has the plural, non-versioned players/inventory).
 export const UNMERGED_ROUTES = new Set([
   "players-faction",
-  "player-links-start", "player-links-verify", "player-links", "player-links-unlink",
+  "player-links-start",
   "guild-grants", "guild-grants-enable", "guild-grants-disable", "guild-grants-default",
   "player-inventory-v2"
 ]);
@@ -140,11 +160,23 @@ export class AdapterClient {
   writeExecute(actor, body, guildId) { return this.request("write-execute", actor, body, guildId); }
   writePreview(actor, body, guildId) { return this.request("write-preview", actor, body, guildId); }
   playerLink(actor, characterName, guildId) { return this.request("players-link", actor, { characterName }, guildId); }
-  // Note: "players-link-verify" (V1) has no dedicated method. The V1 verify route is
-  // superseded by the V2 playerLinkVerify()/"player-links-verify" method below; keeping
-  // two methods named playerLinkVerify silently shadowed the V1 one (dead code; the class
-  // only ever exposed the last definition). Call request("players-link-verify", ...)
-  // directly if V1 verify is ever needed again.
+  // FIX (2026-07-27, found via a real live production error: /dune player
+  // unlink <character> failed with "player links unlink is implemented in
+  // feature/discord-player-inventory but not yet merged" -- /dune player
+  // verify and /dune player characters were separately broken the same
+  // way). This method used to be entirely absent (see the removed comment
+  // above, previously describing V1 verify as superseded dead code): every
+  // caller instead used playerLinkVerify() below, which called the
+  // "player-links-verify" route -- a route that has NEVER existed on Core
+  // at all (confirmed via direct grep of Core's real DISCORD_ADAPTER_ROUTES
+  // constant). Core's real, live, working verify route is
+  // PLAYERS_LINK_VERIFY (/players/link/verify), already correctly mapped
+  // in config.js as "players-link-verify" -- it just had no method calling
+  // it. This method now calls that real route directly; playerLinkVerify()
+  // below is REMOVED (was pure dead-end code calling a route Core never
+  // implemented), and commands.js's /dune player verify now calls this
+  // method instead.
+  playerLinkVerify(actor, code, guildId) { return this.request("players-link-verify", actor, { code }, guildId); }
   playerUnlink(actor, guildId) { return this.request("players-unlink", actor, undefined, guildId); }
   whoami(actor, guildId) { return this.request("players-me", actor, undefined, guildId); }
   playerFaction(actor, faction, guildId) { return this.request("players-faction", actor, { faction }, guildId); }
@@ -155,10 +187,36 @@ export class AdapterClient {
   guildStorage(actor, guildId) { return this.request("guild-storage", actor, undefined, guildId); }
   guildFind(actor, query, guildId) { return this.request("guild-find", actor, { query }, guildId); }
 
+  // playerLinkStart() is genuinely dead code -- no command path calls it
+  // (confirmed via direct grep; commands.js explicitly documents calling
+  // playerLink(), not this, at its one relevant call site). Left in place
+  // unchanged: it calls "player-links-start", a route that has never
+  // existed on Core, same as playerLinkVerify()/playerLinks()/
+  // playerUnlinkV2() below used to -- but since nothing calls it, it was
+  // out of scope for this fix (2026-07-27), which only touched methods
+  // with a real, reachable, currently-broken command path.
   playerLinkStart(actor, characterName, guildId) { return this.request("player-links-start", actor, { characterName }, guildId); }
-  playerLinkVerify(actor, code, guildId) { return this.request("player-links-verify", actor, { code }, guildId); }
-  playerLinks(actor, guildId) { return this.request("player-links", actor, undefined, guildId); }
-  playerUnlinkV2(actor, characterLinkId, guildId) { return this.request("player-links-unlink", actor, { characterLinkId }, guildId); }
+
+  // FIX (2026-07-27, found via a real live production error: /dune player
+  // unlink <character> failed with "player links unlink is implemented in
+  // feature/discord-player-inventory but not yet merged", and /dune player
+  // characters was separately broken the same way). Both methods called a
+  // path family (player-links/*) that has never existed on Core at all --
+  // confirmed via direct grep of Core's real DISCORD_ADAPTER_ROUTES
+  // constant, which instead has PLAYERS_ACCOUNTS_LIST
+  // (/players/accounts/list) and PLAYERS_ACCOUNTS_UNLINK
+  // (/players/accounts/unlink), both live and fully implemented
+  // (listAccountsProvider()/unlinkAccountProvider() in
+  // multiAccountLinkProvider.js) all along. Renamed to playerAccountsList()/
+  // playerAccountsUnlink() to match Core's real players/accounts/*
+  // terminology (not player-links/*, a naming convention that was never
+  // actually built) and repointed to the real routes. unlinkAccountProvider()
+  // requires playerControllerId, not an arbitrary characterLinkId --
+  // commands.js's /dune player unlink <character> option now expects the
+  // real playerControllerId (obtainable via the newly-working
+  // /dune player characters, which surfaces it per account).
+  playerAccountsList(actor, guildId) { return this.request("players-accounts-list", actor, undefined, guildId); }
+  playerAccountsUnlink(actor, playerControllerId, guildId) { return this.request("players-accounts-unlink", actor, { playerControllerId }, guildId); }
   guildGrantsEnable(actor, characterLinkId, guildId) { return this.request("guild-grants-enable", actor, { characterLinkId }, guildId); }
   guildGrantsDisable(actor, characterLinkId, guildId) { return this.request("guild-grants-disable", actor, { characterLinkId }, guildId); }
   guildGrantsDefault(actor, characterLinkId, guildId) { return this.request("guild-grants-default", actor, { characterLinkId }, guildId); }

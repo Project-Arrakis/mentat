@@ -53,7 +53,23 @@ const DEFAULT_PATHS = Object.freeze({
   // Core's PLAYERS_LINK_VERIFY route (/players/link/verify) has been live
   // since before this fix; added 2026-07-26 during UNMERGED_ROUTES cleanup
   // (see arrakis-control-panel#86).
-  "players-link-verify": "/api/integrations/discord/players/link/verify"
+  "players-link-verify": "/api/integrations/discord/players/link/verify",
+  // players-accounts-list/players-accounts-unlink: FIX (2026-07-27, found
+  // via a real live user report -- /dune player unlink <character> failed
+  // with "player links unlink is implemented in feature/... but not yet
+  // merged", and /dune player characters/verify were separately broken
+  // the same way). Core's real multi-account routes
+  // (PLAYERS_ACCOUNTS_LIST -> /players/accounts/list,
+  // PLAYERS_ACCOUNTS_UNLINK -> /players/accounts/unlink) have been live
+  // and fully implemented (listAccountsProvider()/unlinkAccountProvider()
+  // in multiAccountLinkProvider.js) all along -- the bot was calling a
+  // completely different, never-built player-links/* path family instead
+  // (see UNMERGED_ROUTES's own comment for the full player-links/* vs.
+  // players/accounts/* distinction). Added here so
+  // playerAccountsList()/playerAccountsUnlink() (adapterClient.js) can
+  // call the real, working routes.
+  "players-accounts-list": "/api/integrations/discord/players/accounts/list",
+  "players-accounts-unlink": "/api/integrations/discord/players/accounts/unlink"
 });
 
 const DEFAULT_METHODS = Object.freeze({
@@ -103,7 +119,9 @@ const DEFAULT_METHODS = Object.freeze({
   "guild-grants-default": "POST",
   "player-inventory-v2": "POST",
   "players-accounts-link-steam": "POST",
-  "players-link-verify": "POST"
+  "players-link-verify": "POST",
+  "players-accounts-list": "POST",
+  "players-accounts-unlink": "POST"
 });
 
 const RBAC_MODES = new Set(["restricted", "open"]);
