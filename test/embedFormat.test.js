@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatInventoryEmbed, formatStorageEmbed, formatFindEmbed } from "../src/embedFormat.js";
+import { formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed } from "../src/embedFormat.js";
 
 // ─── Real bug, found via a live user report (2026-07-26/27) ────────────────
 //
@@ -101,4 +101,44 @@ test("formatFindEmbed shows the empty-state message only when grouped is genuine
   const payload = { ok: true, query: "nonexistent", grouped: [], rows: [] };
   const embed = formatFindEmbed(payload).toJSON();
   assert.ok(embed.description.includes('No items matching "nonexistent" found'));
+});
+
+// ─── Real bug, found via a live report (2026-07-27): formatLinkEmbed()
+// had ZERO test coverage of any kind before this fix -- no test in this
+// entire repository ever called it, for any input. This is exactly why
+// a real, live, user-facing bug shipped unnoticed: Core's
+// linkPlayerProvider() gained a distinct { ok: true, alreadyLinked: true,
+// message: "..." } response for a re-link of an already-linked
+// character (a separate fix, same session), but this formatter always
+// showed the identical generic "Character Linked" text regardless --
+// so a real operator saw the SAME success message three times in a row
+// for three different re-link attempts, with no visible difference from
+// a genuine fresh link, and never saw Core's own explanatory (in-lore)
+// message at all. These tests close that coverage gap directly. ───────
+
+test("formatLinkEmbed shows a distinct 'Already Linked' embed with Core's own message when alreadyLinked is true", () => {
+  const payload = {
+    ok: true,
+    alreadyLinked: true,
+    characterName: "Sihaya",
+    message: "Your voice already answers to Sihaya in the eyes of the Landsraad -- no further binding is required."
+  };
+  const embed = formatLinkEmbed(payload).toJSON();
+  assert.equal(embed.title, "🔗 Already Linked");
+  assert.ok(embed.description.includes("Landsraad"), "should show Core's own in-lore message verbatim");
+  assert.ok(!embed.description.includes("Use `/dune data inventory`"), "must not show the fresh-link follow-up instructions for a no-op re-link");
+});
+
+test("formatLinkEmbed shows the normal 'Character Linked' embed for a genuine fresh link (alreadyLinked absent)", () => {
+  const payload = { ok: true, characterName: "Sihaya" };
+  const embed = formatLinkEmbed(payload).toJSON();
+  assert.equal(embed.title, "🔗 Character Linked");
+  assert.ok(embed.description.includes("Linked as **Sihaya**"));
+});
+
+test("formatLinkEmbed shows the failure embed for a rejected link (a different character already linked)", () => {
+  const payload = { ok: false, error: "Your voice already answers to Sihaya in the eyes of the Landsraad. A soul may not walk two paths in the desert -- use /dune player unlink before you may bind yourself to Paul." };
+  const embed = formatLinkEmbed(payload).toJSON();
+  assert.equal(embed.title, "🔗 Link Failed");
+  assert.ok(embed.description.includes("Paul"));
 });

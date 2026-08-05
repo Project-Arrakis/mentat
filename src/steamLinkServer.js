@@ -382,19 +382,37 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
       });
     }
 
+    // FIX (2026-07-27, found via a real live report -- same gap as
+    // embedFormat.js's formatLinkEmbed(), a separate code path that
+    // needed the identical fix): Core's linkAccountViaSteamProvider()
+    // short-circuits a re-link of an already-linked character with
+    // { ok: true, matched: true, alreadyLinked: true, accounts }, no
+    // real link write. This still fell into this success branch (since
+    // matched: true), but always showed the same "Character Linked"
+    // text as a genuine fresh link, with no indication nothing new
+    // actually happened.
+    const characterName = esc(findLinkedCharacterName(linkResult, session.playerControllerId));
     await editOriginalInteraction({
       client, fetchImpl, session,
-      embed: {
-        title: "🔗 Character Linked",
-        // Matches embedFormat.js's own DUNE_COLORS.success value exactly,
-        // so a Steam-linked success embed renders with the identical
-        // color as the whisper-flow's formatLinkEmbed().
-        description: `Linked as **${esc(findLinkedCharacterName(linkResult, session.playerControllerId))}** via Steam.\nUse \`/dune data inventory\` to view your inventory.`,
-        color: 0x2ECC71
-      }
+      embed: linkResult?.alreadyLinked
+        ? {
+            title: "🔗 Already Linked",
+            description: `You are already linked as **${characterName}**.`,
+            color: 0xC2A44E // matches embedFormat.js's DUNE_COLORS.spice
+          }
+        : {
+            title: "🔗 Character Linked",
+            // Matches embedFormat.js's own DUNE_COLORS.success value exactly,
+            // so a Steam-linked success embed renders with the identical
+            // color as the whisper-flow's formatLinkEmbed().
+            description: `Linked as **${characterName}** via Steam.\nUse \`/dune data inventory\` to view your inventory.`,
+            color: 0x2ECC71
+          }
     });
 
-    res.send(renderPage("Linked!", `<div class="panel"><p>Your character is now linked. You can close this tab and return to Discord.</p></div>`));
+    res.send(linkResult?.alreadyLinked
+      ? renderPage("Already Linked", `<div class="panel"><p>You're already linked as ${characterName}. You can close this tab and return to Discord.</p></div>`)
+      : renderPage("Linked!", `<div class="panel"><p>Your character is now linked. You can close this tab and return to Discord.</p></div>`));
   });
 
   // sendWhisperFallbackAndRespond: shared by the "player denied consent"
