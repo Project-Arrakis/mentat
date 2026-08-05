@@ -176,6 +176,39 @@ test("GET /steam-link/callback succeeds when the completing user matches the ses
   });
 });
 
+// FIX (2026-07-27, found via a real live report): re-linking a
+// character already linked via Steam-link showed the identical
+// "🔗 Character Linked" success message as a genuine fresh link, with no
+// indication that nothing new actually happened -- Core's
+// linkAccountViaSteamProvider() short-circuits this case with
+// { alreadyLinked: true, matched: true }, but this code path never
+// checked that field before this fix, always rendering the same
+// generic "Linked!" page regardless. This exact gap -- a real function
+// with a real, live user-facing bug -- had ZERO test coverage before
+// this fix, for either the Discord embed content or this response
+// page's text, which is exactly why it shipped unnoticed. This test
+// closes that gap directly, following the same real-server pattern
+// already used by every other test in this file.
+test("GET /steam-link/callback shows an 'Already Linked' page, not the generic 'Linked!' page, when Core reports alreadyLinked: true", async () => {
+  const session = createSteamLinkSession(baseSessionArgs({ discordUserId: "user-1" }));
+  await withServer(async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/steam-link/callback?state=${session.state}&code=abc`);
+    const body = await res.text();
+    assert.equal(res.status, 200);
+    assert.ok(body.includes("Already Linked"), "should show a distinct page for an already-linked re-link");
+    assert.ok(!body.includes("Linked!"), "must not show the generic fresh-link success text");
+  }, {
+    adapterClient: makeMockAdapterClient({
+      async linkAccountViaSteam() {
+        return { ok: true, matched: true, alreadyLinked: true, accounts: [{ player_controller_id: "pc-1", character_name: "Sihaya" }] };
+      }
+    }),
+    fetchOverrides: {
+      "users/@me": () => jsonResponse(200, { id: "user-1" })
+    }
+  });
+});
+
 test("GET /steam-link/callback's actor object sent to Core includes username/channelId/roleIds, not just userId/guildId (regression, real bug found 2026-07-26)", async () => {
   // Core's normalizeDiscordActor() hard-requires username and channelId
   // on EVERY actor object -- an actor built with only userId/guildId

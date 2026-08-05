@@ -446,12 +446,34 @@ export function formatFindEmbed(payload) {
 }
 
 // ── Link / Identity ──
+// FIX (2026-07-27, found via a real live report): re-linking an
+// already-linked character now short-circuits on the Core side
+// (linkPlayerProvider() in dune-awakening-selfhost-docker) with a
+// distinct { ok: true, alreadyLinked: true, message: "..." } response --
+// no whisper sent, no Steam-link round-trip, and a real, custom
+// (Fremen-styled, per explicit operator direction) message explaining
+// nothing needed to happen. This formatter previously ignored both
+// alreadyLinked and message entirely, always showing the identical
+// generic "🔗 Character Linked / Linked as X" text regardless -- so a
+// real operator saw the SAME generic success message three times in a
+// row for three different re-link attempts, with no visible difference
+// from an actual fresh link, and never saw Core's own explanatory text
+// at all. Now checks alreadyLinked first and displays Core's own
+// message verbatim with a distinct title, before falling through to the
+// original fresh-link copy for a genuine new link.
 export function formatLinkEmbed(payload) {
   if (!payload?.ok) {
     return duneEmbed({
       title: "🔗 Link Failed",
       color: "error",
       description: payload?.error || "Unknown error"
+    });
+  }
+  if (payload?.alreadyLinked) {
+    return duneEmbed({
+      title: "🔗 Already Linked",
+      color: "spice",
+      description: payload?.message || `You are already linked as **${payload?.characterName || "Unknown"}**.`
     });
   }
   return duneEmbed({
