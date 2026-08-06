@@ -27,6 +27,123 @@ export function createSetupServer(config) {
 
   const redirectUri = config.oauthRedirectUri || `${config.baseUrl}/oauth/callback`;
 
+  // Friendly landing page for the bare domain root. Previously the root
+  // fell through to Express's default "Cannot GET /" error page, which
+  // looked broken to anyone landing here without a path (bookmark, typo,
+  // bare-domain visit). Minimal by design -- this is a setup-flow server,
+  // not a marketing site (issue #91). Uses the same dark/sand style as the
+  // /setup page above.
+  app.get("/", (req, res) => {
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Arrakis Control Panel</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Marcellus&display=swap" rel="stylesheet">
+        <style>
+          :root {
+            --bg-deep: #0d0f12;
+            --bg-board: #1a1510;
+            --parchment-dark: #d4c4a0;
+            --sand-light: #ffd08a;
+            --sand-mid: #c68b4a;
+            --spice-glow: #e8a84c;
+            --sienna: #6b3a2a;
+            --text-light: #f3efe7;
+            --muted: #ad9f89;
+            --border-strong: #4d4032;
+            --font-heading: 'Marcellus', serif;
+            --font-body: 'Inter', sans-serif;
+          }
+          *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+          body {
+            font-family: var(--font-body);
+            background: var(--bg-deep);
+            color: var(--text-light);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+          }
+          .hero-icon {
+            width: 80px; height: 80px;
+            margin: 0 auto 20px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, var(--spice-glow), var(--sand-mid), var(--sienna));
+            box-shadow: 0 0 30px rgba(232, 168, 76, 0.3), 0 0 60px rgba(232, 168, 76, 0.15);
+          }
+          h1 {
+            font-family: var(--font-heading);
+            font-size: clamp(28px, 5vw, 42px);
+            color: var(--sand-light);
+            text-align: center;
+            margin-bottom: 8px;
+            letter-spacing: 0.02em;
+          }
+          .subtitle {
+            font-family: var(--font-heading);
+            font-style: italic;
+            font-size: 18px;
+            color: var(--parchment-dark);
+            text-align: center;
+            margin-bottom: 32px;
+          }
+          .panel {
+            background: var(--bg-board);
+            border: 1px solid var(--border-strong);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 480px;
+            width: 100%;
+            text-align: center;
+          }
+          .panel p {
+            color: var(--muted);
+            font-size: 15px;
+            margin-bottom: 20px;
+          }
+          .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: linear-gradient(135deg, var(--spice-glow), var(--sand-mid));
+            color: var(--bg-deep);
+            border: none;
+            padding: 14px 28px;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 16px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 24px rgba(232, 168, 76, 0.3);
+          }
+          .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 36px rgba(232, 168, 76, 0.5);
+          }
+        </style>
+      </head>
+      <body>
+        <div class="hero-icon" aria-hidden="true"></div>
+        <h1>Arrakis Control Panel</h1>
+        <p class="subtitle">Arrakis is where you go to die.</p>
+        <section class="panel">
+          <p>This server hosts the Arrakis Control Panel setup flow, which connects a Discord server to its Dune Awakening game console.</p>
+          <a href="/setup" class="btn">Continue to Setup</a>
+        </section>
+      </body>
+      </html>
+    `);
+  });
+
   app.get("/setup", (req, res) => {
     const { guildId } = req.query;
     const state = randomBytes(16).toString("hex");
