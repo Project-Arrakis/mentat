@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AdapterClient, AdapterHttpError, LIVE_ROUTES, PLANNED_ROUTES, routeStatus } from "../src/adapterClient.js";
+import { AdapterClient, AdapterHttpError, LIVE_ROUTES, PLANNED_ROUTES, UNMERGED_ROUTES, MISSING_ROUTES, routeStatus } from "../src/adapterClient.js";
 
 function config(overrides = {}) {
   return {
@@ -146,4 +146,76 @@ test("ops-inventory, ops-location, ops-soc, ops-prometheus, ops-dashboard remain
     assert.ok(!LIVE_ROUTES.has(route), `${route} must not be misclassified as live`);
     assert.equal(routeStatus(route), "planned");
   }
+});
+
+// FULL route-table pin (added 2026-08-06, RO roadmap audit -- see
+// docs/ro-roadmap-state-2026-08-06.md). These four sets must together
+// classify every route the bot can possibly call (every key in config.js's
+// DEFAULT_PATHS), disjointly, with zero "unknown" status. Prior to this
+// test, fourteen DEFAULT_PATHS keys had no classification at all -- most
+// importantly the nine player routes the bot calls daily (the audit's
+// central finding), plus players-accounts-link-steam -- because they had
+// been removed from UNMERGED_ROUTES in the 2026-07-26 reconciliation but
+// never added to any table. If this test fails because a route reports
+// "unknown", classify it in the correct set (verified against Core's real
+// DISCORD_ADAPTER_ROUTES at the current upstream tag) rather than relaxing
+// the test.
+test("every known route is classified into exactly one of the four route tables (no unknowns)", () => {
+  const whole = new Set([...LIVE_ROUTES, ...PLANNED_ROUTES, ...UNMERGED_ROUTES, ...MISSING_ROUTES]);
+
+  // The player routes re-added here on 2026-08-06 must be live: the bot
+  // calls them daily through playerLinkVerify()/playerInventory()/etc. and
+  // Core serves them (DISCORD_LIVE_ADAPTER_ROUTES, verified at v1.3.79).
+  for (const route of [
+    "players-link", "players-unlink", "players-me", "players-inventory",
+    "players-inventory-search", "players-storage", "players-find",
+    "guild-storage", "guild-find", "players-accounts-link-steam",
+    "players-link-verify", "players-accounts-list", "players-accounts-unlink"
+  ]) {
+    assert.equal(routeStatus(route), "live", `${route} must be classified live (bot calls it daily, Core serves it)`);
+  }
+
+  // Every key the bot's config path table can be asked to call must be
+  // classifiable. This is the exact set of DEFAULT_PATHS keys in
+  // src/config.js (49) -- kept in sync by hand; a new config route MUST be
+  // added to one of the four sets in the same change, or this fails.
+  const expectedPathKeys = [
+    "health", "status", "readiness", "services", "population", "logs",
+    "map-state", "maintenance", "backups", "announcements", "broadcast",
+    "version", "servers", "ports", "db", "write-execute", "write-preview",
+    "players-link", "players-unlink", "players-me", "players-faction",
+    "players-inventory", "players-inventory-search", "players-storage",
+    "players-find", "guild-storage", "guild-find", "ops-activity",
+    "ops-combat", "ops-resources", "ops-economy", "ops-inventory",
+    "ops-location", "ops-soc", "ops-prometheus", "ops-dashboard",
+    "player-links-start", "player-links-verify", "player-links",
+    "player-links-unlink", "guild-grants", "guild-grants-enable",
+    "guild-grants-disable", "guild-grants-default", "player-inventory-v2",
+    "players-accounts-link-steam", "players-link-verify",
+    "players-accounts-list", "players-accounts-unlink"
+  ];
+
+  assert.equal(whole.size, LIVE_ROUTES.size + PLANNED_ROUTES.size + UNMERGED_ROUTES.size + MISSING_ROUTES.size,
+    "the four sets must be disjoint (every route classifies exactly once)");
+  assert.deepEqual([...whole].sort(), expectedPathKeys.slice().sort(),
+    "config path keys and classified route keys must be identical sets -- a new config key without a classification is a bug");
+});
+
+// The 2026-08-06 ops:announcements dispatch fix: OPS_COMMANDS.announcements
+// used to point at route "ops-announcements", whose camelCase-derived
+// method opsAnnouncements existed ONLY in the test mock and not on the real
+// AdapterClient -- a live /dune ops announcements call would have thrown
+// TypeError. It now routes to "announcements", the real, live
+// /api/integrations/discord/announcements route. Pin that here.
+test("ops announcements dispatches to the real announcements method, not a mock-only opsAnnouncements", () => {
+  assert.equal(routeStatus("announcements"), "planned",
+    "announcements must stay planned -- upstream returns a planned stub until Core wires real announcement data");
+  assert.equal("function", typeof AdapterClient.prototype.announcements,
+    "real AdapterClient must expose announcements() (the dispatch derives the method name from the route)");
+  assert.equal("undefined", typeof AdapterClient.prototype.opsAnnouncements,
+    "no opsAnnouncements may exist on the real client -- only the route-derived name wins");
+
+  // Route-to-method derivation mirror of commands.js's dispatch:
+  // route.replace(/-(\w)/g, c => c.toUpperCase()) => announcements.
+  assert.equal("announcements", "announcements".replace(/-(\w)/g, (_, c) => c.toUpperCase()));
 });

@@ -4,9 +4,13 @@ This project stays useful by staying boring in the right places: small pull
 requests, clear permissions, readable test evidence, and no shortcuts around the
 console boundary.
 
-The bot remains read-only. It talks only to the console's bearer-token protected
-Discord adapter API. It never mounts the Docker socket, connects to the
-database, reads game files, or runs raw console commands.
+The bot remains read-only against the console boundary. It talks only to the
+console's bearer-token protected Discord adapter API. It never mounts the
+Docker socket, connects to the database, reads game files, or runs raw console
+commands. Player linking is the one write path: it updates the calling user's
+own link state through Core's dedicated player-link adapter routes (still not a
+privilege boundary crossing). The separate operator write-command group
+(`write:*`) stays disabled unless explicitly configured.
 
 ## Guardrails
 
@@ -26,7 +30,7 @@ These pieces are already in place:
 | Area | Status |
 | --- | --- |
 | Separate bot repository | Complete |
-| Read-only Discord command scaffold | Complete (6 groups, 39+ subcommands) |
+| Read-only Discord command scaffold | Complete (8 groups, 54 subcommands; write group adds 12 when enabled) |
 | Docker runtime with non-root user | Complete |
 | CI security gates | Complete (Semgrep, Gitleaks, Trivy, ggshield, npm audit) |
 | Public readiness and support docs | Complete |
@@ -38,11 +42,11 @@ These pieces are already in place:
 | Canvas status cards | Complete (1200×640 PNG, Dune Rise typeface, faction colors) |
 | Scheduled status posts | Complete |
 | Game → Discord announcement bridge | Complete |
-| OPS observability commands | Complete (9 domains) |
+| OPS observability commands | Complete (10 subcommands) |
 | Faction theming | Complete (Atreides, Harkonnen, Fremen) |
-| Test harness | Complete (48 harness tests, 204 core tests, 0 skipped) |
-| Write safety framework | Staged (disabled by default, R1.5.0) |
-| Player inventory + storage | Upstream PR #91 pending merge |
+| Test harness | Complete (412 core tests, 72 harness tests, 5 bats tests, 0 skipped) |
+| Write safety framework | Staged (disabled by default, `DUNE_DISCORD_WRITES_ENABLED`, R1.5.0) |
+| Player inventory + storage | Complete (upstream PR #91 merged 2026-07-20, live since v1.3.61) |
 
 The upstream console source of truth is
 `Red-Blink/dune-awakening-selfhost-docker`. The local reference clone is used
@@ -51,15 +55,20 @@ branch for this bot.
 
 ## Current Commands
 
+(The exact registered surface, matching `src/commands.js`'s
+`buildDuneCommand()` and `/dune help` -- refreshed 2026-08-06.)
+
 | Command Group | Commands | Purpose |
 | --- | --- | --- |
-| `core` | `about`, `ping`, `help` | Bot information and diagnostics |
-| `server` | `health`, `status`, `summary`, `readiness`, `services` | Game server health checks |
+| `core` | `about`, `ping`, `help`, `setup` | Bot information and help |
+| `server` | `health`, `status`, `summary`, `readiness`, `readiness-detail`, `services`, `services-detail`, `maintenance` | Game server health checks |
 | `data` | `population`, `backups`, `maps` | Game world data |
-| `player` | `link`, `unlink`, `me`, `inventory`, `storage`, `find`, `inventory-search` | Player character and inventory (requires linking) |
-| `ops` | `activity`, `combat`, `resources`, `economy`, `armory`, `location`, `soc`, `prometheus`, `dashboard` | Operational statistics (requires OPS addon) |
-| `admin` | `doctor`, `cooldowns`, `latency`, `events`, `broadcast` | Administration tools (restricted) |
+| `player` | `link`, `verify`, `characters`, `enable`, `disable`, `default`, `unlink`, `faction`, `whoami`, `inventory`, `storage`, `find` | Your character: linking, inventory, storage, account management |
+| `logs` | `dune-cache`, `dune-generated`, `dune-server`, `dune-steam`, `dune-work`, `orchestrator`, `redblink-dune-docker-console` | Game service container logs |
+| `ops` | `activity`, `combat`, `resources`, `economy`, `armory`, `location`, `soc`, `prometheus`, `dashboard`, `announcements` | Operational statistics (requires OPS addon) |
+| `admin` | `doctor`, `cooldowns`, `latency`, `events`, `roles`, `broadcast` | Administration tools (restricted) |
 | `infra` | `version`, `servers`, `ports`, `db` | Infrastructure status |
+| `write` | `maintenance-note`, `maintenance-window`, `alert-channel`, `alert-threshold`, `digest-schedule`, `post-schedule`, `add-channel`, `remove-channel`, `backup`, `restart`, `update`, `cache` | Operator writes (only registered when `DUNE_DISCORD_WRITES_ENABLED=true`) |
 
 Each current command must remain read-only, call only the adapter client, enforce
 command-level RBAC, and return bounded redacted Discord output.
@@ -103,12 +112,18 @@ Small pull requests:
 Progress:
 
 - Endpoint paths, methods, and payload shapes are confirmed against upstream
-  release `v1.3.60`.
+  release `v1.3.79`.
 - Health, status, readiness, and services fixtures are covered by unit tests.
 - Configured route overrides are covered by compatibility tests.
 - A local token-protected adapter mock serves the fixtures on loopback for smoke
   tests and examples.
-- Route status tracking: LIVE (19), PLANNED (5), UNMERGED (10), MISSING (2).
+- Route status tracking: LIVE (28), PLANNED (8), UNMERGED (7), MISSING (6).
+  Every route key in `config.js`'s path table is classified in exactly one
+  set -- pinned by `test/adapterClient.test.js` so an unclassified route is a
+  test failure. (Corrected 2026-08-06: previously reported LIVE 19 / PLANNED 5 /
+  UNMERGED 10 / MISSING 2, which was stale in all four directions; the 2026-08-06
+  audit found fourteen route keys with no classification at all, including nine
+  player routes the bot calls daily. See `docs/ro-roadmap-state-2026-08-06.md`.)
 
 Complexity: low to medium. **Status: Complete.**
 
@@ -171,7 +186,10 @@ Only add commands backed by safe upstream adapter responses.
 - `/dune player faction <name>` — Set faction for themed embeds
 
 **Upstream PR:** [Red-Blink/dune-awakening-selfhost-docker#91](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/91)
-— 489/489 tests pass, all CI checks green.
+— **merged 2026-07-20** (`47ca186`, shipped in `v1.3.61`; all of PR #91's
+player routes remain live through the current baseline `v1.3.79`). The
+player-feature rows below are therefore live end-to-end, not pending
+upstream.
 
 Security requirements:
 
@@ -218,11 +236,13 @@ Current release state:
 - Latest release candidate validated: `v1.0.0-rc.2`
 - Next stable target: `v1.0.0` after the promotion checklist in
   `docs/v1.0.0-promotion-checklist.md` is satisfied
-- Latest upstream stable baseline: `v1.3.60`
-- Latest upstream commit checked: `fdaca43` (Release v1.3.60)
-- Latest upstream release candidate observed: none newer than `v1.3.60`
-- Pending upstream PR: `feature/discord-player-inventory-rebase` → PR #91
-- All test skipping removed — 489/489 pass, 0 skipped
+- Latest upstream stable baseline: `v1.3.79`
+- Latest upstream release verified: `ac8f086` / `d41f1270` ("Release v1.3.79",
+  2026-08-05)
+- Latest upstream release candidate observed: none newer than `v1.3.79`
+- Upstream player-inventory PR #91: **merged 2026-07-20**, live since `v1.3.61`
+- All test skipping removed — 412 core + 72 harness + 5 bats = 489/489 pass,
+  0 skipped
 - All pre-commit hooks pass without `--no-verify`
 
 Security requirements:

@@ -32,7 +32,20 @@ export const LIVE_ROUTES = new Set([
   // confirmed via direct grep of Core's real DISCORD_ADAPTER_ROUTES/
   // routes.js, now actually called by adapterClient.js instead of the
   // never-built player-links/* path family.
-  "players-link-verify", "players-accounts-list", "players-accounts-unlink"
+  "players-link-verify", "players-accounts-list", "players-accounts-unlink",
+  // THIRD reconciliation (2026-08-06, RO roadmap audit -- see
+  // docs/ro-roadmap-state-2026-08-06.md): the routes below were NOT in any
+  // table, leaving routeStatus() = "unknown" for every one even though the
+  // bot calls them daily (/dune player link/verify/characters/inventory/
+  // storage/find, /dune ops, and the Steam link flow). All are real, live
+  // Core routes now called by adapterClient.js -- verified 2026-08-06 by
+  // direct grep of Core's DISCORD_LIVE_ADAPTER_ROUTES (players/link,
+  // players/unlink, players/me, players/inventory, players/inventory-search,
+  // players/storage, players/find, guilds/storage, guilds/find,
+  // players/accounts/link-steam) at upstream tag v1.3.79.
+  "players-link", "players-unlink", "players-me", "players-inventory",
+  "players-inventory-search", "players-storage", "players-find",
+  "guild-storage", "guild-find", "players-accounts-link-steam"
 ]);
 
 // Routes that exist in upstream but return "planned" stubs or placeholder data.
@@ -85,8 +98,29 @@ export const UNMERGED_ROUTES = new Set([
 ]);
 
 // Routes that do NOT exist anywhere.
+//
+// write-execute/write-preview: the write-command group's routes, still
+// unbuilt on Core (the bot's write group stays disabled until they land).
+//
+// Added 2026-08-06 (RO roadmap audit, all verified by direct grep of Core
+// at upstream tag v1.3.79):
+// - maintenance: Core DECLARES the MAINTENANCE route constant
+//   (/api/integrations/discord/maintenance) but never registers it in
+//   DISCORD_LIVE_ADAPTER_ROUTES and routes.js has no handler for it --
+//   every call 404s ("Discord adapter route not found"). /dune server
+//   maintenance therefore fails in production; tracked in
+//   docs/ro-roadmap-state-2026-08-06.md.
+// - player-links, player-links-verify, player-links-unlink: the never-built
+//   player-links/* path family. Core has no such routes (only
+//   player-links/start exists, and even that is UNMERGED/dead), and NO
+//   adapterClient.js method calls any of these three keys -- they survive
+//   only as config.js path/method entries. Listed here so routeStatus()
+//   reports "missing" rather than "unknown" for dead config keys; the
+//   config entries themselves are candidates for removal (see the audit doc).
 export const MISSING_ROUTES = new Set([
-  "write-execute", "write-preview"
+  "write-execute", "write-preview",
+  "maintenance",
+  "player-links", "player-links-verify", "player-links-unlink"
 ]);
 
 export function isRouteLive(route) { return LIVE_ROUTES.has(route); }
@@ -137,10 +171,12 @@ export class AdapterClient {
   backups(actor, guildId) { return this.request("backups", actor, undefined, guildId); }
   logs(actor, service, guildId) { return this.request("logs", actor, service ? { service } : undefined, guildId); }
   mapState(actor, guildId) { return this.request("map-state", actor, undefined, guildId); }
-  // Route provenance is unverified against upstream main (see docs/adapter-contract.md,
-  // which currently documents only health/status/readiness/services). Left out of
-  // LIVE_ROUTES/PLANNED_ROUTES/UNMERGED_ROUTES until confirmed; routeStatus("maintenance")
-  // returns "unknown" so callers can surface that honestly instead of assuming success.
+  // VERIFIED 2026-08-06: Core declares the MAINTENANCE route constant
+  // (/api/integrations/discord/maintenance) but never registers it in
+  // DISCORD_LIVE_ADAPTER_ROUTES and routes.js has no handler -- every call
+  // 404s. Classified MISSING_ROUTES so callers surface that honestly
+  // instead of assuming success. /dune server maintenance fails in
+  // production until Core actually implements this route.
   maintenance(actor, guildId) { return this.request("maintenance", actor, undefined, guildId); }
   broadcast(actor, message, guildId) { return this.request("broadcast", actor, { message }, guildId); }
   opsActivity(actor, guildId) { return this.request("ops-activity", actor, undefined, guildId); }

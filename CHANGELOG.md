@@ -81,6 +81,17 @@ and Cloudflare tunnel support.
 - Setup portal guide (`docs/setup-portal-guide.md`) for new users.
 - Post-receive hook fix: replaced broken `git fetch origin` with `git pull deploy`.
 - Stats pusher now writes to both `acp-stats-${INSTANCE_ID}` and `acp-stats-aggregate` KV keys.
+- Root landing page at `/` on the setup server (dark Dune theme, links to `/setup`).
+- `scripts/deploy-post-receive.sh`: canonical, versioned deploy hook (test guardrail,
+  restart, health check, and auto-re-registration of slash commands when
+  `src/commands.js`/`src/opsCommands.js` change in the pushed range). The live
+  OCI hook must be kept in sync with this file.
+- `scripts/command-defs-changed.sh` fail-safe range checker used by the hook.
+- `scripts/reencrypt-secrets.js` bulk re-encryption tool for existing
+  installs (dry-run, WAL-consistent backup, no-key abort, idempotent) --
+  `npm run reencrypt`.
+- Bats coverage for the deploy hook (`test/deploy-hook.bats`), run by
+  `npm test` after the node suite.
 
 ### Changed
 
@@ -96,12 +107,37 @@ and Cloudflare tunnel support.
 - Setup portal intro clarified: only console `.env` editing required, not bot config.
 - Setup portal docker restart command uses `-f docker-compose.web.yml` and service name.
 - `aboutPayload` `readOnly` changed to `false` (bot supports write operations for player linking).
+- `/dune help` (`helpPayload`) now lists the full registered command surface
+  (54 non-write commands, plus the 12 command-write commands only when that
+  group is enabled) -- it previously omitted the entire `player` group, the
+  entire `logs` group, and 3 `server` subcommands, hiding real commands from
+  users. Pinned by `test/commands.test.js`.
+- Adapter route tables reconciled (LIVE 28 / PLANNED 8 / UNMERGED 7 /
+  MISSING 6): twelve previously-unclassified route keys are now classified,
+  including nine player routes the bot calls daily and
+  `players-accounts-link-steam` (live), `maintenance` (missing -- declared
+  upstream but never registered, every call 404s), and the dead
+  `player-links*` config keys. Pinned by `test/adapterClient.test.js`; no
+  config route key may be unclassified now. See
+  `docs/ro-roadmap-state-2026-08-06.md`.
+- Re-linking an already-linked character shows a distinct "Already Linked"
+  message instead of a generic success line.
 
 ### Fixed
 
 - Guild onboarding DM error now logged with actual error message (was silently swallowed).
 - Landing page counter reset bug: `animateCounter` now preserves previous values
   between fetches instead of always starting from 0.
+- `/dune ops announcements` threw a `TypeError` in production: the dispatch
+  derived method name `opsAnnouncements` from route `ops-announcements`, a
+  method that only ever existed in the test mock -- the real `AdapterClient`
+  exposes `announcements()`, which the ops subcommand now routes to (the
+  `ops-announcements` route path itself has never existed on Core; the real
+  route is `/api/integrations/discord/announcements`).
+- Player route status reporting: nine player routes the bot calls daily
+  reported `"unknown"` status because they had been removed from
+  `UNMERGED_ROUTES` in the 2026-07-26 reconciliation without being added to
+  `LIVE_ROUTES` (all are real, live Core routes since the PR #91 merge).
 
 ### Removed
 

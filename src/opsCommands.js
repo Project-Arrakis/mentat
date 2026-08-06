@@ -66,9 +66,16 @@ export const OPS_COMMANDS = Object.freeze({
     method: "POST",
     description: "Show aggregated operational dashboard summary."
   },
+  // NOTE: this subcommand deliberately does NOT follow the ops-<name>
+  // route pattern. There is no /ops/announcements route on Core (verified
+  // upstream 2026-08-06) -- the real route is the top-level
+  // /api/integrations/discord/announcements. Using the real route also
+  // makes the dispatch derive the method name "announcements" (which
+  // exists on AdapterClient) instead of "opsAnnouncements" (which only
+  // ever existed in the test mock and would TypeError in production).
   announcements: {
-    route: "ops-announcements",
-    path: "/api/integrations/discord/ops/announcements",
+    route: "announcements",
+    path: "/api/integrations/discord/announcements",
     method: "POST",
     description: "Show recent server and game announcements."
   }

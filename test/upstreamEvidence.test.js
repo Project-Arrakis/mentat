@@ -2,10 +2,16 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
+// Baseline advanced to upstream v1.3.79 (release commit d41f1270, tag
+// ac8f086, released 2026-08-05) on 2026-08-06. The 2026-08-06 RO roadmap
+// audit re-verified every Discord adapter route this bot calls against
+// this tag (see docs/ro-roadmap-state-2026-08-06.md and the full-set pin in
+// test/adapterClient.test.js) -- that re-verification is the compatibility
+// review this evidence records; it is NOT an unimplemented claim.
 const currentEvidence = Object.freeze({
-  commit: "fdaca43",
-  tag: "v1.3.60",
-  date: "July 18, 2026"
+  commit: "d41f1270",
+  tag: "v1.3.79",
+  date: "August 6, 2026"
 });
 
 const livingEvidenceDocs = Object.freeze([
@@ -23,7 +29,9 @@ const supersededEvidenceTerms = Object.freeze([
   "v1.3.41",
   "5163bd8",
   "fea65b4",
-  "233aedf"
+  "233aedf",
+  "fdaca43",
+  "v1.3.60"
 ]);
 
 test("living upstream evidence docs name the current baseline", async () => {
