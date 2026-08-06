@@ -8,11 +8,13 @@ import {
   executeDuneCommand,
   extractRoleIds,
   helpPayload,
+  isAdminActor,
   isCommandAllowed,
   pingPayload,
   requiredRoleIdsForCommand,
   statusSummaryPayload
 } from "../src/commands.js";
+import { createDatabase, upsertGuild, addGuildRole, updateGuildSettings } from "../src/database.js";
 
 const packageVersion = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8")
@@ -148,6 +150,56 @@ test("isCommandAllowed permits all in open mode", () => {
   const config = { multiTenant: false, discord: { rbac: { mode: "open" } } };
   assert.equal(isCommandAllowed({}, "core:about", config), true);
   assert.equal(isCommandAllowed({}, "unknown:cmd", config), true);
+});
+
+// ── Multi-tenant tier wiring (unified-RBAC Phase 1) ───────────────────────
+// The guild_roles schema always allowed owner/moderator role_type rows,
+// but isCommandAllowed()/isAdminActor() only ever checked observer/admin,
+// so a guild that configured owner or moderator got constant
+// "not authorized" denials. These tests pin the fixed behavior.
+
+function multiTenantDb({ owner = [], admin = [], moderator = [], observer = [], rbacMode = null } = {}) {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "guild-1", guildName: "Test Guild", consoleUrl: "https://example.test", adapterToken: "t", status: "active" });
+  for (const id of owner) addGuildRole(db, "guild-1", "owner", id);
+  for (const id of admin) addGuildRole(db, "guild-1", "admin", id);
+  for (const id of moderator) addGuildRole(db, "guild-1", "moderator", id);
+  for (const id of observer) addGuildRole(db, "guild-1", "observer", id);
+  if (rbacMode) updateGuildSettings(db, "guild-1", { rbac_mode: rbacMode });
+  return db;
+}
+
+const MT_CONFIG = { multiTenant: true, discord: { rbac: {} } };
+
+test("isCommandAllowed (multi-tenant) allows owner-then-moderator roles in restricted mode", () => {
+  const db = multiTenantDb({ owner: ["owner-role"], moderator: ["mod-role"] });
+  assert.equal(isCommandAllowed({ member: { roles: ["owner-role"] } }, "core:about", MT_CONFIG, db, "guild-1"), true);
+  assert.equal(isCommandAllowed({ member: { roles: ["mod-role"] } }, "core:about", MT_CONFIG, db, "guild-1"), true);
+});
+
+test("isCommandAllowed (multi-tenant) rejects users with no configured role", () => {
+  const db = multiTenantDb({ admin: ["admin-role"] });
+  assert.equal(isCommandAllowed({ member: { roles: ["some-other-role"] } }, "core:about", MT_CONFIG, db, "guild-1"), false);
+  assert.equal(isCommandAllowed({ member: { roles: [] } }, "core:about", MT_CONFIG, db, "guild-1"), false);
+});
+
+test("isCommandAllowed (multi-tenant) respects open mode", () => {
+  const db = multiTenantDb({ rbacMode: "open" });
+  assert.equal(isCommandAllowed({ member: { roles: [] } }, "core:about", MT_CONFIG, db, "guild-1"), true);
+});
+
+test("isAdminActor (multi-tenant) requires admin tier or above -- owner passes, moderator does not", () => {
+  const db = multiTenantDb({
+    owner: ["owner-role"],
+    admin: ["admin-role"],
+    moderator: ["mod-role"],
+    observer: ["player-role"]
+  });
+  assert.equal(isAdminActor({ member: { roles: ["admin-role"] } }, MT_CONFIG, db, "guild-1"), true);
+  assert.equal(isAdminActor({ member: { roles: ["owner-role"] } }, MT_CONFIG, db, "guild-1"), true, "owner is above admin and must pass admin gates");
+  assert.equal(isAdminActor({ member: { roles: ["mod-role"] } }, MT_CONFIG, db, "guild-1"), false, "moderator is below admin and must not pass admin gates");
+  assert.equal(isAdminActor({ member: { roles: ["player-role"] } }, MT_CONFIG, db, "guild-1"), false, "player must not pass admin gates");
+  assert.equal(isAdminActor({ member: { roles: ["unconfigured"] } }, MT_CONFIG, db, "guild-1"), false);
 });
 
 test("executeDuneCommand handles core:about without calling the adapter", async () => {

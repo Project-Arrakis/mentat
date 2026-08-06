@@ -10,8 +10,8 @@ export function broadcastEnabled(config) {
   return writesEnabled(config);
 }
 
-export function canBroadcast(interaction, config) {
-  return canWrite(interaction, config);
+export function canBroadcast(interaction, config, db = null, guildId = null) {
+  return canWrite(interaction, config, null, db, guildId);
 }
 
 export function checkBroadcastCooldown(userId, cooldownMs = BROADCAST_COOLDOWN_MS) {
@@ -37,13 +37,15 @@ export async function executeBroadcast({
   interaction,
   adapterClient,
   config,
-  userRequest
+  userRequest,
+  guildId = null,
+  db = null
 } = {}) {
   if (!broadcastEnabled(config)) {
     return { ok: false, error: "Broadcast command is disabled. Set DUNE_DISCORD_WRITES_ENABLED=true." };
   }
 
-  if (!canBroadcast(interaction, config)) {
+  if (!canBroadcast(interaction, config, db, guildId)) {
     return { ok: false, error: "Not authorized. Broadcast requires moderator or admin role." };
   }
 

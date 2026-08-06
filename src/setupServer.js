@@ -633,11 +633,20 @@ export function createSetupServer(config) {
 
               <section class="panel">
                 <h2>Step 3: Role Configuration</h2>
+
+                <label for="ownerRoleId">Owner Role ID <em>(optional)</em></label>
+                <input type="text" name="ownerRoleId" id="ownerRoleId" placeholder="Discord role ID">
+                <div class="hint">Members with this role can use owner-tier actions (backups, restarts, updates) when writes are enabled</div>
+
                 <label for="adminRoleId">Admin Role ID</label>
                 <input type="text" name="adminRoleId" id="adminRoleId" placeholder="Discord role ID">
                 <div class="hint">Members with this role can use admin commands</div>
 
-                <label for="observerRoleId">Observer Role ID</label>
+                <label for="moderatorRoleId">Moderator Role ID <em>(optional)</em></label>
+                <input type="text" name="moderatorRoleId" id="moderatorRoleId" placeholder="Discord role ID">
+                <div class="hint">Members with this role can use read-only commands and future moderation tools</div>
+
+                <label for="observerRoleId">Player Role ID</label>
                 <input type="text" name="observerRoleId" id="observerRoleId" placeholder="Discord role ID">
                 <div class="hint">Members with this role can use read-only commands</div>
               </section>
@@ -704,7 +713,7 @@ export function createSetupServer(config) {
 
   app.post("/setup/register", async (req, res) => {
     try {
-      const { discordUserId, guildId, consoleUrl, adapterToken, observerRoleId, adminRoleId } = req.body;
+      const { discordUserId, guildId, consoleUrl, adapterToken, ownerRoleId, adminRoleId, moderatorRoleId, observerRoleId } = req.body;
 
       if (!guildId || !consoleUrl || !adapterToken) {
         return res.status(400).json({ error: "Missing required fields" });
@@ -720,8 +729,13 @@ export function createSetupServer(config) {
         status: "active"
       });
 
-      if (observerRoleId) addGuildRole(db, guildId, "observer", observerRoleId);
+      // All four unified tiers are enrolled here. owner/moderator are
+      // optional -- their absence simply means the guild has no users at
+      // that tier, which the tier resolver fails closed on.
+      if (ownerRoleId) addGuildRole(db, guildId, "owner", ownerRoleId);
+      if (moderatorRoleId) addGuildRole(db, guildId, "moderator", moderatorRoleId);
       if (adminRoleId) addGuildRole(db, guildId, "admin", adminRoleId);
+      if (observerRoleId) addGuildRole(db, guildId, "observer", observerRoleId);
 
       updateGuildSettings(db, guildId, {
         rbac_mode: "restricted",

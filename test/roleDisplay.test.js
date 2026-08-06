@@ -32,7 +32,7 @@ test("resolveRoleLabel returns 'Unknown Role (RoleID)' (not a crash) when guild 
   assert.equal(resolveRoleLabel(undefined, "111"), "Unknown Role (111)");
 });
 
-test("resolveRoleLabels resolves a batch of { role_type, role_id } rows, preserving role_type", () => {
+test("resolveRoleLabels resolves a batch of { role_type, role_id } rows, mapping the observer tier to its user-facing label", () => {
   const guild = mockGuild([
     { id: "111", name: "Moderators" },
     { id: "222", name: "Officers" }
@@ -40,13 +40,15 @@ test("resolveRoleLabels resolves a batch of { role_type, role_id } rows, preserv
   const rows = [
     { role_type: "admin", role_id: "111" },
     { role_type: "observer", role_id: "222" },
+    { role_type: "owner", role_id: "333" },
     { role_type: "observer", role_id: "999" } // stale ID, not in guild
   ];
   const result = resolveRoleLabels(guild, rows);
   assert.deepEqual(result, [
     { roleType: "admin", roleId: "111", label: "Moderators (111)" },
-    { roleType: "observer", roleId: "222", label: "Officers (222)" },
-    { roleType: "observer", roleId: "999", label: "Unknown Role (999)" }
+    { roleType: "player", roleId: "222", label: "Officers (222)" },
+    { roleType: "owner", roleId: "333", label: "Unknown Role (333)" },
+    { roleType: "player", roleId: "999", label: "Unknown Role (999)" }
   ]);
 });
 

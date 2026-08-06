@@ -16,6 +16,7 @@ import { getLatencyHistory, UNMERGED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
 import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
+import { dbActorTier, tierAtLeast } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
 
 // Group -> subcommand -> handler config
@@ -441,7 +442,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = rolesConfigPayload(interaction, config, db, guildId);
     } else if (key === "admin:broadcast") {
       const msg = interaction.options.getString("message");
-      const result = await executeBroadcast({ interaction, adapterClient, config, userRequest: msg, guildId });
+      const result = await executeBroadcast({ interaction, adapterClient, config, userRequest: msg, guildId, db });
       if (result.ok && result.needsConfirmation) {
         payload = redactSecrets({ ok: true, action: "broadcast", message: result.message, idempotencyKey: result.idempotencyKey, confirmation: result.confirmationMessage });
       } else {
@@ -460,7 +461,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     }
     // ── write group ──
     else if (group === "write") {
-      payload = await handleWriteCommand({ subcommand, interaction, adapterClient, config, guildId });
+      payload = await handleWriteCommand({ subcommand, interaction, adapterClient, config, guildId, db });
     }
     else {
       payload = { ok: false, error: `Unknown command: ${key}` };
@@ -584,16 +585,16 @@ export function actorFromInteraction(interaction) {
 // ── RBAC ──
 export function isCommandAllowed(interaction, command, config, db = null, guildId = null) {
   if (config.multiTenant && db && guildId) {
-    const roles = getGuildRoles(db, guildId);
     const settings = getGuildSettings(db, guildId);
     const mode = settings?.rbac_mode || "restricted";
     if (mode === "open") return true;
-    const roleIds = new Set(extractRoleIds(interaction));
-    const observerIds = new Set((roles || []).filter(r => r.role_type === "observer").map(r => r.role_id));
-    const adminIds = new Set((roles || []).filter(r => r.role_type === "admin").map(r => r.role_id));
-    if (observerIds.size > 0 && [...roleIds].some(r => observerIds.has(r))) return true;
-    if (adminIds.size > 0 && [...roleIds].some(r => adminIds.has(r))) return true;
-    return false;
+    // Multi-tenant gating is tier-based: any configured guild_roles row the
+    // actor holds lets them through (restricted mode = "must hold a
+    // configured role"). All four tiers are honored here -- owner and
+    // moderator rows previously existed in the DB schema but were never
+    // checked, so a guild that configured either got constant
+    // "not authorized" denials (unified-RBAC Phase 1 fix).
+    return dbActorTier(extractRoleIds(interaction), getGuildRoles(db, guildId)) != null;
   }
 
   const rbac = config.discord.rbac;
@@ -654,12 +655,11 @@ function rolesConfigPayload(interaction, config, db = null, guildId = null) {
 }
 
 // ── Helpers ──
-function isAdminActor(interaction, config, db = null, guildId = null) {
+export function isAdminActor(interaction, config, db = null, guildId = null) {
   if (config.multiTenant && db && guildId) {
-    const roles = getGuildRoles(db, guildId);
-    const roleIds = extractRoleIds(interaction);
-    const adminIds = new Set((roles || []).filter(r => r.role_type === "admin").map(r => r.role_id));
-    return roleIds.some(r => adminIds.has(r));
+    // Admin gate = admin tier or above. Owner passes (owner > admin);
+    // moderator does not (it is below admin on the unified ladder).
+    return tierAtLeast(dbActorTier(extractRoleIds(interaction), getGuildRoles(db, guildId)), "admin");
   }
 
   const roleIds = extractRoleIds(interaction);
@@ -817,7 +817,7 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     // (canWrite()), not the normal observer/admin RBAC used by
     // isCommandAllowed() -- classify them with their real gate.
     if (cmd.name.startsWith("write:")) {
-      if (canWrite(interaction, config)) available.push(cmd); else locked.push(cmd);
+      if (canWrite(interaction, config, null, db, guildId)) available.push(cmd); else locked.push(cmd);
     } else if (isCommandAllowed(interaction, cmd.name, config, db, guildId)) {
       available.push(cmd);
     } else {

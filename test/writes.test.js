@@ -121,6 +121,59 @@ test("canWrite returns false without member roles", () => {
   }
 });
 
+// ── Multi-tenant tier wiring (unified-RBAC Phase 1) ───────────────────────
+// In multi-tenant mode canWrite() must resolve the actor's tier from the
+// guild's guild_roles rows (all four tiers), not from process env vars --
+// a hosted guild's owner-tier row previously could not reach owner-tier
+// write actions because the env-only lookup never saw it.
+
+import { createDatabase, upsertGuild, addGuildRole } from "../src/database.js";
+
+function mtWritesConfig() {
+  return { multiTenant: true, discord: { writes: { enabled: true } } };
+}
+
+function mtDb(roles) {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "guild-9", guildName: "Test Guild", consoleUrl: "https://example.test", adapterToken: "t", status: "active" });
+  for (const row of roles) addGuildRole(db, "guild-9", row.type, row.id);
+  return db;
+}
+
+function mtActor(roleIds) {
+  return { member: { roles: { cache: new Map(roleIds.map((id) => [id, {}])) } } };
+}
+
+const mtDbConfig = mtWritesConfig();
+
+test("canWrite (multi-tenant) lets a guild_roles admin reach admin-tier actions but not owner-tier", () => {
+  const db = mtDb([{ type: "admin", id: "admin-role" }]);
+  const actor = mtActor(["admin-role"]);
+  assert.equal(canWrite(actor, mtDbConfig, null, db, "guild-9"), true, "admin passes default (admin-or-above)");
+  assert.equal(canWrite(actor, mtDbConfig, "admin", db, "guild-9"), true);
+  assert.equal(canWrite(actor, mtDbConfig, "owner", db, "guild-9"), false, "admin must not reach owner-tier");
+});
+
+test("canWrite (multi-tenant) lets a guild_roles owner role reach owner-tier actions", () => {
+  const db = mtDb([{ type: "owner", id: "owner-role" }]);
+  const actor = mtActor(["owner-role"]);
+  assert.equal(canWrite(actor, mtDbConfig, null, db, "guild-9"), true);
+  assert.equal(canWrite(actor, mtDbConfig, "owner", db, "guild-9"), true);
+  assert.equal(canWrite(actor, mtDbConfig, "admin", db, "guild-9"), true, "owner is above admin");
+});
+
+test("canWrite (multi-tenant) rejects player/moderator tiers for write actions", () => {
+  const db = mtDb([{ type: "observer", id: "player-role" }, { type: "moderator", id: "mod-role" }]);
+  assert.equal(canWrite(mtActor(["player-role"]), mtDbConfig, null, db, "guild-9"), false);
+  assert.equal(canWrite(mtActor(["mod-role"]), mtDbConfig, null, db, "guild-9"), false, "moderator is below admin, so no write access");
+});
+
+test("canWrite (multi-tenant) rejects actors with no configured guild_roles row", () => {
+  const db = mtDb([{ type: "admin", id: "admin-role" }]);
+  assert.equal(canWrite(mtActor(["some-other-role"]), mtDbConfig, null, db, "guild-9"), false);
+  assert.equal(canWrite(mtActor([]), mtDbConfig, null, db, "guild-9"), false);
+});
+
 test("writeRoleIds parses env vars", () => {
   const oldAdmin = process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
   const oldOwner = process.env.DISCORD_WRITE_OWNER_ROLE_IDS;

@@ -46,7 +46,7 @@ export const WRITE_COMMANDS = Object.freeze([
     desc: "Clear server caches.", params: [{ name: "type", type: "string", desc: "Cache type (steam/maps/derived)", required: true }] },
 ]);
 
-export async function handleWriteCommand({ subcommand, interaction, adapterClient, config }) {
+export async function handleWriteCommand({ subcommand, interaction, adapterClient, config, guildId = null, db = null }) {
   if (!writesEnabled(config)) {
     return { ok: false, error: "Write commands are disabled. Set DUNE_DISCORD_WRITES_ENABLED=true.", disabled: true };
   }
@@ -56,7 +56,7 @@ export async function handleWriteCommand({ subcommand, interaction, adapterClien
 
   // Enforces tier separation: write-admin roles cannot reach owner-tier
   // actions (restart-service, trigger-update, create-backup, clear-cache).
-  if (!canWrite(interaction, config, def.tier)) {
+  if (!canWrite(interaction, config, def.tier, db, guildId)) {
     const requiresOwner = def.tier === "owner";
     return {
       ok: false,

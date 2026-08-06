@@ -17,6 +17,17 @@
 // stale cached name in an admin-facing display whose whole point is
 // catching drift.
 
+import { ROLE_TYPE_LABELS } from "./rbac.js";
+
+// Resolve a raw DB role_type value ("observer" from guild_roles) to the
+// user-facing tier label. Per the unified 4-tier model, the "observer"
+// tier is presented to humans as "player" (player == observer). Unknown
+// future values pass through unchanged so a newer DB never crashes an
+// older binary here.
+export function roleTypeLabel(roleType) {
+  return ROLE_TYPE_LABELS[roleType] || roleType;
+}
+
 // resolveRoleLabel: given a Discord guild object (interaction.guild, or
 // client.guilds.cache.get(guildId)) and a raw role ID, returns
 // "RoleName (RoleID)" if the role currently exists in that guild, or
@@ -33,10 +44,11 @@ export function resolveRoleLabel(guild, roleId) {
 
 // resolveRoleLabels: batch form of resolveRoleLabel for a list of
 // { role_type, role_id } rows (the shape database.js's getGuildRoles()
-// returns), preserving role_type as a label prefix.
+// returns), preserving the user-facing tier label as a label prefix
+// (the "observer" DB value is presented as "player").
 export function resolveRoleLabels(guild, roles) {
   return (Array.isArray(roles) ? roles : []).map((row) => ({
-    roleType: row.role_type,
+    roleType: roleTypeLabel(row.role_type),
     roleId: row.role_id,
     label: resolveRoleLabel(guild, row.role_id)
   }));

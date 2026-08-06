@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { tierAtLeast, dbActorTier } from "./rbac.js";
+import { getGuildRoles } from "./database.js";
 
 const WRITES_ENABLED_ENV = "DUNE_DISCORD_WRITES_ENABLED";
 const WRITE_ADMIN_ROLE_ENV = "DISCORD_WRITE_ADMIN_ROLE_IDS";
@@ -21,20 +23,32 @@ export function writeRoleIds(env = process.env) {
 // no per-command tier concept (e.g. broadcast.js). When provided as "admin"
 // or "owner", enforces tier separation: an "admin" role may only perform
 // "admin"-tier actions, never "owner"-tier ones. Without requiredTier, any
-// write-admin or write-owner role passes (legacy/union behavior).
-export function canWrite(interaction, config, requiredTier = null) {
+// admin-tier (or above) role passes (legacy/union behavior).
+//
+// Authorization source follows the deployment mode:
+//   - multiTenant (db + guildId provided): the actor's tier is resolved
+//     from that guild's guild_roles rows (all four tiers honored; a
+//     guild_roles "owner" row can reach owner-tier actions, previously
+//     impossible because canWrite only read process env vars).
+//   - single-tenant: the existing DISCORD_WRITE_ADMIN_ROLE_IDS /
+//     DISCORD_WRITE_OWNER_ROLE_IDS env vars, unchanged.
+export function canWrite(interaction, config, requiredTier = null, db = null, guildId = null) {
   if (!writesEnabled(config)) return false;
   if (!interaction?.member?.roles) return false;
 
   const roleIds = extractRoleIds(interaction);
+  const threshold = requiredTier || "admin";
+
+  if (config.multiTenant && db && guildId) {
+    return tierAtLeast(dbActorTier(roleIds, getGuildRoles(db, guildId)), threshold);
+  }
+
   const writeRoles = writeRoleIds();
   const isOwner = roleIds.some((r) => writeRoles.owner.includes(r));
   const isAdmin = roleIds.some((r) => writeRoles.admin.includes(r));
+  const actorTier = isOwner ? "owner" : isAdmin ? "admin" : null;
 
-  if (requiredTier === "owner") return isOwner;
-  if (requiredTier === "admin") return isAdmin || isOwner;
-
-  return isAdmin || isOwner;
+  return tierAtLeast(actorTier, threshold);
 }
 
 export function generateIdempotencyKey() {
