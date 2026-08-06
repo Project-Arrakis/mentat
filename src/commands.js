@@ -10,7 +10,7 @@ import { formatError, formatPayload, redactSecrets } from "./format.js";
 import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed } from "./embedFormat.js";
 import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
-import { writesEnabled } from "./writes.js";
+import { writesEnabled, canWrite } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory, UNMERGED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
@@ -716,20 +716,72 @@ function setupPayload(config, interaction) {
   return { ok: true, clientId, guildId, inviteUrl };
 }
 
-function helpPayload(config, interaction, db = null, guildId = null) {
+// FIXED 2026-08-06: this list previously contained only 32 entries and
+// silently omitted the ENTIRE player group (12 subcommands), the ENTIRE
+// logs group (7 subcommands), and 3 server subcommands (readiness-detail,
+// services-detail, maintenance) -- every one of them registered and
+// dispatchable. A user running /dune help had no way to discover
+// /dune player inventory or any other player/logs command. The list now
+// mirrors buildDuneCommand()'s full registered surface (54 entries, 66
+// with the write group) in registration order. Keep it in sync with the
+// registration block when commands change.
+const WRITE_HELP_ENTRIES = [
+  { name: "write:maintenance-note", desc: "Set a maintenance note.", role: "admin" },
+  { name: "write:maintenance-window", desc: "Set a maintenance window.", role: "admin" },
+  { name: "write:alert-channel", desc: "Set alert notification channel.", role: "admin" },
+  { name: "write:alert-threshold", desc: "Set alert thresholds.", role: "admin" },
+  { name: "write:digest-schedule", desc: "Set digest schedule interval.", role: "admin" },
+  { name: "write:post-schedule", desc: "Set scheduled post type.", role: "admin" },
+  { name: "write:add-channel", desc: "Add channel for scheduled posts.", role: "admin" },
+  { name: "write:remove-channel", desc: "Remove channel from scheduled posts.", role: "admin" },
+  { name: "write:backup", desc: "Create a database backup.", role: "admin" },
+  { name: "write:restart", desc: "Restart a game service.", role: "admin" },
+  { name: "write:update", desc: "Trigger a game or server update.", role: "admin" },
+  { name: "write:cache", desc: "Clear server caches.", role: "admin" }
+];
+
+export function helpPayload(config, interaction, db = null, guildId = null) {
   const all = [
+    // ── core ──
     { name: "core:about", desc: "Show safe bot and adapter metadata.", role: "observer" },
     { name: "core:ping", desc: "Measure Discord and adapter latency.", role: "observer" },
     { name: "core:help", desc: "Show available commands for your role.", role: "observer" },
     { name: "core:setup", desc: "How to add this bot to your own Discord server.", role: "observer" },
+    // ── server ──
     { name: "server:health", desc: "Check the console Discord adapter.", role: "observer" },
     { name: "server:status", desc: "Show high-level server status.", role: "observer" },
     { name: "server:summary", desc: "Show compact aggregate server status.", role: "observer" },
     { name: "server:readiness", desc: "Show readiness and preflight state.", role: "observer" },
+    { name: "server:readiness-detail", desc: "Show grouped readiness detail with issues.", role: "observer" },
     { name: "server:services", desc: "Show service container state.", role: "observer" },
+    { name: "server:services-detail", desc: "Show detailed service state with logs.", role: "observer" },
+    { name: "server:maintenance", desc: "Show current maintenance note or window (read-only).", role: "observer" },
+    // ── data ──
     { name: "data:population", desc: "Show aggregate player count.", role: "observer" },
     { name: "data:backups", desc: "List recent backup metadata.", role: "observer" },
     { name: "data:maps", desc: "Show active game maps.", role: "observer" },
+    // ── player ──
+    { name: "player:link", desc: "Link your Discord to your game character.", role: "observer" },
+    { name: "player:verify", desc: "Verify a pending character link with a code.", role: "observer" },
+    { name: "player:characters", desc: "List your verified characters.", role: "observer" },
+    { name: "player:enable", desc: "Enable a character in this guild.", role: "observer" },
+    { name: "player:disable", desc: "Disable a character in this guild.", role: "observer" },
+    { name: "player:default", desc: "Set your default character for this guild.", role: "observer" },
+    { name: "player:unlink", desc: "Unlink a character from your Discord.", role: "observer" },
+    { name: "player:faction", desc: "Set your faction for themed embeds.", role: "observer" },
+    { name: "player:whoami", desc: "Show your linked game character info.", role: "observer" },
+    { name: "player:inventory", desc: "View your personal inventory.", role: "observer" },
+    { name: "player:storage", desc: "View your storage containers grouped by map.", role: "observer" },
+    { name: "player:find", desc: "Search for items across your containers.", role: "observer" },
+    // ── logs ──
+    { name: "logs:dune-cache", desc: "Show dune-cache container logs.", role: "observer" },
+    { name: "logs:dune-generated", desc: "Show dune-generated container logs.", role: "observer" },
+    { name: "logs:dune-server", desc: "Show dune-server container logs.", role: "observer" },
+    { name: "logs:dune-steam", desc: "Show dune-steam container logs.", role: "observer" },
+    { name: "logs:dune-work", desc: "Show dune-work container logs.", role: "observer" },
+    { name: "logs:orchestrator", desc: "Show orchestrator container logs.", role: "observer" },
+    { name: "logs:redblink-dune-docker-console", desc: "Show console adapter logs.", role: "observer" },
+    // ── ops ──
     { name: "ops:activity", desc: opsDescriptionFor("activity"), role: "observer" },
     { name: "ops:combat", desc: opsDescriptionFor("combat"), role: "observer" },
     { name: "ops:resources", desc: opsDescriptionFor("resources"), role: "observer" },
@@ -740,20 +792,37 @@ function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "ops:prometheus", desc: opsDescriptionFor("prometheus"), role: "observer" },
     { name: "ops:dashboard", desc: opsDescriptionFor("dashboard"), role: "observer" },
     { name: "ops:announcements", desc: opsDescriptionFor("announcements"), role: "observer" },
+    // ── admin ──
     { name: "admin:doctor", desc: "Comprehensive system diagnostic.", role: "admin" },
     { name: "admin:cooldowns", desc: "Show active cooldowns.", role: "admin" },
     { name: "admin:latency", desc: "Adapter latency history.", role: "admin" },
     { name: "admin:events", desc: "Recent incident log.", role: "admin" },
     { name: "admin:roles", desc: "Show configured admin/observer roles with current names.", role: "admin" },
     { name: "admin:broadcast", desc: "Send a message to all players.", role: "admin" },
+    // ── infra ──
     { name: "infra:version", desc: "Dune stack version.", role: "observer" },
     { name: "infra:servers", desc: "List game servers.", role: "observer" },
     { name: "infra:ports", desc: "Network port status.", role: "observer" },
     { name: "infra:db", desc: "Database status and health.", role: "observer" },
   ];
+  // The write group is only registered when writes are enabled
+  // (buildDuneCommand() appends it conditionally) -- list it here only in
+  // that same case so help always mirrors what is actually registered.
+  if (writesEnabled(config)) {
+    all.push(...WRITE_HELP_ENTRIES);
+  }
   const available = []; const locked = [];
   for (const cmd of all) {
-    if (isCommandAllowed(interaction, cmd.name, config, db, guildId)) available.push(cmd); else locked.push(cmd);
+    // Write commands are gated by write-owner/write-admin roles
+    // (canWrite()), not the normal observer/admin RBAC used by
+    // isCommandAllowed() -- classify them with their real gate.
+    if (cmd.name.startsWith("write:")) {
+      if (canWrite(interaction, config)) available.push(cmd); else locked.push(cmd);
+    } else if (isCommandAllowed(interaction, cmd.name, config, db, guildId)) {
+      available.push(cmd);
+    } else {
+      locked.push(cmd);
+    }
   }
   const rbacMode = config.multiTenant ? "multi-tenant" : config.discord.rbac.mode;
   return { ok: true, total: all.length, available: available.map(c => c.name), locked: locked.map(c => c.name), availableCount: available.length, rbacMode };

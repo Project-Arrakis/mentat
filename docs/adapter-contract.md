@@ -5,22 +5,28 @@
 The bot follows the Discord adapter in
 [Red-Blink/dune-awakening-selfhost-docker](https://github.com/Red-Blink/dune-awakening-selfhost-docker).
 
-Evidence checked on July 18, 2026:
+Evidence checked on August 6, 2026 (re-verified; previous evidence July 18, 2026):
 
 | Source | Value |
 | --- | --- |
 | Upstream reference clone | Clean local clone of upstream `main`, kept outside this repository. Recommended sibling path: `../dune-awakening-selfhost-docker-upstream-main` |
-| Upstream commit | `fdaca43` |
-| Upstream file | `console/api/src/services/discordAdapter.js` |
-| Latest published upstream release | `v1.3.60` |
-| Latest upstream release candidate observed | None newer than `v1.3.60` |
+| Upstream commit | `d41f1270` |
+| Upstream file | `console/api/src/integrations/discord/adapter.js` and `routes.js` |
+| Latest published upstream release | `v1.3.79` |
+| Latest upstream release candidate observed | None newer than `v1.3.79` |
 
-The adapter contract is included in upstream release `v1.3.60`. No changes were
-observed in `console/api/src/services/discordAdapter.js` between the earlier
-fixture baseline and upstream commit `fdaca43`. Upstream API source changed
-elsewhere, so route registration was also reviewed; the Discord adapter still
-exposes the same four read-only routes. The health payload still advertises
-`readOnly: true` and `writesEnabled: false`.
+The adapter contract is included in upstream release `v1.3.79` (tag `ac8f086`,
+release commit `d41f1270`, 2026-08-05). The Discord adapter moved from
+`console/api/src/services/discordAdapter.js` to
+`console/api/src/integrations/discord/` in the intervening upstream releases;
+the route family grew from the four read-only routes to the full
+live set documented in `src/adapterClient.js`'s `LIVE_ROUTES` (player linking,
+player accounts, player inventory/storage/find, guild storage/find, OPS
+providers). Route-by-route provenance was re-verified against tag `v1.3.79`
+on 2026-08-06 -- see `docs/ro-roadmap-state-2026-08-06.md` for the full
+route-status reconciliation. The health payload no longer advertises
+`readOnly: true`; player linking is a write path on Core's dedicated
+player-link routes (see `src/commands.js`'s `aboutPayload`).
 
 Future write-capable behavior is not part of this read-only contract. A draft
 upstream proposal for separate, disabled-by-default write adapter routes lives
@@ -58,9 +64,11 @@ include tokens, message content, or broader Discord profile data.
 ## Additional Local Routes (Unverified Against Upstream)
 
 The bot implements bot commands and `AdapterClient` methods for routes beyond
-the four verified above. These have config paths/methods in `src/config.js`
-and a client method in `src/adapterClient.js`, but their upstream provenance
-has not been independently re-verified since the July 18, 2026 evidence check.
+the verified core set above. These have config paths/methods in `src/config.js`
+and a client method in `src/adapterClient.js`, and their upstream provenance
+was re-verified against tag `v1.3.79` on 2026-08-06 (see
+`docs/ro-roadmap-state-2026-08-06.md`, plus the full-set pin in
+`test/adapterClient.test.js`).
 `src/adapterClient.js` tracks per-route status honestly via `LIVE_ROUTES`,
 `PLANNED_ROUTES` (upstream stub/placeholder data), `UNMERGED_ROUTES`
 (implemented on an upstream feature branch, not `main`), and `MISSING_ROUTES`

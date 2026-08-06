@@ -36,8 +36,10 @@ Only use this clean clone for compatibility review. Do not make feature changes
 in it.
 
 Current evidence for this roadmap slice was checked against upstream
-`Red-Blink/dune-awakening-selfhost-docker@fdaca43` and latest tag `v1.3.60` on
-July 18, 2026.
+`Red-Blink/dune-awakening-selfhost-docker@d41f1270` (`ac8f086`, tag `v1.3.79`)
+on August 6, 2026. Route-by-route provenance for the bot's adapter client was
+re-verified against this tag; see `docs/ro-roadmap-state-2026-08-06.md` and the
+full-set pin in `test/adapterClient.test.js`.
 
 The standalone local reference clone used for this review followed the
 recommended sibling path:
@@ -46,7 +48,7 @@ recommended sibling path:
 ../dune-awakening-selfhost-docker-upstream-main
 ```
 
-No upstream release-candidate tag newer than `v1.3.60` was observed during this
+No upstream release-candidate tag newer than `v1.3.79` was observed during this
 review. Older release-candidate tags remain historical evidence, but the stable
 compatibility baseline is the latest published release.
 

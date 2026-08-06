@@ -2,15 +2,18 @@
 
 ## Status
 
-Draft for discussion with the upstream maintainer. This repository remains
-read-only. Do not implement Discord write commands in this bot until upstream
-publishes and approves a write-capable adapter contract.
+Draft for discussion with the upstream maintainer. The bot's default operator
+command surface remains read-only. Do not implement the operator write-command
+group in this bot beyond its current disabled-by-default scaffold until
+upstream publishes and approves a write-capable adapter contract.
 
-The current upstream Discord adapter is read-only in
-`Red-Blink/dune-awakening-selfhost-docker@fdaca43`, latest stable tag
-`v1.3.60`. Its health payload advertises `readOnly: true` and
-`writesEnabled: false`. No upstream release-candidate tag newer than `v1.3.60`
-was observed during the July 18, 2026 compatibility review.
+The current upstream Discord adapter baseline is
+`Red-Blink/dune-awakening-selfhost-docker@d41f1270` (`ac8f086`, tag `v1.3.79`),
+reviewed on August 6, 2026. Its health payload advertises `writesEnabled: false`
+for the operator write routes; player linking is the one real write path, on
+Core's dedicated player-link adapter routes. No upstream release-candidate tag
+newer than `v1.3.79` was observed during the August 6, 2026 compatibility
+review.
 
 ## Maintainer Brief
 

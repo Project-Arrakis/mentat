@@ -7,6 +7,7 @@ import {
   buildDuneCommand,
   executeDuneCommand,
   extractRoleIds,
+  helpPayload,
   isCommandAllowed,
   pingPayload,
   requiredRoleIdsForCommand,
@@ -58,7 +59,72 @@ test("buildDuneCommand includes write group only when enabled", () => {
   const enabled = buildDuneCommand({ includeWriteGroup: true }).toJSON();
   const enabledNames = enabled.options.filter(o => o.type === 2).map(g => g.name);
   assert.equal(enabledNames.includes("write"), true, "write group must be registered when enabled");
-  assert.ok(enabledNames.length >= 7, `expected 7+ groups, got ${enabledNames.length}`);
+});
+
+// helpPayload regression guard (added 2026-08-06, RO roadmap audit): the
+// function previously listed only 32 commands and silently omitted the
+// ENTIRE player group (12), the ENTIRE logs group (7), and 3 server
+// subcommands (readiness-detail, services-detail, maintenance) -- all
+// registered and dispatchable, so `/dune help` was hiding commands from
+// users. It must now mirror buildDuneCommand()'s full non-write surface.
+test("helpPayload mirrors the full registered command surface (54 non-write commands)", () => {
+  const registered = new Set();
+  for (const group of buildDuneCommand({ includeWriteGroup: false }).toJSON().options) {
+    for (const sub of group.options || []) {
+      registered.add(`${group.name}:${sub.name}`);
+    }
+  }
+
+  const config = {
+    multiTenant: false,
+    discord: { rbac: { mode: "open" }, defaultEphemeral: false }
+  };
+  const interaction = mockInteraction("core", "help");
+  const payload = helpPayload(config, interaction);
+
+  assert.equal(payload.total, registered.size,
+    `help must list every registered non-write command (expected ${registered.size}, got ${payload.total})`);
+  const helped = new Set(payload.available.concat(payload.locked));
+  assert.ok(helped.has("player:inventory"), "player group must appear in help (was silently omitted)");
+  assert.ok(helped.has("player:find"), "player:find must appear in help");
+  assert.ok(helped.has("logs:dune-server"), "logs group must appear in help (was silently omitted)");
+  assert.ok(helped.has("server:maintenance"), "server:maintenance must appear in help (was silently omitted)");
+  assert.ok(helped.has("server:readiness-detail"), "server:readiness-detail must appear in help");
+  assert.ok(helped.has("server:services-detail"), "server:services-detail must appear in help");
+  assert.deepEqual(
+    [...helped].sort(),
+    [...registered].sort(),
+    "help surface must be exactly the registered non-write surface - not a strict subset"
+  );
+});
+
+// helpPayload must include the write group only when writes are enabled
+// (matching buildDuneCommand's conditional registration) and classify
+// write commands with canWrite() (write-admin/write-owner roles), not the
+// normal observer/admin RBAC.
+test("helpPayload lists the write group only when writes are enabled, gated by write roles", async () => {
+  const originalAdminRoles = process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
+  const originalEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
+  try {
+    process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = "write-admin-role";
+    const config = () => ({
+      multiTenant: false,
+      discord: { rbac: { mode: "open" }, writes: { enabled: true }, defaultEphemeral: false }
+    });
+
+    const disabledWrite = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+    const writeGroups = disabledWrite.options.filter(o => o.type === 2).map(g => g.name);
+    assert.ok(writeGroups.includes("write"), "write group is registered when enabled");
+
+    const adminHelp = helpPayload(config(), mockInteraction("core", "help", { roles: ["write-admin-role"] }));
+    assert.ok(adminHelp.total > 54, "write group adds commands to help when writes enabled");
+    assert.ok(adminHelp.available.includes("write:backup"), "write-admin role can see write commands as available");
+  } finally {
+    if (originalAdminRoles === undefined) delete process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
+    else process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = originalAdminRoles;
+    if (originalEnabled === undefined) delete process.env.DUNE_DISCORD_WRITES_ENABLED;
+    else process.env.DUNE_DISCORD_WRITES_ENABLED = originalEnabled;
+  }
 });
 
 test("extractRoleIds supports discord.js role cache shape", () => {

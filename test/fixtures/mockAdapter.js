@@ -228,7 +228,7 @@ export function createMockAdapter(options = {}) {
     return mockData.dashboard;
   },
 
-  async opsAnnouncements() {
+  async announcements() {
     if (delay) await new Promise(resolve => setTimeout(resolve, delay));
     if (error) throw new Error(error);
     return mockData.announcements;
