@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createDatabase, getGuild, upsertGuild, createOauthSession, getOauthSession, updateOauthSession } from "../src/database.js";
+import { createDatabase, getGuild, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, saveStatsSnapshot, getStatsSnapshot } from "../src/database.js";
 import { _resetKeyCacheForTests } from "../src/secretsCrypto.js";
 
 const VALID_KEY_HEX = "c".repeat(64);
@@ -73,12 +73,30 @@ test("oauth session round-trips without an encryption key configured", () => {
 });
 
 test("a guild written before a key was configured still reads back correctly (legacy plaintext)", () => {
-  const db = createDatabase(":memory:");
-  upsertGuild(db, { guildId: "g1", guildName: "Test Guild", consoleUrl: "https://example.test", adapterToken: "legacy-plaintext-token", status: "active" });
+  const db = createDatabase(":memory:");  upsertGuild(db, { guildId: "g1", guildName: "Test Guild", consoleUrl: "https://example.test", adapterToken: "legacy-plaintext-token", status: "active" });
 
   process.env.ACP_SECRETS_KEY = VALID_KEY_HEX;
   _resetKeyCacheForTests();
 
   const guild = getGuild(db, "g1");
   assert.equal(guild.adapter_token, "legacy-plaintext-token");
+});
+
+// Stats snapshot table (KV replacement, issue #83.2): saveStatsSnapshot
+// must upsert the single pinned row and getStatsSnapshot must return the
+// exact parsed payload, including after a second save (overwrite, not
+// append), and must return null when nothing was ever stored.
+test("stats snapshot round-trips a payload and overwrites in place", () => {
+  const db = createDatabase(":memory:");
+
+  assert.equal(getStatsSnapshot(db), null, "no snapshot stored yet -> null");
+
+  saveStatsSnapshot(db, { players_online: 12, version: "1.0.0-rc.2" });
+  const first = getStatsSnapshot(db);
+  assert.deepEqual(first, { players_online: 12, version: "1.0.0-rc.2" });
+
+  saveStatsSnapshot(db, { players_online: 7, version: "1.0.0-rc.2" });
+  const second = getStatsSnapshot(db);
+  assert.equal(second.players_online, 7, "second save must overwrite, not append a row");
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM stats_snapshot").get().n, 1, "exactly one row must exist (id pinned to 1)");
 });

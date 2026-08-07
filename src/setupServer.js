@@ -9,7 +9,8 @@ import {
   upsertGuild,
   getGuild,
   addGuildRole,
-  updateGuildSettings
+  updateGuildSettings,
+  getStatsSnapshot
 } from "./database.js";
 import { esc } from "./htmlEscape.js";
 
@@ -750,6 +751,30 @@ export function createSetupServer(config) {
 
   app.get("/health", (req, res) => {
     res.json({ ok: true, service: "acp-setup" });
+  });
+
+  // Live-stats endpoint consumed by acp-landing's functions/api/stats.js
+  // (GET https://acp-setup.darkdante.org/api/live-stats). Replaces the
+  // former Cloudflare KV read (acp-stats-aggregate) with the same JSON
+  // payload shape, now served directly from the local stats_snapshot
+  // table that statsPusher.js refreshes on its push interval -- KV is
+  // gone (account exceeded its free-tier limit for KV only; Pages +
+  // Tunnel remain). See docs/kv-replacement-evaluation.md and the
+  // original contract in the neighboring acp-landing repo's
+  // docs/kv-stats-schema.md. Wrapped in a try/catch so a corrupted
+  // snapshot row can never take the whole setup server down -- it serves
+  // an explicit error, not a crash.
+  app.get("/api/live-stats", (req, res) => {
+    try {
+      const stats = getStatsSnapshot(db);
+      if (!stats) {
+        return res.status(503).json({ error: "No stats collected yet" });
+      }
+      res.set("Cache-Control", "public, max-age=120");
+      res.json(stats);
+    } catch (err) {
+      res.status(500).json({ error: "Stats snapshot unavailable", details: err.message });
+    }
   });
 
   return app;

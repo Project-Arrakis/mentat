@@ -3,7 +3,7 @@ import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { encryptSecret, decryptSecret } from "./secretsCrypto.js";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -74,6 +74,19 @@ CREATE TABLE IF NOT EXISTS bot_stats (
 CREATE INDEX IF NOT EXISTS idx_guild_roles_guild ON guild_roles(guild_id);
 CREATE INDEX IF NOT EXISTS idx_guild_roles_type ON guild_roles(guild_id, role_type);
 CREATE INDEX IF NOT EXISTS idx_player_links_guild_user ON player_links(guild_id, discord_user_id);
+
+-- Local live-stats snapshot, replacing the Cloudflare KV
+-- acp-stats-aggregate write (issue #83.2 / kv-replacement-evaluation).
+-- Single row (id is pinned to 1); statsPusher.js upserts it on its push
+-- interval and setupServer.js serves it as GET /api/live-stats behind
+-- the existing free Cloudflare Tunnel (no KV involved). Schema change is
+-- additive-only (CREATE TABLE IF NOT EXISTS); existing operators' DBs
+-- gain this table on next start, no data migration required.
+CREATE TABLE IF NOT EXISTS stats_snapshot (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 function ensureDataDir(dbPath) {
@@ -102,6 +115,12 @@ export function createDatabase(dbPath = "./data/acp.db") {
     } catch {
       // Column may already exist from a previous migration attempt
     }
+  }
+
+  if (currentVersion && currentVersion.version < SCHEMA_VERSION) {
+    // v3 is purely additive (stats_snapshot via CREATE TABLE IF NOT EXISTS
+    // in SCHEMA above) -- nothing to migrate, just record the version.
+    db.prepare("UPDATE schema_version SET version = ?").run(SCHEMA_VERSION);
   }
 
   return db;
@@ -263,6 +282,28 @@ export function getCommandCount(db) {
 
 export function getBotStats(db) {
   return db.prepare("SELECT key, value FROM bot_stats").all();
+}
+
+// Local live-stats snapshot (replaces the Cloudflare KV
+// acp-stats-aggregate write). Single-row table, id pinned to 1.
+// statsPusher.js calls saveStatsSnapshot on its push interval;
+// setupServer.js serves the stored payload as GET /api/live-stats.
+export function saveStatsSnapshot(db, stats) {
+  const payload = JSON.stringify(stats);
+  db.prepare(
+    "INSERT INTO stats_snapshot (id, payload, updated_at) VALUES (1, ?, datetime('now')) " +
+    "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at"
+  ).run(payload);
+}
+
+export function getStatsSnapshot(db) {
+  const row = db.prepare("SELECT payload FROM stats_snapshot WHERE id = 1").get();
+  if (!row) return null;
+  try {
+    return JSON.parse(row.payload);
+  } catch {
+    return null;
+  }
 }
 
 export function getGuildFaction(db, guildId) {
