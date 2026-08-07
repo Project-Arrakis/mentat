@@ -42,6 +42,28 @@ Discord slash commands with `npm run register` when
 `src/commands.js`/`src/opsCommands.js` changed in the pushed range
 (issue #92); it runs `npm install --omit=dev` after a green test suite.
 
+**Deploy remote / SSH identity (issue #81)**: the `deploy` git remote is
+`ssh://ubuntu@129.146.238.118/home/ubuntu/acp-deploy.git`. Any dev
+machine that pushes to it must have `~/.ssh/config` entries so SSH offers
+the correct key instead of silently offering the default identity
+(usually the GitHub key), which the OCI host rejects with
+`Permission denied (publickey)`:
+
+```
+Host 129.146.238.118 acp-bot-oci
+    HostName 129.146.238.118
+    User ubuntu
+    IdentityFile ~/.ssh/ssh-key-2026-07-18.key
+    IdentitiesOnly yes
+```
+
+Match the raw IP (not just the alias) so any tool referencing the URL
+literally picks up the right key. Verify with `ssh -T ubuntu@129.146.238.118`
+or `git fetch deploy` before assuming the remote works. (This same
+misconfiguration caused a confirmed incident on 2026-07-26 -- see issue
+#81 -- and is fixed only per-machine; a fresh dev environment recurs
+until its `~/.ssh/config` gets this block.)
+
 **Scenario**: Bot process failed, needs restart.
 ```bash
 ssh ubuntu@<oci-host>

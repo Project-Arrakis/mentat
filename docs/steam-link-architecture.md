@@ -1,5 +1,25 @@
 # Discord → Steam → Character Linking — Architecture
 
+## Implementation Status (updated 2026-08-07, issue #86)
+
+**Bot-side: implemented and wired.** `players-accounts-link-steam` is a
+real, live Core route (verified 2026-08-06 against upstream
+DISCORD_ADAPTER_ROUTES/routes.js at tag v1.3.79) and
+`adapterClient.js:282`'s `linkAccountViaSteam()` calls it directly.
+`UNMERGED_ROUTES` was reconciled in both directions (see that file's
+SECOND/THIRD reconciliation comments) so nothing in the Steam path is
+falsely marked unmerged anymore.
+
+**End-to-end user-facing flow: still not reachable.** The bot-side OAuth
+callback server (`src/steamLinkServer.js`, port 3101) is up and healthy,
+but the Cloudflare Tunnel ingress only exposes `console.darkdante.org`
+and `acp-setup.darkdante.org`; port 3101 is not routed, so a real user
+clicking "Link via Steam" still gets a tunnel 404. That is a
+deployment/CF-config gap, not a code gap — tracked in issue #86 (and
+blocked on the same Cloudflare account access as issue #83). Once a
+hostname is tunneled to 3101 the bot-side feature becomes testable
+end-to-end as designed below.
+
 ## Overview
 
 Two repositories change: `Arrakis-Control-Panel` (bot: OAuth callback

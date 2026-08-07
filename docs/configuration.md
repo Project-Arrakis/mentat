@@ -2,6 +2,13 @@
 
 Every environment variable, role mapping, and feature flag for the Dune Discord Bot.
 
+> **Scope (2026-08-07, issue #93):** server owners do **not** need this
+> page — the hosted bot has no `.env` on the operator's side (see
+> [Setup Portal Guide](setup-portal-guide.md)). This reference is for
+> **maintainers/self-hosted operators** running their own instance, and
+> for understanding multi-tenant hosting options (Section: Multi-Tenant
+> Configuration).
+
 ## Quick Start (Minimal Configuration)
 
 For first-time setup, you only need these 4 values:
@@ -145,6 +152,9 @@ You can override individual adapter route paths and methods:
 | `DUNE_ADAPTER_PLAYERS_LINK_VERIFY_PATH` | `/api/integrations/discord/players/link/verify` |
 | `DUNE_ADAPTER_PLAYERS_UNLINK_PATH` | `/api/integrations/discord/players/unlink` |
 | `DUNE_ADAPTER_PLAYERS_ME_PATH` | `/api/integrations/discord/players/me` |
+| `DUNE_ADAPTER_PLAYERS_ACCOUNTS_LIST_PATH` | `/api/integrations/discord/players/accounts/list` |
+| `DUNE_ADAPTER_PLAYERS_ACCOUNTS_UNLINK_PATH` | `/api/integrations/discord/players/accounts/unlink` |
+| `DUNE_ADAPTER_PLAYERS_ACCOUNTS_LINK_STEAM_PATH` | `/api/integrations/discord/players/accounts/link-steam` |
 | `DUNE_ADAPTER_PLAYERS_FACTION_PATH` | `/api/integrations/discord/players/faction` |
 | `DUNE_ADAPTER_PLAYERS_INVENTORY_PATH` | `/api/integrations/discord/players/inventory` |
 | `DUNE_ADAPTER_PLAYERS_INVENTORY_SEARCH_PATH` | `/api/integrations/discord/players/inventory-search` |
@@ -205,6 +215,15 @@ Controls player inventory, storage, and character linking features.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DUNE_DISCORD_ADAPTER_ENABLED` | *(inherited from console)* | Must be `true` on the console side for player features to work |
+| `ACP_STEAM_LINK_PORT` | `3101` | Port the Steam-link OAuth callback server binds (self-hosted only; the hosted bot runs this on OCI) |
+| `ACP_STEAM_LINK_BASE_URL` | `ACP_BASE_URL` or `http://localhost:3101` | Public base URL used in OAuth `redirect_uri`; must match Discord's registered redirect and be reachable by players' browsers |
+
+**Note:** The Steam-link callback server is always started (it is cheap to
+run idle and its `/health` route is useful), but the "Link via Steam"
+button is only offered when a Discord OAuth client secret is configured
+(`DISCORD_CLIENT_SECRET` in multi-tenant mode). Self-hosted operators
+reaching the Steam-link flow over the internet must expose `ACP_STEAM_LINK_PORT`
+and set `ACP_STEAM_LINK_BASE_URL` to a public URL Discord will redirect to.
 
 **Note:** Player features require no additional bot configuration. They work
 automatically once the bot is connected to a console with the Discord adapter
