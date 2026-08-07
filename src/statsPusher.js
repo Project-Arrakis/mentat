@@ -1,32 +1,23 @@
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { logError, logInfo } from "./logger.js";
-import { getCommandCount, getAllGuilds, getActiveGuilds } from "./database.js";
+import { getCommandCount, getAllGuilds, getActiveGuilds, saveStatsSnapshot } from "./database.js";
 import { sendChannelAlert } from "./notifications.js";
 
-const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
-const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
-const KV_NAMESPACE_ID = process.env.KV_NAMESPACE_ID;
 const PUSH_INTERVAL_MS = Number.parseInt(process.env.STATS_PUSH_INTERVAL_MS || "300000", 10) || 300000;
-// Cloudflare KV requires expiration_ttl to be at least 60 seconds. 3600s
-// (1 hour) is comfortably longer than the default 300000ms/5min push
-// interval, so a single missed push cycle (a transient Cloudflare API
-// error, a brief network blip, etc.) never causes the key to expire
-// before the next successful push refreshes it -- see KV-2/KV-3,
-// docs/remediation-prompt-cross-repo.md Phase 3 (dune-awakening-selfhost-docker).
-const KV_EXPIRATION_TTL_SECONDS = Number.parseInt(process.env.ACP_STATS_KV_TTL_SECONDS || "3600", 10) || 3600;
-// Identifies this bot process/deployment for log correlation
-// (stats_pusher.instance / stats_push.error), independent of any KV key.
-// Previously this ID also named a dedicated per-instance KV key
-// (acp-stats-{instanceId}); that write has been removed (see
-// pushStats() below) after confirming via a search across all three
-// repositories in this effort (dune-awakening-selfhost-docker,
-// Arrakis-Control-Panel, acp-landing) that nothing anywhere ever reads
-// an acp-stats-{id} key back -- only the shared acp-stats-aggregate key
-// is ever read (acp-landing's functions/api/stats.js). The per-instance
-// write was pure dead weight: a new orphaned KV entry created on every
-// process restart, accumulating without bound (KV-2/KV-3), for a key
-// nothing consumes.
+// Identifies this bot process/deployment for log correlation and for the
+// instance_id field in the served stats payload. Previously this ID also
+// named a dedicated per-instance Cloudflare KV key (acp-stats-{instanceId});
+// that write was removed (see pushStats() below) after confirming via a
+// search across all three repositories in this effort
+// (dune-awakening-selfhost-docker, Arrakis-Control-Panel, acp-landing)
+// that nothing anywhere ever reads an acp-stats-{id} key back -- only the
+// shared acp-stats-aggregate key was ever read (acp-landing's
+// functions/api/stats.js). The per-instance write was pure dead weight: a
+// new orphaned KV entry created on every process restart, accumulating
+// without bound, for a key nothing consumes. As of issue #83.2 / KV
+// removal, no KV key is written at all anymore -- the payload is stored
+// in the local stats_snapshot table instead.
 const INSTANCE_ID = process.env.ACP_INSTANCE_ID || randomUUID();
 
 function getVersion() {
@@ -129,37 +120,7 @@ async function fetchAggregate(adapterClient) {
   return aggregates;
 }
 
-// Builds the acp-stats-aggregate KV write URL with expiration_ttl set as
-// a query parameter, per Cloudflare's REST API for KV writes (this is
-// the `PUT .../values/{key}?expiration_ttl=N` REST call, not the
-// wrangler/Workers KV binding API, which takes an `expirationTtl` option
-// on a different call shape entirely -- do not confuse the two).
-// Exported for direct unit testing without needing a live fetch.
-export function buildAggregateKvUrl({ accountId = CLOUDFLARE_ACCOUNT_ID, namespaceId = KV_NAMESPACE_ID, ttlSeconds = KV_EXPIRATION_TTL_SECONDS } = {}) {
-  const url = new URL(`https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/acp-stats-aggregate`);
-  url.searchParams.set("expiration_ttl", String(ttlSeconds));
-  return url.toString();
-}
-
-async function pushToKV(url, stats, label) {
-  const res = await fetch(url, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(stats),
-  });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    logError(`stats_push.${label}_failed`, { status: res.status, body });
-    return false;
-  }
-  return true;
-}
-
-// Builds the exact acp-stats-aggregate KV payload shape documented in
+// Builds the exact acp-stats-aggregate payload shape documented in
 // yacketrj/acp-landing:docs/kv-stats-schema.md. Every field the reader
 // validates (players_online, sietches, battlegroups, spice_fields,
 // installations, commands_total, version, updated_at) is either a real,
@@ -242,7 +203,7 @@ async function maybeAlertOnFailure(client, alertChannelId, consecutiveFailureCou
     await sendChannelAlert(
       client,
       alertChannelId,
-      `**Stats Push Alert**\nFailed to write live stats to Cloudflare KV ${ALERT_AFTER_CONSECUTIVE_FAILURES} times in a row${detail}. The public live-stats widget may be showing stale data.`
+      `**Stats Push Alert**\nFailed to refresh live stats locally ${ALERT_AFTER_CONSECUTIVE_FAILURES} times in a row${detail}. The public live-stats widget may be showing stale data.`
     );
   } catch (alertErr) {
     // Alerting itself must never crash the stats pusher or mask the
@@ -253,8 +214,15 @@ async function maybeAlertOnFailure(client, alertChannelId, consecutiveFailureCou
 
 let consecutiveFailures = 0;
 
+// Refreshes the local live-stats snapshot (src/database.js's
+// stats_snapshot table, served by setupServer.js's GET /api/live-stats).
+// This is the post-KV replacement: the acp-stats-aggregate payload the
+// web reader consumes is now stored here and served directly by the bot,
+// instead of being written to Cloudflare KV (removed per #83.2 /
+// docs/kv-replacement-evaluation.md -- the account is over Cloudflare's
+// free tier for KV specifically; Pages + Tunnel stay free).
 async function pushStats(client, db, adapterClient, { alertChannelId } = {}) {
-  if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_API_TOKEN || !KV_NAMESPACE_ID) {
+  if (!db) {
     return;
   }
 
@@ -272,18 +240,7 @@ async function pushStats(client, db, adapterClient, { alertChannelId } = {}) {
       aggregates
     });
 
-    // Only the shared acp-stats-aggregate key is written. The previous
-    // per-instance acp-stats-{instanceId} write was removed -- see
-    // INSTANCE_ID's comment above for why (confirmed unread anywhere
-    // across all three repositories in this effort).
-    const aggregateUrl = buildAggregateKvUrl();
-    const aggregateOk = await pushToKV(aggregateUrl, stats, "aggregate");
-
-    if (!aggregateOk) {
-      consecutiveFailures += 1;
-      await maybeAlertOnFailure(client, alertChannelId, consecutiveFailures);
-      return false;
-    }
+    saveStatsSnapshot(db, stats);
 
     consecutiveFailures = 0;
     logInfo("stats_pushed", {
@@ -306,8 +263,13 @@ async function pushStats(client, db, adapterClient, { alertChannelId } = {}) {
 }
 
 export function startStatsPusher({ client, db, adapterClient, alertChannelId = process.env.DUNE_ALERT_CHANNEL_ID }) {
-  if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_API_TOKEN || !KV_NAMESPACE_ID) {
-    logInfo("stats_pusher.skipped", { reason: "missing_cloudflare_env" });
+  // Stats collection is now gated on ACP_STATS_ENABLED (default: on).
+  // Previously it required Cloudflare KV credentials; with KV removed
+  // (#83.2) there is no cloud dependency anymore, so the feature is
+  // simply opt-out. Operators who never wanted the Core ops polls can
+  // set ACP_STATS_ENABLED=false.
+  if (String(process.env.ACP_STATS_ENABLED ?? "true").toLowerCase() === "false") {
+    logInfo("stats_pusher.skipped", { reason: "disabled_by_env" });
     return { active: false, stop() {} };
   }
 

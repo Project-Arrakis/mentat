@@ -10,6 +10,22 @@ Second release candidate for the read-only `R1.0.0` production target. Adds
 multi-tenant architecture, status card rendering, faction theming, OPS commands,
 and Cloudflare tunnel support.
 
+## Unreleased — KV removal / local live stats
+
+- Removed the Cloudflare KV integration entirely (issue #83.2): this
+  account exceeded Cloudflare's free tier for KV specifically, so the
+  `acp-stats-aggregate` payload is no longer written anywhere in the
+  cloud. `statsPusher.js` now stores the same JSON in the new local
+  `stats_snapshot` table (additive schema change, `SCHEMA_VERSION` 2→3,
+  `CREATE TABLE IF NOT EXISTS` — no migration for existing operators).
+- Added `GET /api/live-stats` on the existing setup server (port 3100),
+  behind the already-free Cloudflare Tunnel, serving the stored
+  snapshot. `acp-landing`'s reader was updated to fetch it instead of a
+  KV binding (see that repo's CHANGELOG).
+- Stats collection is now opt-out via `ACP_STATS_ENABLED` (default on);
+  the old `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` /
+  `KV_NAMESPACE_ID` / `ACP_STATS_KV_TTL_SECONDS` env vars are gone.
+
 ### Added
 
 - Multi-tenant architecture with per-guild console routing and SQLite storage.

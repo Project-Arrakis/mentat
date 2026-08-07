@@ -56,6 +56,80 @@ test("GET /health is unaffected by the new root route", async () => {
   });
 });
 
+// ─── /api/live-stats (KV replacement, issue #83.2) ───────────────────────
+// The former Cloudflare KV acp-stats-aggregate payload is now stored in
+// the local stats_snapshot table (statsPusher.js) and served here. The
+// endpoint must read from the same DB file the pusher writes to -- use a
+// real file-backed DB (not :memory:) so the test can verify the write
+// via one connection is visible through the server's own connection.
+
+test("GET /api/live-stats returns 503 before any snapshot exists", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "acp-stats-"));
+  const dbPath = join(dir, "acp.db");
+  const app = createSetupServer({
+    dbPath,
+    discordClientId: "client-id",
+    baseUrl: "http://localhost:3100"
+  });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    const res = await fetch(`${base}/api/live-stats`);
+    assert.equal(res.status, 503);
+    const body = await res.json();
+    assert.equal(body.error, "No stats collected yet");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(`${dbPath}-wal`, { force: true });
+    rmSync(`${dbPath}-shm`, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/live-stats serves the stored snapshot from the same DB file", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createDatabase, saveStatsSnapshot } = await import("../src/database.js");
+  const dir = mkdtempSync(join(tmpdir(), "acp-stats2-"));
+  const dbPath = join(dir, "acp.db");
+
+  const app = createSetupServer({
+    dbPath,
+    discordClientId: "client-id",
+    baseUrl: "http://localhost:3100"
+  });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    // Simulate statsPusher writing the snapshot via its own DB handle
+    const writerDb = createDatabase(dbPath);
+    saveStatsSnapshot(writerDb, { players_online: 12, installations: 3, version: "1.0.0-rc.2" });
+    writerDb.close();
+
+    const res = await fetch(`${base}/api/live-stats`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("cache-control"), "public, max-age=120");
+    const body = await res.json();
+    assert.equal(body.players_online, 12);
+    assert.equal(body.installations, 3);
+    assert.equal(body.version, "1.0.0-rc.2");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(`${dbPath}-wal`, { force: true });
+    rmSync(`${dbPath}-shm`, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // ─── Unified 4-tier role enrollment (Phase 1) ─────────────────────────────
 // The wizard previously only accepted admin + observer role IDs. Owner and
 // moderator tiers now have optional fields, and every role row must land

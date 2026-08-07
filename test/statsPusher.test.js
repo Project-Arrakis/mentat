@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildStatsPayload, buildAggregateKvUrl, shouldAlertOnFailure, ALERT_AFTER_CONSECUTIVE_FAILURES } from "../src/statsPusher.js";
+import { buildStatsPayload, shouldAlertOnFailure, ALERT_AFTER_CONSECUTIVE_FAILURES } from "../src/statsPusher.js";
 
 // Validates that buildStatsPayload() produces a shape acp-landing's
 // reader (yacketrj/acp-landing:functions/api/stats.js) would actually
@@ -116,32 +116,12 @@ test("buildStatsPayload never mutates its input arrays/objects", () => {
   assert.deepEqual(args.aggregates, aggregatesCopy);
 });
 
-// KV-2/KV-3 (docs/remediation-prompt-cross-repo.md Phase 3): the
-// acp-stats-aggregate KV write must always carry an expiration_ttl query
-// parameter, so a stale/unwritable key doesn't live forever if the bot
-// is decommissioned or its Cloudflare credentials are revoked.
-test("buildAggregateKvUrl always includes expiration_ttl as a query parameter", () => {
-  const url = new URL(buildAggregateKvUrl({ accountId: "acct-1", namespaceId: "ns-1" }));
-  assert.equal(url.searchParams.get("expiration_ttl"), "3600");
-  assert.ok(url.pathname.endsWith("/values/acp-stats-aggregate"));
-});
-
-test("buildAggregateKvUrl respects a custom TTL", () => {
-  const url = new URL(buildAggregateKvUrl({ accountId: "acct-1", namespaceId: "ns-1", ttlSeconds: 7200 }));
-  assert.equal(url.searchParams.get("expiration_ttl"), "7200");
-});
-
-test("buildAggregateKvUrl never builds a per-instance URL -- only the shared aggregate key", () => {
-  // KV-2/KV-3: confirmed via a search across all three repositories in
-  // this effort (dune-awakening-selfhost-docker, Arrakis-Control-Panel,
-  // acp-landing) that nothing anywhere ever reads an
-  // acp-stats-{instanceId} key back. The per-instance write function
-  // (and its URL) no longer exists at all -- this test asserts the
-  // absence of that capability, not just that it isn't called by
-  // pushStats() today.
-  const url = buildAggregateKvUrl({ accountId: "acct-1", namespaceId: "ns-1" });
-  assert.doesNotMatch(url, /acp-stats-(?!aggregate)/, "must never target a per-instance key");
-});
+// KV removed (issue #83.2 / docs/kv-replacement-evaluation.md): the bot
+// no longer writes any Cloudflare KV key. The acp-stats-aggregate payload
+// is now stored in the local stats_snapshot table (see saveStatsSnapshot /
+// getStatsSnapshot in src/database.js and the round-trip test in
+// test/database.test.js) and served by setupServer.js's GET
+// /api/live-stats, so there is no buildAggregateKvUrl to test anymore.
 
 // KV-4: write-failure alerting must fire exactly once per failure
 // streak, at the configured threshold -- never on every failure past it
