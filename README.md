@@ -43,14 +43,19 @@ without leaving Discord.
 
 ### For Server Owners (Full Setup)
 
-If you run the Dune Awakening server and want to add this bot:
+ACP is a **single, hosted bot** — you don't create a Discord application,
+run a process, or register commands. You invite the existing bot and
+connect your console through a web setup portal:
 
-1. [Create a Discord application](docs/admin-guide.md#step-1-create-your-discord-application) — register your bot with Discord
-2. [Invite the bot to your server](docs/admin-guide.md#step-4-invite-the-bot-to-your-server) — add it to your Discord
-3. [Set up roles](docs/admin-guide.md#step-5-set-up-roles-in-discord) — control who can use commands
-4. [Configure and start](docs/admin-guide.md) — connect the bot to your game server
+1. [Invite the bot to your server](https://discord.com/oauth2/authorize?client_id=1516816812006969494&scope=bot%20applications.commands&permissions=128) — add the existing hosted bot to your Discord
+2. [Complete the setup portal](docs/setup-portal-guide.md) — at <https://acp-setup.darkdante.org/setup>, sign in with Discord and connect your console URL and adapter token
+3. [Set up roles](docs/admin-guide.md#set-up-roles-and-configure-access) — control who can use which commands
 
-**Estimated time:** 20 minutes for first-time setup.
+**Estimated time:** about 10 minutes for first-time setup; no code, Docker,
+or `.env` editing on your side.
+
+For maintainers running their own instance instead of the hosted bot, see
+the [Installation Guide](docs/installation-guide.md).
 
 ### For Players (Just Want to Use Commands)
 
@@ -60,16 +65,23 @@ If the bot is already in your Discord server:
 2. Type `/dune` in any channel and pick a command
 3. See the [User Guide](docs/user-guide.md) for a full list of commands
 
-### For Server Admins (Technical Setup)
+### For Maintainers (Running Your Own Instance)
+
+The hosted bot is the supported path for server owners. If you are
+operating ACP yourself (the way the live bot at `acp-bot-vnic` runs):
 
 ```bash
-git clone https://github.com/yacketrj/Arrakis-Control-Panel.git
-cd Arrakis-Control-Panel
+git clone https://github.com/yacketrj/arrakis-control-panel.git
+cd arrakis-control-panel
 cp .env.example .env   # fill in your settings
 npm ci --omit=dev
 npm run register       # register slash commands with Discord
 npm start              # start the bot
 ```
+
+See [Installation Guide](docs/installation-guide.md) and the
+[deployment runbook](compliance/runbooks/backup-recovery.md) for the real
+production model (`git push deploy main:deploy` + post-receive hook).
 
 ---
 
@@ -99,10 +111,14 @@ Type `/dune` in Discord and select a group:
 - [Troubleshooting](docs/troubleshooting.md) — error messages and how to fix them
 
 ### For Server Owners
-- [Admin Guide](docs/admin-guide.md) — step-by-step setup for first-time server owners
-- [Installation Guide](docs/installation-guide.md) — Docker and Node.js deployment
+- [Setup Portal Guide](docs/setup-portal-guide.md) — connect your server to the hosted bot (the primary path)
+- [Admin Guide](docs/admin-guide.md) — roles, console adapter, and operator configuration
 - [Configuration Reference](docs/configuration.md) — every setting explained
-- [Discord Setup](docs/discord-setup.md) — creating your Discord bot application
+- [Discord Setup](docs/discord-setup.md) — invite and OAuth details
+
+### For Maintainers
+- [Installation Guide](docs/installation-guide.md) — Docker and Node.js deployment (running your own instance)
+- [Backup & Recovery Runbook](compliance/runbooks/backup-recovery.md) — live deploy model and recovery
 
 ### For Developers
 - [Architecture](docs/architecture.md) — system design and how it all fits together

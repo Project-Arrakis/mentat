@@ -56,9 +56,16 @@ explicit configuration to enable.
 **Q: Why can't I see the `/dune` commands in my server?**
 
 Two possible reasons:
-1. Commands haven't been registered yet. Run `npm run register`.
-2. Global registration can take up to an hour. Use `DISCORD_GUILD_ID` for
-   instant guild-scoped commands.
+1. The bot host hasn't registered commands for this server yet (the hosted
+   bot re-registers automatically on deploy; this is a host-side concern,
+   not something an operator does).
+2. Global registration is still propagating — this can take up to an hour
+   for a freshly-registered command set.
+
+Self-hosted maintainers: run `npm run register` on their instance (see the
+[Installation Guide](installation-guide.md)); the standalone/self-hosted
+deployment registers against `DISCORD_GUILD_ID` for instant guild-scoped
+commands.
 
 **Q: Why do I see "/dune" twice?**
 
@@ -253,15 +260,23 @@ IDs. The bot will post to all listed channels.
 
 **Q: Are my tokens safe?**
 
-Yes. Use file-based secrets (`DISCORD_BOT_TOKEN_FILE` with a Docker volume
-mount) instead of putting tokens in the `.env` file directly. The secrets
-directory has 0600 permissions and is gitignored.
+Yes. The hosted bot never stores your Discord credentials. On your own
+console, use the adapter token file
+(`/repo/runtime/secrets/discord-adapter-token.txt`, 0600) rather than
+putting tokens in `.env` directly; the bot encrypts `adapter_token` and
+OAuth `access_token` at rest in its SQLite database with AES-256-GCM
+(`docs/security-secrets-at-rest.md`). Self-hosted maintainers should also
+store `DISCORD_BOT_TOKEN` in a 0600 file, not plaintext in `.env`.
 
-**Q: What if my token gets leaked?**
+**Q: What if my adapter token gets leaked?**
 
-1. Reset the token immediately in the Discord Developer Portal
-2. Update the token file
-3. Restart the bot
+The token only authorizes calls to your console's Discord adapter:
+1. Generate a new token via the setup portal's **Generate** button (or stop
+   the console's adapter)
+2. Replace the token file on the console
+   (`/repo/runtime/secrets/discord-adapter-token.txt`), or set the new value
+   in the portal
+3. Reconnect — the portal stores the new value encrypted at rest
 4. The old token becomes invalid instantly
 
 **Q: Can the bot do anything destructive?**
@@ -297,8 +312,10 @@ sent the command but nobody was home to answer it.
 
 **Q: Commands aren't showing up in my server.**
 
-Run `npm run register`. If using global registration, wait up to 1 hour.
-Use `DISCORD_GUILD_ID` for instant registration.
+The hosted bot registers commands on deploys; if commands are still
+missing after a host deploy, contact the bot host. Self-hosted
+maintainers: run `npm run register`, and use `DISCORD_GUILD_ID` for
+instant guild-scoped registration.
 
 **Q: I get "not authorized" on commands I should have access to.**
 

@@ -1,301 +1,142 @@
-# Admin Guide — Setting Up the Bot on Your Server
+# Admin Guide — Connecting Your Server to the Hosted Bot
 
-This guide walks you through getting the Dune Discord Bot running on your own
-server. You'll need access to your Dune Awakening game server and about 20
-minutes.
+This guide walks you through connecting your Dune Awakening server to the
+**hosted** Arrakis Control Panel bot (the same one running at
+`acp-bot-vnic`). The bot side is fully hosted — you do **not** create a
+Discord application, run a Node process, or register slash commands.
+
+> **Corrected 2026-08-07 (issue #93):** this guide previously described a
+> self-hosted, per-operator model (create your own Discord app, copy a bot
+> token, run `npm run register`). That was the root cause of a real
+> production documentation incident on `acp-landing`. ACP is a single,
+> maintainer-operated, hosted bot. Port 3100/3101 OAuth setup portal and
+> the real invite link below are the actual flow.
+>
+> Maintainers who genuinely want to run their own instance should use the
+> [Installation Guide](installation-guide.md) and the
+> [Backup & Recovery Runbook](../compliance/runbooks/backup-recovery.md)
+> instead — this guide is for connecting your **server** to the **hosted**
+> bot.
 
 ## What You Need
 
 - A Discord server where you have the **Manage Server** permission
-- Access to the [Discord Developer Portal](https://discord.com/developers/applications)
-- Your Dune Awakening game server running (with the Discord adapter enabled)
-- About 20 minutes of setup time
-
-No coding or Docker experience is required if someone else handles the hosting.
-If you're doing everything yourself, see the [Installation Guide](installation-guide.md).
+- A running **Dune Awakening Selfhost Docker Console** (the bot reads its
+  Discord adapter API)
+- Or about 10 minutes of setup time (no coding, no Docker, no `.env`)
 
 ---
 
-## Step 1: Create Your Discord Application
+## Step 1: Invite the Hosted Bot
 
-Every bot needs its own Discord application. Think of this as registering your
-bot with Discord so it can connect to your server.
-
-1. Go to **[discord.com/developers/applications](https://discord.com/developers/applications)**
-2. Click the **New Application** button (top right)
-3. Name your bot (e.g., "Arrakis Control Panel" or "Dune Server Status")
-4. Click **Create**
-
----
-
-## Step 2: Create the Bot User
-
-1. In the left sidebar, click **Bot**
-2. Click **Add Bot** → **Yes, do it!**
-3. Under **TOKEN**, click **Reset Token** → **Copy**
-
-> ⚠️ **IMPORTANT:** Save this token somewhere safe. This is like a password for
-> your bot. Anyone with this token can control your bot. You will only see it
-> once — if you lose it, you'll need to reset it.
-
-Under **Privileged Gateway Intents**, turn all three OFF:
-- Server Members Intent — **OFF**
-- Presence Intent — **OFF**
-- Message Content Intent — **OFF**
-
-Your bot uses slash commands only — it doesn't need to read messages.
-
----
-
-## Step 3: Get Your Application ID
-
-1. Click **General Information** in the left sidebar
-2. Copy the **APPLICATION ID** — this is your bot's unique identifier
-
-You'll need this for the invite link and bot configuration.
-
----
-
-## Step 4: Invite the Bot to Your Server
-
-Replace `YOUR_APP_ID` with your Application ID from Step 3, then open this in
-your browser:
+Open this link in your browser:
 
 ```
-https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot%20applications.commands&permissions=128
+https://discord.com/oauth2/authorize?client_id=1516816812006969494&scope=bot%20applications.commands&permissions=128
 ```
-
-| Setting | Value |
-|----------|-------|
-| Client ID | Your Application ID from Step 3 |
-| Scopes | `bot` + `applications.commands` |
-| Permissions | `128` (View Audit Log -- lets the bot identify who invited it, so setup DMs reach the right person, not always the server owner; slash commands themselves don't need any extra permissions) |
 
 Select your server from the dropdown and click **Authorize**.
 
-See `discord-setup.md`'s Step 4 for the full explanation of why this
-permission is requested, and what happens if you've already invited the
-bot with the old `permissions=0` link (short answer: it still works,
-just falls back to DMing the owner directly).
+| Setting | Value |
+|----------|-------|
+| Client ID | `1516816812006969494` (the hosted bot's application) |
+| Scopes | `bot` + `applications.commands` |
+| Permissions | `128` (View Audit Log — lets the bot identify who invited it, so setup DMs reach the right person; slash commands themselves don't need any extra permissions) |
 
-The bot will appear in your server's member list as **offline** — this is
-normal. It shows as offline until the bot process is actually running.
+See `discord-setup.md` for the full explanation of why this permission is
+requested.
 
----
-
-## Step 5: Set Up Roles in Discord
-
-The bot uses Discord roles to control who can use which commands. Think of
-roles like badges — if someone has the right badge, they can use certain
-commands.
-
-1. In your Discord server, go to **Server Settings → Roles**
-2. Create these roles (or use existing ones):
-
-| Role | Purpose | Who Gets It |
-|------|---------|-------------|
-| **Dune Observer** | Can use all read-only commands (status, population, player inventory, etc.) | Trusted members |
-| **Dune Admin** | Can use admin commands + diagnostics | Server admins |
-| **Dune Moderator** *(optional)* | Can use read-only commands + broadcast | Trusted moderators |
-
-3. Assign roles to yourself and your trusted members.
-
-### How to Find a Role ID
-
-1. Enable **Developer Mode** in Discord:
-   - User Settings → Advanced → **Developer Mode** (turn ON)
-2. Go to Server Settings → Roles
-3. Right-click the role → **Copy Role ID**
-
-Save these IDs — you'll need them for the bot configuration.
+The bot will appear in your server's member list as **offline** — that's
+normal until a console is connected.
 
 ---
 
-## Step 6: Get Your Guild (Server) ID
+## Step 2: Complete the Setup Portal
 
-1. With Developer Mode enabled (see Step 5)
-2. Right-click your server icon in the server list
-3. Click **Copy Server ID**
+The rest of the connection happens in the web setup portal — **not** in
+this repo:
 
----
+1. Open **<https://acp-setup.darkdante.org/setup>** in your browser
+2. **Sign in with Discord** (identify + guilds scope only — no messages, roles, or private data)
+3. **Select your server** from the dropdown
+4. **Enter your Console URL** — must be publicly reachable from the internet (a public IP/domain, or a Cloudflare Tunnel URL for a home PC)
+5. **Enter your Adapter Token** — paste the existing token file (`/repo/runtime/secrets/discord-adapter-token.txt` on the console host) or generate a fresh one from the portal and write it to the console's secrets file with `DUNE_DISCORD_ADAPTER_ENABLED=true`
+6. Click **Connect Server**
 
-## Step 7: Enable the Discord Adapter on the Console
-
-The bot needs to talk to your game server's console. The console has a built-in
-"Discord adapter" that the bot connects to.
-
-1. On your game server, find the console's configuration file (usually `.env`
-   or `docker-compose.web.yml`)
-2. Add or update these settings:
-
-```bash
-DUNE_DISCORD_ADAPTER_ENABLED=true
-DUNE_DISCORD_ADAPTER_TOKEN=your-random-secret-token
-```
-
-3. Create a token file for the adapter:
-
-```bash
-echo -n "your-random-secret-token" > /path/to/secrets/bot-api-token.txt
-chmod 600 /path/to/secrets/bot-api-token.txt
-```
-
-4. Restart the console:
-
-```bash
-docker compose -f docker-compose.web.yml up -d redblink-dune-docker-console
-```
-
-> **Important:** The token you set here (`DUNE_DISCORD_ADAPTER_TOKEN`) must
-> match the token in the bot's configuration (Step 10). They must be identical.
+Follow `setup-portal-guide.md` for the full walkthrough of each field,
+including the role IDs (optional) and the generate-token option.
 
 ---
 
-## Step 8: Enable Scheduled Status Updates (Optional)
+## Step 3: Set Up Roles and Configure Access
 
-The bot can automatically post server status to a channel every 30 minutes.
+The portal accepts two optional role IDs. Skip them and use defaults now,
+or fill them in later:
 
-1. Create or identify a channel for updates (e.g., `#server-status`)
-2. Right-click the channel → **Copy Channel ID**
-3. Add these to your `.env` file (Step 10):
+| Role | Can Use |
+|------|---------|
+| **Admin Role ID** | Admin commands and diagnostics (`/dune admin doctor`, etc.) |
+| **Observer Role ID** | Read-only commands (`/dune health`, `/dune status`, inventory, storage, etc.) |
 
-```bash
-DUNE_POST_SCHEDULE_TYPE=status-summary
-DUNE_POST_ALLOWED_CHANNELS=YOUR_CHANNEL_ID
-DUNE_SCHEDULER_INTERVAL_MS=1800000    # 30 minutes
-```
+**How to find a Role ID:**
+1. Enable **Developer Mode** in Discord (User Settings → Advanced)
+2. Go to Server Settings → Roles, right-click the role → **Copy Role ID**
+3. Paste it into the portal
 
-**Schedule types you can use:**
-
-| Type | What It Posts |
-|------|--------------|
-| `none` | Disabled (default) |
-| `status` | Full status data |
-| `status-summary` | Compact summary (recommended) |
-| `readiness` | Readiness checks |
-| `services` | Service state |
+If you only configure one role, members with that role can use any
+command the bot considers allowed; configure both for proper separation.
 
 ---
 
-## Step 9: Enable In-Game Announcements (Optional)
+## Verify It Works
 
-The bot can forward in-game announcements to a Discord channel:
+1. In your Discord server, type `/dune` in any text channel
+2. Try `/dune ping` — you should see a response with Discord latency and adapter latency
+3. Try `/dune server status` — you should get a status card
 
-```bash
-DUNE_ANNOUNCEMENTS_ENABLED=true
-DUNE_ANNOUNCEMENTS_CHANNEL=YOUR_CHANNEL_ID
-```
+If you get an error:
 
----
-
-## Step 10: Create the Configuration File
-
-Create a `.env` file with your settings. Here's a complete template:
-
-```bash
-# === Required ===
-DISCORD_BOT_TOKEN=PASTE_YOUR_BOT_TOKEN_HERE
-DISCORD_CLIENT_ID=PASTE_YOUR_APP_ID_HERE
-DUNE_CONSOLE_API_URL=http://your-console-host:8088
-DUNE_DISCORD_ADAPTER_TOKEN=PASTE_YOUR_ADAPTER_TOKEN_HERE
-
-# === Roles (use your actual role IDs from Step 5) ===
-DISCORD_RBAC_MODE=restricted
-DISCORD_OBSERVER_ROLE_IDS=PASTE_OBSERVER_ROLE_ID
-DISCORD_ADMIN_ROLE_IDS=PASTE_ADMIN_ROLE_ID
-
-# === Guild (for instant command registration) ===
-DISCORD_GUILD_ID=PASTE_YOUR_GUILD_ID
-
-# === Scheduler (status posts every 30 minutes) ===
-DUNE_POST_SCHEDULE_TYPE=status-summary
-DUNE_POST_ALLOWED_CHANNELS=PASTE_CHANNEL_ID
-DUNE_SCHEDULER_INTERVAL_MS=1800000
-```
-
-> **Security tip:** Instead of putting tokens directly in the `.env` file, use
-> file-based secrets:
-> ```bash
-> DISCORD_BOT_TOKEN_FILE=/app/secrets/discord-bot-token.txt
-> DUNE_DISCORD_ADAPTER_TOKEN_FILE=/app/secrets/adapter-token.txt
-> ```
-> Create these files with 600 permissions and mount them as a read-only Docker
-> volume.
+| Error | Cause | Fix |
+|-------|-------|-----|
+| "Not authorized" | No roles configured | Back to the setup portal, enter an Admin or Observer Role ID |
+| "Adapter request failed" | Console unreachable | Verify the Console URL is publicly accessible and the adapter is enabled |
+| "Missing adapter credential" | Token mismatch | The token in the portal must match the console's token file (`cat /repo/runtime/secrets/discord-adapter-token.txt`) |
+| Commands don't appear | Slash commands not registered | The bot host handles this automatically; contact support if still missing after an hour |
 
 ---
-
-## Step 11: Register Slash Commands
-
-Once the bot is running, register the commands with Discord:
-
-```bash
-npm run register
-```
-
-Commands appear **instantly** if you set `DISCORD_GUILD_ID` (Step 6).
-Without a guild ID, they register globally and can take up to an hour to appear.
-
----
-
-## Step 12: Verify Everything Works
-
-Test these commands in your Discord server:
-
-| Command | What It Should Show |
-|---------|-------------------|
-| `/dune core ping` | Adapter latency (a few ms) |
-| `/dune server status` | Status card with server info |
-| `/dune server health` | Adapter health (🟢 Healthy) |
-| `/dune core about` | Bot version and security info |
-
-## After Setup
-
-- Status updates automatically post every 30 minutes
-- You'll see development notifications in the configured channel
-- Security checks run automatically before every commit
-- The bot restarts automatically if it crashes (Docker `--restart unless-stopped`)
 
 ## Player Linking
 
-Players can link their Discord account to their in-game character to check
-their inventory and storage. No additional setup is needed — this works
-automatically once the bot is connected to the console.
+Players can link their Discord account to their in-game character — no
+additional setup is needed once the bot is connected to the console.
 
 Players use these commands:
-- `/dune data link <character-name>` — Link their account
-- `/dune data unlink` — Remove their character link
-- `/dune data whoami` — Check their linked character
-- `/dune data faction <name>` — Set their faction for themed embeds
-- `/dune player inventory` — View their inventory
-- `/dune player inventory <search>` — Search their inventory
-- `/dune player storage` — View their storage
-- `/dune player find <item>` — Search for items
+- `/dune player link <character-name>` — Link their account
+- `/dune player unlink` — Remove their character link
+- `/dune player whoami` — Check their linked character
+- `/dune player inventory` / `storage` / `find` — View their items
 
-## Multi-Tenant Mode (Optional)
+See the [User Guide](user-guide.md) for the full command reference.
 
-For centralized hosting serving multiple Discord servers, enable multi-tenant mode:
+---
 
-```bash
-ACP_MULTI_TENANT=true
-ACP_DB_PATH=data/acp.db
-ACP_BASE_URL=http://your-server:3100
-DISCORD_CLIENT_SECRET=your-oauth2-secret
-```
+## Optional: Scheduled Updates and Announcements
 
-The setup portal runs at `http://your-server:3100/setup` and handles:
-- Discord OAuth2 authentication
-- Guild registration with console URL and adapter token
-- Per-guild role configuration
-- Automatic DM onboarding when the bot joins a new server
+The hosted bot supports scheduled status posts and announcement
+forwarding. These are managed through the bot's own commands
+(`/dune admin events`, `/dune admin broadcast`, and the console's own
+announcement settings) rather than a local `.env` — see the
+[User Guide](user-guide.md) or `docs/configuration.md` for the hosted
+configuration surface.
 
-See [Multi-Tenant Design](multi-tenant-design.md) for architecture details.
+---
 
 ## Next Steps
 
 - [User Guide](user-guide.md) — how to use all commands
 - [FAQ](faq.md) — answers to common questions
 - [Troubleshooting](troubleshooting.md) — what to do when things go wrong
-- [Configuration Reference](configuration.md) — all available settings
+- [Setup Portal Guide](setup-portal-guide.md) — full portal walkthrough (primary setup path)
 
 ## Sources
 

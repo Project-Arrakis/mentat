@@ -2,6 +2,15 @@
 
 Common issues, what they mean, and how to fix them.
 
+> **Hosted-bot note (2026-08-07, issue #93):** most server owners use the
+> **hosted** bot — no local process, no Docker, no token. Sections below
+> that reference `docker`, `DISCORD_BOT_TOKEN`, or `npm run register`
+> apply to **self-hosted instances only** (see
+> [Installation Guide](installation-guide.md)). For the hosted bot,
+> contact the bot host for process/token/registration issues; your own
+> fixes are limited to the setup portal
+> (`setup-portal-guide.md`) and your console's adapter config.
+
 ## Discord Errors
 
 ### "application did not respond"
