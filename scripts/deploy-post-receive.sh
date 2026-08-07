@@ -7,8 +7,9 @@
 #   ubuntu@129.146.238.118:~/acp-deploy.git/hooks/post-receive
 # This file is the reviewed, versioned source of truth. When this file
 # changes, the live copy on the OCI instance must be updated to match
-# (see docs/deployment.md's "Deploy hook" section) -- a deployed bot that
-# doesn't match this file is a drift bug waiting to surface.
+# (see compliance/runbooks/backup-recovery.md's deployment section) -- a
+# deployed bot that doesn't match this file is a drift bug waiting to
+# surface.
 #
 # What it does, in order:
 #   1. On a push to the `deploy` branch, resets the working tree to the
