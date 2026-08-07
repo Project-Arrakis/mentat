@@ -30,11 +30,17 @@
 
 **Real production bot**: runs as `acp-bot.service` on the OCI instance
 (`acp-bot-vnic`), working directory `/home/ubuntu/arrakis-control-panel`.
-Deployment is via `git push deploy deploy` from a dev machine, which
-triggers a `post-receive` hook on the OCI instance
+Deployment is via `git push deploy main:deploy` (or `git push deploy
+deploy` when the local `deploy` branch is in sync) from a dev machine,
+which triggers a `post-receive` hook on the OCI instance
 (`~/acp-deploy.git/hooks/post-receive`) that fetches the `deploy` branch,
-runs the test suite as a guardrail, and only restarts the service if
-tests pass.
+runs the test suite as a guardrail, and only restarts the service if the
+tests pass. The hook source of truth is
+`scripts/deploy-post-receive.sh` in this repo; if it changes, sync the
+live copy on the OCI instance to match. The hook also re-registers
+Discord slash commands with `npm run register` when
+`src/commands.js`/`src/opsCommands.js` changed in the pushed range
+(issue #92); it runs `npm install --omit=dev` after a green test suite.
 
 **Scenario**: Bot process failed, needs restart.
 ```bash
@@ -46,8 +52,8 @@ sudo systemctl status acp-bot.service
 **Scenario**: Bot code corrupted, needs redeploy.
 ```bash
 # From a dev machine with the 'deploy' remote configured:
-git push deploy deploy --force
-# This triggers post-receive on the OCI instance: fetch, test, restart.
+git push deploy main:deploy
+# This triggers post-receive on the OCI instance: fetch, test, register, restart.
 # To verify manually on the OCI instance instead:
 ssh ubuntu@<oci-host>
 cd ~/arrakis-control-panel
