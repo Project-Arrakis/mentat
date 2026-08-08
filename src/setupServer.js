@@ -371,9 +371,12 @@ export function createSetupServer(config) {
   // Used by acp-landing to auto-generate the command reference accordion, so
   // it can never drift from the actual bot implementation.
   app.get("/api/commands", async (_req, res) => {
-    // Dynamically import to avoid circular dependency at module load time.
-    const { getCommandRegistry } = await import("./commands.js");
-    res.json(getCommandRegistry());
+    try {
+      const { getCommandRegistry } = await import("./commands.js");
+      res.json(getCommandRegistry());
+    } catch (err) {
+      res.status(500).json({ error: "Failed to load command registry", details: err.message });
+    }
   });
 
   return app;

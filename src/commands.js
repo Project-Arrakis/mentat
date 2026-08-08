@@ -933,6 +933,7 @@ export function getCommandRegistry() {
         { name: "resources", desc: "Resource field data (spice, water, minerals)", role: "observer" },
         { name: "economy", desc: "Currency, trading, and tax data", role: "observer" },
         { name: "armory", desc: "Server-wide aggregate inventory stats", role: "observer" },
+        { name: "location", desc: "Show map location activity (markers, density)", role: "observer" },
         { name: "prometheus", desc: "Container and infrastructure metrics", role: "observer" },
         { name: "soc", desc: "Bridge health and request stats", role: "observer" },
         { name: "dashboard", desc: "Aggregated operational summary", role: "observer" },
@@ -945,7 +946,7 @@ export function getCommandRegistry() {
       title: "Data Archives — Server Archives",
       commands: [
         { name: "population", desc: "Show server population statistics", role: "observer" },
-        { name: "backups", desc: "List recent database backups", role: "admin" },
+        { name: "backups", desc: "List recent database backups", role: "observer" },
         { name: "maps", desc: "Show active map partitions", role: "observer" }
       ]
     },
@@ -954,7 +955,10 @@ export function getCommandRegistry() {
       title: "Logs Explorer — Server Logs",
       commands: [
         { name: "dune-cache", desc: "View game cache service logs", role: "admin" },
+        { name: "dune-generated", desc: "View game generated logs", role: "admin" },
         { name: "dune-server", desc: "View game server logs by name", role: "admin" },
+        { name: "dune-steam", desc: "View Steam integration logs", role: "admin" },
+        { name: "dune-work", desc: "View game work logs", role: "admin" },
         { name: "orchestrator", desc: "View orchestrator service logs", role: "admin" },
         { name: "console", desc: "View the console's own container logs", role: "admin" }
       ]
