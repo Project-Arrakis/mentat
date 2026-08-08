@@ -78,6 +78,12 @@ export const OPS_COMMANDS = Object.freeze({
     path: "/api/integrations/discord/announcements",
     method: "POST",
     description: "Show recent server and game announcements."
+  },
+  alerts: {
+    route: "ops-alerts",
+    path: "/api/v1/alerts",
+    method: "GET",
+    description: "Show currently firing Prometheus/Alertmanager alerts (queries Prometheus directly)."
   }
 });
 

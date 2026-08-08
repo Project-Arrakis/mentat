@@ -1,5 +1,14 @@
 import { redactSecrets } from "./format.js";
 
+const ALERT_COOLDOWN_MS = 30 * 60 * 1000;
+
+function envFlag(envVar, defaultValue) {
+  const val = process.env[envVar];
+  if (val === "0" || val === "false") return false;
+  if (val === "1" || val === "true") return true;
+  return defaultValue;
+}
+
 export function createDigestFormatter(config = {}) {
   const maxDetailLength = Number.parseInt(process.env.DUNE_DIGEST_MAX_DETAIL_LENGTH || "300", 10) || 300;
 
@@ -67,26 +76,119 @@ export function alertSubscriber({
   onError = () => {}
 } = {}) {
   const digestFormatter = createDigestFormatter();
+  const cooldowns = new Map();
+
+  function isCooledDown(checkName) {
+    const last = cooldowns.get(checkName) || 0;
+    if (Date.now() - last < ALERT_COOLDOWN_MS) return false;
+    cooldowns.set(checkName, Date.now());
+    return true;
+  }
+
+  async function checkAndAlert(checkName, { getData, format, enabled = true }) {
+    if (!enabled) return;
+    try {
+      const data = await getData();
+      const alert = typeof format === "function" ? format(data) : digestFormatter[format](data);
+      if (alert && isCooledDown(checkName)) {
+        await sendChannelAlert(client, channelId, alert);
+      }
+    } catch (error) {
+      onError(error);
+    }
+  }
 
   return {
+    // ── original checks ──
     async checkReadiness() {
-      try {
-        const readiness = await adapterClient.readiness(defaultActor());
-        const alert = digestFormatter.formatReadinessAlert(readiness);
-        if (alert) await sendChannelAlert(client, channelId, alert);
-      } catch (error) {
-        onError(error);
-      }
+      await checkAndAlert("readiness", {
+        getData: () => adapterClient.readiness(defaultActor()),
+        format: (d) => digestFormatter.formatReadinessAlert(d)
+      });
     },
 
     async checkServices() {
-      try {
-        const services = await adapterClient.services(defaultActor());
-        const alert = digestFormatter.formatServicesAlert(services);
-        if (alert) await sendChannelAlert(client, channelId, alert);
-      } catch (error) {
-        onError(error);
-      }
+      await checkAndAlert("services", {
+        getData: () => adapterClient.services(defaultActor()),
+        format: (d) => digestFormatter.formatServicesAlert(d)
+      });
+    },
+
+    // ── new game-level checks ──
+    async checkPopulation() {
+      if (!envFlag("DUNE_ALERT_POPULATION_ENABLED", true)) return;
+      await checkAndAlert("population", {
+        getData: async () => {
+          const activity = await adapterClient.opsActivity(defaultActor());
+          return activity?.result || activity || {};
+        },
+        format: (d) => {
+          const online = d.onlinePlayers ?? 0;
+          if (online === 0) return "**Population Alert**\nServer has zero online players.";
+
+          // spike/drop check
+          const prev = this._prevPopulation;
+          this._prevPopulation = online;
+          if (prev !== undefined && prev > 0) {
+            const change = ((online - prev) / prev) * 100;
+            if (Math.abs(change) >= 50) {
+              return `**Population Change**\nOnline players: ${prev} \u2192 ${online} (${change > 0 ? "+" : ""}${Math.round(change)}% change).`;
+            }
+          }
+          return null;
+        }
+      });
+    },
+
+    async checkSpiceFields() {
+      if (!envFlag("DUNE_ALERT_SPICE_ENABLED", true)) return;
+      await checkAndAlert("spice", {
+        getData: async () => {
+          const resources = await adapterClient.opsResources(defaultActor());
+          return resources?.result || resources || {};
+        },
+        format: (d) => {
+          const dd = d.deepDesert?.summary?.totalActiveFields ?? null;
+          const hb = d.haggaBasin?.summary?.totalActiveFields ?? null;
+          if (dd === 0 && hb === 0) {
+            return "**Spice Depletion Alert**\nAll spice fields are depleted across Deep Desert and Hagga Basin.";
+          }
+          return null;
+        }
+      });
+    },
+
+    async checkDbHealth() {
+      if (!envFlag("DUNE_ALERT_DB_HEALTH_ENABLED", true)) return;
+      await checkAndAlert("dbhealth", {
+        getData: async () => {
+          const db = await adapterClient.db(defaultActor());
+          return db?.result || db || {};
+        },
+        format: (d) => {
+          if (d.healthy === false || d.status === "unhealthy") {
+            return `**Database Health Alert**\nDB check returned: ${d.status || "unhealthy"}.${d.error ? ` Error: ${d.error}` : ""}`;
+          }
+          return null;
+        }
+      });
+    },
+
+    async checkBridgeErrors() {
+      if (!envFlag("DUNE_ALERT_BRIDGE_ENABLED", true)) return;
+      await checkAndAlert("bridge", {
+        getData: async () => {
+          const soc = await adapterClient.opsSoc(defaultActor());
+          return soc?.result || soc || {};
+        },
+        format: (d) => {
+          const errors = d.bridgeErrors ?? 0;
+          if (errors > 5) {
+            return `**Bridge Error Alert**\nConsole bridge error rate elevated: ${errors} errors since last Console restart.`;
+          }
+          return null;
+        }
+      });
     }
   };
 }

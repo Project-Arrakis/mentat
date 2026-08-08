@@ -123,7 +123,8 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("soc").setDescription(opsDescriptionFor("soc")))
       .addSubcommand((c) => c.setName("prometheus").setDescription(opsDescriptionFor("prometheus")))
       .addSubcommand((c) => c.setName("dashboard").setDescription(opsDescriptionFor("dashboard")))
-      .addSubcommand((c) => c.setName("announcements").setDescription(opsDescriptionFor("announcements"))))
+      .addSubcommand((c) => c.setName("announcements").setDescription(opsDescriptionFor("announcements")))
+      .addSubcommand((c) => c.setName("alerts").setDescription(opsDescriptionFor("alerts"))))
 
     // ── admin group ──
     .addSubcommandGroup((g) => g.setName("admin").setDescription("Admin-only diagnostics and management.")
@@ -415,6 +416,13 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     }
     // ── ops group ──
     else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
+      // Special: ops alerts queries Prometheus directly, not through Core
+      if (subcommand === "alerts") {
+        payload = await fetchPrometheusAlerts(adapterClient, actor, guildId);
+        await sendOpsCard({ interaction, payload, subcommand, adapterClient, guildId, db });
+        applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
+        return true;
+      }
       const route = opsRouteFor(subcommand);
       if (route) {
         const methodName = route.replace(/-(\w)/g, (_, c) => c.toUpperCase());
@@ -837,4 +845,42 @@ async function doctorPayload(adapterClient, actor, config, guildId = null) {
   ]);
   return { ok: health?.ok !== false && status?.ok !== false, health: { ok: health?.ok === true, enabled: health?.enabled, readOnly: health?.readOnly, writesEnabled: health?.writesEnabled }, status: { ok: status?.ok === true, summary: status?.result?.summary || {} }, readiness: { ok: readiness?.ok === true, ready: readiness?.result?.ready, issues: readiness?.result?.issues || [] }, services: { ok: services?.ok === true, overall: services?.result?.overall, count: (services?.result?.services || []).length }, timestamp: new Date().toISOString() };
 }
+async function fetchPrometheusAlerts(adapterClient, actor, guildId) {
+  const prometheusUrl = process.env.DUNE_PROMETHEUS_URL || "http://localhost:9090";
+  try {
+    const resp = await fetch(`${prometheusUrl}/api/v1/alerts`);
+    const data = await resp.json();
+    const alerts = data?.data?.alerts || [];
+
+    const firing = alerts.filter(a => a.state === "firing");
+    const pending = alerts.filter(a => a.state === "pending");
+
+    return {
+      ok: true,
+      alerts: {
+        total: alerts.length,
+        firing: firing.length,
+        pending: pending.length,
+        summary: firing.map(a => ({
+          alertname: a.labels?.alertname || "unknown",
+          severity: a.labels?.severity || "none",
+          instance: a.labels?.instance || "unknown",
+          summary: a.annotations?.summary || a.annotations?.description || "",
+          startsAt: a.activeAt || a.startsAt,
+          state: a.state
+        })).sort((a, b) => {
+          const order = { critical: 0, warning: 1, info: 2 };
+          return (order[a.severity] ?? 3) - (order[b.severity] ?? 3);
+        })
+      }
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to query Prometheus alerts: ${error.message}`,
+      hint: "Is Prometheus running? Try `dune metrics start` on your server."
+    };
+  }
+}
+
 export function requiredRoleIdsForCommand(command, rbac) { return rbac?.commandRoleIds?.[command] || []; }
