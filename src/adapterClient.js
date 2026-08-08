@@ -45,13 +45,19 @@ export const LIVE_ROUTES = new Set([
   // players/accounts/link-steam) at upstream tag v1.3.79.
   "players-link", "players-unlink", "players-me", "players-inventory",
   "players-inventory-search", "players-storage", "players-find",
-  "guild-storage", "guild-find", "players-accounts-link-steam"
+  "guild-storage", "guild-find", "players-accounts-link-steam",
+  // FOURTH reconciliation (2026-08-08): ops-inventory, ops-soc,
+  // ops-prometheus, and ops-dashboard were PLANNED but Core returns
+  // real data. Moved to LIVE. LOGS, MAP_STATE, and MAINTENANCE
+  // handlers implemented on Core (#211, #213). Broadcast enabled
+  // via DUNE_DISCORD_WRITES_ENABLED env var (#214).
+  "ops-inventory", "ops-soc", "ops-prometheus", "ops-dashboard"
 ]);
 
 // Routes that exist in upstream but return "planned" stubs or placeholder data.
 export const PLANNED_ROUTES = new Set([
-  "backups", "announcements", "broadcast",
-  "ops-inventory", "ops-location", "ops-soc", "ops-prometheus", "ops-dashboard"
+  "backups", "announcements",
+  "ops-location"
 ]);
 
 // Routes implemented in feature/discord-player-inventory but NOT yet in upstream main.
