@@ -884,3 +884,112 @@ async function fetchPrometheusAlerts(adapterClient, actor, guildId) {
 }
 
 export function requiredRoleIdsForCommand(command, rbac) { return rbac?.commandRoleIds?.[command] || []; }
+
+// Public command registry for landing page and docs auto-generation.
+// Returns command groups with display titles, names, descriptions, and roles.
+// This is the single source of truth — the landing page fetches from GET /api/commands
+// so the command reference can never drift from the actual bot implementation.
+export function getCommandRegistry() {
+  // Import ops descriptions dynamically to avoid circular dependency
+  return [
+    {
+      group: "server",
+      title: "Sietch Watch — Server Health",
+      commands: [
+        { name: "health", desc: "Check the console Discord adapter", role: "observer" },
+        { name: "status", desc: "Show high-level server status", role: "observer" },
+        { name: "summary", desc: "Show compact aggregate server status", role: "observer" },
+        { name: "readiness", desc: "Show readiness and preflight state", role: "observer" },
+        { name: "readiness-detail", desc: "Show grouped readiness detail with issues", role: "observer" },
+        { name: "services", desc: "Show service container state", role: "observer" },
+        { name: "services-detail", desc: "Show detailed service state with logs", role: "observer" },
+        { name: "maintenance", desc: "Show maintenance mode status", role: "admin" }
+      ]
+    },
+    {
+      group: "player",
+      title: "The Personal Ledger — Player Tools",
+      commands: [
+        { name: "link <name>", desc: "Link Discord to your in-game character", role: "observer" },
+        { name: "verify <code>", desc: "Verify a pending character link with a code", role: "observer" },
+        { name: "characters", desc: "List your verified characters", role: "observer" },
+        { name: "enable", desc: "Enable a character in this guild", role: "observer" },
+        { name: "disable", desc: "Disable a character in this guild", role: "observer" },
+        { name: "default", desc: "Set your default character for this guild", role: "observer" },
+        { name: "unlink <id>", desc: "Unlink a character from your Discord", role: "observer" },
+        { name: "faction <name>", desc: "Set your faction for themed embeds", role: "observer" },
+        { name: "whoami", desc: "Show your linked game character info", role: "observer" },
+        { name: "inventory", desc: "View your personal inventory", role: "observer" },
+        { name: "storage", desc: "View your storage containers grouped by map", role: "observer" },
+        { name: "find <item>", desc: "Search for items across your containers", role: "observer" }
+      ]
+    },
+    {
+      group: "ops",
+      title: "Deep Desert Intel — Operations",
+      commands: [
+        { name: "activity", desc: "Player activity statistics", role: "observer" },
+        { name: "combat", desc: "Combat and death statistics", role: "observer" },
+        { name: "resources", desc: "Resource field data (spice, water, minerals)", role: "observer" },
+        { name: "economy", desc: "Currency, trading, and tax data", role: "observer" },
+        { name: "armory", desc: "Server-wide aggregate inventory stats", role: "observer" },
+        { name: "prometheus", desc: "Container and infrastructure metrics", role: "observer" },
+        { name: "soc", desc: "Bridge health and request stats", role: "observer" },
+        { name: "dashboard", desc: "Aggregated operational summary", role: "observer" },
+        { name: "announcements", desc: "Show recent server announcements", role: "observer" },
+        { name: "alerts", desc: "Show active Prometheus alerts", role: "observer" }
+      ]
+    },
+    {
+      group: "data",
+      title: "Data Archives — Server Archives",
+      commands: [
+        { name: "population", desc: "Show server population statistics", role: "observer" },
+        { name: "backups", desc: "List recent database backups", role: "admin" },
+        { name: "maps", desc: "Show active map partitions", role: "observer" }
+      ]
+    },
+    {
+      group: "logs",
+      title: "Logs Explorer — Server Logs",
+      commands: [
+        { name: "dune-cache", desc: "View game cache service logs", role: "admin" },
+        { name: "dune-server", desc: "View game server logs by name", role: "admin" },
+        { name: "orchestrator", desc: "View orchestrator service logs", role: "admin" },
+        { name: "console", desc: "View the console's own container logs", role: "admin" }
+      ]
+    },
+    {
+      group: "admin",
+      title: "Kanly Council — Admin",
+      commands: [
+        { name: "doctor", desc: "Full system diagnostic across all services", role: "admin" },
+        { name: "cooldowns", desc: "Show active command cooldowns", role: "admin" },
+        { name: "latency", desc: "Adapter request latency history", role: "admin" },
+        { name: "events", desc: "Recent server incidents and alerts", role: "admin" },
+        { name: "roles", desc: "Show configured Discord role mappings", role: "admin" },
+        { name: "broadcast <msg>", desc: "Send a message to all in-game players", role: "admin" }
+      ]
+    },
+    {
+      group: "infra",
+      title: "Foundation Stones — Infrastructure",
+      commands: [
+        { name: "version", desc: "Dune stack version", role: "observer" },
+        { name: "servers", desc: "List game servers", role: "observer" },
+        { name: "ports", desc: "Network port status", role: "observer" },
+        { name: "db", desc: "Database status and health", role: "observer" }
+      ]
+    },
+    {
+      group: "core",
+      title: "ACP Core — Core Commands",
+      commands: [
+        { name: "about", desc: "Bot version, security info, connection details", role: "observer" },
+        { name: "ping", desc: "Test Discord and adapter latency", role: "observer" },
+        { name: "help", desc: "List all commands you have permission to use", role: "observer" },
+        { name: "setup", desc: "How to add this bot to your own Discord server", role: "observer" }
+      ]
+    }
+  ];
+}

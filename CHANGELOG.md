@@ -4,6 +4,37 @@ This project follows Semantic Versioning for release tags. Security fixes,
 dependency updates, and release evidence stay tied to pull requests and durable
 change notes under `docs/changes/`.
 
+## v1.0.0-rc.3 - 2026-08-08
+
+Third release candidate. Adds security hardening (PKCE OAuth, session absolute
+max age, systemd directives, audit logging), setup portal UI redesign, Core
+OPS provider wiring (activity/combat/resources/economy → real duneDb queries),
+and deploy guardrail fix (TAP `not ok` detection).
+
+### Added
+- PKCE (S256) in Discord OAuth authorization code flow (#180)
+- Session absolute max age (7-day `iat` field in cookie payload, #179)
+- Systemd hardening: 18 directives (PrivateDevices, CapabilityBoundingSet,
+  UMask, ProtectHostname, IPAddressDeny/Allow, RemoveIPC, etc.) (#96)
+- Audit logging in Discord link/unlink handlers (#171)
+- Stale link cleanup on startup (#183)
+- getAllLinkedPlayers tests (#184)
+
+### Changed
+- Setup portal UI: extracted shared CSS to setupLayout.js, replaced `alert()`
+  with styled inline notifications, server errors render styled HTML pages,
+  responsive at 480px (#98)
+- Deploy hook now catches TAP `not ok N` format in test output (#97)
+- Core opsResourcesProvider now computes totalValueRemaining for statsPusher
+  spice_fields (#95)
+- Core OPS providers (activity, combat, resources, economy) wired to real
+  addonOps* duneDb aggregate queries
+- Link prompt text updated for accuracy (#174)
+
+### Fixed
+- `pool`→`db` variable bug in linked characters API (#167)
+- getAllLinkedPlayers includes legacy discord_player_links table (#173)
+
 ## v1.0.0-rc.2 - 2026-07-18
 
 Second release candidate for the read-only `R1.0.0` production target. Adds
