@@ -339,5 +339,15 @@ export function createSetupServer(config) {
     }
   });
 
+  // GET /api/commands — public command registry for the landing page and docs.
+  // Returns all command groups with names, descriptions, and required roles.
+  // Used by acp-landing to auto-generate the command reference accordion, so
+  // it can never drift from the actual bot implementation.
+  app.get("/api/commands", async (_req, res) => {
+    // Dynamically import to avoid circular dependency at module load time.
+    const { getCommandRegistry } = await import("./commands.js");
+    res.json(getCommandRegistry());
+  });
+
   return app;
 }
