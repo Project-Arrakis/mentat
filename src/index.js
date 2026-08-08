@@ -5,7 +5,7 @@ import { executeDuneCommand } from "./commands.js";
 import { loadConfig } from "./config.js";
 import { startHealthState } from "./healthState.js";
 import { logError, logInfo } from "./logger.js";
-import { startScheduler } from "./scheduler.js";
+import { startScheduler, startDailyDigest } from "./scheduler.js";
 import { alertSubscriber } from "./notifications.js";
 import { createDatabase, getGuild, getGuildRoles, getGuildSettings, initBotStats, incrementCommandCount } from "./database.js";
 import { createSetupServer } from "./setupServer.js";
@@ -55,6 +55,7 @@ const healthState = startHealthState({
 let scheduler = { active: false, stop() {} };
 let announcementBridge = { active: false, stop() {} };
 let alerts = { active: false, stop() {} };
+let dailyDigest = { active: false, stop() {} };
 let statsPusher = { active: false, stop() {} };
 
 if (config.multiTenant) {
@@ -132,14 +133,26 @@ client.once(Events.ClientReady, (readyClient) => {
 
     const readinessTimer = setInterval(() => alertSub.checkReadiness(), alertIntervalMs);
     const servicesTimer = setInterval(() => alertSub.checkServices(), alertIntervalMs);
+    const populationTimer = setInterval(() => alertSub.checkPopulation(), alertIntervalMs);
+    const spiceTimer = setInterval(() => alertSub.checkSpiceFields(), alertIntervalMs);
+    const dbHealthTimer = setInterval(() => alertSub.checkDbHealth(), alertIntervalMs);
+    const bridgeTimer = setInterval(() => alertSub.checkBridgeErrors(), alertIntervalMs);
     readinessTimer.unref?.();
     servicesTimer.unref?.();
+    populationTimer.unref?.();
+    spiceTimer.unref?.();
+    dbHealthTimer.unref?.();
+    bridgeTimer.unref?.();
 
     alerts = {
       active: true,
       stop() {
         clearInterval(readinessTimer);
         clearInterval(servicesTimer);
+        clearInterval(populationTimer);
+        clearInterval(spiceTimer);
+        clearInterval(dbHealthTimer);
+        clearInterval(bridgeTimer);
       }
     };
 
@@ -147,6 +160,21 @@ client.once(Events.ClientReady, (readyClient) => {
       channel: alertChannelId,
       intervalMs: alertIntervalMs
     });
+  }
+
+  const digestChannelId = process.env.DUNE_DIGEST_CHANNEL_ID || alertChannelId;
+  if (digestChannelId) {
+    const digestHour = Number.parseInt(process.env.DUNE_DIGEST_HOUR || "8", 10) || 8;
+    dailyDigest = startDailyDigest({
+      adapterClient,
+      client,
+      channelId: digestChannelId,
+      hour: digestHour,
+      onError: (error) => logError("digest.failed", error)
+    });
+    if (dailyDigest.active) {
+      logInfo("digest.started", { channel: digestChannelId, hour: digestHour });
+    }
   }
 
   statsPusher = startStatsPusher({ client, db, adapterClient });
@@ -204,6 +232,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     }
     announcementBridge.stop();
     alerts.stop();
+    dailyDigest.stop();
     statsPusher.stop();
     if (db) db.close();
     await client.destroy();
