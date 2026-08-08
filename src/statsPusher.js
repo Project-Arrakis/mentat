@@ -54,12 +54,14 @@ function isValidNumber(value) {
 //   opsResources  -> { ok, result: { totalFields, totalValueRemaining, resourcesByMap, spiceFieldsBySize } }
 //   opsCombat     -> { ok, result: { totalDeaths, pvpDeaths, pveDeaths, ... } }
 //   opsEconomy    -> { ok, result: { totalCurrencyHolders, totalSupply, ... } }
+const SYSTEM_ACTOR = Object.freeze({ userId: "stats-pusher", username: "ACP", guildId: "stats", channelId: "stats", roleIds: [] });
+
 async function fetchAggregate(adapterClient) {
   const aggregates = {};
 
   try {
-    const activity = await adapterClient.opsActivity("system", undefined).catch(() => null);
-    const r = activity?.ok ? activity.result : null;
+    const activity = await adapterClient.opsActivity(SYSTEM_ACTOR, undefined).catch(() => null);
+    const r = activity?.ok ? (activity.result || activity) : null;
     // "players_online" per docs/kv-stats-schema.md is "Current online
     // player count" — onlinePlayers is the exact real field for that
     // (a live snapshot), not activeLast1h/24h (rolling activity windows,
@@ -73,8 +75,8 @@ async function fetchAggregate(adapterClient) {
   }
 
   try {
-    const resources = await adapterClient.opsResources("system", undefined).catch(() => null);
-    const r = resources?.ok ? resources.result : null;
+    const resources = await adapterClient.opsResources(SYSTEM_ACTOR, undefined).catch(() => null);
+    const r = resources?.ok ? (resources.result || resources) : null;
     // "spice_fields" per docs/kv-stats-schema.md is "Aggregate remaining
     // spice across active fields" — totalValueRemaining is exactly that
     // (already filtered to field_kind_id = 1 / spice server-side in
