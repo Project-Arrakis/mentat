@@ -18,8 +18,8 @@
 // link into that single call (see linkAccountViaSteam()'s own comment in
 // adapterClient.js for why there is no separate match-only call). This
 // feature is still not reachable by a real user in production, though --
-// the bot's own OAuth callback server (this file, port 3101) has no
-// Cloudflare Tunnel ingress rule on the live OCI deployment; see
+// the bot's own OAuth callback server (this file, port 3101) requires a
+// Cloudflare Tunnel ingress rule on the R740 dune-prod VM; see
 // arrakis-control-panel#86 for that separate, independent gap.
 //
 // Unlike the design's first revision, there is NO /steam-link/select

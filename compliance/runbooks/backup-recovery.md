@@ -1,9 +1,35 @@
 # Backup & Recovery Runbook
 
-**Version**: 1.0
-**Date**: 2026-07-19
+**Version**: 2.0
+**Date**: 2026-08-07
 **RTO**: 1 hour
 **RPO**: 15 minutes
+
+---
+
+## Hosting Architecture
+
+The ACP bot is self-hosted on the **dune-prod VM** (VMID 101) of the Dell
+PowerEdge R740 Hypervisor described in
+[yacketrj/r740-dune-deployment-kit](https://github.com/yacketrj/r740-dune-deployment-kit).
+The bot and the game server stack share the same VM, calling the console
+API over **localhost** (no WAN exposure for adapter traffic). The setup portal
+and Steam-link OAuth callback are exposed through a **Cloudflare Tunnel**,
+the same tunnel that already serves `console.darkdante.org`.
+
+| Component | Location |
+|---|---|
+| Bot process | `acp-bot.service` on dune-prod VM (192.168.20.10) |
+| Working directory | `/home/dune/arrakis-control-panel` |
+| Console API | `http://localhost:8088` |
+| Setup portal (3100) | Via Cloudflare Tunnel → `acp-setup.darkdante.org` |
+| Steam-link (3101) | Via Cloudflare Tunnel (same hostname, separate port) |
+| SQLite DB | `/home/dune/arrakis-control-panel/data/acp.db` |
+| **VM specs** | 40 vCPU (socket 0), 152 GB RAM (Proxmox VMID 101) |
+| **Game stack** | 2 Sietch (40p/ea), 4 Deep Desert, Overmap, dynamic maps |
+
+**Previous host (decommissioned 2026-08-07):** OCI VPS `acp-bot-vnic`
+at `129.146.238.118`. Moved to R740 to eliminate $300/month OCI costs.
 
 ---
 
@@ -13,7 +39,7 @@
 |---|---|---|---|
 | Bot code | GitHub repository | Continuous | Indefinite |
 | Landing page | GitHub repository | Continuous | Indefinite |
-| KV stats | Cloudflare automatic | Continuous | 30 days |
+| Stats | Local SQLite + served via Cloudflare Tunnel | Continuous (5-min push) | Persistent until DB reset |
 | Bot database | SQLite file | Daily | 30 days |
 | Configuration | `.env` files | Manual | Until rotation |
 | Secrets | File system | Manual | Until rotation |
@@ -22,51 +48,28 @@
 
 ### Bot Recovery
 
-<!-- Corrected 2026-07-25: this previously named the wrong systemd unit
-     (discord-bot.service) and described a manual git-pull recovery
-     flow that doesn't match how the real production bot is actually
-     deployed. Verified directly against the real OCI production
-     instance (acp-bot-vnic). -->
+The bot runs as `acp-bot.service` on the **dune-prod VM**
+(192.168.20.10, VMID 101 on the R740 Proxmox hypervisor).
 
-**Real production bot**: runs as `acp-bot.service` on the OCI instance
-(`acp-bot-vnic`), working directory `/home/ubuntu/arrakis-control-panel`.
-Deployment is via `git push deploy main:deploy` (or `git push deploy
-deploy` when the local `deploy` branch is in sync) from a dev machine,
-which triggers a `post-receive` hook on the OCI instance
-(`~/acp-deploy.git/hooks/post-receive`) that fetches the `deploy` branch,
-runs the test suite as a guardrail, and only restarts the service if the
-tests pass. The hook source of truth is
-`scripts/deploy-post-receive.sh` in this repo; if it changes, sync the
-live copy on the OCI instance to match. The hook also re-registers
-Discord slash commands with `npm run register` when
-`src/commands.js`/`src/opsCommands.js` changed in the pushed range
-(issue #92); it runs `npm install --omit=dev` after a green test suite.
+Deployment: from a dev machine with SSH access to the dune-prod VM,
+push the `deploy` branch to a bare repo on that VM, which triggers
+a `post-receive` hook that tests, installs, and restarts. The canonical
+hook source is `scripts/deploy-post-receive.sh` in this repo —
+if it changes, sync the live copy on the R740 dune-prod VM to match.
 
-**Deploy remote / SSH identity (issue #81)**: the `deploy` git remote is
-`ssh://ubuntu@129.146.238.118/home/ubuntu/acp-deploy.git`. Any dev
-machine that pushes to it must have `~/.ssh/config` entries so SSH offers
-the correct key instead of silently offering the default identity
-(usually the GitHub key), which the OCI host rejects with
-`Permission denied (publickey)`:
+The deploy remote targets a bare git repo on the VM:
+`ssh://dune@192.168.20.10/home/dune/acp-deploy.git`. This internal IP
+is only reachable from the Trusted LAN (VLAN 10) and from the Proxmox
+host — not from the public internet.
 
-```
-Host 129.146.238.118 acp-bot-oci
-    HostName 129.146.238.118
-    User ubuntu
-    IdentityFile ~/.ssh/ssh-key-2026-07-18.key
-    IdentitiesOnly yes
-```
-
-Match the raw IP (not just the alias) so any tool referencing the URL
-literally picks up the right key. Verify with `ssh -T ubuntu@129.146.238.118`
-or `git fetch deploy` before assuming the remote works. (This same
-misconfiguration caused a confirmed incident on 2026-07-26 -- see issue
-#81 -- and is fixed only per-machine; a fresh dev environment recurs
-until its `~/.ssh/config` gets this block.)
+**Service unit**: the `acp-bot.service` file shipped in this repo at
+`systemd/acp-bot.service` is the authoritative template. Copy it to
+`/etc/systemd/system/acp-bot.service` on the dune-prod VM and adjust
+the `User` and `WorkingDirectory` paths to match the actual deployment.
 
 **Scenario**: Bot process failed, needs restart.
 ```bash
-ssh ubuntu@<oci-host>
+ssh dune@192.168.20.10
 sudo systemctl restart acp-bot.service
 sudo systemctl status acp-bot.service
 ```
@@ -75,22 +78,23 @@ sudo systemctl status acp-bot.service
 ```bash
 # From a dev machine with the 'deploy' remote configured:
 git push deploy main:deploy
-# This triggers post-receive on the OCI instance: fetch, test, register, restart.
-# To verify manually on the OCI instance instead:
-ssh ubuntu@<oci-host>
+# This triggers post-receive on the dune-prod VM: fetch, test, register,
+# restart. To verify manually on the VM instead:
+ssh dune@192.168.20.10
 cd ~/arrakis-control-panel
 git fetch deploy deploy && git reset --hard deploy/deploy
 npm ci --omit=dev
 sudo systemctl restart acp-bot.service
 ```
 
-**Note**: a `discord-bot.service` may also exist on local dev machines
-as a leftover test instance -- confirm which host and which service
-you're actually operating on before running any of the above.
+**Note**: the old `discord-bot.service` on the dev machine
+(`darkdante@tabr-tau`) was a leftover test instance and has been
+stopped/disabled. Do not confuse it with the real production
+`acp-bot.service` on the dune-prod VM.
 
 **Scenario**: Token compromised, needs rotation.
 1. Generate new token in Discord Developer Portal
-2. Update `secrets/discord-bot-token.txt`
+2. Update `.env` on the dune-prod VM
 3. Restart bot service
 4. Verify bot comes online
 
@@ -109,18 +113,37 @@ npx wrangler pages deploy dist --project-name=acp-landing --branch=main
 3. Rebuild and redeploy
 4. Rotate any exposed credentials
 
-### KV Recovery
+### Stats Recovery
 
-**Scenario**: KV data corrupted.
-1. Clear corrupted keys
-2. Restart bot to repopulate stats
-3. Verify stats are accurate
+The live stats payload is stored in the bot's local SQLite `stats_snapshot`
+table and served through the existing Cloudflare Tunnel at
+`acp-setup.darkdante.org/api/live-stats`. No Cloudflare KV dependency exists.
 
-**Scenario**: KV namespace deleted.
-1. Create new namespace in Cloudflare dashboard
-2. Update `wrangler.toml` with new namespace ID
-3. Update bot `.env` with new namespace ID
-4. Redeploy landing page and restart bot
+**Scenario**: Stats corrupted.
+1. Restart bot to repopulate stats
+2. Verify `GET https://acp-setup.darkdante.org/api/live-stats` returns valid JSON
+
+### Cloudflare Tunnel Recovery
+
+The tunnel (`cloudflared`) runs on the dune-prod VM as a systemd service.
+The tunnel config lives at `/etc/cloudflared/config.yml` on that VM.
+
+**Ingress rules required:**
+```yaml
+ingress:
+  - hostname: acp-setup.darkdante.org
+    service: http://localhost:3100
+  - hostname: console.darkdante.org
+    service: http://localhost:8088
+  - service: http_status:404
+```
+
+**Scenario**: Tunnel down, bot unreachable.
+```bash
+ssh dune@192.168.20.10
+sudo systemctl restart cloudflared
+sudo systemctl status cloudflared
+```
 
 ## Backup Verification
 
@@ -128,9 +151,10 @@ npx wrangler pages deploy dist --project-name=acp-landing --branch=main
 
 - [ ] Verify bot can restart from clean state
 - [ ] Verify landing page builds successfully
-- [ ] Verify KV data is populated and accurate
+- [ ] Verify live stats endpoint returns valid data
 - [ ] Verify all secrets are accessible
 - [ ] Test rollback procedure
+- [ ] Verify Cloudflare Tunnel ingress rules are correct
 
 ### Evidence
 
@@ -145,14 +169,15 @@ Store verification results in `compliance/evidence/backups/YYYY-MM.md`:
 
 ### Full System Recovery
 
-1. **Infrastructure**: Provision new server (if needed)
+1. **Infrastructure**: Provision hypervisor per R740 kit, recreate dune-prod VM (VMID 101)
 2. **Code**: Clone repositories from GitHub
 3. **Dependencies**: Run `npm ci` in each project
 4. **Configuration**: Restore `.env` files from secure backup
 5. **Secrets**: Rotate all tokens and credentials
-6. **Services**: Start bot, verify landing page
-7. **Validation**: Run test suite, verify functionality
-8. **Monitoring**: Confirm alerts and logging are active
+6. **Tunnel**: Re-establish Cloudflare Tunnel with ingress rules
+7. **Services**: Start bot, verify landing page
+8. **Validation**: Run test suite, verify functionality
+9. **Monitoring**: Confirm alerts and logging are active
 
 ### Contact Information
 

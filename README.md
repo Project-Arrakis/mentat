@@ -68,7 +68,7 @@ If the bot is already in your Discord server:
 ### For Maintainers (Running Your Own Instance)
 
 The hosted bot is the supported path for server owners. If you are
-operating ACP yourself (the way the live bot at `acp-bot-vnic` runs):
+operating ACP yourself (the way the live bot on the R740 dune-prod VM runs):
 
 ```bash
 git clone https://github.com/yacketrj/arrakis-control-panel.git
@@ -158,7 +158,7 @@ The latest readiness security review is recorded at [docs/security-review-2026-0
 | **R2.x** | Low-risk admin writes (maintenance, notifications) | Planned |
 | **R3.0.0** | Operational writes (backup, restart, update) | Planned |
 | **R4.0.0+** | High-risk operations (player moderation, restore) | Planned |
-| **Multi-Tenant** | Centralized OCI hosting, per-guild console routing, OAuth2 portal | In Progress |
+| **Multi-Tenant** | Self-hosted on Dell R740 (dune-prod VM), per-guild console routing, OAuth2 portal | Shipped (2026-08-07) |
 
 See [Full Release Roadmap](docs/full-release-roadmap.md) for details.
 The detailed R1.x to R2.x cadence and entry criteria live in [docs/r1-r2-release-roadmap.md](docs/r1-r2-release-roadmap.md).

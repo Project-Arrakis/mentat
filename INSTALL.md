@@ -93,6 +93,76 @@ After setup, follow `docs/operator-validation.md` to record local adapter smoke,
 test-guild command registration, runtime command smoke, and Docker healthcheck
 evidence before promoting a release candidate or wider deployment.
 
+## R740 Self-Hosted Deployment
+
+For operators using the Dell PowerEdge R740 hypervisor
+([r740-dune-deployment-kit](https://github.com/yacketrj/r740-dune-deployment-kit)):
+
+The bot runs alongside the game server stack on the **dune-prod VM**
+(VMID 101, IP 192.168.20.10). It calls the console API over localhost
+and serves the setup portal through the existing Cloudflare Tunnel.
+
+### Setup on the dune-prod VM
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/yacketrj/arrakis-control-panel.git ~/arrakis-control-panel
+cd ~/arrakis-control-panel
+
+# 2. Configure environment (copy from secure backup or set manually)
+cp .env.example .env
+# Fill in: DISCORD_BOT_TOKEN, DISCORD_CLIENT_ID, DUNE_CONSOLE_API_URL=http://localhost:8088,
+#          DUNE_DISCORD_ADAPTER_TOKEN, DISCORD_HOME_GUILD_ID (if using RBAC)
+
+# 3. Install and register
+npm ci --omit=dev
+npm run register
+
+# 4. Install the systemd service
+sudo cp systemd/acp-bot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now acp-bot.service
+
+# 5. Verify
+sudo systemctl status acp-bot.service
+journalctl -u acp-bot -n 20
+```
+
+### Cloudflare Tunnel
+
+The Cloudflare Tunnel (`cloudflared`) must have ingress rules for the
+setup portal endpoints. Add to `/etc/cloudflared/config.yml`:
+
+```yaml
+ingress:
+  - hostname: acp-setup.darkdante.org
+    service: http://localhost:3100
+  - hostname: console.darkdante.org
+    service: http://localhost:8088
+  - service: http_status:404
+```
+
+Restart the tunnel: `sudo systemctl restart cloudflared`
+
+### Deploy Remote
+
+For continuous deployment from a dev machine, configure a bare git repo
+on the dune-prod VM and add the `deploy` remote:
+
+```bash
+# On the dune-prod VM:
+mkdir -p ~/acp-deploy.git && cd ~/acp-deploy.git && git init --bare
+cp ~/arrakis-control-panel/scripts/deploy-post-receive.sh hooks/post-receive
+chmod +x hooks/post-receive
+
+# On the dev machine:
+git remote add deploy ssh://dune@192.168.20.10/home/dune/acp-deploy.git
+git push deploy main:deploy
+```
+
+The post-receive hook runs the full test suite as a guardrail and only
+restarts `acp-bot.service` if tests pass.
+
 ## More Setup Detail
 
 - `docs/discord-setup.md`
@@ -101,3 +171,5 @@ evidence before promoting a release candidate or wider deployment.
 - `docs/operator-validation.md`
 - `docs/verification.md`
 - `docs/security-model.md`
+- `compliance/runbooks/backup-recovery.md`
+- `systemd/acp-bot.service`

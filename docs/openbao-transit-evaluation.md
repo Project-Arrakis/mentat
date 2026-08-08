@@ -11,7 +11,7 @@
 **Proceed, as a strictly opt-in backend, behind review of the config
 shape below.** The win is real (audit trail, rotation, revocation) but
 the bot currently has exactly one realistic consumer (multi-tenant
-production on OCI), zero actual exposure (verified: all at-rest rows are
+production on R740), zero actual exposure (verified: all at-rest rows are
 already `enc:v1:` with a working key, reencrypt run 2026-08-07 confirmed
 0 plaintext rows), and a new bootstrap credential requirement. That
 makes this defense-in-depth, not remediation -- right size for an
@@ -75,7 +75,7 @@ ACP_OPENBAO_KEY_NAME=acp-secrets       # transit key name in OpenBao
 - Backend selected at process start and cached (no per-call HTTP when
   `backend=env`; a `backend=openbao` boot without connectivity must fail
   startup loudly, not silently degrade to passthrough).
-- OpenBao must run on 127.0.0.1 only on the OCI host (no new public
+- OpenBao must run on 127.0.0.1 only on the R740 dune-prod VM (no new public
   port; constraint 3). AppRole secret via `_FILE` convention to match
   the repo's existing VALUE/VALUE_FILE pattern.
 
@@ -92,7 +92,7 @@ ACP_OPENBAO_KEY_NAME=acp-secrets       # transit key name in OpenBao
 - Constraint 4 (single-tenant installs untouched) holds by design:
   default backend remains `env`; nothing changes without
   `ACP_SECRETS_BACKEND=openbao`.
-- Existing at-rest rows: verified 2026-08-07 on the live OCI DB that all
+- Existing at-rest rows: verified 2026-08-07 on the live R740 DB that all
   rows are already `enc:v1:` with zero plaintext (issue #90 evidence).
   A backend switch is therefore not urgent for data safety today.
 
