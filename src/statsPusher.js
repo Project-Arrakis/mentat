@@ -56,68 +56,74 @@ function isValidNumber(value) {
 //   opsEconomy    -> { ok, result: { totalCurrencyHolders, totalSupply, ... } }
 const SYSTEM_ACTOR = Object.freeze({ userId: "stats-pusher", username: "ACP", guildId: "stats", channelId: "stats", roleIds: [] });
 
-async function fetchAggregate(adapterClient) {
+// Aggregate game-level stats across all active guilds. Each guild has its
+// own console URL and adapter token (stored in the guilds table). We call
+// each guild's ops routes and sum up the results to produce the cross-
+// installation totals shown on the landing page stats bar.
+//
+// Single-server deployments: one iteration, same result as before.
+// Multi-tenant: N parallel calls → aggregate sum.
+async function fetchAggregate(adapterClient, activeGuilds = []) {
   const aggregates = {};
+  let totalPlayers = 0, totalSpice = 0, sietchCount = 0, battleCount = 0;
+  let successCount = 0, failCount = 0;
 
-  try {
-    const activity = await adapterClient.opsActivity(SYSTEM_ACTOR, undefined).catch(() => null);
-    const r = activity?.ok ? (activity.result || activity) : null;
-    // "players_online" per docs/kv-stats-schema.md is "Current online
-    // player count" — onlinePlayers is the exact real field for that
-    // (a live snapshot), not activeLast1h/24h (rolling activity windows,
-    // a different metric entirely that the previous version conflated
-    // with "online now").
-    if (r && isValidNumber(r.onlinePlayers)) {
-      aggregates.players_online = r.onlinePlayers;
-    }
-  } catch (err) {
-    logError("stats_push.activity_failed", err);
+  // Filter to guilds that have a console URL configured
+  const configuredGuilds = activeGuilds.filter(g => g.console_url && g.guild_id);
+  if (!configuredGuilds.length) {
+    logInfo("stats_push.no_console_guilds", { total: activeGuilds.length });
+    // Fall back to default config for single-server deployments
+    configuredGuilds.push({ guild_id: null });
   }
 
-  try {
-    const resources = await adapterClient.opsResources(SYSTEM_ACTOR, undefined).catch(() => null);
-    const r = resources?.ok ? (resources.result || resources) : null;
-    // "spice_fields" per docs/kv-stats-schema.md is "Aggregate remaining
-    // spice across active fields" — totalValueRemaining is exactly that
-    // (already filtered to field_kind_id = 1 / spice server-side in
-    // addonOpsResourcesSummary()). totalFields would be a field *count*,
-    // a different metric; do not conflate the two.
-    if (r && isValidNumber(r.totalValueRemaining)) {
-      aggregates.spice_fields = r.totalValueRemaining;
-    }
-  } catch (err) {
-    logError("stats_push.resources_failed", err);
+  for (const guild of configuredGuilds) {
+    const guildId = guild.guild_id; // null = default config
+    const tag = guildId || "default";
+
+    try {
+      const activity = await adapterClient.opsActivity(SYSTEM_ACTOR, guildId).catch(() => null);
+      const ar = activity?.ok ? (activity.result || activity) : null;
+      if (ar && isValidNumber(ar.onlinePlayers)) {
+        totalPlayers += ar.onlinePlayers;
+      }
+    } catch { /* per-guild failure shouldn't block other guilds */ }
+
+    try {
+      const status = await adapterClient.status(SYSTEM_ACTOR, false, guildId).catch(() => null);
+      const sr = status?.ok ? (status.result || status) : null;
+      if (sr) {
+        const summary = sr.summary || sr;
+        if (summary.overall === "READY") battleCount += 1;
+        if (summary.battlegroup) aggregates.battlegroup = aggregates.battlegroup || summary.battlegroup;
+        if (summary.title && !aggregates.battlegroup) aggregates.battlegroup = summary.title;
+      }
+    } catch { }
+
+    try {
+      const resources = await adapterClient.opsResources(SYSTEM_ACTOR, guildId).catch(() => null);
+      const rr = resources?.ok ? (resources.result || resources) : null;
+      if (rr) {
+        // Deep Desert + Hagga Basin active field counts
+        const dd = rr.deepDesert?.summary?.totalActiveFields;
+        const hb = rr.haggaBasin?.summary?.totalActiveFields;
+        if (isValidNumber(dd)) totalSpice += dd;
+        if (isValidNumber(hb)) totalSpice += hb;
+        // Count sietches: Hagga Basin instances
+        const hbInstances = rr.haggaBasin?.instances;
+        if (Array.isArray(hbInstances)) sietchCount += hbInstances.length;
+      }
+    } catch { }
+
+    successCount++;
+    logInfo("stats_push.guild_aggregated", { guild: tag, players: totalPlayers, spice: totalSpice });
   }
 
-  // "sietches" per docs/kv-stats-schema.md is "Count of active Hagga
-  // Basin sietches." Investigated directly against a live Core instance:
-  // dune.world_partition rows for map = 'Survival_1' ARE the Sietches
-  // (confirmed via the partition's own `label` field, e.g. "Sietch
-  // Abbir") — a real, countable concept exists. However, NO route
-  // reachable from this bot exposes that count: it is only queryable via
-  // duneDb.mapCombatPartitionRows(), which is wired exclusively to the
-  // web-console-only GET /api/maps/combat-state route (server.js), not
-  // to any Discord-adapter or addon-bridge ops.* action this bot can
-  // call. Neither opsActivityProvider, opsCombatProvider,
-  // opsResourcesProvider, nor opsEconomyProvider include a Sietch/
-  // partition count anywhere in their real response shapes. Correctly
-  // left unset (reported as unavailable, never fabricated) until Core
-  // exposes this via a reachable route — tracked as a follow-up, not
-  // fixed here.
+  if (totalPlayers > 0 || configuredGuilds.length > 0) aggregates.players_online = totalPlayers;
+  if (totalSpice > 0 || configuredGuilds.length > 0) aggregates.spice_fields = totalSpice;
+  if (sietchCount > 0) aggregates.sietches = sietchCount;
+  if (battleCount > 0) aggregates.battlegroups = battleCount;
 
-  // "battlegroups" — per docs/kv-stats-schema.md's own "Open questions"
-  // section (backed by direct investigation in
-  // dune-awakening-selfhost-docker's docs/remediation-prompt-cross-repo.md):
-  // "battlegroup" is a real, defined concept there
-  // (services/publicDirectory.js's isBattlegroupRunning()), but it is a
-  // PER-SERVER BOOLEAN ("is this deployment's core stack running"), not
-  // a fleet-wide countable number. No route anywhere produces a
-  // meaningful count for it. Deliberately left unset here — see the
-  // resolution recorded in this PR's description — rather than reviving
-  // the previous extract(r.summary, "battlegroups", "factions", "guilds")
-  // fallback chain, which aliased three different, none-of-them-real
-  // fields from a dashboard `summary: {}` object that opsDashboardProvider
-  // has never actually populated.
+  logInfo("stats_push.aggregation", { guilds: configuredGuilds.length, succeeded: successCount, failed: failCount, total_players: totalPlayers, total_spice: totalSpice, sietches: sietchCount, battlegroups: battleCount });
 
   return aggregates;
 }
@@ -232,7 +238,7 @@ async function pushStats(client, db, adapterClient, { alertChannelId } = {}) {
     const allGuilds = db ? getAllGuilds(db) : [];
     const activeGuilds = db ? getActiveGuilds(db) : [];
     const commandsTotal = db ? getCommandCount(db) : 0;
-    const aggregates = adapterClient ? await fetchAggregate(adapterClient) : {};
+    const aggregates = adapterClient ? await fetchAggregate(adapterClient, activeGuilds) : {};
 
     const stats = buildStatsPayload({
       guildCount: client.guilds.cache.size,
