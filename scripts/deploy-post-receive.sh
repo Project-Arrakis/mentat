@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 #
-# deploy-post-receive.sh -- Canonical version of the OCI production
+# deploy-post-receive.sh -- Canonical version of the R740 dune-prod VM
 # post-receive hook for the ACP Discord bot.
 #
 # The real, live copy lives at
-#   ubuntu@129.146.238.118:~/acp-deploy.git/hooks/post-receive
+#   dune@192.168.20.10:~/acp-deploy.git/hooks/post-receive
+# (the dune-prod VM, VMID 101, on the Dell R740 hypervisor).
 # This file is the reviewed, versioned source of truth. When this file
-# changes, the live copy on the OCI instance must be updated to match
+# changes, the live copy on the dune-prod VM must be updated to match
 # (see compliance/runbooks/backup-recovery.md's deployment section) -- a
 # deployed bot that doesn't match this file is a drift bug waiting to
 # surface.
@@ -22,9 +23,11 @@
 #      restart deployed new command code but Discord kept offering the
 #      old, now-nonexistent command structure (issue #92).
 #   3. Restarts acp-bot.service and reports the health state.
+#
+# Previous host: OCI VPS at 129.146.238.118 (decommissioned 2026-08-07).
 
 DEPLOY_BRANCH="deploy"
-WORK_DIR="/home/ubuntu/arrakis-control-panel"
+WORK_DIR="/home/dune/arrakis-control-panel"
 SERVICE_NAME="acp-bot.service"
 # Bash strict mode without `-e`: each step below handles its own errors
 # so it can report *which* guardrail failed instead of dying silently.
@@ -71,7 +74,7 @@ while read -r oldrev newrev refname; do
     exit 1
   fi
 
-  if grep -q "fail [1-9]" /tmp/deploy-test.log || grep -q "fail [0-9][0-9]" /tmp/deploy-test.log; then
+  if grep -qE "(not ok [1-9]|[[:<:]]fail [1-9])" /tmp/deploy-test.log; then
     echo "ERROR: tests had failures -- aborting deployment."
     exit 1
   fi
@@ -102,7 +105,7 @@ while read -r oldrev newrev refname; do
     else
       echo "WARNING: npm run register failed. Command definitions may not"
       echo "reflect this deploy. Run manually if needed:"
-      echo "  ssh acp-bot-oci && cd ~/arrakis-control-panel && set -a && . ./.env && set +a && npm run register"
+      echo "  ssh dune@192.168.20.10 && cd ~/arrakis-control-panel && set -a && . ./.env && set +a && npm run register"
     fi
   else
     echo "No command-definition changes -- skipping slash-command registration."

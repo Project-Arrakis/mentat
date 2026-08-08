@@ -3,14 +3,15 @@
 ## Overview
 
 Transition from self-hosted single-tenant bot to a centrally-hosted multi-tenant
-service on OCI. One bot instance serves many Discord servers, each connected to
-its own Dune Awakening console.
+service. One bot instance serves many Discord servers, each connected to
+its own Dune Awakening console. (As of 2026-08-07, runs on the Dell R740
+dune-prod VM, migrated from OCI to eliminate $300/month cloud costs.)
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    OCI Instance                          │
+│               R740 dune-prod VM (VMID 101)                │
 │                                                          │
 │  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
 │  │  Discord Bot │  │  Web Portal  │  │   SQLite DB   │  │
@@ -35,7 +36,7 @@ its own Dune Awakening console.
 
 | Aspect | Before (Self-Hosted) | After (Multi-Tenant) |
 |--------|---------------------|---------------------|
-| Deployment | Per-user Docker/Node | Single OCI instance |
+| Deployment | Per-user Docker/Node | Single hosted instance (R740 self-hosted) |
 | Config | `.env` file | SQLite database |
 | Auth | Bot token + adapter token | Discord OAuth2 + per-guild adapter tokens |
 | RBAC | Global role IDs in `.env` | Per-guild role configuration |
