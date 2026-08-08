@@ -283,5 +283,61 @@ export function createSetupServer(config) {
     }
   });
 
+  // Alertmanager → Discord webhook relay. Receives firing/resolved alerts
+  // from Prometheus's Alertmanager, reformats into Discord embeds, and posts
+  // to the configured DUNE_ALERT_WEBHOOK_URL. If no webhook URL is configured,
+  // the endpoint accepts the payload but takes no action (idempotent, safe).
+  app.post("/api/alerts/relay", express.json(), async (req, res) => {
+    const payload = req.body;
+    if (!payload || !payload.alerts || !Array.isArray(payload.alerts)) {
+      return res.status(400).json({ error: "Invalid Alertmanager payload — expected {alerts: [...]}" });
+    }
+
+    const webhookUrl = process.env.DUNE_ALERT_WEBHOOK_URL;
+    // Send in batches of 10 embeds (Discord limit per message)
+    const EMBED_LIMIT = 10;
+    let fired = 0;
+
+    try {
+      for (let i = 0; i < payload.alerts.length; i += EMBED_LIMIT) {
+        const batch = payload.alerts.slice(i, i + EMBED_LIMIT);
+        const embeds = batch.map(function alertToEmbed(alert) {
+          const firing = alert.status === "firing";
+          return {
+            title: `${firing ? "🔥" : "✅"} ${alert.labels.alertname}`,
+            description: alert.annotations.description || alert.annotations.summary || "",
+            color: alert.labels.severity === "critical" ? 0xe74c3c : 0xf39c12,
+            fields: [
+              { name: "Instance", value: alert.labels.instance || "unknown", inline: true },
+              { name: "Severity", value: alert.labels.severity || "unknown", inline: true },
+              { name: firing ? "Firing since" : "Resolved at", value: alert.startsAt, inline: false }
+            ],
+            timestamp: alert.startsAt
+          };
+        });
+
+        if (webhookUrl) {
+          const discordPayload = JSON.stringify({ embeds });
+          await fetch(webhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: discordPayload
+          });
+          fired += batch.length;
+        }
+      }
+
+      res.json({
+        ok: true,
+        total: payload.alerts.length,
+        relayed: fired,
+        skipped: payload.alerts.length - fired,
+        webhookConfigured: Boolean(webhookUrl)
+      });
+    } catch (err) {
+      res.status(502).json({ ok: false, error: err.message || "Discord relay failed" });
+    }
+  });
+
   return app;
 }
