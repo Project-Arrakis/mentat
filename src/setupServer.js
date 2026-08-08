@@ -270,6 +270,11 @@ export function createSetupServer(config) {
     res.json({ ok: true, service: "acp-setup" });
   });
 
+  app.get("/api/version", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({ version: "1.0.0-rc.3", name: "arrakis-control-panel" });
+  });
+
   app.get("/api/live-stats", (req, res) => {
     try {
       const stats = getStatsSnapshot(db);
