@@ -79,19 +79,22 @@ async function fetchAggregate(adapterClient, activeGuilds = []) {
   for (const guild of configuredGuilds) {
     const guildId = guild.guild_id; // null = default config
     const tag = guildId || "default";
+    let guildReachable = false;
 
     try {
       const activity = await adapterClient.opsActivity(SYSTEM_ACTOR, guildId).catch(() => null);
       const ar = activity?.ok ? (activity.result || activity) : null;
       if (ar && isValidNumber(ar.onlinePlayers)) {
         totalPlayers += ar.onlinePlayers;
+        guildReachable = true;
       }
-    } catch { /* per-guild failure shouldn't block other guilds */ }
+    } catch { /* tunnel-only or offline console — expected, not an error */ }
 
     try {
       const status = await adapterClient.status(SYSTEM_ACTOR, false, guildId).catch(() => null);
       const sr = status?.ok ? (status.result || status) : null;
       if (sr) {
+        guildReachable = true;
         const summary = sr.summary || sr;
         if (summary.overall === "READY") battleCount += 1;
         if (summary.battlegroup) aggregates.battlegroup = aggregates.battlegroup || summary.battlegroup;
@@ -103,19 +106,21 @@ async function fetchAggregate(adapterClient, activeGuilds = []) {
       const resources = await adapterClient.opsResources(SYSTEM_ACTOR, guildId).catch(() => null);
       const rr = resources?.ok ? (resources.result || resources) : null;
       if (rr) {
-        // Deep Desert + Hagga Basin active field counts
+        guildReachable = true;
         const dd = rr.deepDesert?.summary?.totalActiveFields;
         const hb = rr.haggaBasin?.summary?.totalActiveFields;
         if (isValidNumber(dd)) totalSpice += dd;
         if (isValidNumber(hb)) totalSpice += hb;
-        // Count sietches: Hagga Basin instances
         const hbInstances = rr.haggaBasin?.instances;
         if (Array.isArray(hbInstances)) sietchCount += hbInstances.length;
       }
     } catch { }
 
-    successCount++;
-    logInfo("stats_push.guild_aggregated", { guild: tag, players: totalPlayers, spice: totalSpice });
+    if (guildReachable) {
+      successCount++;
+    } else {
+      failCount++;
+    }
   }
 
   if (totalPlayers > 0 || configuredGuilds.length > 0) aggregates.players_online = totalPlayers;
