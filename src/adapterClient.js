@@ -51,6 +51,7 @@ export const LIVE_ROUTES = new Set([
   // real data. Moved to LIVE. LOGS, MAP_STATE, and MAINTENANCE
   // handlers implemented on Core (#211, #213). Broadcast enabled
   // via DUNE_DISCORD_WRITES_ENABLED env var (#214).
+  "broadcast",
   "ops-inventory", "ops-soc", "ops-prometheus", "ops-dashboard"
 ]);
 

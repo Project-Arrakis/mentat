@@ -140,11 +140,17 @@ test("ops-activity, ops-combat, ops-resources, ops-economy are classified as liv
 // (see dune-awakening-selfhost-docker's opsProvider.js) and must remain
 // correctly classified as planned stubs -- this reclassification is
 // deliberately narrow, not a blanket "all ops routes are live now" change.
-test("ops-inventory, ops-location, ops-soc, ops-prometheus, ops-dashboard remain classified as planned", () => {
-  for (const route of ["ops-inventory", "ops-location", "ops-soc", "ops-prometheus", "ops-dashboard"]) {
-    assert.ok(PLANNED_ROUTES.has(route), `${route} has no backing query in Core and must remain planned`);
-    assert.ok(!LIVE_ROUTES.has(route), `${route} must not be misclassified as live`);
-    assert.equal(routeStatus(route), "planned");
+test("ops-location remains classified as planned (by design — out of scope)", () => {
+  assert.ok(PLANNED_ROUTES.has("ops-location"), "ops-location must remain planned");
+  assert.ok(!LIVE_ROUTES.has("ops-location"), "ops-location must not be in LIVE");
+  assert.equal(routeStatus("ops-location"), "planned");
+});
+
+test("ops-inventory, ops-soc, ops-prometheus, ops-dashboard are now classified as live", () => {
+  for (const route of ["ops-inventory", "ops-soc", "ops-prometheus", "ops-dashboard"]) {
+    assert.ok(LIVE_ROUTES.has(route), `${route} Core now returns real data — must be live`);
+    assert.ok(!PLANNED_ROUTES.has(route), `${route} must not remain in planned`);
+    assert.equal(routeStatus(route), "live");
   }
 });
 
