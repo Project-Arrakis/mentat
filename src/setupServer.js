@@ -27,6 +27,28 @@ export function createSetupServer(config) {
   app.use(express.urlencoded({ extended: true }));
   app.use(express.static("public"));
 
+  // CORS — allow the landing page (acp.darkdante.org) to fetch public API endpoints.
+  // No auth endpoints are exposed here; all are read-only public data.
+  const ALLOWED_ORIGINS = [
+    "https://acp.darkdante.org",
+    "https://acp-landing.pages.dev",
+    "http://localhost:5173",
+    "http://localhost:3000"
+  ];
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      res.setHeader("Access-Control-Max-Age", "86400");
+    }
+    if (req.method === "OPTIONS") {
+      return res.status(204).end();
+    }
+    next();
+  });
+
   const redirectUri = config.oauthRedirectUri || `${config.baseUrl}/oauth/callback`;
 
   // ── Landing page ──────────────────────────────────────────────────
