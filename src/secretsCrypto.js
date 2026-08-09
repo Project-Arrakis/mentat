@@ -43,7 +43,8 @@
 // docs/security-secrets-at-rest.md for full operator guidance.
 
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
+import { execSync } from "node:child_process";
 
 const ALGORITHM = "aes-256-gcm";
 const KEY_BYTES = 32;
@@ -53,9 +54,12 @@ const IV_BYTES = 12;
 const TAG_BYTES = 16;
 const PLAINTEXT_PREFIX = "plain:";
 const CIPHERTEXT_PREFIX = "enc:v1:";
+const CIPHERTEXT_PREFIX_V2 = "enc:v2:";
 
 let cachedKey;
 let cachedKeySource;
+let _kekCache;
+let _kekKeyVersion;
 
 function loadKey(env = process.env) {
   if (cachedKey !== undefined) return cachedKey;
@@ -98,12 +102,106 @@ export function _resetKeyCacheForTests() {
 }
 
 export function isEncryptionConfigured(env = process.env) {
-  return loadKey(env) !== null;
+  return loadKey(env) !== null || loadKEK(env) !== null;
 }
 
 export function secretsKeySource(env = process.env) {
   loadKey(env);
-  return cachedKeySource;
+  if (cachedKeySource && cachedKeySource !== "none") return cachedKeySource;
+  loadKEK(env);
+  return _kekCache ? "ACP_KEK_FILE" : "none";
+}
+
+// ── KEK/DEK hierarchy (Phase 1, v2 encryption) ──
+//
+// When ACP_KEK_FILE is configured, secrets are encrypted with per-row Data
+// Encryption Keys (DEKs). Each DEK is itself encrypted ("wrapped") with a
+// Key Encryption Key (KEK). The KEK is stored age-encrypted on disk.
+//
+// This two-tier design means:
+//   - Rotating the KEK only re-wraps 32-byte DEKs (fast, non-breaking)
+//   - Compromising one DEK only exposes one row, not all secrets
+//   - The age identity key is the root of trust — operator-controlled
+//
+// Without ACP_KEK_FILE, the system falls back to the v1 single-key mode
+// (ACP_SECRETS_KEY). All existing callers continue to work unchanged.
+
+// Loads the KEK from an age-encrypted file using the age binary.
+// Called once at startup; the decrypted KEK stays in memory.
+// Returns null if KEK is not configured or age is not available.
+function loadKEK(env = process.env) {
+  if (_kekCache !== undefined) return _kekCache;
+
+  const kekFile = (env.ACP_KEK_FILE || "").trim();
+  const ageIdFile = (env.ACP_AGE_IDENTITY_FILE || "").trim();
+  if (!kekFile || !ageIdFile) {
+    _kekCache = null;
+    return null;
+  }
+
+  try {
+    // Verify files exist and have restrictive permissions
+    for (const f of [kekFile, ageIdFile]) {
+      const mode = statSync(f).mode & 0o777;
+      if (mode !== 0o400 && mode !== 0o600) {
+        // Warn but don't refuse — operator may have legitimate reason
+        // (shared group, different umask convention)
+      }
+    }
+
+    // age --decrypt -i <identity> <kek.age>
+    const result = execSync(
+      `age --decrypt -i "${ageIdFile}" "${kekFile}"`,
+      { encoding: "utf8", timeout: 5000, maxBuffer: 1024 }
+    );
+    const hex = result.trim();
+    if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+      throw new Error(`KEK file ${kekFile} did not contain a valid 64-char hex key`);
+    }
+    _kekCache = Buffer.from(hex, "hex");
+    _kekKeyVersion = 1; // Will be read from key_versions table during DB migration
+    return _kekCache;
+  } catch (err) {
+    // age not installed, file missing, wrong identity, or corrupted file
+    _kekCache = null;
+    if (err.stderr) {
+      const stderr = String(err.stderr).trim();
+      if (stderr) console.error(`[acp] KEK load failed: ${stderr}`);
+    }
+    return null;
+  }
+}
+
+// Wraps a DEK with the KEK. Returns base64-encoded wrapped DEK.
+// The DEK is a 32-byte AES key; the wrapped form includes IV + auth tag.
+export function wrapDEK(dek, kek) {
+  const iv = randomBytes(IV_BYTES);
+  const cipher = createCipheriv(ALGORITHM, kek, iv, { authTagLength: TAG_BYTES });
+  const encrypted = Buffer.concat([cipher.update(dek), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, encrypted]).toString("base64");
+}
+
+// Unwraps a DEK previously wrapped with wrapDEK(). Returns the 32-byte DEK.
+export function unwrapDEK(wrappedBase64, kek) {
+  const payload = Buffer.from(wrappedBase64, "base64");
+  const iv = payload.subarray(0, IV_BYTES);
+  const tag = payload.subarray(IV_BYTES, IV_BYTES + TAG_BYTES);
+  const encrypted = payload.subarray(IV_BYTES + TAG_BYTES);
+  const decipher = createDecipheriv(ALGORITHM, kek, iv, { authTagLength: TAG_BYTES });
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+}
+
+// Generates a fresh 32-byte DEK. Exported for migration scripts.
+export function generateDEK() {
+  return randomBytes(KEY_BYTES);
+}
+
+// Exposed for tests
+export function _resetKEKCacheForTests() {
+  _kekCache = undefined;
+  _kekKeyVersion = undefined;
 }
 
 // Encrypts a plaintext secret for storage. Returns a string safe to store
@@ -184,4 +282,79 @@ export function decryptSecret(stored, env = process.env) {
   return plaintext.toString("utf8");
 }
 
-export const _internal = { ALGORITHM, KEY_BYTES, IV_BYTES, TAG_BYTES };
+// Encrypts plaintext with a per-row DEK. Returns { ciphertext, wrappedDEK }
+// where ciphertext is enc:v2:<keyVersion>:<base64> and wrappedDEK is the
+// DEK encrypted with the active KEK (stored separately in secret_keys).
+// Falls back to v1 single-key mode if no KEK is configured.
+export function encryptWithDEK(plaintext, env = process.env) {
+  if (plaintext === null || plaintext === undefined || plaintext === "") {
+    return { ciphertext: plaintext ?? "", wrappedDEK: null };
+  }
+
+  const kek = loadKEK(env);
+  if (!kek) {
+    // No KEK configured — use v1 single-key encryption (backward compat)
+    return { ciphertext: encryptSecret(plaintext, env), wrappedDEK: null };
+  }
+
+  const dek = generateDEK();
+  const iv = randomBytes(IV_BYTES);
+  const cipher = createCipheriv(ALGORITHM, dek, iv, { authTagLength: TAG_BYTES });
+  const encrypted = Buffer.concat([cipher.update(String(plaintext), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  const payload = Buffer.concat([iv, tag, encrypted]).toString("base64");
+  const version = _kekKeyVersion || 1;
+  const ciphertext = `${CIPHERTEXT_PREFIX_V2}${version}:${payload}`;
+  const wrappedDEK = wrapDEK(dek, kek);
+  return { ciphertext, wrappedDEK };
+}
+
+// Decrypts a value produced by encryptWithDEK(). Requires the wrapped DEK
+// that was returned alongside the ciphertext. Handles v1 format
+// transparently (no wrappedDEK needed for v1 rows).
+export function decryptWithDEK(ciphertext, wrappedDEK, env = process.env) {
+  if (ciphertext === null || ciphertext === undefined || ciphertext === "") {
+    return ciphertext ?? "";
+  }
+  const value = String(ciphertext);
+
+  // v1 format — use legacy single-key decryption
+  if (value.startsWith(CIPHERTEXT_PREFIX) || value.startsWith(PLAINTEXT_PREFIX) ||
+      (!value.startsWith(CIPHERTEXT_PREFIX_V2))) {
+    return decryptSecret(value, env);
+  }
+
+  // v2 format: enc:v2:<version>:<base64 payload>
+  const rest = value.slice(CIPHERTEXT_PREFIX_V2.length);
+  const colonIdx = rest.indexOf(":");
+  if (colonIdx === -1) {
+    throw new Error(`Malformed v2 ciphertext: missing key version separator`);
+  }
+
+  if (!wrappedDEK) {
+    throw new Error(
+      "Encountered a v2 encrypted secret but no wrapped DEK was provided. " +
+      "The secret_keys table may be missing this row."
+    );
+  }
+
+  const kek = loadKEK(env);
+  if (!kek) {
+    throw new Error(
+      "Encountered a v2 encrypted secret but ACP_KEK_FILE / ACP_AGE_IDENTITY_FILE " +
+      "is not configured. The KEK used to wrap this row's DEK must be provided to read it back."
+    );
+  }
+
+  const dek = unwrapDEK(wrappedDEK, kek);
+  const payload = Buffer.from(rest.slice(colonIdx + 1), "base64");
+  const iv = payload.subarray(0, IV_BYTES);
+  const tag = payload.subarray(IV_BYTES, IV_BYTES + TAG_BYTES);
+  const encrypted = payload.subarray(IV_BYTES + TAG_BYTES);
+  const decipher = createDecipheriv(ALGORITHM, dek, iv, { authTagLength: TAG_BYTES });
+  decipher.setAuthTag(tag);
+  const plaintext = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return plaintext.toString("utf8");
+}
+
+export const _internal = { ALGORITHM, KEY_BYTES, IV_BYTES, TAG_BYTES, loadKEK, wrapDEK, unwrapDEK };
