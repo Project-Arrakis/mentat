@@ -155,15 +155,17 @@ export function formatStatusDetailEmbed(payload) {
     });
   }
 
-  // Fallback: build from parsed data
+  // Fallback: show available data, note that CLI detail wasn't returned
   const maps = Array.isArray(r.maps) ? r.maps : [];
+  const isReady = (r.overall || "").includes("READY");
   return duneEmbed({
     title: "🔬 Detailed Status",
-    color: "warning",
-    description: "Diagnostic details are not currently available. The server may be starting up or the diagnostic command timed out. Try again in a moment.*",
+    color: isReady ? "success" : "warning",
+    description: isReady ? "🟢 **Server is running**" : "🟡 Issues detected",
     fields: [
       { name: "Overall", value: fmt(r.overall), inline: true },
-      { name: "Maps", value: maps.map(m => `${m.state === "READY" ? "🟢" : "🔴"} ${m.name}`).join("\n") || "—", inline: false },
+      { name: "Maps", value: maps.map(m => `${m.state === "READY" ? "🟢" : "🔴"} ${m.name}`).join("\n") || "— None —", inline: false },
+      { name: "Diagnostic Detail", value: "Container-level data (CPU, memory, uptime per service) is not available. Install the diagnostic extension or check server logs for detailed metrics.", inline: false }
     ]
   });
 }
