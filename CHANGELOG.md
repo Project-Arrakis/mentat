@@ -320,3 +320,33 @@ Initial read-only release for the self-hosted Discord bot.
 - Read-only security review: `docs/security-review-2026-06-28.md`
 - Upstream compatibility baseline:
   `Red-Blink/dune-awakening-selfhost-docker@1bb72c5`, tag `v1.3.37`
+
+## [1.0.0-rc.4] — 2026-08-10
+
+### Added
+- Unified output pipeline: enricher.js (shared footer/timestamp/version) + pipeline.js (sendEmbed, sendCard, sendError, sendText, sendEphemeral)
+- Dedicated formatters for server:services, admin:roles, logs, infra:version, player commands, core:help
+- Steam-link embeds (styled embed + button instead of raw text)
+- Auth/cooldown denials now use ephemeral styled embeds
+
+### Fixed
+- Dead OPS embed formatters removed from import chain (#114)
+- fmtBool(undefined) shows "— Unknown —" instead of "❌ No" (#121)
+- Dynamic colors on population/storage/unlink/ports (warning on empty, success on data) (#122)
+- formatReadinessDetailEmbed treats undefined ready correctly (#124)
+- formatGenericEmbed shows "— None —" instead of silently dropping null fields
+- formatPopulationEmbed "?" replaced with "— Unknown —"
+- Map names show "Unknown Map" instead of "undefined" (#127)
+- Diagnostic data pipeline: safeStatusProvider now passes {diagnostic} opts through
+- fmt() uses **bold** for string values (consistent with dedicated formatters) (#128)
+- Stale /dune data → /dune player command paths fixed (5 locations)
+- sendError parses JSON body, shows only error/message field
+- formatPayload fallback uses embed instead of raw JSON dump
+- enricher setTimestamp passes Date object (not ISO string), fixing CI crash
+- opsPlaceholder no longer mentions GitHub org reference
+- Capability enum errors replaced with user-friendly role-based messages
+
+### Changed
+- parseResponseBody returns ok:false for non-JSON responses (not phantom success)
+- Field names truncated to 256 chars in duneEmbed
+- !payload?.ok checks replaced with data field presence checks in inventory/link/whoami
