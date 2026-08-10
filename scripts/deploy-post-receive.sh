@@ -74,7 +74,7 @@ while read -r oldrev newrev refname; do
     exit 1
   fi
 
-  if grep -qE "(not ok [1-9]|[[:<:]]fail [1-9])" /tmp/deploy-test.log; then
+  if grep -qE "^not ok " /tmp/deploy-test.log; then
     echo "ERROR: tests had failures -- aborting deployment."
     exit 1
   fi
