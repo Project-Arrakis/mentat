@@ -8,7 +8,7 @@ export function enrichEmbed(embed, context = {}) {
   if (!embed.data.footer) {
     embed.setFooter({ text: buildFooter(context) });
   }
-  embed.setTimestamp(new Date().toISOString());
+  embed.setTimestamp(new Date());
   return embed;
 }
 
