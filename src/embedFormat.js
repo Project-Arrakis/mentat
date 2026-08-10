@@ -24,7 +24,7 @@ function fmt(val) {
   if (typeof val === "number") return val < 10000 ? `\`${val.toLocaleString()}\`` : `\`${(val / 1000).toFixed(1)}k\``;
   const s = String(val).trim();
   if (!s) return "— None —";
-  return `\`${s}\``;
+  return `**${s}**`;
 }
 
 function fmtBool(val) { return val === true ? "✅ Yes" : val === false ? "❌ No" : "— Unknown —"; }
@@ -1112,5 +1112,88 @@ export function formatAnnouncementsEmbed(payload) {
     color: announcements.length > 0 ? "spice" : "warning",
     description: desc.slice(0, 2048),
     fields: [{ name: "📦 Total", value: fmtCount(announcements.length), inline: true }]
+  });
+}
+
+// ── Dedicated formatters replacing formatGenericEmbed ──
+
+export function formatServicesSummaryEmbed(payload) {
+  const services = payload?.services || payload?.result?.services || {};
+  const fields = Object.entries(services).slice(0, 24).map(([name, state]) => ({
+    name: `**${name}**`,
+    value: state || "— Unknown —",
+    inline: true
+  }));
+  return duneEmbed({
+    title: "🔧 Services",
+    color: fields.length > 0 ? "success" : "warning",
+    description: fields.length > 0 ? undefined : "— No service data available —",
+    fields
+  });
+}
+
+export function formatRolesEmbed(payload) {
+  const roles = payload?.roles || payload?.result || {};
+  const fields = Object.entries(roles).slice(0, 24).map(([name, value]) => ({
+    name: `**${name}**`,
+    value: String(value || "— None —"),
+    inline: true
+  }));
+  return duneEmbed({
+    title: "👥 Role Configuration",
+    color: "success",
+    description: payload?.source ? `Source: ${payload.source}` : undefined,
+    fields: fields.length > 0 ? fields : [{ name: "Status", value: "— No role data available —" }]
+  });
+}
+
+export function formatLogsEmbed(payload) {
+  const lines = Array.isArray(payload?.lines) ? payload.lines : [];
+  const service = payload?.service || "unknown";
+  return duneEmbed({
+    title: `📋 Logs: ${service}`,
+    color: lines.length > 0 ? "success" : "warning",
+    description: lines.length > 0 ? lines.map(l => `\`${String(l).slice(0, 120)}\``).join("\n").slice(0, 2048) : "— No log output —",
+    fields: [{ name: "Service", value: `\`${service}\``, inline: true }, { name: "Lines", value: fmtCount(lines.length), inline: true }]
+  });
+}
+
+export function formatVersionEmbed(payload) {
+  const v = payload?.version || payload?.result?.version || "unknown";
+  const adapter = payload?.adapter || payload?.result?.adapter || {};
+  return duneEmbed({
+    title: "📦 Version",
+    color: "success",
+    description: `**${v}**`,
+    fields: Object.entries(adapter).slice(0, 6).map(([k, val]) => ({
+      name: `**${k}**`,
+      value: String(val || "— Unknown —"),
+      inline: true
+    }))
+  });
+}
+
+export function formatPlayerCommandEmbed(payload, commandName) {
+  const ok = payload?.ok !== false;
+  const msg = payload?.message || payload?.error || "";
+  return duneEmbed({
+    title: `👤 Player: ${commandName}`,
+    color: ok ? "success" : "warning",
+    description: msg || (ok ? "Command completed." : "Command failed."),
+    fields: payload?.characterName ? [{ name: "Character", value: `**${payload.characterName}**`, inline: true }] : []
+  });
+}
+
+export function formatHelpEmbed(payload) {
+  const available = payload?.available || [];
+  const locked = payload?.locked || [];
+  return duneEmbed({
+    title: "📚 Available Commands",
+    color: "success",
+    description: `${payload?.availableCount || available.length} commands available for your role.`,
+    fields: [
+      { name: "Available", value: available.length > 0 ? available.map(c => `\`${c}\``).join(", ").slice(0, 1024) : "— None —", inline: false },
+      { name: "Locked", value: locked.length > 0 ? locked.map(c => `\`${c}\``).join(", ").slice(0, 1024) : "— None —", inline: false }
+    ]
   });
 }
