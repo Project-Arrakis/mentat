@@ -565,7 +565,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     } else if (embed) {
       await interaction.editReply({ embeds: [embed] });
     } else {
-      await interaction.editReply(formatPayload(`Dune ${key}`, payload));
+      await sendEmbed(interaction, { embed: formatGenericEmbed({ result: payload, title: `Dune ${key}` }) });
     }
   } catch (error) {
     // Provide better error messages for unmerged routes
