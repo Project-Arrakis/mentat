@@ -214,8 +214,8 @@ function parseCliSections(raw = "") {
 
 // ── Population ──
 export function formatPopulationEmbed(population) {
-  const online = population?.online ?? "?";
-  const total = population?.total ?? "?";
+  const online = population?.online ?? "— Unknown —";
+  const total = population?.total ?? "— Unknown —";
   return duneEmbed({
     title: "👥 Server Population",
     color: population?.online ? "success" : "warning",
@@ -274,7 +274,10 @@ export function formatGenericEmbed(payload, title) {
   const fields = [];
   for (const [key, val] of Object.entries(safe)) {
     if (key === "ok" || key === "timestamp") continue;
-    if (val === null || val === undefined) continue;
+    if (val === null || val === undefined) {
+        fields.push({ name: key, value: "— None —", inline: true });
+        continue;
+      }
 
     const label = DISPLAY_NAMES[key] || key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, " $1");
 
