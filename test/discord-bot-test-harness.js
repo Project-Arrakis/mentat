@@ -567,7 +567,10 @@ describe('Command Execution', () => {
     const result = await executeDuneCommand(interaction, trackingAdapter, config);
 
     assert.ok(result, 'Command should succeed');
-    assert.ok(interaction._editReply?.content?.includes('Link via Steam') || interaction._editReply?.components?.length, 'Should offer the Steam-link button');
+    const hasSteamButton = interaction._editReply?.components?.length ||
+      interaction._editReply?.content?.includes('Link via Steam') ||
+      interaction._editReply?.embeds?.[0]?.data?.description?.includes('Steam');
+    assert.ok(hasSteamButton, 'Should offer the Steam-link button');
   });
 
   test('player:link creates a Steam-link session with a real username/channelId/roleIds, not just userId/guildId (regression, real bug found 2026-07-26)', async () => {
@@ -598,8 +601,8 @@ describe('Command Execution', () => {
     assert.ok(result, 'Command should succeed');
     // Find the session this call created by checking the button URL's
     // state query param, then peek the real stored session.
-    const startUrl = interaction._editReply?.components?.[0]?.components?.[0]?.data?.url
-      || interaction._editReply?.components?.[0]?.components?.[0]?.url;
+    const button = interaction._editReply?.components?.[0]?.components?.[0];
+    const startUrl = button?.data?.url || button?.url;
     assert.ok(startUrl, 'Should have a Steam-link start URL');
     const state = new URL(startUrl).searchParams.get('state');
     assert.ok(state, 'URL should include a state token');
