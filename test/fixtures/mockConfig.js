@@ -75,6 +75,7 @@ export function createMockConfig(overrides = {}) {
         status: '/api/status'
       }
     },
+    steamLink: { enabled: false, baseUrl: null },
     bot: {
       name: 'arrakis-control-panel',
       version: '1.5.0',
