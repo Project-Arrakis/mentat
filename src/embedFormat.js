@@ -118,7 +118,7 @@ export function formatStatusEmbed(payload, subcommand) {
   const maps = Array.isArray(r.maps) ? r.maps : [];
   const mapStr = maps.length === 0
     ? "— No map data available —"
-    : maps.map(m => `${m.state === "READY" ? "🟢" : "🔴"} **${m.name}**`).join(" · ");
+    : maps.map(m => `${m.state === "READY" ? "🟢" : "🔴"} **${m.name || "Unknown Map"}**`).join(" · ");
 
   return duneEmbed({
     title: "🌍 Server Status",

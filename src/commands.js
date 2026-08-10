@@ -324,10 +324,13 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setLabel("Link via Steam").setStyle(ButtonStyle.Link).setURL(startUrl)
         );
+        const steamEmbed = duneEmbed({
+          title: "🔗 Steam Link Available",
+          color: "success",
+          description: `**${characterName}** is linked to a Steam account. Click below to verify instantly using your Discord\u2019s connected Steam account \u2014 no in-game whisper needed. This link expires in 10 minutes.`
+        });
         await interaction.editReply({
-          content: `**${characterName}** is linked to a Steam account. Click below to verify instantly ` +
-            "using your Discord's connected Steam account -- no in-game whisper needed. " +
-            "This link expires in 10 minutes.",
+          embeds: [steamEmbed],
           components: [row]
         });
         applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
