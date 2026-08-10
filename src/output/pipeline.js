@@ -37,3 +37,8 @@ export async function sendText(interaction, { content, context = {} } = {}) {
   const enriched = enrichContent(content, context);
   return interaction.editReply({ content: enriched });
 }
+
+export async function sendEphemeral(interaction, { title, description, color = 0xdc3545 } = {}) {
+  const embed = { title, description, color };
+  return interaction.reply({ embeds: [embed], ephemeral: true });
+}
