@@ -8,6 +8,7 @@ import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload, redactSecrets } from "./format.js";
 import { formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed } from "./embedFormat.js";
+import { sendEmbed, sendError, sendCard, sendText } from "./output/pipeline.js";
 import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { writesEnabled, canWrite } from "./writes.js";
@@ -566,12 +567,12 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     // Provide better error messages for unmerged routes
     if (error instanceof Error && UNMERGED_ROUTES.has(error.route)) {
       const routeName = error.route.replace(/-/g, " ");
-      await interaction.editReply(formatError(new Error(
+      await sendError(interaction, { error: new Error(
         `${routeName} is implemented in feature/discord-player-inventory but not yet merged to upstream. ` +
         `Apply the branch to your console to enable this command.`
-      )));
+      ) });
     } else {
-      await interaction.editReply(formatError(error));
+      await sendError(interaction, { error: error.message || String(error) });
     }
   }
 
