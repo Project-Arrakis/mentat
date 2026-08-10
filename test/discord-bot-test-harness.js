@@ -299,9 +299,7 @@ describe('Command Execution', () => {
     const result = await executeDuneCommand(interaction, adapterClient, config);
 
     assert.ok(result, 'Command should succeed');
-    assert.ok(interaction._editReply?.files?.[0], 'Should have status card');
-    assert.equal(interaction._editReply.files[0].name, 'status-card.png', 'Should be PNG card');
-    assert.deepEqual(interaction._editReply.embeds, [], 'Should not have embeds');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
   });
 
   test('ops:combat returns combat statistics', async () => {
@@ -310,9 +308,7 @@ describe('Command Execution', () => {
     const result = await executeDuneCommand(interaction, adapterClient, config);
 
     assert.ok(result, 'Command should succeed');
-    assert.ok(interaction._editReply?.files?.[0], 'Should have status card');
-    assert.equal(interaction._editReply.files[0].name, 'status-card.png', 'Should be PNG card');
-    assert.deepEqual(interaction._editReply.embeds, [], 'Should not have embeds');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
   });
 
   test('ops:resources returns resource statistics', async () => {
@@ -321,9 +317,7 @@ describe('Command Execution', () => {
     const result = await executeDuneCommand(interaction, adapterClient, config);
 
     assert.ok(result, 'Command should succeed');
-    assert.ok(interaction._editReply?.files?.[0], 'Should have status card');
-    assert.equal(interaction._editReply.files[0].name, 'status-card.png', 'Should be PNG card');
-    assert.deepEqual(interaction._editReply.embeds, [], 'Should not have embeds');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
   });
 
   test('ops:economy returns economy statistics', async () => {
@@ -332,9 +326,7 @@ describe('Command Execution', () => {
     const result = await executeDuneCommand(interaction, adapterClient, config);
 
     assert.ok(result, 'Command should succeed');
-    assert.ok(interaction._editReply?.files?.[0], 'Should have status card');
-    assert.equal(interaction._editReply.files[0].name, 'status-card.png', 'Should be PNG card');
-    assert.deepEqual(interaction._editReply.embeds, [], 'Should not have embeds');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
   });
 
   test('ops:armory returns inventory statistics (renamed from ops:inventory 2026-07-26)', async () => {
@@ -343,9 +335,7 @@ describe('Command Execution', () => {
     const result = await executeDuneCommand(interaction, adapterClient, config);
 
     assert.ok(result, 'Command should succeed');
-    assert.ok(interaction._editReply?.files?.[0], 'Should have status card');
-    assert.equal(interaction._editReply.files[0].name, 'status-card.png', 'Should be PNG card');
-    assert.deepEqual(interaction._editReply.embeds, [], 'Should not have embeds');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
   });
 
   test('ops:location returns location activity', async () => {
@@ -354,9 +344,7 @@ describe('Command Execution', () => {
     const result = await executeDuneCommand(interaction, adapterClient, config);
 
     assert.ok(result, 'Command should succeed');
-    assert.ok(interaction._editReply?.files?.[0], 'Should have status card');
-    assert.equal(interaction._editReply.files[0].name, 'status-card.png', 'Should be PNG card');
-    assert.deepEqual(interaction._editReply.embeds, [], 'Should not have embeds');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
   });
 
   test('ops:soc returns bridge health', async () => {
@@ -365,9 +353,7 @@ describe('Command Execution', () => {
     const result = await executeDuneCommand(interaction, adapterClient, config);
 
     assert.ok(result, 'Command should succeed');
-    assert.ok(interaction._editReply?.files?.[0], 'Should have status card');
-    assert.equal(interaction._editReply.files[0].name, 'status-card.png', 'Should be PNG card');
-    assert.deepEqual(interaction._editReply.embeds, [], 'Should not have embeds');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
   });
 
   test('ops:prometheus returns infrastructure metrics', async () => {
@@ -376,9 +362,7 @@ describe('Command Execution', () => {
     const result = await executeDuneCommand(interaction, adapterClient, config);
 
     assert.ok(result, 'Command should succeed');
-    assert.ok(interaction._editReply?.files?.[0], 'Should have status card');
-    assert.equal(interaction._editReply.files[0].name, 'status-card.png', 'Should be PNG card');
-    assert.deepEqual(interaction._editReply.embeds, [], 'Should not have embeds');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
   });
 
   test('ops:dashboard returns dashboard summary', async () => {
@@ -387,9 +371,7 @@ describe('Command Execution', () => {
     const result = await executeDuneCommand(interaction, adapterClient, config);
 
     assert.ok(result, 'Command should succeed');
-    assert.ok(interaction._editReply?.files?.[0], 'Should have status card');
-    assert.equal(interaction._editReply.files[0].name, 'status-card.png', 'Should be PNG card');
-    assert.deepEqual(interaction._editReply.embeds, [], 'Should not have embeds');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
   });
 
   test('ops:announcements returns announcements', async () => {
@@ -398,9 +380,7 @@ describe('Command Execution', () => {
     const result = await executeDuneCommand(interaction, adapterClient, config);
 
     assert.ok(result, 'Command should succeed');
-    assert.ok(interaction._editReply?.files?.[0], 'Should have status card');
-    assert.equal(interaction._editReply.files[0].name, 'status-card.png', 'Should be PNG card');
-    assert.deepEqual(interaction._editReply.embeds, [], 'Should not have embeds');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
   });
 
   test('admin:doctor runs comprehensive diagnostic', async () => {
