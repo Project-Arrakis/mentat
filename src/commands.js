@@ -7,7 +7,7 @@ const pkgVersion = JSON.parse(readFileSync(join(__dirname, "..", "package.json")
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload, redactSecrets } from "./format.js";
-import { formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed } from "./embedFormat.js";
+import { formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
@@ -186,7 +186,6 @@ export function commandDefinitions({ includeWriteGroup = false } = {}) {
 }
 
 export async function executeDuneCommand(interaction, adapterClient, config, db = null) {
-  let embed;
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== "dune") return false;
 
   const group = interaction.options.getSubcommandGroup() || "";
@@ -236,7 +235,10 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     } else if (key === "server:status") {
       payload = await adapterClient.status(actor, diagnostic, guildId);
       if (!diagnostic) {
+        const statusData = payload?.result || payload || {};
+        await sendStatusCard({ interaction, statusData: payload, title: statusData.title, adapterClient, guildId, db });
         applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
+        return true;
       }
     } else if (key === "server:summary") {
       payload = statusSummaryPayload(await adapterClient.status(actor, false, guildId));
@@ -421,7 +423,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       // Special: ops alerts queries Prometheus directly, not through Core
       if (subcommand === "alerts") {
         payload = await fetchPrometheusAlerts(adapterClient, actor, guildId);
-        embed = formatPrometheusEmbed(payload);
+        await sendOpsCard({ interaction, payload, subcommand, adapterClient, guildId, db });
         applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
         return true;
       }
@@ -429,14 +431,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       if (route) {
         const methodName = route.replace(/-(\w)/g, (_, c) => c.toUpperCase());
         payload = formatOpsPayload(subcommand, await adapterClient[methodName](actor, guildId));
-        const embeds = {
-          "activity": formatActivityEmbed, "combat": formatCombatEmbed,
-          "resources": formatResourcesEmbed, "economy": formatEconomyEmbed,
-          "armory": formatOpsInventoryEmbed, "location": formatLocationEmbed,
-          "soc": formatSocEmbed, "prometheus": formatPrometheusEmbed,
-          "dashboard": formatDashboardEmbed, "announcements": formatAnnouncementsEmbed,
-        };
-        embed = (embeds[subcommand] || formatGenericEmbed)(payload);
+        await sendOpsCard({ interaction, payload, subcommand, adapterClient, guildId, db });
         applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
         return true;
       } else {
@@ -499,6 +494,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     payload = redactSecrets(payload);
 
     // ── Embed selection ──
+    let embed;
     if (subcommand === "about") {
       embed = formatGenericEmbed(payload, "about");
     } else if (subcommand === "setup") {
