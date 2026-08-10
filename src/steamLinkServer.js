@@ -405,7 +405,7 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
             // Matches embedFormat.js's own DUNE_COLORS.success value exactly,
             // so a Steam-linked success embed renders with the identical
             // color as the whisper-flow's formatLinkEmbed().
-            description: `Linked as **${characterName}** via Steam.\nUse \`/dune data inventory\` to view your inventory.`,
+            description: `Linked as **${characterName}** via Steam.\nUse \`/dune player inventory\` to view your inventory.`,
             color: 0x2ECC71
           }
     });

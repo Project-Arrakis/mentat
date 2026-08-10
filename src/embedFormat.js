@@ -482,7 +482,7 @@ export function formatLinkEmbed(payload) {
   return duneEmbed({
     title: "🔗 Character Linked",
     color: "success",
-    description: `Linked as **${payload?.characterName || payload?.linked || "Unknown"}**.\nUse \`/dune data inventory\` to view your inventory.`
+    description: `Linked as **${payload?.characterName || payload?.linked || "Unknown"}**.\nUse \`/dune player inventory\` to view your inventory.`
   });
 }
 

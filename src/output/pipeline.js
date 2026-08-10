@@ -25,10 +25,33 @@ export async function sendCard(interaction, { attachment, embed, context = {} } 
 }
 
 export async function sendError(interaction, { error, context = {} } = {}) {
+  const msg = String(error);
+  // Split adapter errors into user-friendly message + technical details
+  let friendly = msg;
+  let detail = "";
+  const jsonIdx = msg.indexOf("{");
+  if (jsonIdx > 0) {
+    friendly = msg.slice(0, jsonIdx).trim();
+    detail = msg.slice(jsonIdx);
+  }
   const embed = new EmbedBuilder()
     .setTitle("\u274C Error")
     .setColor(0xdc3545)
-    .setDescription(String(error).slice(0, 2048));
+    .setDescription(friendly.slice(0, 2048));
+  if (detail) {
+    try {
+      const parsed = JSON.parse(detail);
+      const errorMsg = parsed.error || parsed.message || "";
+      if (errorMsg && errorMsg !== friendly) {
+        embed.addFields({ name: "Details", value: String(errorMsg).slice(0, 1024), inline: false });
+      }
+    } catch {
+      // Not valid JSON — show truncated detail
+      if (detail.length > 5) {
+        embed.addFields({ name: "Details", value: String(detail).slice(0, 256), inline: false });
+      }
+    }
+  }
   const enriched = enrichEmbed(embed, context);
   return interaction.editReply({ embeds: [enriched] });
 }
