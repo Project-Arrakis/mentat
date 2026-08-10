@@ -160,7 +160,7 @@ export function formatStatusDetailEmbed(payload) {
   return duneEmbed({
     title: "🔬 Detailed Status",
     color: "warning",
-    description: "*(Full diagnostic output not available — adapter must support diagnostic mode)*",
+    description: "Diagnostic details are not currently available. The server may be starting up or the diagnostic command timed out. Try again in a moment.*",
     fields: [
       { name: "Overall", value: fmt(r.overall), inline: true },
       { name: "Maps", value: maps.map(m => `${m.state === "READY" ? "🟢" : "🔴"} ${m.name}`).join("\n") || "—", inline: false },
