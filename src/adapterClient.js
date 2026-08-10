@@ -349,7 +349,7 @@ async function parseResponseBody(response) {
   try {
     return JSON.parse(text);
   } catch {
-    return { ok: response.ok, body: text };
+    return { ok: false, error: `Unexpected response format (${contentType || "unknown content-type"}). Expected JSON.` };
   }
 }
 
