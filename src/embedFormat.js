@@ -27,7 +27,7 @@ function fmt(val) {
   return `\`${s}\``;
 }
 
-function fmtBool(val) { return val ? "✅ Yes" : "❌ No"; }
+function fmtBool(val) { return val === true ? "✅ Yes" : val === false ? "❌ No" : "— Unknown —"; }
 function fmtCount(val) { return val != null ? `\`${val}\`` : "— None —"; }
 function fmtStatus(val) { return val ? "🟢 Enabled" : "🔒 Disabled"; }
 function fmtEmpty(val, fallback = "— None —") { return val != null && String(val).trim() ? String(val) : fallback; }
@@ -218,7 +218,7 @@ export function formatPopulationEmbed(population) {
   const total = population?.total ?? "?";
   return duneEmbed({
     title: "👥 Server Population",
-    color: "spice",
+    color: population?.online ? "success" : "warning",
     description: `### **${online}** / **${total}** players online`,
     fields: [
       { name: "🔒 Aggregate", value: fmtBool(population?.aggregate), inline: true },
@@ -406,7 +406,7 @@ export function formatStorageEmbed(payload) {
   const totalItems = containers.reduce((sum, c) => sum + (Number(c.item_count) || 0), 0);
   return duneEmbed({
     title: `🗄️ ${scopeLabel} Storage`,
-    color: "spice",
+    color: payload?.containers?.length ? "success" : "warning",
     description: desc.slice(0, 2048),
     fields: [
       { name: "📦 Containers", value: fmtCount(payload?.count ?? containers.length), inline: true },
@@ -565,7 +565,7 @@ export function formatEventsEmbed(incidents) {
 export function formatReadinessDetailEmbed(payload) {
   const r = payload?.result || payload || {};
   const issues = Array.isArray(r.issues) ? r.issues : [];
-  const ready = r.ready !== false;
+  const ready = r.ready === true;
   const desc = ready
     ? "🟢 **READY** — all checks passed"
     : `🔴 **NOT READY** — ${issues.length} issue(s) detected`;
@@ -720,7 +720,7 @@ export function formatPortsEmbed(payload) {
 
   return duneEmbed({
     title: "🔌 Network Ports",
-    color: "spice",
+    color: payload?.ok ? "success" : "warning",
     description: items.length > 0 ? items.join("\n").slice(0, 2000) : "— No port data —",
     fields: [{ name: "🔢 Listeners", value: fmtCount(items.length), inline: true }]
   });
