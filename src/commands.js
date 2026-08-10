@@ -236,7 +236,6 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = await adapterClient.status(actor, diagnostic, guildId);
       if (!diagnostic) {
         applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
-        return true;
       }
     } else if (key === "server:summary") {
       payload = statusSummaryPayload(await adapterClient.status(actor, false, guildId));
