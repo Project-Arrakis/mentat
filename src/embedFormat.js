@@ -165,7 +165,7 @@ export function formatStatusDetailEmbed(payload) {
     fields: [
       { name: "Overall", value: fmt(r.overall), inline: true },
       { name: "Maps", value: maps.map(m => `${m.state === "READY" ? "🟢" : "🔴"} ${m.name}`).join("\n") || "— None —", inline: false },
-      { name: "Diagnostic Detail", value: "Container-level data (CPU, memory, uptime per service) is not available. Install the diagnostic extension or check server logs for detailed metrics.", inline: false }
+      { name: "Diagnostic Detail", value: "Container-level CLI output (CPU, memory, uptime per service) was not returned. The server may be starting up or the status command timed out. Check the console web UI or server logs directly.", inline: false }
     ]
   });
 }
