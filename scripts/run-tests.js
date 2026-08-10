@@ -52,6 +52,10 @@ async function main() {
   const exitCode1 = await runTests(process.argv.slice(2).filter(a => a !== "test/discord-bot-test-harness.js"));
   const exitCode2 = await runTests(["test/discord-bot-test-harness.js"]);
   const exitCode3 = await runBats();
+  console.log(`Test results: all-others=${exitCode1}, harness=${exitCode2}, bats=${exitCode3}`);
+  if (exitCode1 !== 0) console.error("FAIL: all-other tests failed with exit code " + exitCode1);
+  if (exitCode2 !== 0) console.error("FAIL: discord-bot-test-harness failed with exit code " + exitCode2);
+  if (exitCode3 !== 0) console.error("FAIL: bats deploy-hook tests failed with exit code " + exitCode3);
   process.exit(exitCode1 === 0 && exitCode2 === 0 && exitCode3 === 0 ? 0 : 1);
 }
 
