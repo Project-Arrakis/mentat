@@ -162,7 +162,7 @@ The latest readiness security review is recorded at [docs/security-review-2026-0
 
 See [Full Release Roadmap](docs/full-release-roadmap.md) for details.
 The detailed R1.x to R2.x cadence and entry criteria live in [docs/r1-r2-release-roadmap.md](docs/r1-r2-release-roadmap.md).
-Release candidates are gated by the [v1.0.0 Promotion Checklist](docs/v1.0.0-promotion-checklist.md).
+Current release: **v1.0.0-rc.3** (2026-08-08). Promotion is gated by the [v1.0.0 Promotion Checklist](docs/v1.0.0-promotion-checklist.md).
 
 ---
 

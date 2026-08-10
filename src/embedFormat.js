@@ -65,7 +65,7 @@ export function duneEmbed({ title, color = "spice", description, fields = [], ti
   // Add data fields first
   const dataFields = fields.slice(0, 24);
   for (const field of dataFields) {
-    embed.addFields({ name: field.name, value: String(field.value).slice(0, 1024), inline: field.inline ?? false });
+    embed.addFields({ name: String(field.name).slice(0, 256), value: String(field.value).slice(0, 1024), inline: field.inline ?? false });
   }
 
   // Always end with the faction quote as a separator
@@ -348,7 +348,7 @@ export function formatMapsEmbed(maps) {
 
 // ── Inventory ──
 export function formatInventoryEmbed(payload) {
-  if (!payload?.ok) {
+  if (!payload?.ok && !payload?.rows) {
     return duneEmbed({
       title: "📦 Inventory",
       color: "warning",
@@ -462,7 +462,7 @@ export function formatFindEmbed(payload) {
 // message verbatim with a distinct title, before falling through to the
 // original fresh-link copy for a genuine new link.
 export function formatLinkEmbed(payload) {
-  if (!payload?.ok) {
+  if (!payload?.ok && !payload?.alreadyLinked && !payload?.playerControllerId) {
     return duneEmbed({
       title: "🔗 Link Failed",
       color: "error",
@@ -492,7 +492,7 @@ export function formatUnlinkEmbed(payload) {
 }
 
 export function formatWhoamiEmbed(payload) {
-  if (!payload?.linked) {
+  if (!payload?.characterName) {
     return duneEmbed({
       title: "🔗 Not Linked",
       color: "warning",

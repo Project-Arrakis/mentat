@@ -41,23 +41,7 @@ Second release candidate for the read-only `R1.0.0` production target. Adds
 multi-tenant architecture, status card rendering, faction theming, OPS commands,
 and Cloudflare tunnel support.
 
-## Unreleased — KV removal / local live stats
-
-- Removed the Cloudflare KV integration entirely (issue #83.2): this
-  account exceeded Cloudflare's free tier for KV specifically, so the
-  `acp-stats-aggregate` payload is no longer written anywhere in the
-  cloud. `statsPusher.js` now stores the same JSON in the new local
-  `stats_snapshot` table (additive schema change, `SCHEMA_VERSION` 2→3,
-  `CREATE TABLE IF NOT EXISTS` — no migration for existing operators).
-- Added `GET /api/live-stats` on the existing setup server (port 3100),
-  behind the already-free Cloudflare Tunnel, serving the stored
-  snapshot. `acp-landing`'s reader was updated to fetch it instead of a
-  KV binding (see that repo's CHANGELOG).
-- Stats collection is now opt-out via `ACP_STATS_ENABLED` (default on);
-  the old `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` /
-  `KV_NAMESPACE_ID` / `ACP_STATS_KV_TTL_SECONDS` env vars are gone.
-
-### Added
+### Added (v1.0.0-rc.3, continued)
 
 - Multi-tenant architecture with per-guild console routing and SQLite storage.
 - OAuth2 setup portal with dark Dune theme matching `acp.darkdante.org`.
@@ -118,9 +102,7 @@ and Cloudflare tunnel support.
 - Multi-tenant mode isolates guild data in SQLite with foreign key constraints.
 - Status card cache limited to 50 entries with 30-second TTL.
 
-## Unreleased
-
-### Added
+### Added (v1.0.0-rc.3, shipped 2026-08-08)
 
 - `logs` command group with per-service subcommands (`dune-postgres`, `dune-redis`,
   `dune-nginx`, `dune-orchestrator`, `dune-console`, `dune-steamcmd`).
