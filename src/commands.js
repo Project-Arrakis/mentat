@@ -702,7 +702,7 @@ export async function pingPayload(adapterClient, actor, deferReplyMs = 0, guildI
 }
 
 export function statusSummaryPayload(status) {
-  const s = status?.result?.summary || {};
+  const s = status?.result || {};
   return { ok: status?.ok === true, overall: s.overall || "UNKNOWN", region: s.region || "unknown", mode: s.mode || "unknown", population: s.population || "unknown", automation: { autoscaler: s.automation?.autoscaler || "unknown", autoUpdates: s.automation?.autoUpdates || "unknown" } };
 }
 
