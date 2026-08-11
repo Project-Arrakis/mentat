@@ -1034,20 +1034,21 @@ export function formatLocationEmbed(payload) {
 // ── OPS: SOC ──
 export function formatSocEmbed(payload) {
   const r = payload?.result || payload || {};
+  // Core returns: platformHealth, bridgeRequests, bridgeErrors, bridgeSuccessRate
+  const active = r.bridgeRequests > 0;
+  const healthy = r.platformHealth === "healthy" || r.platformHealth === "ok";
   const fields = [
-    { name: "🟢 Bridge Health", value: r.bridgeHealth === "healthy" || r.health === "ok" ? "🟢 Healthy" : "🔴 Degraded", inline: true },
-    { name: "📊 Total Requests", value: fmtCount(r.totalRequests), inline: true },
-    { name: "⚠️ Alerts", value: fmtCount(r.alerts), inline: true },
-    { name: "📈 Avg Response", value: r.avgResponseMs ? `\`${r.avgResponseMs}ms\`` : "—", inline: true },
-    { name: "🔴 Errors", value: fmtCount(r.errors), inline: true },
+    { name: "Status", value: active ? "🟢 Active — receiving requests" : healthy ? "🟡 Idle — no requests yet" : "⚪ No data", inline: false },
+    { name: "Requests", value: fmtCount(r.bridgeRequests), inline: true },
+    { name: "Errors", value: fmtCount(r.bridgeErrors), inline: true },
   ];
-  if (r.endpoints && Object.keys(r.endpoints).length > 0) {
-    fields.push({ name: "🔌 Endpoint Status", value: Object.entries(r.endpoints).slice(0, 5).map(([ep, s]) => `• ${ep}: ${s === "ok" ? "🟢" : "🔴"} ${s}`).join("\n"), inline: false });
+  if (r.bridgeSuccessRate != null && r.bridgeSuccessRate !== undefined) {
+    fields.push({ name: "Success Rate", value: `${Math.round(r.bridgeSuccessRate * 100)}%`, inline: true });
   }
   return duneEmbed({
     title: "🔌 OPS Bridge Health",
-    color: r.bridgeHealth === "healthy" || r.health === "ok" ? "success" : "error",
-    description: r.bridgeHealth === "healthy" || r.health === "ok" ? "🟢 **All systems nominal**" : "🔴 **Bridge degraded**",
+    color: active ? "success" : "warning",
+    description: active ? "🟢 **Bridge is active and processing requests**" : "The OPS bridge has not received any requests yet. This is normal if no addons or external services are querying the bridge.",
     fields
   });
 }
