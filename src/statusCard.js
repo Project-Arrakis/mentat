@@ -87,15 +87,16 @@ export async function sendOpsCard({ interaction, payload, subcommand, adapterCli
   switch (subcommand) {
     case "soc": {
       title = "OPS Bridge";
-      const healthy = r.bridgeHealth === "healthy" || r.health === "ok";
+      // Core returns: platformHealth, bridgeRequests, bridgeErrors, bridgeSuccessRate
+      const healthy = r.platformHealth === "healthy" || r.platformHealth === "ok";
       isError = !healthy;
-      overall = healthy ? "HEALTHY" : "DEGRADED";
+      overall = healthy ? "HEALTHY" : (r.platformHealth || "DEGRADED").toUpperCase();
       region = "";
       mode = "";
-      population = r.totalRequests ? `${r.totalRequests} reqs` : "—";
+      population = r.bridgeRequests ? `${r.bridgeRequests} reqs` : "—";
       maps = [];
-      services = r.endpoints ? Object.keys(r.endpoints).length : 0;
-      latency = r.avgResponseMs || 0;
+      services = 0;
+      latency = r.bridgeSuccessRate ? Math.round(r.bridgeSuccessRate * 100) : 0;
       break;
     }
     case "dashboard": {
