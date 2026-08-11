@@ -981,7 +981,7 @@ export function formatEconomyEmbed(payload) {
   }
   return duneEmbed({
     title: "💰 Economy Statistics",
-    color: (r.totalCurrency ?? r.totalSolari ?? 0) > 0 ? "success" : "warning",
+    color: (r.totalSupply ?? r.totalCurrencyHolders ?? 0) > 0 ? "success" : "warning",
     description: "🪙 **Economic overview**",
     fields
   });
@@ -1080,18 +1080,16 @@ export function formatPrometheusEmbed(payload) {
 // ── OPS: Dashboard ──
 export function formatDashboardEmbed(payload) {
   const r = payload?.result || payload || {};
+  // Core returns nested dashboard.{section}.result.{field}
+  const a = r.activity?.result || r.activity || {};
+  const c = r.combat?.result || r.combat || {};
+  const soc = r.soc?.result || r.soc || {};
   const fields = [
-    { name: "🌍 Server Status", value: r.serverStatus === "healthy" || r.status === "ok" ? "🟢 Healthy" : "🔴 Issue", inline: true },
-    { name: "👥 Online Players", value: fmtCount(r.onlinePlayers), inline: true },
-    { name: "⚔️ Combat Events (24h)", value: fmtCount(r.combatEvents24h), inline: true },
-    { name: "📦 Items Traded (24h)", value: fmtCount(r.itemsTraded24h), inline: true },
-    { name: "🔌 Bridge Health", value: r.bridgeHealth === "healthy" ? "🟢 OK" : "🔴 Down", inline: true },
+    { name: "👥 Online", value: fmtCount(a.onlinePlayers ?? a.totalPlayers), inline: true },
+    { name: "⚔️ Combat (24h)", value: fmtCount(c.totalDeaths ?? c.deaths), inline: true },
+    { name: "📦 Items", value: fmtCount(r.inventory?.result?.totalItems ?? r.inventory?.totalItems), inline: true },
+    { name: "🔌 Bridge", value: soc.platformHealth === "healthy" ? "🟢 OK" : "🟡 No data", inline: true },
   ];
-  if (r.summary && typeof r.summary === "object") {
-    for (const [k, v] of Object.entries(r.summary).slice(0, 5)) {
-      fields.push({ name: k.charAt(0).toUpperCase() + k.slice(1), value: fmt(v), inline: true });
-    }
-  }
   return duneEmbed({
     title: "📊 OPS Dashboard",
     color: r.serverStatus === "healthy" || r.status === "ok" ? "success" : "warning",
