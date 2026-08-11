@@ -423,17 +423,17 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       // Special: ops alerts queries Prometheus directly, not through Core
       if (subcommand === "alerts") {
         payload = await fetchPrometheusAlerts(adapterClient, actor, guildId);
-        await sendOpsCard({ interaction, payload, subcommand, adapterClient, guildId, db });
+        const embeds = { activity: formatActivityEmbed, combat: formatCombatEmbed, resources: formatResourcesEmbed, economy: formatEconomyEmbed, armory: formatOpsInventoryEmbed, location: formatLocationEmbed, soc: formatSocEmbed, prometheus: formatPrometheusEmbed, dashboard: formatDashboardEmbed, announcements: formatAnnouncementsEmbed };
+        embed = (embeds[subcommand] || formatGenericEmbed)(payload);
         applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
-        return true;
       }
       const route = opsRouteFor(subcommand);
       if (route) {
         const methodName = route.replace(/-(\w)/g, (_, c) => c.toUpperCase());
         payload = formatOpsPayload(subcommand, await adapterClient[methodName](actor, guildId));
-        await sendOpsCard({ interaction, payload, subcommand, adapterClient, guildId, db });
+        const embeds = { activity: formatActivityEmbed, combat: formatCombatEmbed, resources: formatResourcesEmbed, economy: formatEconomyEmbed, armory: formatOpsInventoryEmbed, location: formatLocationEmbed, soc: formatSocEmbed, prometheus: formatPrometheusEmbed, dashboard: formatDashboardEmbed, announcements: formatAnnouncementsEmbed };
+        embed = (embeds[subcommand] || formatGenericEmbed)(payload);
         applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
-        return true;
       } else {
         payload = { ok: false, error: `Unknown OPS command: ${subcommand}` };
       }
