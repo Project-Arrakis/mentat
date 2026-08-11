@@ -187,6 +187,7 @@ export function commandDefinitions({ includeWriteGroup = false } = {}) {
 
 export async function executeDuneCommand(interaction, adapterClient, config, db = null) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== "dune") return false;
+  let embed;
 
   const group = interaction.options.getSubcommandGroup() || "";
   const subcommand = interaction.options.getSubcommand();
@@ -494,7 +495,6 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     payload = redactSecrets(payload);
 
     // ── Embed selection ──
-    let embed;
     if (subcommand === "about") {
       embed = formatGenericEmbed(payload, "about");
     } else if (subcommand === "setup") {
