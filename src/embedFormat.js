@@ -827,6 +827,7 @@ export function formatCombatEmbed(payload) {
   }
   if (r.topPvP && Array.isArray(r.topPvP)) {
     fields.push({ name: "🥇 Top PvP", value: r.topPvP.slice(0, 3).map(p => `• ${p.name || p.character}: ${p.kills || 0} kills`).join("\n"), inline: false });
+const sf = (inst, size, field) => { const sizes = Array.isArray(inst?.sizes) ? inst.sizes : []; const s = sizes.find(x => x.size === size); return s?.[field] ?? inst?.[size + field.charAt(0).toUpperCase() + field.slice(1)] ?? 0; };
   }
   return duneEmbed({
     title: "⚔️ Combat Statistics",
@@ -847,14 +848,14 @@ export function formatResourcesEmbed(payload) {
   const ddSummary = dd.summary || {};
 
   // Deep Desert Summary
-  const ddTotalActive = ddSummary.totalActiveFields ?? ddInstances.reduce((s, i) => s + ((i.smallActive || 0) + (i.mediumActive || 0) + (i.largeActive || 0)), 0);
-  const ddTotalRemaining = ddSummary.totalRemainingSpice ?? ddInstances.reduce((s, i) => s + ((i.smallRemaining || 0) + (i.mediumRemaining || 0) + (i.largeRemaining || 0)), 0);
-  const ddSmallActive = ddSummary.smallActiveFields ?? ddInstances.reduce((s, i) => s + (i.smallActive || 0), 0);
-  const ddMediumActive = ddSummary.mediumActiveFields ?? ddInstances.reduce((s, i) => s + (i.mediumActive || 0), 0);
-  const ddLargeActive = ddSummary.largeActiveFields ?? ddInstances.reduce((s, i) => s + (i.largeActive || 0), 0);
-  const ddSmallRemaining = ddSummary.smallRemainingSpice ?? ddInstances.reduce((s, i) => s + (i.smallRemaining || 0), 0);
-  const ddMediumRemaining = ddSummary.mediumRemainingSpice ?? ddInstances.reduce((s, i) => s + (i.mediumRemaining || 0), 0);
-  const ddLargeRemaining = ddSummary.largeRemainingSpice ?? ddInstances.reduce((s, i) => s + (i.largeRemaining || 0), 0);
+  const ddTotalActive = ddSummary.totalActiveFields ?? ddInstances.reduce((s, i) => s + ((sf(i, "small", "activeFields")) + (sf(i, "medium", "activeFields")) + (sf(i, "large", "activeFields"))), 0);
+  const ddTotalRemaining = ddSummary.totalRemainingSpice ?? ddInstances.reduce((s, i) => s + ((sf(i, "small", "remainingSpice")) + (sf(i, "medium", "remainingSpice")) + (sf(i, "large", "remainingSpice"))), 0);
+  const ddSmallActive = ddSummary.smallActiveFields ?? ddInstances.reduce((s, i) => s + (sf(i, "small", "activeFields")), 0);
+  const ddMediumActive = ddSummary.mediumActiveFields ?? ddInstances.reduce((s, i) => s + (sf(i, "medium", "activeFields")), 0);
+  const ddLargeActive = ddSummary.largeActiveFields ?? ddInstances.reduce((s, i) => s + (sf(i, "large", "activeFields")), 0);
+  const ddSmallRemaining = ddSummary.smallRemainingSpice ?? ddInstances.reduce((s, i) => s + (sf(i, "small", "remainingSpice")), 0);
+  const ddMediumRemaining = ddSummary.mediumRemainingSpice ?? ddInstances.reduce((s, i) => s + (sf(i, "medium", "remainingSpice")), 0);
+  const ddLargeRemaining = ddSummary.largeRemainingSpice ?? ddInstances.reduce((s, i) => s + (sf(i, "large", "remainingSpice")), 0);
   const ddPvPCount = ddSummary.pvpInstances ?? ddInstances.filter(i => i.type === "pvp" || i.mode === "pvp").length;
   const ddPvECount = ddSummary.pveInstances ?? ddInstances.filter(i => i.type === "pve" || i.mode === "pve").length;
 
@@ -902,8 +903,8 @@ export function formatResourcesEmbed(payload) {
   const hbSummary = hb.summary || {};
 
   // Hagga Basin Summary
-  const hbTotalActive = hbSummary.totalActiveFields ?? hbSietches.reduce((s, si) => s + ((si.smallActive || 0) + (si.mediumActive || 0) + (si.largeActive || 0)), 0);
-  const hbTotalRemaining = hbSummary.totalRemainingSpice ?? hbSietches.reduce((s, si) => s + ((si.smallRemaining || 0) + (si.mediumRemaining || 0) + (si.largeRemaining || 0)), 0);
+  const hbTotalActive = hbSummary.totalActiveFields ?? hbSietches.reduce((s, si) => s + ((ssf(i, "small", "activeFields")) + (ssf(i, "medium", "activeFields")) + (ssf(i, "large", "activeFields"))), 0);
+  const hbTotalRemaining = hbSummary.totalRemainingSpice ?? hbSietches.reduce((s, si) => s + ((ssf(i, "small", "remainingSpice")) + (ssf(i, "medium", "remainingSpice")) + (ssf(i, "large", "remainingSpice"))), 0);
   const hbTotalSietches = hbSummary.totalSietches ?? hbSietches.length;
   const hbPvPCount = hbSummary.pvpSietches ?? hbSietches.filter(s => s.type === "pvp" || s.mode === "pvp").length;
   const hbPvECount = hbSummary.pveSietches ?? hbSietches.filter(s => s.type === "pve" || s.mode === "pve").length;
@@ -993,9 +994,7 @@ export function formatOpsInventoryEmbed(payload) {
   const fields = [
     { name: "📦 Total Items", value: fmtCount(r.totalItems), inline: true },
     { name: "🔨 Crafted Items", value: fmtCount(r.craftedItems), inline: true },
-    { name: "📊 Unique Templates", value: fmtCount(r.uniqueTemplates), inline: true },
-    { name: "🏆 Most Common", value: fmt(r.mostCommonItem), inline: true },
-    { name: "📈 Crafting Rate (24h)", value: fmtCount(r.craftingRate24h), inline: true },
+    { name: "🧮 Total Crafted", value: fmtCount(r.totalCrafted), inline: true },
   ];
   if (r.itemDistribution && Object.keys(r.itemDistribution).length > 0) {
     fields.push({ name: "📊 Item Distribution", value: Object.entries(r.itemDistribution).slice(0, 5).map(([cat, count]) => `• ${cat}: ${count}`).join("\n"), inline: false });
