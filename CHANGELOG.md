@@ -350,3 +350,27 @@ Initial read-only release for the self-hosted Discord bot.
 - parseResponseBody returns ok:false for non-JSON responses (not phantom success)
 - Field names truncated to 256 chars in duneEmbed
 - !payload?.ok checks replaced with data field presence checks in inventory/link/whoami
+
+## [1.0.0-rc.5] — 2026-08-11
+
+### Changed
+- OPS commands now use embeds instead of PNG cards (#155)
+- server:status non-diagnostic uses embed (unified output)
+
+### Fixed
+- All 10 OPS embed formatters updated to match Core response fields (#147, #156-158)
+- formatSocEmbed: platformHealth, bridgeRequests, bridgeErrors (#150)
+- formatDashboardEmbed: reads nested dashboard.{section}.result structure
+- formatPrometheusEmbed: reads flat services object
+- formatAnnouncementsEmbed: handles object structure {settings, defaults}
+- formatEconomyEmbed: totalSupply/totalCurrencyHolders (#149)
+- formatResourcesEmbed: per-instance sizes[] array (#157)
+- formatOpsInventoryEmbed: dropped non-existent fields (#158)
+- statusSummaryPayload reads result directly (#148)
+- Steam link endpoint enabled (#238)
+- duneEmbed import for Steam-link flow
+- let embed hoisted before OPS dispatch
+- OPS test assertions restored after embed revert (#154)
+- server:maintenance fallback handles null payload
+- Discord OAuth SameSite=None cookie fix (#224)
+- save-oauth-secret requires overwrite:true for existing secrets (#225)
