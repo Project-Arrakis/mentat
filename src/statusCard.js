@@ -177,7 +177,8 @@ export async function sendOpsCard({ interaction, payload, subcommand, adapterCli
     }
     case "economy": {
       title = "Economy";
-      const currency = r.totalCurrency ?? r.totalSolari ?? 0;
+      // Core returns: totalCurrencyHolders, totalSupply, activeOrders, fulfilledOrders, taxCollected, currencyBreakdown
+      const currency = r.totalSupply ?? r.totalCurrencyHolders ?? 0;
       isError = currency === 0;
       overall = currency > 0 ? "ACTIVE" : "IDLE";
       region = "";
