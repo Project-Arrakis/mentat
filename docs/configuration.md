@@ -215,7 +215,7 @@ Controls player inventory, storage, and character linking features.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DUNE_DISCORD_ADAPTER_ENABLED` | *(inherited from console)* | Must be `true` on the console side for player features to work |
-| `ACP_STEAM_LINK_PORT` | `3101` | Port the Steam-link OAuth callback server binds (self-hosted on R740 dune-prod VM) |
+| `ACP_STEAM_LINK_PORT` | `3101` | Port the Steam-link OAuth callback server binds on the current deploy host |
 | `ACP_STEAM_LINK_BASE_URL` | `ACP_BASE_URL` or `http://localhost:3101` | Public base URL used in OAuth `redirect_uri`; must match Discord's registered redirect and be reachable by players' browsers |
 
 **Note:** The Steam-link callback server is always started (it is cheap to

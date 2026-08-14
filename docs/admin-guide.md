@@ -1,9 +1,9 @@
 # Admin Guide — Connecting Your Server to the Hosted Bot
 
 This guide walks you through connecting your Dune Awakening server to the
-**hosted** Arrakis Control Panel bot (self-hosted on the Dell R740,
-dune-prod VM). The bot side is fully hosted — you do **not** create a
-Discord application, run a Node process, or register slash commands.
+**hosted** Arrakis Control Panel bot, run and maintained by the ACP team.
+The bot side is fully hosted — you do **not** create a Discord
+application, run a Node process, or register slash commands.
 
 > **Corrected 2026-08-07 (issue #93):** this guide previously described a
 > self-hosted, per-operator model (create your own Discord app, copy a bot

@@ -74,6 +74,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "false"
 
+  personal-identifier-guard:
+    name: personal-identifier-guard
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Block known personal IPs/hostnames
+        run: bash tests/no-personal-identifiers.sh
+
   trivy-filesystem:
     name: trivy-filesystem
     runs-on: ubuntu-24.04

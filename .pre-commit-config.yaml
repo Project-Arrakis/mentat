@@ -48,3 +48,11 @@ repos:
         pass_filenames: false
         always_run: true
         verbose: true
+
+      - id: no-real-ips-or-hostnames
+        name: block known personal IPs/hostnames from this project's history
+        entry: bash tests/no-personal-identifiers.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        verbose: false

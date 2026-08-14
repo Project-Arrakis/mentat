@@ -136,6 +136,14 @@ export function loadConfig(env = process.env) {
     dbPath: env.ACP_DB_PATH || "data/acp.db",
     baseUrl: optionalEnv(env, "ACP_BASE_URL") || "http://localhost:3100",
     setupPort: parsePositiveInteger(env.ACP_SETUP_PORT, 3100),
+    // Links posted in the daily digest (scheduler.js) -- previously
+    // hardcoded real operator-specific URLs directly in source, which
+    // meant every deployment of this bot would post the maintainer's own
+    // URLs regardless of who was actually running it. Now optional and
+    // omitted from the digest entirely when unset, rather than defaulting
+    // to a placeholder that looks like a real, dead link.
+    consoleDashboardUrl: optionalEnv(env, "ACP_CONSOLE_DASHBOARD_URL"),
+    grafanaDashboardUrl: optionalEnv(env, "ACP_GRAFANA_DASHBOARD_URL"),
     oauthRedirectUri: optionalEnv(env, "ACP_OAUTH_REDIRECT_URI"),
     // steamLink: the /dune player link Steam-connections feature's own
     // small Express app (src/steamLinkServer.js), started unconditionally
