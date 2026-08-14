@@ -170,6 +170,8 @@ client.once(Events.ClientReady, (readyClient) => {
       client,
       channelId: digestChannelId,
       hour: digestHour,
+      consoleDashboardUrl: config.consoleDashboardUrl,
+      grafanaDashboardUrl: config.grafanaDashboardUrl,
       onError: (error) => logError("digest.failed", error)
     });
     if (dailyDigest.active) {

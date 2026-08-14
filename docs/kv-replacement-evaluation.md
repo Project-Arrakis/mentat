@@ -1,9 +1,12 @@
 # KV Replacement Evaluation: Free/Open-Source Alternatives to Cloudflare KV for Stats Storage
 
-> **2026-08-07 note:** this evaluation was written before the bot was migrated
-> from OCI to the Dell R740. References to the "OCI host" reflect the
-> infrastructure at the time of writing (non-R740). The evaluation's analysis
-> of alternatives remains valid regardless of hosting location.
+> **2026-08-07 note, corrected 2026-08-13:** this evaluation was written
+> anticipating a bot migration from OCI to the Dell R740 that was, at the
+> time, expected to happen imminently. **That migration has not
+> happened** — the bot remains on its original OCI host as of this
+> writing. References to the "OCI host" below reflect the actual current
+> infrastructure, not a historical one. The evaluation's analysis of
+> alternatives remains valid regardless of hosting location.
 
 **Tracking issue:** #94 ("Investigate Cassandra (or other DB) as a future
 alternative to Cloudflare KV for stats storage") -- opened 2026-07-27,

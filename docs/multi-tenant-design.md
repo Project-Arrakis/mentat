@@ -4,14 +4,19 @@
 
 Transition from self-hosted single-tenant bot to a centrally-hosted multi-tenant
 service. One bot instance serves many Discord servers, each connected to
-its own Dune Awakening console. (As of 2026-08-07, runs on the Dell R740
-dune-prod VM, migrated from OCI to eliminate $300/month cloud costs.)
+its own Dune Awakening console. (The multi-tenant *software* architecture
+below shipped 2026-08-07. A separate, planned future migration of the
+*hosting location* itself — from the current OCI VPS to a Dell R740's
+`dune-prod` VM, to eliminate ongoing cloud costs — has NOT happened yet;
+see `compliance/runbooks/backup-recovery.md` for current hosting state.
+The diagram below shows the target hosting environment once that
+migration executes, not the current one.)
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│               R740 dune-prod VM (VMID 101)                │
+│         Single hosted instance (planned: R740 dune-prod VM) │
 │                                                          │
 │  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
 │  │  Discord Bot │  │  Web Portal  │  │   SQLite DB   │  │
@@ -36,7 +41,7 @@ dune-prod VM, migrated from OCI to eliminate $300/month cloud costs.)
 
 | Aspect | Before (Self-Hosted) | After (Multi-Tenant) |
 |--------|---------------------|---------------------|
-| Deployment | Per-user Docker/Node | Single hosted instance (R740 self-hosted) |
+| Deployment | Per-user Docker/Node | Single hosted instance (currently OCI; planned migration to R740 self-hosted) |
 | Config | `.env` file | SQLite database |
 | Auth | Bot token + adapter token | Discord OAuth2 + per-guild adapter tokens |
 | RBAC | Global role IDs in `.env` | Per-guild role configuration |

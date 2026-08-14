@@ -103,7 +103,7 @@ function defaultActor() {
   return { userId: "scheduler", username: "ACP", guildId: "scheduler", channelId: "scheduler", roleIds: [] };
 }
 
-export function startDailyDigest({ adapterClient, client, channelId, hour = 8, onError = () => {} } = {}) {
+export function startDailyDigest({ adapterClient, client, channelId, hour = 8, consoleDashboardUrl, grafanaDashboardUrl, onError = () => {} } = {}) {
   if (!channelId) return { active: false, reason: "no channel configured" };
 
   const scheduleNext = () => {
@@ -153,8 +153,14 @@ export function startDailyDigest({ adapterClient, client, channelId, hour = 8, o
       const serviceStatus = Object.entries(services).map(([k, v]) => `${k.replace("dune-", "")}:${v}`).join("  ");
       lines.push(`**Infrastructure:** CPU: ${promData.summary?.avgCpuPercent ?? "?"}% | Memory: ${promData.summary?.avgMemoryMb ?? "?"} MB${serviceStatus ? ` | ${serviceStatus}` : ""}`);
       lines.push("");
-      lines.push(`Full dashboard: https://console.darkdante.org`);
-      lines.push(`Grafana: https://grafana.darkdante.org`);
+      // Previously hardcoded real, operator-specific URLs directly here --
+      // fixed 2026-08-13 (arrakis-control-panel#164) so every deployment
+      // of this bot doesn't post the original maintainer's own dashboard
+      // links. Omitted entirely (not a placeholder string) when unset,
+      // since a fake-looking URL in a real Discord message is worse than
+      // no line at all.
+      if (consoleDashboardUrl) lines.push(`Full dashboard: ${consoleDashboardUrl}`);
+      if (grafanaDashboardUrl) lines.push(`Grafana: ${grafanaDashboardUrl}`);
 
       await sendChannelAlert(client, channelId, redactSecrets(lines.join("\n")));
 

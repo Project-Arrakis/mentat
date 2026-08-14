@@ -4,6 +4,44 @@ This project follows Semantic Versioning for release tags. Security fixes,
 dependency updates, and release evidence stay tied to pull requests and durable
 change notes under `docs/changes/`.
 
+## Unreleased
+
+### Fixed
+- Corrected 10 files that falsely described the ACP bot's planned OCI-to-R740
+  migration as already completed (#164) — the bot remains a live,
+  currently-running production service on its existing OCI VPS; the R740
+  `dune-prod` VM does not exist yet (confirmed via `qm list` on the live
+  Proxmox host). Affected: `README.md`, `INSTALL.md`,
+  `docs/admin-guide.md`, `docs/configuration.md`,
+  `docs/multi-tenant-design.md`, `docs/kv-replacement-evaluation.md`,
+  `docs/openbao-transit-evaluation.md` (including a specific, concrete
+  false claim: "verified on the live R740 DB"), `docs/steam-link-architecture.md`,
+  `scripts/deploy-post-receive.sh`, `compliance/runbooks/backup-recovery.md`.
+- `scripts/deploy-post-receive.sh` was missing a dirty-working-tree guard
+  before `git reset --hard` (#2) — a debugging session on the deploy
+  target would have its in-progress work silently discarded by the next
+  deploy. Added an explicit check that refuses to deploy if the working
+  tree has local modifications.
+- `src/scheduler.js`'s daily digest previously hardcoded the original
+  maintainer's own real dashboard URLs (console + Grafana) directly in
+  source — every deployment of this bot would have posted those same
+  links regardless of who was actually running it. Added
+  `ACP_CONSOLE_DASHBOARD_URL`/`ACP_GRAFANA_DASHBOARD_URL` config vars;
+  the digest now omits these lines entirely when unset instead of
+  showing a dead placeholder link.
+
+### Added
+- `tests/no-personal-identifiers.sh` — this repo had no guard against
+  committing real personal infrastructure identifiers (the real OCI VPS
+  IP had been sitting in git history with nothing to catch it). Ported
+  from `r740-dune-deployment-kit`'s identical guard, scoped to this
+  repo's own real values. Wired into `.pre-commit-config.yaml` and a new
+  `personal-identifier-guard` CI job in `.github/workflows/security-gates.yml`.
+  Deliberately excludes `acp-setup.darkdante.org` from its denylist —
+  that's a real, intentionally-public product URL already shown openly
+  in `README.md`/`docs/admin-guide.md`/`docs/setup-portal-guide.md`, not
+  sensitive infrastructure.
+
 ## v1.0.0-rc.3 - 2026-08-08
 
 Third release candidate. Adds security hardening (PKCE OAuth, session absolute

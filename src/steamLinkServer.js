@@ -19,7 +19,10 @@
 // adapterClient.js for why there is no separate match-only call). This
 // feature is still not reachable by a real user in production, though --
 // the bot's own OAuth callback server (this file, port 3101) requires a
-// Cloudflare Tunnel ingress rule on the R740 dune-prod VM; see
+// Cloudflare Tunnel ingress rule on whichever host is currently running
+// the bot (as of this writing, its existing OCI VPS -- see
+// compliance/runbooks/backup-recovery.md; a future migration to the
+// R740's dune-prod VM is planned but has not happened); see
 // arrakis-control-panel#86 for that separate, independent gap.
 //
 // Unlike the design's first revision, there is NO /steam-link/select
