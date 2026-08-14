@@ -65,10 +65,21 @@ else
   SCAN_TARGET="tree"
 fi
 
+# When scanning a diff, only look at ADDED lines (prefixed with a single
+# '+', excluding the '+++ b/path' file-header line). Scanning the whole
+# diff text would also match a denylisted value that appears on a
+# REMOVED ('-') line or in unchanged context around a hunk -- i.e. fixing
+# a bad value by deleting it would itself trigger a false "found in
+# diff" block, exactly backwards from what this guard is for. Found and
+# fixed 2026-08-13 (arrakis-control-panel#165) when removing the real
+# OCI IP/console hostname from deploy-post-receive.sh and
+# backup-recovery.md tripped this guard on the deletions themselves.
+ADDED_LINES="$(printf '%s\n' "$DIFF_CONTENT" | grep -E '^\+' | grep -vE '^\+\+\+ ' || true)"
+
 found=0
 for pattern in "${DENYLIST[@]}"; do
   if [ "$SCAN_TARGET" = "staged" ] || [ "$SCAN_TARGET" = "ci-diff" ]; then
-    if printf '%s' "$DIFF_CONTENT" | grep -qE "$pattern"; then
+    if printf '%s' "$ADDED_LINES" | grep -qE "$pattern"; then
       echo "BLOCKED: $SCAN_TARGET changes contain a known personal identifier matching: $pattern"
       found=1
     fi
