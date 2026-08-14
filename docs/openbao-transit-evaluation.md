@@ -11,11 +11,14 @@
 **Proceed, as a strictly opt-in backend, behind review of the config
 shape below.** The win is real (audit trail, rotation, revocation) but
 the bot currently has exactly one realistic consumer (multi-tenant
-production on R740), zero actual exposure (verified: all at-rest rows are
-already `enc:v1:` with a working key, reencrypt run 2026-08-07 confirmed
-0 plaintext rows), and a new bootstrap credential requirement. That
-makes this defense-in-depth, not remediation -- right size for an
-evaluation + config-shape doc now, not for a code change this quarter.
+production, currently hosted on its existing OCI VPS -- see
+`compliance/runbooks/backup-recovery.md`; a future migration to the R740's
+`dune-prod` VM is planned but has not happened), zero actual exposure
+(verified: all at-rest rows are already `enc:v1:` with a working key,
+reencrypt run 2026-08-07 confirmed 0 plaintext rows), and a new bootstrap
+credential requirement. That makes this defense-in-depth, not remediation
+-- right size for an evaluation + config-shape doc now, not for a code
+change this quarter.
 
 ## Current state (verified, not assumed)
 
@@ -75,9 +78,11 @@ ACP_OPENBAO_KEY_NAME=acp-secrets       # transit key name in OpenBao
 - Backend selected at process start and cached (no per-call HTTP when
   `backend=env`; a `backend=openbao` boot without connectivity must fail
   startup loudly, not silently degrade to passthrough).
-- OpenBao must run on 127.0.0.1 only on the R740 dune-prod VM (no new public
-  port; constraint 3). AppRole secret via `_FILE` convention to match
-  the repo's existing VALUE/VALUE_FILE pattern.
+- OpenBao must run on 127.0.0.1 only on whichever host is actually running
+  the bot at the time this is implemented (currently the OCI VPS; the
+  R740 `dune-prod` VM once that migration executes -- no new public port
+  either way; constraint 3). AppRole secret via `_FILE` convention to
+  match the repo's existing VALUE/VALUE_FILE pattern.
 
 ## What would need to change in code (for later, not now)
 
@@ -92,9 +97,13 @@ ACP_OPENBAO_KEY_NAME=acp-secrets       # transit key name in OpenBao
 - Constraint 4 (single-tenant installs untouched) holds by design:
   default backend remains `env`; nothing changes without
   `ACP_SECRETS_BACKEND=openbao`.
-- Existing at-rest rows: verified 2026-08-07 on the live R740 DB that all
-  rows are already `enc:v1:` with zero plaintext (issue #90 evidence).
-  A backend switch is therefore not urgent for data safety today.
+- Existing at-rest rows: verified 2026-08-07 on the live bot's database
+  (at the time, and still as of this writing, the OCI-hosted instance --
+  **corrected 2026-08-13**: this was previously miswritten as "the live
+  R740 DB," which does not exist; no R740 VM has been provisioned) that
+  all rows are already `enc:v1:` with zero plaintext (issue #90
+  evidence). A backend switch is therefore not urgent for data safety
+  today.
 
 ## Decision record
 

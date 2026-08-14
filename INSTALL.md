@@ -93,14 +93,24 @@ After setup, follow `docs/operator-validation.md` to record local adapter smoke,
 test-guild command registration, runtime command smoke, and Docker healthcheck
 evidence before promoting a release candidate or wider deployment.
 
-## R740 Self-Hosted Deployment
+## R740 Self-Hosted Deployment (planned target, not yet executed for this project's own instance)
 
 For operators using the Dell PowerEdge R740 hypervisor
 ([r740-dune-deployment-kit](https://github.com/yacketrj/r740-dune-deployment-kit)):
 
+**Status note (2026-08-13):** this section documents the intended setup
+once a bot instance is migrated onto an R740's `dune-prod` VM. This
+project's own live bot instance has NOT yet been migrated — it remains
+self-hosted on its original VPS as of this writing (see
+`compliance/runbooks/backup-recovery.md` for the current hosting
+architecture). The steps below are still accurate as a setup guide for
+when that migration is executed, or for any other operator running their
+own R740-based deployment.
+
 The bot runs alongside the game server stack on the **dune-prod VM**
 (VMID 101, IP 192.168.20.10). It calls the console API over localhost
-and serves the setup portal through the existing Cloudflare Tunnel.
+and serves the setup portal through the Cloudflare Tunnel configured in
+that deployment.
 
 ### Setup on the dune-prod VM
 
@@ -137,7 +147,7 @@ setup portal endpoints. Add to `/etc/cloudflared/config.yml`:
 ingress:
   - hostname: acp-setup.darkdante.org
     service: http://localhost:3100
-  - hostname: console.darkdante.org
+  - hostname: CONSOLE_TUNNEL_HOSTNAME    # your own tunnel hostname
     service: http://localhost:8088
   - service: http_status:404
 ```

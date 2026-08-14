@@ -1,22 +1,35 @@
 #!/usr/bin/env bash
 #
-# deploy-post-receive.sh -- Canonical version of the R740 dune-prod VM
-# post-receive hook for the ACP Discord bot.
+# deploy-post-receive.sh -- Canonical version of the post-receive hook
+# for the ACP Discord bot's deploy remote.
 #
-# The real, live copy lives at
-#   dune@192.168.20.10:~/acp-deploy.git/hooks/post-receive
-# (the dune-prod VM, VMID 101, on the Dell R740 hypervisor).
+# STATUS (corrected 2026-08-13): the bot currently runs on its existing
+# OCI VPS (`acp-bot-vnic`) -- this is a live, currently-running production
+# service. A planned future migration to the Dell R740's `dune-prod` VM
+# is documented but has NOT happened yet (confirmed: zero VMs exist on
+# the R740 as of this writing). Do not treat any R740-specific path/IP
+# below as the current live deploy target until that migration actually
+# occurs -- update this comment block and the real, live copy's path
+# when it does. `OCI_BOT_IP`/`R740_DUNE_PROD_IP` below are placeholders --
+# see the personal-identifier guard this repo added alongside this fix.
+#
+# The real, live copy lives at the deploy target's own
+# ~/acp-deploy.git/hooks/post-receive (currently the OCI VPS; will move
+# to the R740 dune-prod VM once that migration is executed).
 # This file is the reviewed, versioned source of truth. When this file
-# changes, the live copy on the dune-prod VM must be updated to match
-# (see compliance/runbooks/backup-recovery.md's deployment section) -- a
-# deployed bot that doesn't match this file is a drift bug waiting to
-# surface.
+# changes, the live copy on the actual deploy target must be updated to
+# match (see compliance/runbooks/backup-recovery.md's deployment section)
+# -- a deployed bot that doesn't match this file is a drift bug waiting
+# to surface.
 #
 # What it does, in order:
-#   1. On a push to the `deploy` branch, resets the working tree to the
-#      pushed code, runs the real test suite as a guardrail, and aborts
-#      the deploy on any test failure (never ships a red tree to a live
-#      bot).
+#   1. On a push to the `deploy` branch, refuses to proceed if the deploy
+#      target's working tree has uncommitted local changes (protects
+#      against silently discarding in-progress debugging work -- see
+#      the dirty-tree guard added 2026-08-13, issue #2), then resets the
+#      working tree to the pushed code, runs the real test suite as a
+#      guardrail, and aborts the deploy on any test failure (never ships
+#      a red tree to a live bot).
 #   2. If the pushed range changed Discord slash command definitions
 #      (src/commands.js, src/opsCommands.js), re-registers them with
 #      Discord via `npm run register` -- closing the silent gap where a
@@ -24,7 +37,8 @@
 #      old, now-nonexistent command structure (issue #92).
 #   3. Restarts acp-bot.service and reports the health state.
 #
-# Previous host: OCI VPS at 129.146.238.118 (decommissioned 2026-08-07).
+# Previous/current host: OCI VPS at OCI_BOT_IP (placeholder -- this is a
+# live production service, NOT decommissioned; see status note above).
 
 DEPLOY_BRANCH="deploy"
 WORK_DIR="/home/dune/arrakis-control-panel"
@@ -58,6 +72,18 @@ while read -r oldrev newrev refname; do
   unset GIT_NAMESPACE
 
   cd "$WORK_DIR" || { echo "ERROR: cannot cd to $WORK_DIR"; exit 1; }
+
+  # Guardrail: refuse to deploy if the working tree has local modifications.
+  # Without this, a debugging session SSH'd into the deploy target has its
+  # in-progress work silently discarded by the next `git reset --hard`
+  # below -- issue #2, filed after this gap was found during an unrelated
+  # eight-hats review of the R740 migration's planned deploy hook.
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "ERROR: working tree at $WORK_DIR is dirty -- refusing to deploy."
+    echo "Someone may be actively debugging on this host. Investigate"
+    echo "('git status' on $WORK_DIR) before forcing a deploy."
+    exit 1
+  fi
 
   # Reset to latest from deploy remote
   echo "Syncing to latest deploy code..."
@@ -104,8 +130,9 @@ while read -r oldrev newrev refname; do
       echo "Slash commands re-registered on deploy."
     else
       echo "WARNING: npm run register failed. Command definitions may not"
-      echo "reflect this deploy. Run manually if needed:"
-      echo "  ssh dune@192.168.20.10 && cd ~/arrakis-control-panel && set -a && . ./.env && set +a && npm run register"
+      echo "reflect this deploy. Run manually if needed, on the deploy"
+      echo "target itself:"
+      echo "  cd ~/arrakis-control-panel && set -a && . ./.env && set +a && npm run register"
     fi
   else
     echo "No command-definition changes -- skipping slash-command registration."

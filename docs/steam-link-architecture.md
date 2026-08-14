@@ -12,8 +12,8 @@ falsely marked unmerged anymore.
 
 **End-to-end user-facing flow: still not reachable.** The bot-side OAuth
 callback server (`src/steamLinkServer.js`, port 3101) is up and healthy,
-but the Cloudflare Tunnel ingress only exposes `console.darkdante.org`
-and `acp-setup.darkdante.org`; port 3101 is not routed, so a real user
+but the Cloudflare Tunnel ingress only exposes the admin console's
+tunnel hostname and `acp-setup.darkdante.org`; port 3101 is not routed, so a real user
 clicking "Link via Steam" still gets a tunnel 404. That is a
 deployment/CF-config gap, not a code gap — tracked in issue #86 (and
 blocked on the same Cloudflare account access as issue #83). Once a
