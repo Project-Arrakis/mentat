@@ -44,7 +44,7 @@
 
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 const ALGORITHM = "aes-256-gcm";
 const KEY_BYTES = 32;
@@ -126,9 +126,46 @@ export function secretsKeySource(env = process.env) {
 // Without ACP_KEK_FILE, the system falls back to the v1 single-key mode
 // (ACP_SECRETS_KEY). All existing callers continue to work unchanged.
 
+// checkSecretFilePermissions: startup file-permission check (SEC-4 /
+// Phase 1 deliverable "File permission check on startup (warn if
+// non-0600)"). Deliberately warns rather than refuses to start --
+// unlike a wrong/missing key (which makes the file unusable anyway), a
+// loose permission bit doesn't prevent the bot from functioning, and an
+// operator running in a container or CI fixture directory may have a
+// legitimate reason (different umask, a mounted read-only secret) that
+// this check cannot distinguish from a real misconfiguration. Exported
+// so index.js's startup sequence can call it directly against every
+// configured secret file (age identity, KEK, and the legacy
+// ACP_SECRETS_KEY_FILE), not just the ones loadKEK() itself touches.
+export function checkSecretFilePermissions(filePath, label) {
+  try {
+    const mode = statSync(filePath).mode & 0o777;
+    if (mode !== 0o400 && mode !== 0o600) {
+      console.error(
+        `[acp] WARNING: ${label} (${filePath}) has permissions ${mode.toString(8)}, ` +
+        `expected 0400 or 0600. Run: chmod 600 "${filePath}"`
+      );
+      return false;
+    }
+    return true;
+  } catch {
+    // Missing file is reported by the caller that actually needs it
+    // (loadKEK()/loadKey() already produce a clear error in that case);
+    // this check has nothing useful to add for a file that doesn't exist.
+    return true;
+  }
+}
+
 // Loads the KEK from an age-encrypted file using the age binary.
 // Called once at startup; the decrypted KEK stays in memory.
 // Returns null if KEK is not configured or age is not available.
+//
+// ACP_KEK_VERSION identifies which key_versions row this KEK corresponds
+// to (defaults to 1 for a fresh Phase 1 setup). rotate-keys.js bumps this
+// when it activates a new KEK -- the OLD KEK's version must still be
+// loadable (via ACP_KEK_FILE_V<n>, see rotate-keys.js) so rows wrapped
+// under it remain readable until re-wrapped, per the design doc's
+// "old KEK retained for reading rows during transition" rotation model.
 function loadKEK(env = process.env) {
   if (_kekCache !== undefined) return _kekCache;
 
@@ -139,19 +176,19 @@ function loadKEK(env = process.env) {
     return null;
   }
 
-  try {
-    // Verify files exist and have restrictive permissions
-    for (const f of [kekFile, ageIdFile]) {
-      const mode = statSync(f).mode & 0o777;
-      if (mode !== 0o400 && mode !== 0o600) {
-        // Warn but don't refuse — operator may have legitimate reason
-        // (shared group, different umask convention)
-      }
-    }
+  checkSecretFilePermissions(kekFile, "ACP_KEK_FILE");
+  checkSecretFilePermissions(ageIdFile, "ACP_AGE_IDENTITY_FILE");
 
-    // age --decrypt -i <identity> <kek.age>
-    const result = execSync(
-      `age --decrypt -i "${ageIdFile}" "${kekFile}"`,
+  try {
+    // execFileSync() with an argument array (not a shell-interpolated
+    // command string) so a path containing a shell metacharacter --
+    // ACP_KEK_FILE/ACP_AGE_IDENTITY_FILE are operator-controlled env
+    // vars, not hardcoded constants -- can never be interpreted as
+    // anything other than a literal filename. Matches the same pattern
+    // already used throughout setup-keys.js/recover-keys.js/
+    // rotate-keys.js for every other `age` invocation.
+    const result = execFileSync(
+      "age", ["--decrypt", "-i", ageIdFile, kekFile],
       { encoding: "utf8", timeout: 5000, maxBuffer: 1024 }
     );
     const hex = result.trim();
@@ -159,7 +196,8 @@ function loadKEK(env = process.env) {
       throw new Error(`KEK file ${kekFile} did not contain a valid 64-char hex key`);
     }
     _kekCache = Buffer.from(hex, "hex");
-    _kekKeyVersion = 1; // Will be read from key_versions table during DB migration
+    const parsedVersion = Number.parseInt(env.ACP_KEK_VERSION || "1", 10);
+    _kekKeyVersion = Number.isInteger(parsedVersion) && parsedVersion > 0 ? parsedVersion : 1;
     return _kekCache;
   } catch (err) {
     // age not installed, file missing, wrong identity, or corrupted file
@@ -170,6 +208,16 @@ function loadKEK(env = process.env) {
     }
     return null;
   }
+}
+
+// Exposes the active KEK's key_versions row number to callers (e.g.
+// database.js's encryptColumn()) that need to persist it alongside a
+// wrapped DEK, without those callers reaching into this module's private
+// _kekKeyVersion directly. Returns null when no KEK is configured, same
+// as loadKEK() itself.
+export function activeKeyVersion(env = process.env) {
+  const kek = loadKEK(env);
+  return kek ? _kekKeyVersion : null;
 }
 
 // Wraps a DEK with the KEK. Returns base64-encoded wrapped DEK.

@@ -7,6 +7,53 @@ change notes under `docs/changes/`.
 ## Unreleased
 
 ### Security
+- Phase 1 of the ecosystem-wide secrets management epic (#112, design doc
+  `docs/design/pki-cmk-secrets-l1-design-audit-2026-08-08.md`), closing
+  issues #107 (SEC-1: `ACP_SECRETS_KEY` visible in `/proc`), #108 (GRC-1:
+  no break-glass recovery path), and #109 (SEC-2: single master key
+  encrypts all rows):
+  - New KEK/DEK hierarchy: an operator-controlled age identity key
+    decrypts a KEK, which unwraps a per-row DEK for each individual
+    `adapter_token`/`access_token` value. Compromising one row's wrapped
+    DEK exposes only that row, not every secret in the database. Wired
+    into `getGuild()`/`upsertGuild()`/`getOauthSession()`/
+    `updateOauthSession()` — every existing caller continues to receive
+    plain values exactly as before.
+  - `scripts/setup-keys.js` — generates the age identity, KEK, and (by
+    default) Shamir M-of-N recovery shares or a QR code backup.
+  - `scripts/rotate-keys.js` — non-breaking KEK rotation: only the
+    32-byte wrapped DEKs are re-wrapped, no data row is re-encrypted, and
+    every row remains readable throughout.
+  - `scripts/recover-keys.js` — break-glass recovery from Shamir shares
+    or a decoded QR code, with a real encrypt/decrypt round-trip
+    verification before ever writing a recovered identity to disk (a
+    wrong or insufficient set of shares fails loudly, not silently).
+  - New `key_versions`/`secret_keys`/`secret_access_log` tables (schema
+    v4, purely additive — existing databases gain these empty tables on
+    next start with no migration step). `secret_access_log` is an
+    append-only audit trail of every encrypt/decrypt/decrypt-failure/
+    rotate event (GRC-2, issue #111) — never the secret value, DEK, or
+    KEK itself.
+  - Existing `enc:v1:` (single-key) rows remain readable unchanged and
+    are only upgraded to the per-row DEK format on their own next write —
+    no forced migration.
+  - `/proc` exposure mitigation: a startup warning when `ACP_SECRETS_KEY`
+    is set as a direct env var (SEC-1), recommending the file-based
+    `_FILE` variant or the KEK/DEK path instead.
+  - Startup file-permission check (SEC-4) warning on any configured
+    secret file (`ACP_SECRETS_KEY_FILE`, `ACP_AGE_IDENTITY_FILE`,
+    `ACP_KEK_FILE`) that isn't mode 0600/0400.
+  - Also fixed, while touching this exact code: `loadKEK()`'s `age
+    --decrypt` invocation used a shell-interpolated command string
+    (`execSync`) despite its inputs (`ACP_KEK_FILE`/
+    `ACP_AGE_IDENTITY_FILE`) being operator-controlled env vars, not
+    hardcoded constants — a real, if narrow, command-injection surface.
+    Switched to `execFileSync()` with an argument array, matching every
+    other `age` invocation across the three new scripts.
+  - New dependencies: `shamirs-secret-sharing` (Shamir secret sharing,
+    zero transitive deps) and `qrcode` (QR code image generation).
+  - See `docs/security-secrets-at-rest.md`'s new "KEK/DEK hierarchy"
+    section for setup, rotation, and recovery instructions.
 - `POST /api/alerts/relay` (issue #167) had zero authentication — anyone
   who discovered the URL (publicly routable through the Cloudflare Tunnel
   at `acp-setup.darkdante.org`) could inject arbitrary-looking Alertmanager

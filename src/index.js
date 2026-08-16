@@ -13,7 +13,7 @@ import { createSteamLinkServer } from "./steamLinkServer.js";
 import { handleGuildCreate, handleGuildDelete } from "./onboarding.js";
 import { startStatsPusher } from "./statsPusher.js";
 import { handleWriteButtonInteraction } from "./writeConfirmation.js";
-import { isEncryptionConfigured } from "./secretsCrypto.js";
+import { isEncryptionConfigured, checkSecretFilePermissions } from "./secretsCrypto.js";
 
 const config = loadConfig();
 const db = config.multiTenant ? createDatabase(config.dbPath) : null;
@@ -32,6 +32,37 @@ if (config.multiTenant && db && !isEncryptionConfigured()) {
       "OAuth access tokens are being stored in plaintext in this bot's shared database. " +
       "See docs/security/multi-tenant-secrets-at-rest.md to generate and configure a key."
   });
+}
+// SEC-1 (issue #107): ACP_SECRETS_KEY as a direct env var is visible to
+// any process that can read this process's /proc/<pid>/environ (or, on
+// some hosts, `ps` output showing env for the invoking shell) --
+// anyone with that access recovers the raw key, not just an encrypted
+// value. The _FILE variant (already supported, see secretsCrypto.js's
+// loadKey()) avoids this: the key lives in a file with restrictive
+// permissions, never in this process's environment block at all. This
+// is a warning, not a hard failure -- ACP_SECRETS_KEY continues to work
+// exactly as before; deprecating it outright would break every existing
+// deployment that has it set, and the KEK/DEK path (ACP_KEK_FILE) is
+// itself always file-based and unaffected by this specific gap.
+if (process.env.ACP_SECRETS_KEY) {
+  logInfo("security.secrets_key_env_var_deprecated", {
+    detail: "ACP_SECRETS_KEY is set as a direct environment variable, which is visible to any " +
+      "process that can read /proc/<pid>/environ for this bot's PID. Switch to " +
+      "ACP_SECRETS_KEY_FILE (pointing at a mode-0600 file containing the same key) to avoid " +
+      "this exposure. See docs/security-secrets-at-rest.md."
+  });
+}
+// SEC-4: startup file-permission check for every configured secret file
+// this bot reads directly off disk. A loose permission (world- or
+// group-readable) doesn't stop the bot from functioning -- unlike a
+// wrong/missing key -- so this warns rather than refusing to start.
+for (const [envVar, label] of [
+  ["ACP_SECRETS_KEY_FILE", "ACP_SECRETS_KEY_FILE"],
+  ["ACP_AGE_IDENTITY_FILE", "ACP_AGE_IDENTITY_FILE"],
+  ["ACP_KEK_FILE", "ACP_KEK_FILE"]
+]) {
+  const path = process.env[envVar];
+  if (path) checkSecretFilePermissions(path, label);
 }
 const adapterClient = new AdapterClient(config, {
   getGuildConfig: db ? (guildId) => {
