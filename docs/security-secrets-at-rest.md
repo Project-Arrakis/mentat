@@ -34,6 +34,15 @@ operator's own Postgres).
 
 ## Setting it up
 
+**Recommended: use the KEK/DEK hierarchy below instead of a plain
+`ACP_SECRETS_KEY`.** The rest of this section describes the older,
+simpler single-key mode, which still works and remains fully supported
+(existing deployments are not broken), but has three real limitations
+(a `/proc`-visible env var if set directly, no break-glass recovery, one
+key for every row) that the KEK/DEK hierarchy exists specifically to
+close -- see that section below before choosing this path for a new
+deployment.
+
 Generate a key:
 
 ```
@@ -78,27 +87,99 @@ now" command; if you need every existing row encrypted immediately rather
 than opportunistically, the fastest path today is to have each connected
 operator re-run their guild's setup flow once.
 
-## Key rotation
+## Key rotation (ACP_SECRETS_KEY, v1 single-key mode)
 
-There is currently no built-in key-rotation tooling. If you need to
-rotate `ACP_SECRETS_KEY`:
+If you are still on plain `ACP_SECRETS_KEY`/`ACP_SECRETS_KEY_FILE` (no
+KEK/DEK hierarchy configured), rotating it has the same limitation
+described in earlier versions of this document: rows encrypted under the
+*old* key cannot be decrypted once you switch to a new key, and the only
+rotation path is having each connected operator re-run their guild's
+setup flow under the new key. **This is exactly the limitation the
+KEK/DEK hierarchy below exists to remove** -- if key rotation needs to be
+a routine, low-friction operation rather than an operator-by-operator
+re-setup, migrate to the KEK/DEK hierarchy first.
 
-1. Rows encrypted under the *old* key cannot be decrypted once you switch
-   to a new key -- `decryptSecret()` will throw for them (this is
-   intentional: silently returning garbage instead of failing loudly
-   would be worse). Plan for this before rotating, not after.
-2. The safest rotation path today is the same as the initial-adoption
-   path above: have each connected operator re-run their guild's setup
-   flow (which calls `upsertGuild()` again) under the *new* key, after it
-   is deployed. Until an operator does this, their row is unreadable and
-   `getGuildConfig()` will fail for that guild specifically (see
-   `src/index.js`'s `getGuildConfig` callback) -- the bot does not crash,
-   but that one guild's adapter calls will error until it re-links.
-3. A proper "decrypt-with-old-key, re-encrypt-with-new-key" migration
-   command, run once as a maintenance step with both keys available
-   simultaneously, is a reasonable follow-up if key rotation needs to
-   become a routine, low-friction operation rather than an
-   operator-by-operator re-setup. Not implemented as of this writing.
+## KEK/DEK hierarchy (Phase 1 of the ecosystem-wide secrets management
+## epic -- issues #107/#108/#109)
+
+`ACP_SECRETS_KEY` alone has three real limitations this hierarchy
+addresses:
+
+- **SEC-1**: a direct environment variable is visible to any process
+  that can read `/proc/<pid>/environ` for this bot's PID.
+- **GRC-1**: no break-glass recovery path if the key is lost.
+- **SEC-2**: a single key encrypts every row in the database -- a
+  compromise of that one key (or its holder) exposes every connected
+  operator's adapter token and every live OAuth session at once.
+
+The hierarchy: an **age identity key** (the operator-controlled root of
+trust, on disk, never sent anywhere) decrypts a **KEK** (Key Encryption
+Key, itself age-encrypted on disk), which unwraps a **per-row DEK** (Data
+Encryption Key) for each individual `adapter_token`/`access_token`
+value. Compromising one row's wrapped DEK exposes only that one row, not
+every secret in the database.
+
+### Setup
+
+```bash
+node scripts/setup-keys.js
+```
+
+Generates an age identity, a KEK encrypted to it, and (by default) 3
+Shamir recovery shares (any 2 reconstruct the identity) under
+`~/.config/acp/`. See `node scripts/setup-keys.js --help` for QR-code
+recovery instead, or `--recovery none` to skip recovery material
+entirely (not recommended -- see "What if the key is lost" below).
+
+Activate by setting the environment variables the script prints
+(`ACP_AGE_IDENTITY_FILE`, `ACP_KEK_FILE`, `ACP_KEK_VERSION=1`) and
+restarting the bot. Existing `ACP_SECRETS_KEY`-encrypted rows keep
+working unchanged (see "What happens to data written before a key was
+configured" above -- the same opportunistic-upgrade-on-next-write model
+applies to the v1-to-v2 transition, not just the plaintext-to-v1 one).
+
+### Rotation
+
+```bash
+node scripts/rotate-keys.js --db data/acp.db --dir ~/.config/acp
+```
+
+Non-breaking: only the (32-byte) wrapped DEKs are re-wrapped under a new
+KEK -- no data row is re-encrypted, and every row remains readable
+throughout. Use `--dry-run` first to see what would change. The old KEK
+file is never deleted automatically; keep it until you've confirmed the
+bot starts and reads secrets correctly with the new one.
+
+### What if the key is lost
+
+This is the real answer this document previously didn't have (GRC-1):
+
+- **If you generated Shamir shares** (the default): run
+  `node scripts/recover-keys.js --from-shares <share1> <share2> --output <path>`
+  with any `--shamir-threshold` (default 2) of the shares
+  `setup-keys.js` generated, then point `ACP_AGE_IDENTITY_FILE` at the
+  recovered file and restart. The script verifies the reconstruction
+  with a real encrypt/decrypt round-trip before writing anything, so a
+  wrong or insufficient set of shares fails loudly rather than silently
+  producing an unusable identity.
+- **If you generated a QR code backup**: scan it with any QR reader,
+  save the decoded text to a file, and run
+  `node scripts/recover-keys.js --from-qr <file> --output <path>`.
+- **If you chose `--recovery none`, or you've lost enough shares that
+  fewer than the threshold remain**: there is no recovery path. Every
+  secret encrypted under that KEK (every connected operator's adapter
+  token, every live OAuth session) is permanently unreadable. The bot
+  itself does not crash -- affected guilds' adapter calls fail until
+  each operator re-runs their setup flow to re-provision a fresh,
+  readable token, exactly like the v1 rotation-without-migration path
+  above.
+
+### Audit trail (GRC-2, issue #111)
+
+Every encrypt, decrypt, decrypt failure, and rotation event is recorded
+in the `secret_access_log` table (schema v4) -- which table/row/column
+was touched, when, and under which key version. The log never contains
+the secret value itself, the DEK, or the KEK.
 
 ## Threat model notes
 
