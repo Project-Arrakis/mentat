@@ -6,6 +6,24 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
+### Security
+- `POST /api/alerts/relay` (issue #167) had zero authentication — anyone
+  who discovered the URL (publicly routable through the Cloudflare Tunnel
+  at `acp-setup.darkdante.org`) could inject arbitrary-looking Alertmanager
+  firing/resolved payloads and have them relayed to the real, configured
+  Discord channel as if genuine (spoofed outage alerts, or suppressing
+  awareness by mixing in falsified "resolved" noise). Added an optional,
+  backward-compatible shared-secret check: `DUNE_ALERT_RELAY_TOKEN` (direct
+  value or `_FILE` path, matching this repo's existing secret-handling
+  convention) is validated against the request's `Authorization: Bearer`
+  header using a constant-time comparison. If unset, the route still
+  accepts requests (logging a warning on every one) so existing
+  deployments are not broken the moment this ships — but any deployment
+  that has `DUNE_ALERT_WEBHOOK_URL` pointed at a real channel should set
+  this. See `dune-awakening-selfhost-docker`'s companion fix (wiring
+  Alertmanager's own `webhook_configs[].http_config.authorization` to send
+  this token) for the other half of this fix.
+
 ### Fixed
 - `main`'s CI had been red for 6 days (issue #162) after the v1.0.0-rc.5
   "OPS embeds" release changed all 10 `ops:*` commands from PNG status-card

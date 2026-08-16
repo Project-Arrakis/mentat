@@ -1,5 +1,7 @@
 import express from "express";
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { logInfo, logError } from "./logger.js";
 import {
   createDatabase,
   createOauthSession,
@@ -18,6 +20,49 @@ import { renderPage, errorPage } from "./setupLayout.js";
 const DISCORD_OAUTH_URL = "https://discord.com/api/v10/oauth2/authorize";
 const DISCORD_TOKEN_URL = "https://discord.com/api/v10/oauth2/token";
 const DISCORD_USER_URL = "https://discord.com/api/v10/users/@me";
+
+// Issue #167 fix: POST /api/alerts/relay had zero authentication --
+// anyone who discovered the URL could inject arbitrary-looking
+// Alertmanager firing/resolved payloads and have them relayed to the
+// real configured Discord channel as if they were genuine alerts.
+// DUNE_ALERT_RELAY_TOKEN (direct value or _FILE path, same convention
+// as DISCORD_BOT_TOKEN/DUNE_DISCORD_ADAPTER_TOKEN elsewhere in this
+// repo) is checked against the request's Authorization: Bearer header
+// using a constant-time comparison. Deliberately OPT-IN/backward
+// compatible, matching this repo's own actorSignature.js precedent for
+// exactly this situation (a previously-unauthenticated path being
+// hardened without breaking every existing deployment the moment this
+// ships): if the token is unset, the route logs a loud warning on
+// every request but does not reject it, so an operator who hasn't yet
+// updated their Alertmanager config isn't silently locked out of
+// alerting. Once DUNE_ALERT_RELAY_TOKEN is set, the check becomes
+// mandatory and a request without a matching header is rejected with
+// 401 before the payload is ever parsed or relayed.
+function alertRelayToken(env = process.env) {
+  const direct = env.DUNE_ALERT_RELAY_TOKEN || "";
+  if (direct.trim()) return direct.trim();
+  const file = env.DUNE_ALERT_RELAY_TOKEN_FILE || "";
+  if (!file) return "";
+  try {
+    return readFileSync(file, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+// Constant-time comparison guards against a timing side-channel that
+// would otherwise let an attacker recover the token byte-by-byte by
+// measuring response latency across many requests. Buffer.compare()
+// length must match before timingSafeEqual() is called (it throws on
+// mismatched lengths), so a length check happens first -- this is safe
+// because the length itself is not the secret, only the token's value
+// is.
+function tokenMatches(provided, expected) {
+  const providedBuf = Buffer.from(String(provided || ""), "utf8");
+  const expectedBuf = Buffer.from(String(expected || ""), "utf8");
+  if (providedBuf.length !== expectedBuf.length) return false;
+  return timingSafeEqual(providedBuf, expectedBuf);
+}
 
 export function createSetupServer(config) {
   const app = express();
@@ -315,6 +360,28 @@ export function createSetupServer(config) {
   // to the configured DUNE_ALERT_WEBHOOK_URL. If no webhook URL is configured,
   // the endpoint accepts the payload but takes no action (idempotent, safe).
   app.post("/api/alerts/relay", express.json(), async (req, res) => {
+    const expectedToken = alertRelayToken();
+    if (expectedToken) {
+      const authHeader = req.get("authorization") || "";
+      const providedToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+      if (!tokenMatches(providedToken, expectedToken)) {
+        logError("alerts_relay.unauthorized", new Error("Missing or invalid bearer token"), {
+          remote: req.ip,
+          hasAuthHeader: Boolean(authHeader)
+        });
+        return res.status(401).json({ error: "Unauthorized — missing or invalid bearer token." });
+      }
+    } else {
+      // Opt-in/backward-compatible (issue #167): logged loudly on every
+      // request rather than silently, so an operator who hasn't yet set
+      // DUNE_ALERT_RELAY_TOKEN sees this in their logs, but existing
+      // deployments are not broken the moment this ships.
+      logInfo("alerts_relay.unauthenticated_request_allowed", {
+        remote: req.ip,
+        warning: "DUNE_ALERT_RELAY_TOKEN is not set -- this endpoint accepts unauthenticated requests. See issue #167."
+      });
+    }
+
     const payload = req.body;
     if (!payload || !payload.alerts || !Array.isArray(payload.alerts)) {
       return res.status(400).json({ error: "Invalid Alertmanager payload — expected {alerts: [...]}" });
