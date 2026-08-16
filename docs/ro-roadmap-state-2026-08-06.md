@@ -1,5 +1,33 @@
 # RO Roadmap State — 2026-08-06 Evidence Review
 
+> **SUPERSEDED, in part, 2026-08-16 (see `arrakis-control-panel#172`).** This
+> document's "LIVE (28)" list below includes `players-accounts-list`,
+> `players-accounts-unlink`, and `players-accounts-link-steam` with the claim
+> that all three were "verified against tag `v1.3.79`". **That claim was
+> false.** A follow-up audit on 2026-08-16, prompted by a routine upstream
+> compat pin refresh to `v1.3.87`, independently re-checked every tagged
+> upstream release from `v1.3.79` through `v1.3.87` by direct inspection and
+> found none of the `players/accounts/*` multi-account routes ever existed in
+> any tag -- they were transiently added in an untagged commit (`eac9c18`,
+> 2026-08-10) alongside a broken, never-actually-committed provider file, then
+> reverted the next day (`d102557`, 2026-08-11), before ever reaching a tag.
+> The same 2026-08-16 audit found a second, independent false claim in this
+> document: `ops-dashboard` is listed under "PLANNED (8)" below, with the
+> "What Was NOT Changed (Deliberate)" section explicitly asserting it "still
+> return[s] placeholders upstream" at `v1.3.79`. That was also false --
+> `ops-dashboard` was genuinely **LIVE** at `v1.3.79` (dispatched via the
+> older `OPS_PATHS`/`OPS_PROVIDERS` array), and only regressed to a 404
+> between `v1.3.79` and `v1.3.87`, once upstream's replacement `opsRoutes`
+> dispatch table silently omitted it. Do not treat this document's
+> route classifications as current; `src/adapterClient.js`'s `LIVE_ROUTES`/
+> `PLANNED_ROUTES`/`UNMERGED_ROUTES`/`MISSING_ROUTES` sets and
+> `docs/adapter-contract.md` are the current source of truth as of any given
+> read. This correction is left here, rather than silently rewriting the
+> history below, so a future reader can see exactly what was wrong and why --
+> consistent with this project's "a severity/status claim is a hypothesis
+> until independently re-verified" discipline (see the main README's
+> `dune-awakening-selfhost-docker` #121-123 correction for the precedent).
+
 This document records a live, evidence-verified audit of this repository's
 roadmap / release / route-status documentation against the real current state
 of the codebase and of upstream

@@ -6,6 +6,59 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
+### Fixed
+- Upstream compatibility pin refresh, `v1.3.79` -> `v1.3.87` (#172). Found
+  and fixed a real production 404 bug and a documentation defect:
+  - **False LIVE claim, now corrected:** `players-accounts-list`,
+    `players-accounts-unlink`, and `players-accounts-link-steam` were
+    marked LIVE and "verified 2026-08-06 at upstream tag v1.3.79" -- that
+    claim was false. Direct inspection of every tagged upstream release
+    (`v1.3.79` through `v1.3.87`) found these `players/accounts/*`
+    multi-account routes have never existed in any tag. They were
+    transiently added in an untagged upstream commit (2026-08-10) alongside
+    a provider file that was never actually committed (broken import,
+    server crashed on boot), then fully reverted the next day, before ever
+    reaching a tag. Real, live blast radius against any real,
+    unmodified, current upstream-based Core install: `/dune player
+    characters`, `/dune player unlink <playerControllerId>`, and the
+    Steam-link OAuth callback flow (the internet-facing
+    `acp-setup.darkdante.org/steam-link/*` endpoint) all 404 today. All
+    three are now correctly classified `MISSING_ROUTES` in
+    `src/adapterClient.js`.
+  - **Real regression:** `ops-dashboard` was genuinely LIVE at `v1.3.79`
+    but upstream's replacement `opsRoutes` dispatch table silently omits
+    it, so `/dune ops dashboard` now 404s at `v1.3.87`. Reclassified
+    `MISSING_ROUTES`.
+  - **Stub-to-hard-404 drift:** `ops-location` was already correctly
+    classified as returning a `{ status: "planned" }` stub, but the same
+    dispatch-table change means it now hard-404s instead -- kept
+    `PLANNED_ROUTES` (the feature intent is unchanged) but callers must no
+    longer assume "planned" means "safe 200".
+  - **Safe-direction correction:** `backups`, `announcements`, and
+    `maintenance` were classified `PLANNED`/`MISSING` at `v1.3.79` but now
+    have real, working handlers at `v1.3.87` -- reclassified `LIVE_ROUTES`.
+  - Added graceful, actionable error handling at every real call site
+    instead of a raw 404/502: `src/commands.js`'s command-dispatch catch
+    block now gives a clear "not available on this Core installation...
+    known limitation, not a configuration problem" message for any
+    `MISSING_ROUTES` failure (covers `/dune player characters`, `/dune
+    player unlink`, `/dune ops dashboard`); `src/steamLinkServer.js`'s
+    Steam-link OAuth callback now falls back to the existing, working
+    whisper-code verification flow instead of a generic "Something Went
+    Wrong" page.
+  - `scripts/operator-smoke.js`/`scripts/mock-adapter.js`: removed
+    `ops-dashboard`/`ops-location` from the routes the operator smoke
+    check exercises -- both now genuinely 404 against real upstream, so
+    `npm run smoke:adapter` against any real, current Core install would
+    otherwise throw an uncaught error and crash the entire smoke check
+    instead of reporting a clean per-route pass/fail.
+  - Updated `docs/adapter-contract.md`, `docs/upstream-source.md`,
+    `docs/upstream-write-adapter-rfc.md`, `docs/roadmap.md`,
+    `docs/steam-link-architecture.md` to the corrected `v1.3.87` evidence
+    and route table. `docs/ro-roadmap-state-2026-08-06.md` (the prior
+    evidence snapshot containing the false claim) carries an explicit
+    correction notice at its top rather than being silently rewritten.
+
 ### Security
 - Phase 1 of the ecosystem-wide secrets management epic (#112, design doc
   `docs/design/pki-cmk-secrets-l1-design-audit-2026-08-08.md`), closing

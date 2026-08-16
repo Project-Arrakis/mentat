@@ -30,10 +30,8 @@ test("operator smoke check exercises all read-only adapter routes", async () => 
       { route: "ops-resources", method: "POST", path: "/api/integrations/discord/ops/resources" },
       { route: "ops-economy", method: "POST", path: "/api/integrations/discord/ops/economy" },
       { route: "ops-inventory", method: "POST", path: "/api/integrations/discord/ops/inventory" },
-      { route: "ops-location", method: "POST", path: "/api/integrations/discord/ops/location" },
       { route: "ops-soc", method: "POST", path: "/api/integrations/discord/ops/soc" },
-      { route: "ops-prometheus", method: "POST", path: "/api/integrations/discord/ops/prometheus" },
-      { route: "ops-dashboard", method: "POST", path: "/api/integrations/discord/ops/dashboard" }
+      { route: "ops-prometheus", method: "POST", path: "/api/integrations/discord/ops/prometheus" }
     ]);
   } finally {
     await closeServer(server);

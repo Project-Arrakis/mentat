@@ -3,7 +3,18 @@ import { AdapterClient } from "../src/adapterClient.js";
 import { loadConfig } from "../src/config.js";
 import { redactSecrets } from "../src/format.js";
 
-const ROUTES = Object.freeze(["health", "status", "readiness", "services", "population", "backups", "announcements", "ops-activity", "ops-combat", "ops-resources", "ops-economy", "ops-inventory", "ops-location", "ops-soc", "ops-prometheus", "ops-dashboard"]);
+// UPDATED 2026-08-16 (upstream compat pin refresh, #172): ops-dashboard
+// and ops-location were REMOVED from this list. Both were previously
+// assumed to return safe (if sometimes stub) 200 responses; direct
+// verification against a fresh clone of upstream at tag v1.3.87 found
+// both now hard-404 (routes.js's replacement opsRoutes dispatch table,
+// added by upstream commit eac9c18, silently omits both). Before this
+// fix, `npm run smoke:adapter` against any real, current upstream-based
+// Core install would throw an uncaught AdapterHttpError on either route
+// and crash the entire smoke check instead of reporting a clean
+// pass/fail per route. See src/adapterClient.js's MISSING_ROUTES/
+// PLANNED_ROUTES comments for the full history of each route.
+const ROUTES = Object.freeze(["health", "status", "readiness", "services", "population", "backups", "announcements", "ops-activity", "ops-combat", "ops-resources", "ops-economy", "ops-inventory", "ops-soc", "ops-prometheus"]);
 
 const SMOKE_ACTOR = Object.freeze({
   userId: "operator-smoke-user",

@@ -48,6 +48,7 @@ import {
   recordSteamLinkAttempt
 } from "./steamLinkRateLimit.js";
 import { logError } from "./logger.js";
+import { MISSING_ROUTES } from "./adapterClient.js";
 
 const DISCORD_OAUTH_URL = "https://discord.com/api/v10/oauth2/authorize";
 const DISCORD_TOKEN_URL = "https://discord.com/api/v10/oauth2/token";
@@ -369,6 +370,27 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
       if (err?.status === 409 || err?.body?.code === "character_already_linked") {
         const message = err?.body?.error || err?.message || "This character is already linked to a different Discord account.";
         return errorPage(res, 409, "Unable to Link", String(message));
+      }
+      // Issue #172 (upstream compat pin refresh, v1.3.79 -> v1.3.87):
+      // players-accounts-link-steam was reclassified from LIVE_ROUTES to
+      // MISSING_ROUTES after direct verification against a fresh upstream
+      // clone showed this route never existed in any tagged upstream
+      // release -- it was transiently added in an untagged commit and
+      // fully reverted the next day, before ever reaching a tag. Before
+      // this fix, a real 404 from Core fell into the generic "Something
+      // Went Wrong" branch below, telling the player to "try again in a
+      // moment" -- misleading, since retrying can never succeed against a
+      // Core install that genuinely does not have this route. Fall back
+      // to the existing, working whisper-code flow instead of a dead end.
+      if (err?.route && MISSING_ROUTES.has(err.route)) {
+        logError("steam_link.route_not_supported_by_core", err, { route: err.route });
+        return sendWhisperFallbackAndRespond({
+          res, adapterClient, client, fetchImpl, session,
+          pageTitle: "Sent a Verification Code Instead",
+          pageMessage: "Steam-based linking isn't supported by this server's version of the console yet. " +
+            `We've sent a verification code to ${session.characterName || "your character"} in-game via whisper instead — ` +
+            "check your whispers and run /dune player verify <code> to complete the link."
+        });
       }
       logError("steam_link.match_check_failed", err);
       return errorPage(res, 502, "Something Went Wrong",

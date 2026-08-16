@@ -559,6 +559,41 @@ describe('Command Execution', () => {
     assert.ok(!interaction._reply, 'Should not hit the generic error-reply path (would indicate the wrong/unmerged route was called)');
   });
 
+  test('player:characters gives a clear, actionable error (not a raw 404) when Core does not implement players-accounts-list (#172)', async () => {
+    // Issue #172 (upstream compat pin refresh, v1.3.79 -> v1.3.87):
+    // players-accounts-list was reclassified LIVE_ROUTES -> MISSING_ROUTES
+    // after direct verification against a fresh upstream clone found this
+    // route has never existed in any tagged upstream release -- see
+    // src/adapterClient.js's UNMERGED_ROUTES comment for the full history.
+    // Before this fix, a real 404 from Core surfaced here as a raw "Adapter
+    // players-accounts-list returned HTTP 404." message via the generic
+    // error branch -- confusing for an operator with no way to know this is
+    // a known, permanent limitation rather than a misconfiguration. This
+    // pins the graceful, actionable message added in commands.js's catch
+    // block.
+    const { config } = getTestContext();
+    const trackingAdapter = createMockAdapter();
+    trackingAdapter.playerAccountsList = async () => {
+      const err = new Error('Adapter players-accounts-list returned HTTP 404.');
+      err.route = 'players-accounts-list';
+      err.status = 404;
+      throw err;
+    };
+
+    const interaction = createMockInteraction({
+      command: 'player:characters',
+      roles: ['observer-role-id']
+    });
+    const result = await executeDuneCommand(interaction, trackingAdapter, config);
+
+    assert.ok(result, 'Command should succeed without throwing');
+    const embed = interaction._editReply?.embeds?.[0]?.data || interaction._editReply?.embeds?.[0];
+    const description = embed?.description || '';
+    assert.ok(description.includes('not available on this Core installation'), 'Must give the known-limitation message, not a raw 404');
+    assert.ok(description.includes('arrakis-control-panel#172'), 'Must reference the tracking issue');
+    assert.ok(!description.includes('HTTP 404'), 'Must not leak the raw adapter HTTP error to the user');
+  });
+
   test.skip('player:link offers the Steam-link button when hasSteam is true and steamLink is enabled', async () => {
     const { config } = getTestContext();
     config.steamLink = { enabled: true, baseUrl: 'https://acp-setup.darkdante.org' };

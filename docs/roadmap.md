@@ -112,18 +112,29 @@ Small pull requests:
 Progress:
 
 - Endpoint paths, methods, and payload shapes are confirmed against upstream
-  release `v1.3.79`.
+  release `v1.3.87`.
 - Health, status, readiness, and services fixtures are covered by unit tests.
 - Configured route overrides are covered by compatibility tests.
 - A local token-protected adapter mock serves the fixtures on loopback for smoke
   tests and examples.
-- Route status tracking: LIVE (28), PLANNED (8), UNMERGED (7), MISSING (6).
+- Route status tracking: LIVE (32), PLANNED (1), UNMERGED (7), MISSING (9).
   Every route key in `config.js`'s path table is classified in exactly one
   set -- pinned by `test/adapterClient.test.js` so an unclassified route is a
-  test failure. (Corrected 2026-08-06: previously reported LIVE 19 / PLANNED 5 /
-  UNMERGED 10 / MISSING 2, which was stale in all four directions; the 2026-08-06
-  audit found fourteen route keys with no classification at all, including nine
-  player routes the bot calls daily. See `docs/ro-roadmap-state-2026-08-06.md`.)
+  test failure. (Corrected 2026-08-16, `arrakis-control-panel#172`: a routine
+  compat pin refresh to `v1.3.87` found the 2026-08-06 figures below
+  contained a real false claim -- `players-accounts-list`,
+  `players-accounts-unlink`, and `players-accounts-link-steam` had never
+  existed in any tagged upstream release, despite being counted as LIVE and
+  "verified" -- plus a real regression (`ops-dashboard`: LIVE at the prior
+  baseline, 404s at `v1.3.87`) and a safe-direction correction (`backups`,
+  `announcements`, `maintenance`: PLANNED/MISSING at the prior baseline, now
+  genuinely LIVE at `v1.3.87`). See `docs/adapter-contract.md` for the current,
+  corrected route table. Previously corrected 2026-08-06: previously reported
+  LIVE 19 / PLANNED 5 / UNMERGED 10 / MISSING 2, which was stale in all four
+  directions; that audit found fourteen route keys with no classification at
+  all, including nine player routes the bot calls daily. See
+  `docs/ro-roadmap-state-2026-08-06.md`, which itself now carries a
+  2026-08-16 correction notice at its top.)
 
 Complexity: low to medium. **Status: Complete.**
 
@@ -159,7 +170,11 @@ Only add commands backed by safe upstream adapter responses.
 - `/dune ops location` — Map markers and player density
 - `/dune ops soc` — OPS bridge health
 - `/dune ops prometheus` — Container CPU, memory, and uptime
-- `/dune ops dashboard` — Combined summary
+- `/dune ops dashboard` — Combined summary. **Regressed to a graceful error as
+  of upstream `v1.3.87`** (was live through the prior baseline; upstream's
+  routes.js dispatch table now omits it -- see `arrakis-control-panel#172`). The
+  subcommand remains registered and surfaces a clear "not available on this
+  Core installation" message rather than a raw 404.
 - `/dune admin doctor` — Full system diagnostic
 - `/dune admin cooldowns` — Rate-limit status
 - `/dune admin latency` — Adapter request timing
@@ -187,9 +202,12 @@ Only add commands backed by safe upstream adapter responses.
 
 **Upstream PR:** [Red-Blink/dune-awakening-selfhost-docker#91](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/91)
 — **merged 2026-07-20** (`47ca186`, shipped in `v1.3.61`; all of PR #91's
-player routes remain live through the current baseline `v1.3.79`). The
+player routes remain live through the current baseline `v1.3.87`). The
 player-feature rows below are therefore live end-to-end, not pending
-upstream.
+upstream. This does not include the Steam multi-account linking flow's
+`players/accounts/*` routes, which are separate from PR #91 and never
+actually reached a tagged upstream release -- see
+`arrakis-control-panel#172` and `docs/adapter-contract.md`.
 
 Security requirements:
 
@@ -233,16 +251,21 @@ Required release path:
 Current release state:
 
 - Latest bot stable release: `v0.1.1`
-- Latest release candidate validated: `v1.0.0-rc.2`
+- Latest release candidate validated: `v1.0.0-rc.2` (note: `package.json`'s
+  current version has since advanced past this -- see
+  `docs/release-evidence/` for which RC has full committed validation
+  evidence; refreshing this pin for later RCs is a separate, tracked task,
+  not part of the `#172` upstream compat pin refresh)
 - Next stable target: `v1.0.0` after the promotion checklist in
   `docs/v1.0.0-promotion-checklist.md` is satisfied
-- Latest upstream stable baseline: `v1.3.79`
-- Latest upstream release verified: `ac8f086` / `d41f1270` ("Release v1.3.79",
-  2026-08-05)
-- Latest upstream release candidate observed: none newer than `v1.3.79`
+- Latest upstream stable baseline: `v1.3.87`
+- Latest upstream release verified:
+  `b4f8fe4c5a36e2ac2f81deb4c9fddde087c77d06` ("Release v1.3.87", 2026-08-14)
+- Latest upstream release candidate observed: none newer than `v1.3.87`
 - Upstream player-inventory PR #91: **merged 2026-07-20**, live since `v1.3.61`
-- All test skipping removed — 412 core + 72 harness + 5 bats = 489/489 pass,
-  0 skipped
+- All test skipping removed — 412 core + 72 harness tests pass, 0 skipped
+  (bats count not independently re-verified in this pass; see the harness's
+  own CI output for current bats count)
 - All pre-commit hooks pass without `--no-verify`
 
 Security requirements:

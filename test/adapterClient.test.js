@@ -136,49 +136,120 @@ test("ops-activity, ops-combat, ops-resources, ops-economy are classified as liv
   }
 });
 
-// The other five ops-* routes have no backing query anywhere in Core
-// (see dune-awakening-selfhost-docker's opsProvider.js) and must remain
-// correctly classified as planned stubs -- this reclassification is
-// deliberately narrow, not a blanket "all ops routes are live now" change.
-test("ops-location remains classified as planned (by design — out of scope)", () => {
+// ops-location: at v1.3.79, this genuinely returned a { status: "planned"}
+// stub, dispatched via the older OPS_PATHS/OPS_PROVIDERS array. Re-verified
+// 2026-08-16 against a fresh upstream clone at tag v1.3.87 (#172): the
+// replacement opsRoutes dispatch table in routes.js silently omits
+// OPS_LOCATION entirely -- a request now hits the generic not_found
+// fallthrough and 404s. It is kept in PLANNED_ROUTES (the underlying
+// intent hasn't changed -- Core still exports the provider function,
+// just doesn't route to it) but this is a real regression, not a
+// permanently-stable classification -- see adapterClient.js's own
+// PLANNED_ROUTES comment for the full history.
+test("ops-location remains classified as planned (Core still declares intent, even though it now 404s -- see #172)", () => {
   assert.ok(PLANNED_ROUTES.has("ops-location"), "ops-location must remain planned");
   assert.ok(!LIVE_ROUTES.has("ops-location"), "ops-location must not be in LIVE");
   assert.equal(routeStatus("ops-location"), "planned");
 });
 
-test("ops-inventory, ops-soc, ops-prometheus, ops-dashboard are now classified as live", () => {
-  for (const route of ["ops-inventory", "ops-soc", "ops-prometheus", "ops-dashboard"]) {
+test("ops-inventory, ops-soc, ops-prometheus are classified as live", () => {
+  for (const route of ["ops-inventory", "ops-soc", "ops-prometheus"]) {
     assert.ok(LIVE_ROUTES.has(route), `${route} Core now returns real data — must be live`);
     assert.ok(!PLANNED_ROUTES.has(route), `${route} must not remain in planned`);
     assert.equal(routeStatus(route), "live");
   }
 });
 
-// FULL route-table pin (added 2026-08-06, RO roadmap audit -- see
-// docs/ro-roadmap-state-2026-08-06.md). These four sets must together
-// classify every route the bot can possibly call (every key in config.js's
-// DEFAULT_PATHS), disjointly, with zero "unknown" status. Prior to this
-// test, fourteen DEFAULT_PATHS keys had no classification at all -- most
-// importantly the nine player routes the bot calls daily (the audit's
-// central finding), plus players-accounts-link-steam -- because they had
-// been removed from UNMERGED_ROUTES in the 2026-07-26 reconciliation but
-// never added to any table. If this test fails because a route reports
-// "unknown", classify it in the correct set (verified against Core's real
-// DISCORD_ADAPTER_ROUTES at the current upstream tag) rather than relaxing
-// the test.
+// ops-dashboard: at v1.3.79 this was correctly live (dispatched via the
+// older OPS_PATHS/OPS_PROVIDERS array). Re-verified 2026-08-16 against a
+// fresh upstream clone at tag v1.3.87 (#172): the replacement opsRoutes
+// dispatch table in routes.js has exactly 7 entries and OPS_DASHBOARD is
+// not one of them -- a request now 404s. opsDashboardProvider() still
+// exists and is still exported from Core's opsProvider.js, but nothing in
+// routes.js invokes it anymore. This is a genuine regression from a prior,
+// correctly-verified LIVE classification, not a stale claim that was
+// always wrong (contrast with players-accounts-* below).
+test("ops-dashboard is classified as missing -- real regression from live at v1.3.79 to 404 at v1.3.87 (#172)", () => {
+  assert.ok(MISSING_ROUTES.has("ops-dashboard"), "ops-dashboard must be classified missing -- Core's routes.js dispatch table omits it at v1.3.87");
+  assert.ok(!LIVE_ROUTES.has("ops-dashboard"), "ops-dashboard must not be in LIVE");
+  assert.equal(routeStatus("ops-dashboard"), "missing");
+});
+
+// backups, announcements, maintenance: re-verified 2026-08-16 against a
+// fresh upstream clone at tag v1.3.87 (#172). All three were previously
+// classified PLANNED (backups, announcements -- expected a
+// { status: "planned" } stub) or MISSING (maintenance -- expected a 404,
+// since Core declared the route constant but had no handler at v1.3.79).
+// Direct inspection of routes.js at v1.3.87 shows all three now have real,
+// working handlers: backups runs `dune db list` for real metadata,
+// announcements calls the real readPlayerAnnouncements(config) service,
+// and maintenance runs `dune readiness`. Safe-direction drift (the bot
+// previously under-promised, not over-promised) but still inaccurate.
+test("backups, announcements, maintenance are classified as live -- Core now has real handlers, not stubs or 404s (#172)", () => {
+  for (const route of ["backups", "announcements", "maintenance"]) {
+    assert.ok(LIVE_ROUTES.has(route), `${route} Core now returns real data — must be live`);
+    assert.ok(!PLANNED_ROUTES.has(route), `${route} must not remain in planned`);
+    assert.ok(!MISSING_ROUTES.has(route), `${route} must not remain in missing`);
+    assert.equal(routeStatus(route), "live");
+  }
+});
+
+// players-accounts-list, players-accounts-unlink, players-accounts-link-steam:
+// the PRIOR claim ("verified 2026-08-06... at upstream tag v1.3.79") was
+// FALSE. Direct inspection of the real v1.3.79 tag (and every tag up to
+// and including the current v1.3.87 pin) shows these routes never
+// existed in any tagged upstream release -- confirmed via direct grep,
+// "accounts" and "steam" do not appear anywhere in Core's real
+// adapter.js/routes.js at v1.3.87. They were transiently added in an
+// untagged commit (upstream eac9c18, 2026-08-10) alongside a
+// multiAccountLinkProvider.js file that was never actually committed
+// (the commit as pushed had a broken import -- ERR_MODULE_NOT_FOUND at
+// server boot), then fully reverted the very next day (upstream d102557,
+// 2026-08-11), before ever reaching a tag. Real, live blast radius: /dune
+// player characters, /dune player unlink <playerControllerId>, and the
+// Steam-link OAuth callback flow all 404 against a real, unmodified,
+// current upstream-based Core install -- see #172 for the full audit and
+// the graceful-failure handling added at each call site.
+test("players-accounts-list, players-accounts-unlink, players-accounts-link-steam are classified as missing -- never existed in any tagged upstream release, prior LIVE classification was factually false (#172)", () => {
+  for (const route of ["players-accounts-list", "players-accounts-unlink", "players-accounts-link-steam"]) {
+    assert.ok(MISSING_ROUTES.has(route), `${route} must be classified missing -- confirmed absent from every tagged upstream release`);
+    assert.ok(!LIVE_ROUTES.has(route), `${route} must not be in LIVE -- the prior claim was false`);
+    assert.equal(routeStatus(route), "missing");
+  }
+});
+
+// FULL route-table pin. These four sets must together classify every
+// route the bot can possibly call (every key in config.js's
+// DEFAULT_PATHS), disjointly, with zero "unknown" status. If this test
+// fails because a route reports "unknown", classify it in the correct
+// set (verified against Core's real DISCORD_ADAPTER_ROUTES at the
+// current upstream tag) rather than relaxing the test.
+//
+// Re-verified 2026-08-16 (upstream compat pin refresh v1.3.79 -> v1.3.87,
+// #172) against a fresh clone of upstream at the current tag -- this is
+// the audit that found players-accounts-list/players-accounts-unlink/
+// players-accounts-link-steam/ops-dashboard's PRIOR classifications were
+// wrong (either factually false, or since regressed) and corrected them.
 test("every known route is classified into exactly one of the four route tables (no unknowns)", () => {
   const whole = new Set([...LIVE_ROUTES, ...PLANNED_ROUTES, ...UNMERGED_ROUTES, ...MISSING_ROUTES]);
 
-  // The player routes re-added here on 2026-08-06 must be live: the bot
-  // calls them daily through playerLinkVerify()/playerInventory()/etc. and
-  // Core serves them (DISCORD_LIVE_ADAPTER_ROUTES, verified at v1.3.79).
+  // These player/ops routes must be live: the bot calls them daily
+  // through playerLinkVerify()/playerInventory()/etc. and Core serves
+  // them (DISCORD_LIVE_ADAPTER_ROUTES, re-verified at v1.3.87).
   for (const route of [
     "players-link", "players-unlink", "players-me", "players-inventory",
     "players-inventory-search", "players-storage", "players-find",
-    "guild-storage", "guild-find", "players-accounts-link-steam",
-    "players-link-verify", "players-accounts-list", "players-accounts-unlink"
+    "guild-storage", "guild-find",
+    "players-link-verify", "backups", "announcements", "maintenance"
   ]) {
     assert.equal(routeStatus(route), "live", `${route} must be classified live (bot calls it daily, Core serves it)`);
+  }
+
+  // These routes must be missing: confirmed absent from every tagged
+  // upstream release (players-accounts-*), or a genuine regression from
+  // live to 404 between v1.3.79 and v1.3.87 (ops-dashboard). See #172.
+  for (const route of ["players-accounts-list", "players-accounts-unlink", "players-accounts-link-steam", "ops-dashboard"]) {
+    assert.equal(routeStatus(route), "missing", `${route} must be classified missing (see #172 -- confirmed absent/regressed against real upstream)`);
   }
 
   // Every key the bot's config path table can be asked to call must be
@@ -213,9 +284,15 @@ test("every known route is classified into exactly one of the four route tables 
 // AdapterClient -- a live /dune ops announcements call would have thrown
 // TypeError. It now routes to "announcements", the real, live
 // /api/integrations/discord/announcements route. Pin that here.
+//
+// UPDATED 2026-08-16 (upstream compat pin refresh, #172): announcements
+// was PLANNED at v1.3.79 (a real { status: "planned" } stub) but
+// re-verified live against upstream v1.3.87 -- routes.js now calls the
+// real readPlayerAnnouncements(config) service. See LIVE_ROUTES' "FIFTH
+// reconciliation" comment in src/adapterClient.js for the full history.
 test("ops announcements dispatches to the real announcements method, not a mock-only opsAnnouncements", () => {
-  assert.equal(routeStatus("announcements"), "planned",
-    "announcements must stay planned -- upstream returns a planned stub until Core wires real announcement data");
+  assert.equal(routeStatus("announcements"), "live",
+    "announcements is live as of upstream v1.3.87 -- see #172");
   assert.equal("function", typeof AdapterClient.prototype.announcements,
     "real AdapterClient must expose announcements() (the dispatch derives the method name from the route)");
   assert.equal("undefined", typeof AdapterClient.prototype.opsAnnouncements,
