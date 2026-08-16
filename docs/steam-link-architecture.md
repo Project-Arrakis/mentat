@@ -1,24 +1,44 @@
 # Discord → Steam → Character Linking — Architecture
 
-## Implementation Status (updated 2026-08-07, issue #86)
+## Implementation Status (updated 2026-08-16, issue #172 -- see correction below)
 
-**Bot-side: implemented and wired.** `players-accounts-link-steam` is a
-real, live Core route (verified 2026-08-06 against upstream
-DISCORD_ADAPTER_ROUTES/routes.js at tag v1.3.79) and
-`adapterClient.js:282`'s `linkAccountViaSteam()` calls it directly.
-`UNMERGED_ROUTES` was reconciled in both directions (see that file's
-SECOND/THIRD reconciliation comments) so nothing in the Steam path is
-falsely marked unmerged anymore.
+> **CORRECTION (2026-08-16, `arrakis-control-panel#172`):** the "Bot-side:
+> implemented and wired" claim below, and its "verified 2026-08-06... at tag
+> v1.3.79" evidence, were **false**. A follow-up audit re-inspected every
+> tagged upstream release directly and found `players-accounts-link-steam`
+> has never existed in any tagged upstream release. It was transiently added
+> in an untagged upstream commit (`eac9c18`, 2026-08-10) alongside a
+> `multiAccountLinkProvider.js` file that was never actually committed
+> (broken import, server crashed on boot), then fully reverted the next day
+> (`d102557`, 2026-08-11), before ever reaching a tag. The route is now
+> correctly classified `MISSING_ROUTES` in `src/adapterClient.js`. A real
+> user completing the Steam OAuth flow against a real, unmodified,
+> current upstream-based Core installation gets a graceful fallback to the
+> whisper-code verification flow instead (`sendWhisperFallbackAndRespond()`
+> in `src/steamLinkServer.js`), not a raw 502 -- but the Steam-link
+> auto-verification path itself is not functional against any tagged
+> upstream release, contrary to what this section previously claimed. See
+> `docs/adapter-contract.md` for the current, corrected route table.
 
-**End-to-end user-facing flow: still not reachable.** The bot-side OAuth
-callback server (`src/steamLinkServer.js`, port 3101) is up and healthy,
-but the Cloudflare Tunnel ingress only exposes the admin console's
-tunnel hostname and `acp-setup.darkdante.org`; port 3101 is not routed, so a real user
-clicking "Link via Steam" still gets a tunnel 404. That is a
-deployment/CF-config gap, not a code gap — tracked in issue #86 (and
-blocked on the same Cloudflare account access as issue #83). Once a
-hostname is tunneled to 3101 the bot-side feature becomes testable
-end-to-end as designed below.
+**Bot-side, as originally written (now known inaccurate -- see correction
+above):** "implemented and wired... `players-accounts-link-steam` is a
+real, live Core route... and `adapterClient.js:282`'s
+`linkAccountViaSteam()` calls it directly." `UNMERGED_ROUTES` was
+reconciled in both directions (see that file's SECOND/THIRD reconciliation
+comments) so nothing in the Steam path is falsely marked unmerged anymore
+-- it is correctly marked `MISSING_ROUTES` as of the 2026-08-16 correction.
+
+**End-to-end user-facing flow: still not reachable, for a second,
+independent reason.** The bot-side OAuth callback server
+(`src/steamLinkServer.js`, port 3101) is up and healthy, but the Cloudflare
+Tunnel ingress only exposes the admin console's tunnel hostname and
+`acp-setup.darkdante.org`; port 3101 is not routed, so a real user clicking
+"Link via Steam" still gets a tunnel 404 before ever reaching the
+(currently non-functional against real upstream) callback logic. That
+tunnel gap is tracked in issue #86 (and blocked on the same Cloudflare
+account access as issue #83). Fixing the tunnel gap alone would not make
+this flow work end-to-end until upstream actually ships a tagged
+`players/accounts/link-steam` route -- both gaps must close.
 
 ## Overview
 

@@ -7,6 +7,17 @@ const DEFAULT_PORT = 8095;
 const DEFAULT_TOKEN = "local-adapter-token";
 const REQUEST_BODY_LIMIT = 32 * 1024;
 
+// UPDATED 2026-08-16 (upstream compat pin refresh, #172): ops/location
+// and ops/dashboard were REMOVED from this table. Both were previously
+// simulated here as returning a safe 200; direct verification against a
+// fresh clone of upstream at tag v1.3.87 found routes.js's replacement
+// opsRoutes dispatch table (added by upstream commit eac9c18) silently
+// omits both, so a real Core install now 404s them. Simulating a 200 for
+// routes that actually 404 on real upstream would make this mock lie
+// about behavior operator-validation.md relies on for smoke evidence.
+// Any path not listed here correctly falls through to the 404 branch
+// below, matching real upstream. See src/adapterClient.js's
+// MISSING_ROUTES/PLANNED_ROUTES comments for the full history.
 const ROUTES = Object.freeze({
   "/api/integrations/discord/health": { method: "GET", fixture: "health.json" },
   "/api/integrations/discord/status": { method: "POST", fixture: "status.json" },
@@ -21,10 +32,8 @@ const ROUTES = Object.freeze({
   "/api/integrations/discord/ops/resources": { method: "POST", fixture: "ops.json" },
   "/api/integrations/discord/ops/economy": { method: "POST", fixture: "ops.json" },
   "/api/integrations/discord/ops/inventory": { method: "POST", fixture: "ops.json" },
-  "/api/integrations/discord/ops/location": { method: "POST", fixture: "ops.json" },
   "/api/integrations/discord/ops/soc": { method: "POST", fixture: "ops.json" },
-  "/api/integrations/discord/ops/prometheus": { method: "POST", fixture: "ops.json" },
-  "/api/integrations/discord/ops/dashboard": { method: "POST", fixture: "ops.json" }
+  "/api/integrations/discord/ops/prometheus": { method: "POST", fixture: "ops.json" }
 });
 
 const DEFAULT_FIXTURE_DIR = new URL("../test/fixtures/adapter/", import.meta.url);
