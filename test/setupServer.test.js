@@ -199,3 +199,196 @@ test("POST /setup/register persists all four tier role rows", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ─── POST /api/alerts/relay authentication (issue #167) ───────────────────
+// This route previously had zero authentication -- anyone who discovered
+// the URL could inject arbitrary-looking Alertmanager payloads and have
+// them relayed to the real configured Discord channel as genuine alerts.
+// These tests pin the fix's real, deliberately opt-in/backward-compatible
+// contract: unauthenticated requests are still accepted (with a warning
+// logged) until DUNE_ALERT_RELAY_TOKEN is set, at which point a request
+// without a matching bearer token must be rejected with 401 before the
+// payload is ever parsed or relayed.
+
+function withEnv(overrides, fn) {
+  const previous = {};
+  for (const key of Object.keys(overrides)) previous[key] = process.env[key];
+  Object.assign(process.env, overrides);
+  return (async () => {
+    try {
+      return await fn();
+    } finally {
+      for (const key of Object.keys(overrides)) {
+        if (previous[key] === undefined) delete process.env[key];
+        else process.env[key] = previous[key];
+      }
+    }
+  })();
+}
+
+async function withRelayApp(fn) {
+  const app = createSetupServer({
+    dbPath: ":memory:",
+    discordClientId: "client-id",
+    baseUrl: "http://localhost:3100"
+  });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  try {
+    const { port } = server.address();
+    await fn(`http://127.0.0.1:${port}`);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+const validAlertmanagerPayload = {
+  alerts: [
+    {
+      status: "firing",
+      labels: { alertname: "TestAlert", severity: "warning", instance: "test:9090" },
+      annotations: { summary: "test alert" },
+      startsAt: "2026-08-16T00:00:00Z"
+    }
+  ]
+};
+
+test("POST /api/alerts/relay accepts an unauthenticated request when DUNE_ALERT_RELAY_TOKEN is unset (backward compatible)", async () => {
+  await withEnv({ DUNE_ALERT_RELAY_TOKEN: "", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_WEBHOOK_URL: "" }, () =>
+    withRelayApp(async (base) => {
+      const res = await fetch(`${base}/api/alerts/relay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validAlertmanagerPayload)
+      });
+      assert.equal(res.status, 200, "must still accept the request when no token is configured, per issue #167's backward-compatibility requirement");
+      const body = await res.json();
+      assert.equal(body.ok, true);
+    })
+  );
+});
+
+test("POST /api/alerts/relay rejects a request with no Authorization header once DUNE_ALERT_RELAY_TOKEN is set", async () => {
+  await withEnv({ DUNE_ALERT_RELAY_TOKEN: "s3cr3t-token", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_WEBHOOK_URL: "" }, () =>
+    withRelayApp(async (base) => {
+      const res = await fetch(`${base}/api/alerts/relay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validAlertmanagerPayload)
+      });
+      assert.equal(res.status, 401);
+      const body = await res.json();
+      assert.match(body.error, /Unauthorized/);
+    })
+  );
+});
+
+test("POST /api/alerts/relay rejects a request with the wrong bearer token", async () => {
+  await withEnv({ DUNE_ALERT_RELAY_TOKEN: "s3cr3t-token", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_WEBHOOK_URL: "" }, () =>
+    withRelayApp(async (base) => {
+      const res = await fetch(`${base}/api/alerts/relay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer wrong-token" },
+        body: JSON.stringify(validAlertmanagerPayload)
+      });
+      assert.equal(res.status, 401);
+    })
+  );
+});
+
+test("POST /api/alerts/relay accepts a request with the correct bearer token", async () => {
+  await withEnv({ DUNE_ALERT_RELAY_TOKEN: "s3cr3t-token", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_WEBHOOK_URL: "" }, () =>
+    withRelayApp(async (base) => {
+      const res = await fetch(`${base}/api/alerts/relay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer s3cr3t-token" },
+        body: JSON.stringify(validAlertmanagerPayload)
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.ok, true);
+    })
+  );
+});
+
+test("POST /api/alerts/relay reads the token from DUNE_ALERT_RELAY_TOKEN_FILE when the direct value is unset", async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "acp-relay-token-"));
+  const tokenPath = join(dir, "token.txt");
+  writeFileSync(tokenPath, "file-based-token\n");
+  try {
+    await withEnv({ DUNE_ALERT_RELAY_TOKEN: "", DUNE_ALERT_RELAY_TOKEN_FILE: tokenPath, DUNE_ALERT_WEBHOOK_URL: "" }, () =>
+      withRelayApp(async (base) => {
+        const wrong = await fetch(`${base}/api/alerts/relay`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer not-the-file-token" },
+          body: JSON.stringify(validAlertmanagerPayload)
+        });
+        assert.equal(wrong.status, 401);
+
+        const right = await fetch(`${base}/api/alerts/relay`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer file-based-token" },
+          body: JSON.stringify(validAlertmanagerPayload)
+        });
+        assert.equal(right.status, 200, "must accept the token loaded from the _FILE path, trimmed of trailing whitespace");
+      })
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/alerts/relay's direct DUNE_ALERT_RELAY_TOKEN value takes precedence over DUNE_ALERT_RELAY_TOKEN_FILE", async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "acp-relay-token-precedence-"));
+  const tokenPath = join(dir, "token.txt");
+  writeFileSync(tokenPath, "file-token");
+  try {
+    await withEnv({ DUNE_ALERT_RELAY_TOKEN: "direct-token", DUNE_ALERT_RELAY_TOKEN_FILE: tokenPath, DUNE_ALERT_WEBHOOK_URL: "" }, () =>
+      withRelayApp(async (base) => {
+        const res = await fetch(`${base}/api/alerts/relay`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer direct-token" },
+          body: JSON.stringify(validAlertmanagerPayload)
+        });
+        assert.equal(res.status, 200, "the direct env var value must win over the _FILE path when both are set");
+      })
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/alerts/relay rejects a malformed Authorization header (not 'Bearer <token>') once a token is configured", async () => {
+  await withEnv({ DUNE_ALERT_RELAY_TOKEN: "s3cr3t-token", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_WEBHOOK_URL: "" }, () =>
+    withRelayApp(async (base) => {
+      const res = await fetch(`${base}/api/alerts/relay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "s3cr3t-token" },
+        body: JSON.stringify(validAlertmanagerPayload)
+      });
+      assert.equal(res.status, 401, "a header missing the 'Bearer ' prefix must be rejected, not silently treated as the raw token");
+    })
+  );
+});
+
+test("POST /api/alerts/relay still validates the payload shape after a successful auth check", async () => {
+  await withEnv({ DUNE_ALERT_RELAY_TOKEN: "s3cr3t-token", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_WEBHOOK_URL: "" }, () =>
+    withRelayApp(async (base) => {
+      const res = await fetch(`${base}/api/alerts/relay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer s3cr3t-token" },
+        body: JSON.stringify({ not: "an alertmanager payload" })
+      });
+      assert.equal(res.status, 400, "auth passing must not bypass the existing payload-shape validation");
+    })
+  );
+});
