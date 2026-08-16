@@ -69,7 +69,7 @@ test("buildDuneCommand includes write group only when enabled", () => {
 // subcommands (readiness-detail, services-detail, maintenance) -- all
 // registered and dispatchable, so `/dune help` was hiding commands from
 // users. It must now mirror buildDuneCommand()'s full non-write surface.
-test("helpPayload mirrors the full registered command surface (54 non-write commands)", () => {
+test("helpPayload mirrors the full registered command surface (55 non-write commands)", () => {
   const registered = new Set();
   for (const group of buildDuneCommand({ includeWriteGroup: false }).toJSON().options) {
     for (const sub of group.options || []) {

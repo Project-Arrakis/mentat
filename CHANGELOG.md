@@ -7,6 +7,37 @@ change notes under `docs/changes/`.
 ## Unreleased
 
 ### Fixed
+- `main`'s CI had been red for 6 days (issue #162) after the v1.0.0-rc.5
+  "OPS embeds" release changed all 10 `ops:*` commands from PNG status-card
+  rendering to Discord embeds without updating the tests that pinned the old
+  behavior. Real, verified failure count was **12** (not the 49 originally
+  reported in #162, which double-counted the Node test runner's spec-reporter
+  output — once during the run, once again in its trailing summary):
+  - 10 `test/discord-bot-test-harness.js` cases (`ops:activity` through
+    `ops:announcements`) asserted `interaction._editReply.files[0]` (a
+    `status-card.png` attachment); updated to assert
+    `interaction._editReply.embeds[0]` instead, matching the real,
+    current `src/commands.js` dispatch.
+  - `test/operatorValidation.test.js`'s "malformed JSON response is handled
+    gracefully" test asserted `AdapterClient.parseResponseBody()`'s
+    *pre-rc.5* contract (`{ ok: true, body: text }`); updated to assert the
+    real, current, deliberately fail-safe contract
+    (`{ ok: false, error: "Unexpected response format (...)" }`).
+  - `test/commands.test.js`'s `helpPayload` regression guard expected 55
+    registered non-write commands but `helpPayload()`'s hardcoded command
+    list was actually missing `ops:alerts` (registered and dispatchable via
+    `buildDuneCommand()`/`OPS_SUBCOMMAND_NAMES`, but never added to
+    `helpPayload()`'s `all` array) — a real, separate `/dune help`
+    completeness bug, not just a stale test expectation. Added the missing
+    entry to `src/commands.js`.
+  - `addon/addon.json`'s version (`1.0.0-rc.2`) had not been bumped since
+    rc.2, three releases behind `package.json`'s `1.0.0-rc.5` — `npm run
+    check`'s `release:check` step was failing independently of the test
+    failures above. Bumped to match.
+  - `docs/releases/v1.0.0-rc.5.md` and this file's own `## v1.0.0-rc.5` entry
+    (see below) had never been added at release time — `release:check`'s
+    release-notes-file and changelog-entry gates were failing for this
+    reason too. Added retroactively.
 - Corrected 10 files that falsely described the ACP bot's planned OCI-to-R740
   migration as already completed (#164) — the bot remains a live,
   currently-running production service on its existing OCI VPS; the R740
@@ -41,6 +72,46 @@ change notes under `docs/changes/`.
   that's a real, intentionally-public product URL already shown openly
   in `README.md`/`docs/admin-guide.md`/`docs/setup-portal-guide.md`, not
   sensitive infrastructure.
+
+## v1.0.0-rc.5 - 2026-08-10
+
+Fifth release candidate. OPS commands (`activity`, `combat`, `resources`,
+`economy`, `armory`, `location`, `soc`, `prometheus`, `dashboard`,
+`announcements`) migrated from PNG status-card rendering to Discord embeds via
+a unified output pipeline, plus UX polish. Consolidated here from the tagged
+release (`v1.0.0-rc.5`) because the corresponding `docs/releases/` file and
+`CHANGELOG.md` entry were never added at release time (#162's release-gate
+audit) — this entry and `docs/releases/v1.0.0-rc.5.md` are being added
+retroactively, verified directly against the current code rather than
+reconstructed from commit messages the squashed repository history no longer
+carries granular detail for.
+
+### Changed
+- All 10 `ops:*` subcommands now render as Discord embeds
+  (`formatActivityEmbed`, `formatCombatEmbed`, `formatResourcesEmbed`,
+  `formatEconomyEmbed`, `formatOpsInventoryEmbed`, `formatLocationEmbed`,
+  `formatSocEmbed`, `formatPrometheusEmbed`, `formatDashboardEmbed`,
+  `formatAnnouncementsEmbed` in `src/embedFormat.js`), dispatched from
+  `src/commands.js`'s ops-group handler. `sendStatusCard()` (PNG rendering) is
+  now used only for `server:status`; `sendOpsCard()` (`src/statusCard.js`) is
+  no longer called anywhere and is dead code pending removal.
+- Introduced a unified output pipeline (`src/output/pipeline.js`,
+  `src/output/enricher.js`) as the intended single call site for bot
+  responses (embed, card, error, ephemeral), replacing what had been four
+  independently-maintained output paths.
+- `AdapterClient.parseResponseBody()` (`src/adapterClient.js`) now fails safe
+  on a non-JSON 2xx response body, returning `{ ok: false, error: "Unexpected
+  response format (...)"}` instead of throwing an unhandled JSON parse error.
+
+### Known Limitation From This Release (found and fixed 2026-08-16, #162)
+- The OPS-embeds migration above was shipped without updating
+  `test/discord-bot-test-harness.js`, which still asserted the old PNG
+  status-card behavior for all 10 `ops:*` commands, and without updating
+  `test/operatorValidation.test.js`'s malformed-JSON-response test, which
+  still asserted the old `{ ok: true, body: text }` contract instead of the
+  new fail-safe `{ ok: false, error }` shape — both left `main`'s CI red for
+  6 days before being caught and fixed. See the `## Unreleased` section
+  above for the fix.
 
 ## v1.0.0-rc.3 - 2026-08-08
 
