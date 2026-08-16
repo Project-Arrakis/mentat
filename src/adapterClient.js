@@ -18,46 +18,67 @@ export class AdapterHttpError extends Error {
 // yacketrj/dune-awakening-selfhost-docker#109, merged) wired all four to
 // real duneDb.js queries, replacing their previous
 // { status: "planned" } stub responses with real
-// { ok: true, result: {...} } data. ops-dashboard is NOT moved: it
-// aggregates all nine ops-* providers, four of which (inventory,
-// location, soc, prometheus) still return planned placeholders, so its
-// own output remains a genuine mix, not fully live.
+// { ok: true, result: {...} } data.
 export const LIVE_ROUTES = new Set([
   "health", "status", "readiness", "services", "population",
   "version", "servers", "ports", "db",
   "logs", "map-state",
   "ops-activity", "ops-combat", "ops-resources", "ops-economy",
   // Added 2026-07-27 (see UNMERGED_ROUTES's "SECOND reconciliation" comment
-  // above for the full history): all three are real, live Core routes,
-  // confirmed via direct grep of Core's real DISCORD_ADAPTER_ROUTES/
-  // routes.js, now actually called by adapterClient.js instead of the
-  // never-built player-links/* path family.
-  "players-link-verify", "players-accounts-list", "players-accounts-unlink",
+  // above for the full history): confirmed via direct grep of Core's real
+  // DISCORD_ADAPTER_ROUTES/routes.js, now actually called by
+  // adapterClient.js instead of the never-built player-links/* path family.
+  "players-link-verify",
   // THIRD reconciliation (2026-08-06, RO roadmap audit -- see
   // docs/ro-roadmap-state-2026-08-06.md): the routes below were NOT in any
   // table, leaving routeStatus() = "unknown" for every one even though the
-  // bot calls them daily (/dune player link/verify/characters/inventory/
-  // storage/find, /dune ops, and the Steam link flow). All are real, live
-  // Core routes now called by adapterClient.js -- verified 2026-08-06 by
-  // direct grep of Core's DISCORD_LIVE_ADAPTER_ROUTES (players/link,
-  // players/unlink, players/me, players/inventory, players/inventory-search,
-  // players/storage, players/find, guilds/storage, guilds/find,
-  // players/accounts/link-steam) at upstream tag v1.3.79.
+  // bot calls them daily (/dune player link/verify/inventory/storage/find,
+  // /dune ops). Verified live against Core's DISCORD_LIVE_ADAPTER_ROUTES.
   "players-link", "players-unlink", "players-me", "players-inventory",
   "players-inventory-search", "players-storage", "players-find",
-  "guild-storage", "guild-find", "players-accounts-link-steam",
+  "guild-storage", "guild-find",
   // FOURTH reconciliation (2026-08-08): ops-inventory, ops-soc,
-  // ops-prometheus, and ops-dashboard were PLANNED but Core returns
-  // real data. Moved to LIVE. LOGS, MAP_STATE, and MAINTENANCE
-  // handlers implemented on Core (#211, #213). Broadcast enabled
-  // via DUNE_DISCORD_WRITES_ENABLED env var (#214).
+  // ops-prometheus were PLANNED but Core returns real data. Moved to
+  // LIVE. LOGS, MAP_STATE handlers implemented on Core (#211, #213).
+  // Broadcast enabled via DUNE_DISCORD_WRITES_ENABLED env var (#214).
   "broadcast",
-  "ops-inventory", "ops-soc", "ops-prometheus", "ops-dashboard"
+  "ops-inventory", "ops-soc", "ops-prometheus",
+  // FIFTH reconciliation (2026-08-16, upstream compat pin refresh
+  // v1.3.79 -> v1.3.87): backups, announcements, and maintenance were
+  // classified PLANNED/MISSING based on the v1.3.79 audit (each either
+  // returned a { status: "planned" } stub or 404'd with no handler at
+  // all). Re-verified directly against a fresh clone of upstream at tag
+  // v1.3.87: routes.js now has real, working handlers for all three --
+  // backups runs `dune db list` for real backup metadata
+  // (parseBackupListRows), announcements calls the real
+  // readPlayerAnnouncements(config) service, and maintenance runs
+  // `dune readiness` and returns real output. This is safe-direction
+  // drift (the bot previously under-promised, not over-promised) but
+  // was still inaccurate and is corrected here alongside the two
+  // genuinely urgent regressions found in the same audit (see
+  // MISSING_ROUTES's comment below for players-accounts-*/ops-dashboard).
+  "backups", "announcements", "maintenance"
 ]);
 
 // Routes that exist in upstream but return "planned" stubs or placeholder data.
+//
+// ops-location (2026-08-16 pin refresh): this used to genuinely return a
+// { status: "planned" } stub at v1.3.79 (routed via the old OPS_PATHS/
+// OPS_PROVIDERS array dispatch). At v1.3.87, routes.js's replacement
+// opsRoutes dispatch table (added by upstream commit eac9c18) silently
+// omits OPS_LOCATION entirely -- opsLocationProvider() still exists and
+// is still exported from opsProvider.js (even called internally by
+// opsDashboardProvider), but nothing in routes.js ever routes a request
+// to it anymore. A POST to this path now hits the generic
+// `throw policyError("not_found", ...)` fallthrough and 404s -- it is
+// NOT a stub response, it is a hard error. Kept in PLANNED_ROUTES rather
+// than moved to MISSING_ROUTES because the intent (a real feature Core
+// plans to ship, not a permanently-absent one) hasn't changed, but
+// routeStatus() callers must not assume "planned" means "safe 200" --
+// confirmed via direct grep of routes.js's real opsRoutes object at
+// upstream tag v1.3.87, which lists exactly 7 entries, none named
+// OPS_LOCATION.
 export const PLANNED_ROUTES = new Set([
-  "backups", "announcements",
   "ops-location"
 ]);
 
@@ -69,21 +90,16 @@ export const PLANNED_ROUTES = new Set([
 // players-unlink, players-me, players-inventory, players-inventory-search,
 // players-storage, players-find, guild-storage, guild-find) had actually
 // been live on Core since the discord-player-link-hardening work
-// (2026-07-22) but were never removed from here; players-accounts-link-steam
-// went live in the same PR that removed players-accounts-match-steam
-// entirely (see adapterClient.linkAccountViaSteam()'s own comment for why
-// there is no separate match-only route); and players-link-verify had no
-// corresponding config.js path/method entry at all, an orphaned key
+// (2026-07-22) but were never removed from here; and players-link-verify
+// had no corresponding config.js path/method entry at all, an orphaned key
 // independent of Core's state (fixed alongside this cleanup). See
 // arrakis-control-panel#86 for the full reconciliation.
 //
 // SECOND reconciliation (2026-07-27, found via a real live production
-// error): players-link-verify, players-accounts-list, and
-// players-accounts-unlink were moved OUT of this set -- all three are
-// real, live routes on Core (playerLinkVerify()/playerAccountsList()/
-// playerAccountsUnlink() in adapterClient.js now call them directly).
-// player-links, player-links-unlink were removed from this set entirely
-// (no method calls those route keys anymore -- see
+// error): players-link-verify was moved OUT of this set -- it is a real,
+// live route on Core (playerLinkVerify() in adapterClient.js now calls it
+// directly). player-links, player-links-unlink were removed from this set
+// entirely (no method calls those route keys anymore -- see
 // playerAccountsList()/playerAccountsUnlink()'s own comment for the full
 // player-links/* vs. players/accounts/* distinction). player-links-verify
 // is ALSO removed since nothing calls that route key anymore either
@@ -93,10 +109,41 @@ export const PLANNED_ROUTES = new Set([
 // comment) -- listing it here is accurate but currently has no live
 // effect on any real command.
 //
+// THIRD reconciliation (2026-08-16, upstream compat pin refresh v1.3.79
+// -> v1.3.87, arrakis-control-panel#172): players-accounts-list,
+// players-accounts-unlink, and players-accounts-link-steam were moved
+// INTO this set from LIVE_ROUTES -- and player-accounts-link,
+// player-accounts-list-verify, player-accounts-set-default were newly
+// added here too, matching the same real history. The prior "verified
+// 2026-08-06... at upstream tag v1.3.79" claim for all six was FALSE:
+// direct inspection of the real v1.3.79 tag (and v1.3.87, and every tag
+// in between) shows none of the players/accounts/* multi-account routes
+// ever existed in any tagged release. They were transiently added in an
+// untagged commit (upstream eac9c18, 2026-08-10) alongside a
+// multiAccountLinkProvider.js file that was never actually committed to
+// the repository (the commit as pushed had a broken import --
+// ERR_MODULE_NOT_FOUND at server boot), then fully reverted the very
+// next day (upstream d102557, 2026-08-11), before ever reaching a tag.
+// Real, live blast radius from the false LIVE classification: /dune
+// player characters (playerAccountsList()), /dune player unlink
+// <playerControllerId> (playerAccountsUnlink()), and the Steam-link
+// OAuth callback flow (src/steamLinkServer.js, the live, internet-facing
+// acp-setup.darkdante.org/steam-link/* endpoint -- linkAccountViaSteam())
+// all currently 404 against a real, unmodified, current upstream-based
+// Core installation. See #172 for the full audit and the graceful-
+// failure-handling fix applied at each of those three call sites.
+//
+// ops-dashboard was moved INTO MISSING_ROUTES (not here -- it has a
+// route constant on Core, unlike the players-accounts-* family, so it
+// belongs with maintenance/player-links below, not with players-faction/
+// guild-grants which have no route constant at all). See MISSING_ROUTES'
+// own comment.
+//
 // Routes still genuinely absent from Core, confirmed by direct grep of
-// DISCORD_ADAPTER_ROUTES: players-faction, player-links-start (see above),
-// the guild-character-grants/* family, and player-inventory-v2 (Core only
-// has the plural, non-versioned players/inventory).
+// DISCORD_ADAPTER_ROUTES at upstream tag v1.3.87: players-faction,
+// player-links-start (see above), the guild-character-grants/* family,
+// and player-inventory-v2 (Core only has the plural, non-versioned
+// players/inventory).
 export const UNMERGED_ROUTES = new Set([
   "players-faction",
   "player-links-start",
@@ -104,30 +151,56 @@ export const UNMERGED_ROUTES = new Set([
   "player-inventory-v2"
 ]);
 
-// Routes that do NOT exist anywhere.
+// Routes that do NOT exist anywhere, or that Core declares a route
+// constant for but never actually routes a request to.
 //
 // write-execute/write-preview: the write-command group's routes, still
 // unbuilt on Core (the bot's write group stays disabled until they land).
 //
-// Added 2026-08-06 (RO roadmap audit, all verified by direct grep of Core
-// at upstream tag v1.3.79):
-// - maintenance: Core DECLARES the MAINTENANCE route constant
-//   (/api/integrations/discord/maintenance) but never registers it in
-//   DISCORD_LIVE_ADAPTER_ROUTES and routes.js has no handler for it --
-//   every call 404s ("Discord adapter route not found"). /dune server
-//   maintenance therefore fails in production; tracked in
-//   docs/ro-roadmap-state-2026-08-06.md.
-// - player-links, player-links-verify, player-links-unlink: the never-built
-//   player-links/* path family. Core has no such routes (only
-//   player-links/start exists, and even that is UNMERGED/dead), and NO
-//   adapterClient.js method calls any of these three keys -- they survive
-//   only as config.js path/method entries. Listed here so routeStatus()
-//   reports "missing" rather than "unknown" for dead config keys; the
-//   config entries themselves are candidates for removal (see the audit doc).
+// player-links, player-links-verify, player-links-unlink: the never-built
+// player-links/* path family. Core has no such routes (only
+// player-links/start exists, and even that is UNMERGED/dead), and NO
+// adapterClient.js method calls any of these three keys -- they survive
+// only as config.js path/method entries. Listed here so routeStatus()
+// reports "missing" rather than "unknown" for dead config keys; the
+// config entries themselves are candidates for removal.
+//
+// NOTE: "maintenance" was REMOVED from this set 2026-08-16 (upstream
+// compat pin refresh, #172) and moved to LIVE_ROUTES -- re-verified
+// directly against upstream tag v1.3.87 and confirmed routes.js now has
+// a real, working handler (runs `dune readiness`, returns real output).
+// It genuinely 404'd at the earlier v1.3.79 pin; that classification is
+// simply no longer current, not something this set still needs to track.
+//
+// players-accounts-list, players-accounts-unlink, players-accounts-link-steam
+// (2026-08-16, upstream compat pin refresh, #172): moved here from
+// LIVE_ROUTES -- see UNMERGED_ROUTES's own comment above for the full,
+// corrected history (they never existed in any tagged upstream release;
+// the prior "verified at v1.3.79" claim was false). Unlike the
+// player-links/* family above, these DO have real, currently-called
+// adapterClient.js methods (playerAccountsList()/playerAccountsUnlink()/
+// linkAccountViaSteam()) reachable from real, live bot commands -- see
+// each method's own comment for the graceful-failure handling added
+// alongside this reclassification.
+//
+// ops-dashboard (2026-08-16, same pin refresh): moved here from
+// LIVE_ROUTES. Core DECLARES the OPS_DASHBOARD route constant (it is a
+// real key in DISCORD_ADAPTER_ROUTES), but at upstream tag v1.3.87,
+// routes.js's opsRoutes dispatch table (added by upstream commit
+// eac9c18) silently omits it -- confirmed via direct grep, the object
+// has exactly 7 entries, none named OPS_DASHBOARD. opsDashboardProvider()
+// still exists and is still exported from opsProvider.js (it still
+// internally aggregates all nine ops-* providers, including the also-now-
+// unroutable opsLocationProvider()), but nothing in routes.js ever
+// invokes it anymore. A POST to this path 404s. This is a real
+// regression from v1.3.79 (where it was genuinely live, dispatched via
+// the older OPS_PATHS/OPS_PROVIDERS array), not a stale classification
+// that was always wrong.
 export const MISSING_ROUTES = new Set([
   "write-execute", "write-preview",
-  "maintenance",
-  "player-links", "player-links-verify", "player-links-unlink"
+  "player-links", "player-links-verify", "player-links-unlink",
+  "players-accounts-list", "players-accounts-unlink", "players-accounts-link-steam",
+  "ops-dashboard"
 ]);
 
 export function isRouteLive(route) { return LIVE_ROUTES.has(route); }
@@ -178,12 +251,13 @@ export class AdapterClient {
   backups(actor, guildId) { return this.request("backups", actor, undefined, guildId); }
   logs(actor, service, guildId) { return this.request("logs", actor, service ? { service } : undefined, guildId); }
   mapState(actor, guildId) { return this.request("map-state", actor, undefined, guildId); }
-  // VERIFIED 2026-08-06: Core declares the MAINTENANCE route constant
-  // (/api/integrations/discord/maintenance) but never registers it in
-  // DISCORD_LIVE_ADAPTER_ROUTES and routes.js has no handler -- every call
-  // 404s. Classified MISSING_ROUTES so callers surface that honestly
-  // instead of assuming success. /dune server maintenance fails in
-  // production until Core actually implements this route.
+  // UPDATED 2026-08-16 (upstream compat pin refresh, #172): this
+  // genuinely 404'd at v1.3.79 as this comment previously said (Core
+  // declared the route constant but never registered it in
+  // DISCORD_LIVE_ADAPTER_ROUTES). Re-verified directly against upstream
+  // tag v1.3.87: routes.js now has a real handler (runs `dune readiness`
+  // and returns real output). Classified LIVE_ROUTES -- see LIVE_ROUTES'
+  // own "FIFTH reconciliation" comment for the full history.
   maintenance(actor, guildId) { return this.request("maintenance", actor, undefined, guildId); }
   broadcast(actor, message, guildId) { return this.request("broadcast", actor, { message }, guildId); }
   opsActivity(actor, guildId) { return this.request("ops-activity", actor, undefined, guildId); }

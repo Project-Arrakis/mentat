@@ -13,7 +13,7 @@ import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { writesEnabled, canWrite } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
-import { getLatencyHistory, UNMERGED_ROUTES } from "./adapterClient.js";
+import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
 import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
@@ -574,6 +574,28 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       await sendError(interaction, { error: new Error(
         `${routeName} is implemented in feature/discord-player-inventory but not yet merged to upstream. ` +
         `Apply the branch to your console to enable this command.`
+      ) });
+    } else if (error instanceof Error && MISSING_ROUTES.has(error.route)) {
+      // Issue #172 (upstream compat pin refresh, v1.3.79 -> v1.3.87): a
+      // real, live-blast-radius upstream regression -- players-accounts-list/
+      // players-accounts-unlink (and ops-dashboard) were reclassified from
+      // LIVE_ROUTES to MISSING_ROUTES after direct verification against a
+      // fresh upstream clone showed these routes never existed in any
+      // tagged upstream release (players-accounts-*) or were silently
+      // dropped from routes.js's dispatch table between v1.3.79 and
+      // v1.3.87 (ops-dashboard). Before this fix, a 404 from Core surfaced
+      // here as a raw "Adapter <route> returned HTTP 404." message via the
+      // else branch below -- confusing for an operator with no way to know
+      // whether that's a bug in their Core install, a misconfigured
+      // adapter URL, or (as is actually the case for these specific
+      // routes) a feature this bot's client expects that this version of
+      // Core genuinely does not implement. Give the real, actionable
+      // explanation instead.
+      const routeName = error.route.replace(/-/g, " ");
+      await sendError(interaction, { error: new Error(
+        `${routeName} is not available on this Core installation -- this feature is not yet supported by the version of ` +
+        `dune-awakening-selfhost-docker this server's console is running. This is a known limitation, not a ` +
+        `configuration problem with this bot. See arrakis-control-panel#172 for details.`
       ) });
     } else {
       await sendError(interaction, { error: error.message || String(error) });

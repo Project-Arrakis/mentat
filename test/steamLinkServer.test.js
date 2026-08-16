@@ -310,6 +310,46 @@ test("GET /steam-link/callback returns 409 without a whisper fallback when the c
   });
 });
 
+// Issue #172 (upstream compat pin refresh, v1.3.79 -> v1.3.87):
+// players-accounts-link-steam was reclassified LIVE_ROUTES -> MISSING_ROUTES
+// after direct verification against a fresh upstream clone found this route
+// has never existed in any tagged upstream release -- see
+// src/adapterClient.js's UNMERGED_ROUTES comment for the full history. This
+// pins the graceful-degradation fix: a real 404 from a Core install that
+// genuinely does not have this route falls back to the working whisper-code
+// flow instead of the generic "Something Went Wrong, try again" dead end
+// (which was misleading here -- retrying can never succeed against a route
+// Core does not implement).
+test("GET /steam-link/callback falls back to the whisper flow when Core does not implement players-accounts-link-steam (#172)", async () => {
+  const session = createSteamLinkSession(baseSessionArgs());
+  let whisperCalled = false;
+  await withServer(async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/steam-link/callback?state=${session.state}&code=abc`);
+    const body = await res.text();
+    assert.equal(res.status, 200);
+    assert.ok(body.includes("Sent a Verification Code Instead"));
+    assert.ok(body.includes("Steam-based linking"));
+    assert.equal(whisperCalled, true);
+  }, {
+    adapterClient: makeMockAdapterClient({
+      async linkAccountViaSteam() {
+        // Real shape of an AdapterHttpError from a genuine 404 (see
+        // adapterClient.js's AdapterHttpError class -- .status/.route/.body,
+        // set directly by request(), not derived from Core's response body).
+        const err = new Error("Adapter players-accounts-link-steam returned HTTP 404.");
+        err.status = 404;
+        err.route = "players-accounts-link-steam";
+        err.body = { ok: false, code: "adapter_route_not_found", error: "Discord adapter route not found." };
+        throw err;
+      },
+      async playerLink() {
+        whisperCalled = true;
+        return { ok: true, result: { linked: true, code: "ACP-TEST123" } };
+      }
+    })
+  });
+});
+
 test("GET /steam-link/callback missing code returns 400", async () => {
   const session = createSteamLinkSession(baseSessionArgs());
   await withServer(async (baseUrl) => {
