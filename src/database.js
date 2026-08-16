@@ -1,9 +1,9 @@
 import Database from "better-sqlite3";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { encryptSecret, decryptSecret } from "./secretsCrypto.js";
+import { encryptWithDEK, decryptWithDEK, activeKeyVersion } from "./secretsCrypto.js";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -87,6 +87,64 @@ CREATE TABLE IF NOT EXISTS stats_snapshot (
   payload TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- KEK/DEK hierarchy (schema v4, Phase 1 of the ecosystem-wide secrets
+-- management epic -- see docs/design/pki-cmk-secrets-l1-design-audit-2026-08-08.md,
+-- issues #107/#108/#109). Purely additive (CREATE TABLE IF NOT EXISTS);
+-- existing operators' databases gain these three empty tables on next
+-- start with zero data migration required, and every row remains
+-- readable exactly as before (see secretsCrypto.js's decryptWithDEK(),
+-- which transparently falls back to v1 single-key decryption for any
+-- row that isn't v2-tagged).
+--
+-- key_versions: one row per KEK ever activated. Rotating the KEK
+-- inserts a new row and marks the previous one retired_at (but never
+-- deletes it -- old DEKs wrapped under a retired KEK must remain
+-- unwrappable until every row using that version has been re-wrapped,
+-- see rotate-keys.js).
+CREATE TABLE IF NOT EXISTS key_versions (
+  version INTEGER PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  retired_at TEXT
+);
+
+-- secret_keys: the wrapped (KEK-encrypted) DEK for one specific
+-- encrypted row/column, keyed by (table_name, row_key, column_name) so
+-- one guild's adapter_token and one oauth_session's access_token each
+-- get their own independent DEK -- compromising one wrapped DEK (or the
+-- KEK used to unwrap it, absent the age identity) exposes only that one
+-- row, not every secret in the database. row_key is stored as TEXT so
+-- it can hold guilds.guild_id or oauth_sessions.state, both TEXT primary
+-- keys, without a separate column per table.
+CREATE TABLE IF NOT EXISTS secret_keys (
+  table_name TEXT NOT NULL,
+  row_key TEXT NOT NULL,
+  column_name TEXT NOT NULL,
+  wrapped_dek TEXT NOT NULL,
+  key_version INTEGER NOT NULL REFERENCES key_versions(version),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (table_name, row_key, column_name)
+);
+
+-- secret_access_log: append-only audit trail (GRC-2, issue #111) of
+-- every decrypt/encrypt/rotate event against a KEK/DEK-protected
+-- secret. Deliberately does NOT store the secret value itself, the DEK,
+-- or the KEK -- only which row was touched, by which operation, and
+-- when. event must be one of a fixed set so a bug elsewhere can't
+-- silently write an unrecognized, unqueryable event name into this
+-- table.
+CREATE TABLE IF NOT EXISTS secret_access_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_name TEXT NOT NULL,
+  row_key TEXT NOT NULL,
+  column_name TEXT NOT NULL,
+  event TEXT NOT NULL CHECK(event IN ('encrypt', 'decrypt', 'rotate', 'decrypt_failed')),
+  key_version INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_secret_access_log_row ON secret_access_log(table_name, row_key, column_name);
+CREATE INDEX IF NOT EXISTS idx_secret_access_log_created ON secret_access_log(created_at);
 `;
 
 function ensureDataDir(dbPath) {
@@ -118,8 +176,14 @@ export function createDatabase(dbPath = "./data/acp.db") {
   }
 
   if (currentVersion && currentVersion.version < SCHEMA_VERSION) {
-    // v3 is purely additive (stats_snapshot via CREATE TABLE IF NOT EXISTS
-    // in SCHEMA above) -- nothing to migrate, just record the version.
+    // v3->v4 and v4 itself are purely additive (stats_snapshot,
+    // key_versions/secret_keys/secret_access_log all via CREATE TABLE IF
+    // NOT EXISTS in SCHEMA above) -- nothing to migrate, just record the
+    // version. Existing enc:v1: rows remain readable unchanged; they are
+    // only ever upgraded to v2 (per-row DEK) on their next write, exactly
+    // like the v0(plaintext)->v1 migration this same pattern already
+    // established (see reencrypt-secrets.js for the equivalent bulk-
+    // upgrade tool for that earlier transition).
     db.prepare("UPDATE schema_version SET version = ?").run(SCHEMA_VERSION);
   }
 
@@ -128,6 +192,86 @@ export function createDatabase(dbPath = "./data/acp.db") {
 
 // adapter_token is a credential (not player data): it authenticates this
 // bot process to a specific operator's Core adapter API. In
+// ── KEK/DEK per-row secret helpers (schema v4, issues #107/#108/#109) ──
+//
+// secret_keys holds the wrapped DEK for one (table, row, column) triple.
+// These helpers centralize that lookup/write so getGuild()/upsertGuild()/
+// getOauthSession()/updateOauthSession() below don't each reimplement the
+// same three-column primary key logic. Every call is a no-op (wrappedDEK
+// stays null, nothing is written) when no KEK is configured -- see
+// secretsCrypto.js's encryptWithDEK(), which itself falls back to v1
+// single-key encryption in that case.
+function getWrappedDEK(db, tableName, rowKey, columnName) {
+  const row = db.prepare(
+    "SELECT wrapped_dek, key_version FROM secret_keys WHERE table_name = ? AND row_key = ? AND column_name = ?"
+  ).get(tableName, rowKey, columnName);
+  return row || null;
+}
+
+function putWrappedDEK(db, tableName, rowKey, columnName, wrappedDEK, keyVersion) {
+  db.prepare(
+    "INSERT INTO key_versions (version) VALUES (?) ON CONFLICT(version) DO NOTHING"
+  ).run(keyVersion);
+  db.prepare(`
+    INSERT INTO secret_keys (table_name, row_key, column_name, wrapped_dek, key_version)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(table_name, row_key, column_name) DO UPDATE SET
+      wrapped_dek = excluded.wrapped_dek,
+      key_version = excluded.key_version,
+      created_at = datetime('now')
+  `).run(tableName, rowKey, columnName, wrappedDEK, keyVersion);
+}
+
+// logSecretAccess() is best-effort: a logging failure must never block the
+// actual encrypt/decrypt operation it's describing (an audit trail that
+// can crash the feature it's auditing is worse than no audit trail).
+function logSecretAccess(db, tableName, rowKey, columnName, event, keyVersion = null) {
+  try {
+    db.prepare(`
+      INSERT INTO secret_access_log (table_name, row_key, column_name, event, key_version)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(tableName, rowKey, columnName, event, keyVersion);
+  } catch {
+    // Never let audit logging break the caller's real operation.
+  }
+}
+
+// Encrypts a value for storage using the per-row DEK hierarchy when a KEK
+// is configured, or the legacy v1 single-key path otherwise (see
+// encryptWithDEK()'s own fallback). Persists the wrapped DEK to
+// secret_keys when one is produced, and records the event in
+// secret_access_log either way.
+function encryptColumn(db, tableName, rowKey, columnName, plaintext) {
+  const { ciphertext, wrappedDEK } = encryptWithDEK(plaintext);
+  if (wrappedDEK) {
+    const version = activeKeyVersion() || 1;
+    putWrappedDEK(db, tableName, rowKey, columnName, wrappedDEK, version);
+    logSecretAccess(db, tableName, rowKey, columnName, "encrypt", version);
+  } else {
+    logSecretAccess(db, tableName, rowKey, columnName, "encrypt");
+  }
+  return ciphertext;
+}
+
+// Decrypts a value previously written by encryptColumn(). Looks up the
+// wrapped DEK for this row (if any -- v1-encrypted rows have none) and
+// delegates to decryptWithDEK(), which transparently handles both v1 and
+// v2 ciphertext formats. Logs decrypt/decrypt_failed either way so a
+// pattern of failed decrypts (e.g. after a botched key rotation) is
+// visible in the audit trail, not just an exception the caller happens
+// to catch.
+function decryptColumn(db, tableName, rowKey, columnName, stored) {
+  const keyRow = getWrappedDEK(db, tableName, rowKey, columnName);
+  try {
+    const plaintext = decryptWithDEK(stored, keyRow ? keyRow.wrapped_dek : null);
+    logSecretAccess(db, tableName, rowKey, columnName, "decrypt", keyRow ? keyRow.key_version : null);
+    return plaintext;
+  } catch (error) {
+    logSecretAccess(db, tableName, rowKey, columnName, "decrypt_failed", keyRow ? keyRow.key_version : null);
+    throw error;
+  }
+}
+
 // ACP_MULTI_TENANT mode, one shared guilds table holds one row per
 // connected operator, so this column is encrypted at rest (see
 // secretsCrypto.js) -- a single compromise of the SQLite file should not
@@ -138,11 +282,11 @@ export function createDatabase(dbPath = "./data/acp.db") {
 export function getGuild(db, guildId) {
   const row = db.prepare("SELECT * FROM guilds WHERE guild_id = ?").get(guildId);
   if (!row) return row;
-  return { ...row, adapter_token: decryptSecret(row.adapter_token) };
+  return { ...row, adapter_token: decryptColumn(db, "guilds", guildId, "adapter_token", row.adapter_token) };
 }
 
 export function upsertGuild(db, { guildId, guildName, consoleUrl, adapterToken, status = "pending" }) {
-  const encryptedToken = encryptSecret(adapterToken);
+  const encryptedToken = encryptColumn(db, "guilds", guildId, "adapter_token", adapterToken);
   // Compare against the raw stored row, not the decrypting getGuild(), so
   // an UPDATE vs INSERT decision never depends on successfully decrypting
   // an existing row (e.g. after a key rotation where old rows can't be
@@ -224,13 +368,14 @@ export function createOauthSession(db, { state, discordUserId, discordUsername, 
 export function getOauthSession(db, state) {
   const row = db.prepare("SELECT * FROM oauth_sessions WHERE state = ?").get(state);
   if (!row) return row;
-  return { ...row, access_token: decryptSecret(row.access_token) };
+  return { ...row, access_token: decryptColumn(db, "oauth_sessions", state, "access_token", row.access_token) };
 }
 
 export function updateOauthSession(db, state, { accessToken, expiresAt }) {
+  const encryptedToken = encryptColumn(db, "oauth_sessions", state, "access_token", accessToken);
   db.prepare(`
     UPDATE oauth_sessions SET access_token = ?, expires_at = ? WHERE state = ?
-  `).run(encryptSecret(accessToken), expiresAt, state);
+  `).run(encryptedToken, expiresAt, state);
 }
 
 export function deleteOauthSession(db, state) {
