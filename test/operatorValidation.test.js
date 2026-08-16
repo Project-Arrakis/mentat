@@ -359,10 +359,18 @@ describe("R1.1: Malformed Payload Handling", () => {
   });
 
   test("malformed JSON response is handled gracefully", async () => {
-    // AdapterClient.parseResponseBody() intentionally does not throw on
-    // non-JSON 2xx bodies: it wraps unparseable text in a bounded
-    // { ok, body } object so a malformed upstream response degrades safely
-    // instead of crashing the addon or bubbling an unhandled JSON error.
+    // Regression fix (issue #162): this test's assertions had drifted
+    // from AdapterClient.parseResponseBody()'s real, current contract.
+    // The comment previously here claimed it "wraps unparseable text in
+    // a bounded { ok, body } object" (implying result.ok === true) --
+    // that was never true of the code as rewritten in the v1.0.0-rc.5
+    // "OPS embeds" release: parseResponseBody() intentionally does NOT
+    // throw on a non-JSON 2xx body (still true, still the point of this
+    // test -- a malformed upstream response must degrade safely instead
+    // of crashing the addon or bubbling an unhandled JSON parse error),
+    // but it now fails safe by returning { ok: false, error: "..." }
+    // rather than pretending the malformed body was a success. Updated
+    // to assert the real, current, deliberately fail-safe shape.
     const { server, baseUrl } = await startMockServer(() => {
       return new Response("not json", {
         status: 200,
@@ -376,8 +384,8 @@ describe("R1.1: Malformed Payload Handling", () => {
       });
       const client = new AdapterClient(config);
       const result = await client.health({ userId: "test", guildId: "test", channelId: "test", roleIds: [] });
-      assert.equal(result.ok, true);
-      assert.equal(result.body, "not json");
+      assert.equal(result.ok, false, "a malformed non-JSON body must fail safe, not be reported as a success");
+      assert.match(result.error, /Unexpected response format/);
     } finally {
       await stopServer(server);
     }
