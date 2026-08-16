@@ -805,6 +805,14 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "ops:prometheus", desc: opsDescriptionFor("prometheus"), role: "observer" },
     { name: "ops:dashboard", desc: opsDescriptionFor("dashboard"), role: "observer" },
     { name: "ops:announcements", desc: opsDescriptionFor("announcements"), role: "observer" },
+    // Regression fix (issue #162): ops:alerts is registered and
+    // dispatchable (buildDuneCommand()'s ops group, commands.js's
+    // OPS_SUBCOMMAND_NAMES special-case for querying Prometheus alerts
+    // directly rather than through Core) but had been silently omitted
+    // from this hardcoded list -- exactly the same class of bug this
+    // test's own regression-guard comment above already describes for
+    // the player/logs groups. `/dune help` was hiding a real command.
+    { name: "ops:alerts", desc: opsDescriptionFor("alerts"), role: "observer" },
     // ── admin ──
     { name: "admin:doctor", desc: "Comprehensive system diagnostic.", role: "admin" },
     { name: "admin:cooldowns", desc: "Show active cooldowns.", role: "admin" },

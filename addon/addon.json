@@ -4,7 +4,7 @@
   "name": "Discord Read-Only Bot",
   "description": "Zero-permission setup panel for the external Dune Discord bot.",
   "author": "Arrakis Control Panel contributors",
-  "version": "1.0.0-rc.2",
+    "version": "1.0.0-rc.5",
   "type": "ui",
   "entry": {
     "navigation": "Discord Bot",
