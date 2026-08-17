@@ -3,24 +3,30 @@
 # deploy-post-receive.sh -- Canonical version of the post-receive hook
 # for the ACP Discord bot's deploy remote.
 #
-# STATUS (corrected 2026-08-13): the bot currently runs on its existing
-# OCI VPS (`acp-bot-vnic`) -- this is a live, currently-running production
-# service. A planned future migration to the Dell R740's `dune-prod` VM
-# is documented but has NOT happened yet (confirmed: zero VMs exist on
-# the R740 as of this writing). Do not treat any R740-specific path/IP
-# below as the current live deploy target until that migration actually
-# occurs -- update this comment block and the real, live copy's path
-# when it does. `OCI_BOT_IP`/`R740_DUNE_PROD_IP` below are placeholders --
-# see the personal-identifier guard this repo added alongside this fix.
+# STATUS (corrected 2026-08-17, issue #174): the bot migrated off the OCI
+# VPS to a dedicated Proxmox VM (VMID 103, "acp-bot", 192.168.22.10, on
+# the R740's "Services" VLAN 22) -- see r740-dune-deployment-kit#93 for
+# the full decision record and live-cutover evidence. This is now the
+# live, currently-running production service; OCI is drained (its
+# acp-bot.service/cloudflared-acp.service both stopped/disabled) but not
+# yet decommissioned. The user/paths below match the new VM's real,
+# verified state (confirmed via direct SSH: `whoami`, `pwd`,
+# `systemctl cat acp-bot.service`) -- NOT the earlier R740 dune-prod
+# co-location plan (`user=dune`) this file previously assumed, which was
+# superseded by issue #93's "dedicated VM, not co-located with the game
+# server" decision before ever being implemented.
 #
 # The real, live copy lives at the deploy target's own
-# ~/acp-deploy.git/hooks/post-receive (currently the OCI VPS; will move
-# to the R740 dune-prod VM once that migration is executed).
-# This file is the reviewed, versioned source of truth. When this file
-# changes, the live copy on the actual deploy target must be updated to
-# match (see compliance/runbooks/backup-recovery.md's deployment section)
-# -- a deployed bot that doesn't match this file is a drift bug waiting
-# to surface.
+# ~/acp-deploy.git/hooks/post-receive on the new bot VM. This file is
+# the reviewed, versioned source of truth. When this file changes, the
+# live copy on the actual deploy target must be updated to match (see
+# compliance/runbooks/backup-recovery.md's deployment section) -- a
+# deployed bot that doesn't match this file is a drift bug waiting to
+# surface. (This exact drift is what issue #174 found and fixed: the
+# live copy and this template both still said `/home/dune/...` when the
+# real VM uses `/home/bot/...` -- confirmed no deploy had ever actually
+# run through the hook yet, so this was caught before it could fail a
+# real deploy, not after.)
 #
 # What it does, in order:
 #   1. On a push to the `deploy` branch, refuses to proceed if the deploy
@@ -37,11 +43,11 @@
 #      old, now-nonexistent command structure (issue #92).
 #   3. Restarts acp-bot.service and reports the health state.
 #
-# Previous/current host: OCI VPS at OCI_BOT_IP (placeholder -- this is a
-# live production service, NOT decommissioned; see status note above).
+# Current host: dedicated Proxmox VM "acp-bot" (192.168.22.10, VMID 103,
+# Services VLAN 22) -- see status note above.
 
 DEPLOY_BRANCH="deploy"
-WORK_DIR="/home/dune/arrakis-control-panel"
+WORK_DIR="/home/bot/arrakis-control-panel"
 SERVICE_NAME="acp-bot.service"
 # Bash strict mode without `-e`: each step below handles its own errors
 # so it can report *which* guardrail failed instead of dying silently.
