@@ -5,18 +5,21 @@
 Transition from self-hosted single-tenant bot to a centrally-hosted multi-tenant
 service. One bot instance serves many Discord servers, each connected to
 its own Dune Awakening console. (The multi-tenant *software* architecture
-below shipped 2026-08-07. A separate, planned future migration of the
-*hosting location* itself — from the current OCI VPS to a Dell R740's
-`dune-prod` VM, to eliminate ongoing cloud costs — has NOT happened yet;
-see `compliance/runbooks/backup-recovery.md` for current hosting state.
-The diagram below shows the target hosting environment once that
-migration executes, not the current one.)
+below shipped 2026-08-07. The *hosting location* itself has since moved
+too, but NOT to the R740 `dune-prod` VM this section originally
+planned — per `r740-dune-deployment-kit#93`'s decision record,
+co-locating the bot with the live game server was rejected as a
+blast-radius risk; the bot instead migrated 2026-08-17 to its own
+dedicated Proxmox VM on an isolated "Services" VLAN. See
+`compliance/runbooks/backup-recovery.md` for the current, real hosting
+state. The diagram below is now accurate to that real state, not a
+future plan.)
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│         Single hosted instance (planned: R740 dune-prod VM) │
+│    Single hosted instance (dedicated "acp-bot" VM, VLAN 22) │
 │                                                          │
 │  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
 │  │  Discord Bot │  │  Web Portal  │  │   SQLite DB   │  │
@@ -41,7 +44,7 @@ migration executes, not the current one.)
 
 | Aspect | Before (Self-Hosted) | After (Multi-Tenant) |
 |--------|---------------------|---------------------|
-| Deployment | Per-user Docker/Node | Single hosted instance (currently OCI; planned migration to R740 self-hosted) |
+| Deployment | Per-user Docker/Node | Single hosted instance (dedicated self-hosted Proxmox VM, not OCI) |
 | Config | `.env` file | SQLite database |
 | Auth | Bot token + adapter token | Discord OAuth2 + per-guild adapter tokens |
 | RBAC | Global role IDs in `.env` | Per-guild role configuration |

@@ -1,63 +1,77 @@
 # Backup & Recovery Runbook
 
-**Version**: 2.1
-**Date**: 2026-08-07 (original), corrected 2026-08-13
+**Version**: 3.0
+**Date**: 2026-08-07 (original), corrected 2026-08-13, corrected 2026-08-17
 **RTO**: 1 hour
 **RPO**: 15 minutes
 
-**Correction (2026-08-13):** this document previously described the bot
-as already self-hosted on the Dell R740's `dune-prod` VM, with the OCI
-VPS listed as "decommissioned 2026-08-07". **That migration has not
-happened.** Confirmed independently on the live Proxmox R740 host: zero
-VMs exist (`qm list` returns empty). The bot remains a live,
-currently-running production service on its existing OCI VPS. This
-section, and every R740-specific path/IP below, describes a **planned
-future migration**, not current state — see
-`docs/multi-tenant-design.md` for the same correction applied to that
-design doc.
+**Correction (2026-08-17, issue #174):** this document previously
+described OCI as the live hosting target (correctly, as of 2026-08-13)
+with an R740 `dune-prod` co-location migration as "planned future, not
+yet executed." **That migration happened, but not as originally
+planned.** Per `r740-dune-deployment-kit#93`'s decision record, the bot
+did NOT move to `dune-prod` (co-locating a public-facing Discord bot
+with the live game server was rejected as a blast-radius risk) --
+instead it got its own **dedicated VM** (VMID 103, "acp-bot",
+`192.168.22.10`) on a new, isolated "Services" VLAN (22), separate from
+both game-server VMs and the Proxmox hypervisor. This is now the live,
+currently-running production service, confirmed directly via
+`systemctl status acp-bot` on both the new VM (`active`) and the old OCI
+instance (`inactive`, stopped 2026-08-17). OCI is drained but not yet
+decommissioned -- see the Hosting Architecture section below.
 
 ---
 
-## Hosting Architecture (CURRENT — OCI)
+## Hosting Architecture (CURRENT — dedicated Proxmox VM)
 
-The ACP bot is currently self-hosted on an OCI VPS instance
-(`acp-bot-vnic`, `OCI_BOT_IP` — placeholder, substitute your own real
-value from your password manager/infra notes; see this repo's
-personal-identifier guard for why the real value isn't committed here).
+The ACP bot runs on a dedicated Proxmox VM, isolated from both
+game-server VMs and the hypervisor itself (see
+`r740-dune-deployment-kit#93` for the full placement decision and why
+co-locating with `dune-prod` or running directly on the Proxmox host
+were both rejected).
 
 | Component | Location |
 |---|---|
-| Bot process | `acp-bot.service` on `acp-bot-vnic` (`OCI_BOT_IP`) |
-| Working directory | `~/arrakis-control-panel` |
-| Console API | Reached over the OCI instance's network path to Core's console (not localhost in the current OCI-hosted architecture) |
-| Setup portal (3100) | Via Cloudflare Tunnel → `acp-setup.darkdante.org` |
-| Steam-link (3101) | Via Cloudflare Tunnel (same hostname, separate port) |
-| SQLite DB | `~/arrakis-control-panel/data/acp.db` |
+| Bot process | `acp-bot.service` on VM "acp-bot" (VMID 103, `192.168.22.10`), user `bot` |
+| Working directory | `/home/bot/arrakis-control-panel` |
+| Console API | `http://192.168.20.10:8088` (dune-prod) and `http://192.168.21.10:9088` (dune-dev) -- multi-tenant, reaches both over the Services VLAN's firewall-permitted path, not localhost |
+| Setup portal (3100) | Via the `acp-console` Cloudflare Tunnel (relocated to the Proxmox host, see below) → `acp-setup.darkdante.org` |
+| Steam-link (3101, path `/auth/steam`) | Same tunnel, path-scoped rule |
+| SQLite DB | `/home/bot/arrakis-control-panel/data/acp.db` |
+| **VM specs** | VMID 103, 2 vCPU / 4 GB RAM / 20 GB disk, Services VLAN 22 |
 
-## Hosting Architecture (PLANNED FUTURE — R740, not yet executed)
+**Network isolation** (per issue #93's zone-matrix policy): the bot VM
+can reach both game-server VMs' console APIs (`Services-Zone ->
+Prod-Zone: Allow`, `Services-Zone -> Dev-Zone: Allow`), but neither
+game-server VM can reach the bot (`Prod-Zone -> Services-Zone: Block`,
+`Dev-Zone -> Services-Zone: Block`), and the bot cannot reach the
+hypervisor (`Services-Zone -> Mgmt-Zone: Block`).
 
-Per [yacketrj/r740-dune-deployment-kit](https://github.com/yacketrj/r740-dune-deployment-kit),
-the plan is to migrate the bot onto the Dell PowerEdge R740's
-`dune-prod` VM once that hardware deployment is finalized, sharing the
-VM with the game server stack and calling the console API over
-**localhost** instead (eliminating the current OCI hosting cost and the
-WAN hop for adapter traffic). **This section describes the target
-end-state, not something to act on today:**
+**The Cloudflare Tunnel does NOT run on the bot VM.** Unlike the
+previous OCI setup (which ran `cloudflared-acp.service` directly on the
+bot host), `acp-setup.darkdante.org`'s ingress now routes through the
+`acp-console` tunnel already running on the **Proxmox host itself**
+(`192.168.68.127`), which forwards to the bot VM's ports 3100/3101 over
+the LAN. Restarting `cloudflared` on the Proxmox host takes down
+`acp-setup.darkdante.org` alongside the game-server admin console
+hostnames sharing the same tunnel -- see the meta-repo README's Live
+Systems section (not committed here; that hostname is intentionally
+kept non-public, unlike `acp-setup.darkdante.org`) for the full,
+current ingress list.
 
-| Component | Planned Location |
+## Hosting Architecture (PREVIOUS — OCI, drained but not decommissioned)
+
+| Component | Previous Location |
 |---|---|
-| Bot process | `acp-bot.service` on dune-prod VM (192.168.20.10) |
-| Working directory | `/home/dune/arrakis-control-panel` |
-| Console API | `http://localhost:8088` |
-| Setup portal (3100) | Via Cloudflare Tunnel → `acp-setup.darkdante.org` |
-| Steam-link (3101) | Via Cloudflare Tunnel (same hostname, separate port) |
-| SQLite DB | `/home/dune/arrakis-control-panel/data/acp.db` |
-| **VM specs** | 40 vCPU (socket 0), 152 GB RAM (Proxmox VMID 101) |
-| **Game stack** | 2 Sietch (40p/ea), 4 Deep Desert, Overmap, dynamic maps |
+| Bot process | `acp-bot.service` on `acp-bot-vnic` (OCI VPS) -- confirmed `inactive`, stopped 2026-08-17 |
+| Working directory | `~/arrakis-control-panel` (user `ubuntu`) |
+| Tunnel | `cloudflared-acp.service` ran directly on this instance -- confirmed `inactive`, stopped 2026-08-17 |
 
-See `r740-dune-deployment-kit`'s `prompts/tabr-tau/01-bot-secrets-rotation.md`
-and `prompts/r740xd/03-bot-deploy-and-tunnel.md` for the actual,
-not-yet-executed migration procedure.
+The OCI instance itself, its systemd unit files, and its deploy
+repository have **not** been torn down as of this correction. Do not
+assume they are still safe to use as a fallback without first checking
+their actual current state -- "drained" is not the same as "ready to
+receive traffic again on demand."
 
 ---
 
@@ -74,17 +88,16 @@ not-yet-executed migration procedure.
 
 ## Recovery Procedures
 
-**Note on the commands below**: they reference the deploy target as
-`YOUR_DEPLOY_HOST` — substitute your actual current deploy target's
-address (currently the OCI VPS; will become `192.168.20.10` once the
-R740 migration in the section above is actually executed). Do not
-assume `192.168.20.10` is reachable or correct until that migration has
-happened.
+**Note on the commands below**: they reference the deploy target's real,
+current address, `192.168.22.10` (the dedicated bot VM, user `bot`) --
+not a placeholder. If a future migration moves the bot again, update
+every command below in the same change, per Requirement 14's
+"documentation drift is a defect" rule.
 
 ### Bot Recovery
 
-The bot runs as `acp-bot.service` on the current deploy target
-(see Hosting Architecture above for which one that currently is).
+The bot runs as `acp-bot.service` on `192.168.22.10` (VM "acp-bot",
+VMID 103), user `bot`.
 
 Deployment: from a dev machine with SSH access to the deploy target,
 push the `deploy` branch to a bare repo on that host, which triggers
@@ -93,18 +106,18 @@ hook source is `scripts/deploy-post-receive.sh` in this repo —
 if it changes, sync the live copy on the actual deploy target to match.
 
 The deploy remote targets a bare git repo on the deploy host:
-`ssh://dune@YOUR_DEPLOY_HOST/home/dune/acp-deploy.git` (path shown
-matches the R740 target's planned layout; adjust user/path for the
-current OCI target as actually configured).
+`ssh://bot@192.168.22.10/home/bot/acp-deploy.git` (confirmed via
+`git remote -v` on the dev clone).
 
 **Service unit**: the `acp-bot.service` file shipped in this repo at
-`systemd/acp-bot.service` is the authoritative template. Copy it to
-`/etc/systemd/system/acp-bot.service` on the deploy target and adjust
-the `User` and `WorkingDirectory` paths to match the actual deployment.
+`systemd/acp-bot.service` is the authoritative template, and (as of
+2026-08-17, issue #174) matches the live unit on `192.168.22.10`
+exactly, field-for-field. If you ever need to reinstall it, copy it to
+`/etc/systemd/system/acp-bot.service` on the deploy target unmodified.
 
 **Scenario**: Bot process failed, needs restart.
 ```bash
-ssh dune@YOUR_DEPLOY_HOST
+ssh bot@192.168.22.10
 sudo systemctl restart acp-bot.service
 sudo systemctl status acp-bot.service
 ```
@@ -115,7 +128,7 @@ sudo systemctl status acp-bot.service
 git push deploy main:deploy
 # This triggers post-receive on the deploy target: fetch, test, register,
 # restart. To verify manually on that host instead:
-ssh dune@YOUR_DEPLOY_HOST
+ssh bot@192.168.22.10
 cd ~/arrakis-control-panel
 git fetch deploy deploy && git reset --hard deploy/deploy
 npm ci --omit=dev
@@ -125,11 +138,11 @@ sudo systemctl restart acp-bot.service
 **Note**: an old `discord-bot.service` was previously found running on
 a dev machine as a leftover test instance and has been stopped/
 disabled. Do not confuse it with the real production `acp-bot.service`
-on the actual deploy target.
+on `192.168.22.10`.
 
 **Scenario**: Token compromised, needs rotation.
 1. Generate new token in Discord Developer Portal
-2. Update `.env` on the deploy target
+2. Update `.env` on `192.168.22.10`
 3. Restart bot service
 4. Verify bot comes online
 
@@ -161,23 +174,40 @@ exists.
 
 ### Cloudflare Tunnel Recovery
 
-The tunnel (`cloudflared`) runs on the current deploy target (see Hosting
-Architecture above) as a systemd service. The tunnel config lives at
-`/etc/cloudflared/config.yml` on that host.
+**Corrected 2026-08-17**: unlike the previous OCI setup, the tunnel
+does NOT run on the bot's own VM. `cloudflared` (tunnel `acp-console`,
+ID `67d90501-3c71-413d-949f-89a060f56567`) runs on the **Proxmox host
+itself** (`192.168.68.127`), and its ingress rules forward to the bot
+VM's LAN address (`192.168.22.10:3100`/`3101`) rather than `localhost`.
+The tunnel is **dashboard-managed** — the authoritative ingress list
+lives in Cloudflare's Tunnel Configuration API, not the local
+`/etc/cloudflared/config.yml` on the Proxmox host (that file is kept
+for readability but editing it and restarting the daemon has no effect
+on real routing). See the meta-repo README's Live Systems section for
+the full current ingress list and how to verify it via
+`journalctl -u cloudflared` on the Proxmox host.
 
-**Ingress rules required:**
+**Live ingress rules for this service** (as of 2026-08-17):
 ```yaml
 ingress:
   - hostname: acp-setup.darkdante.org
-    service: http://localhost:3100
+    service: http://192.168.22.10:3100
+  - hostname: acp-setup.darkdante.org
+    path: ^/auth/steam
+    service: http://192.168.22.10:3101
   - hostname: CONSOLE_TUNNEL_HOSTNAME
-    service: http://localhost:8088
+    service: http://192.168.20.10:8088
+  - hostname: CONSOLE_DEV_TUNNEL_HOSTNAME
+    service: http://192.168.21.10:9088
   - service: http_status:404
 ```
 
-**Scenario**: Tunnel down, bot unreachable.
+**Scenario**: Tunnel down, bot unreachable. Restart on the **Proxmox
+host**, not the bot VM -- this also takes down both game-server admin
+console hostnames sharing the same tunnel simultaneously, so check
+current player count on both game-server VMs first.
 ```bash
-ssh dune@YOUR_DEPLOY_HOST
+ssh root@192.168.68.127
 sudo systemctl restart cloudflared
 sudo systemctl status cloudflared
 ```
@@ -204,14 +234,13 @@ Store verification results in `compliance/evidence/backups/YYYY-MM.md`:
 
 ## Disaster Recovery
 
-**Note**: this section describes recovery assuming the R740 migration
-(see Hosting Architecture above) has already happened by the time this
-procedure is ever needed. If invoked before that migration, adapt step 1
-to instead recover the current OCI-hosted deployment.
-
 ### Full System Recovery
 
-1. **Infrastructure**: Provision hypervisor per R740 kit, recreate dune-prod VM (VMID 101)
+1. **Infrastructure**: Provision a new VM on Proxmox per
+   `r740-dune-deployment-kit#93`'s spec (2 vCPU / 4 GB RAM / 20 GB disk,
+   Services VLAN 22) -- do NOT recreate it on `dune-prod` (VMID 101) or
+   run it directly on the Proxmox host; both were explicitly rejected in
+   #93's decision record for blast-radius reasons.
 2. **Code**: Clone repositories from GitHub
 3. **Dependencies**: Run `npm ci` in each project
 4. **Configuration**: Restore `.env` files from secure backup
