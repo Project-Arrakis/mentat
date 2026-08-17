@@ -30,7 +30,7 @@ These pieces are already in place:
 | Area | Status |
 | --- | --- |
 | Separate bot repository | Complete |
-| Read-only Discord command scaffold | Complete (8 groups, 54 subcommands; write group adds 12 when enabled) |
+| Read-only Discord command scaffold | Complete (8 groups, 55 subcommands; write group adds 12 when enabled) |
 | Docker runtime with non-root user | Complete |
 | CI security gates | Complete (Semgrep, Gitleaks, Trivy, ggshield, npm audit) |
 | Public readiness and support docs | Complete |
@@ -44,7 +44,7 @@ These pieces are already in place:
 | Game → Discord announcement bridge | Complete |
 | OPS observability commands | Complete (10 subcommands) |
 | Faction theming | Complete (Atreides, Harkonnen, Fremen) |
-| Test harness | Complete (412 core tests, 72 harness tests, 5 bats tests, 0 skipped) |
+| Test harness | Complete (491 core tests, 73 harness tests, 5 bats tests; 4 skipped -- counts verified directly against real `npm test` output 2026-08-17, see #177) |
 | Write safety framework | Staged (disabled by default, `DUNE_DISCORD_WRITES_ENABLED`, R1.5.0) |
 | Player inventory + storage | Complete (upstream PR #91 merged 2026-07-20, live since v1.3.61) |
 
@@ -263,9 +263,12 @@ Current release state:
   `b4f8fe4c5a36e2ac2f81deb4c9fddde087c77d06` ("Release v1.3.87", 2026-08-14)
 - Latest upstream release candidate observed: none newer than `v1.3.87`
 - Upstream player-inventory PR #91: **merged 2026-07-20**, live since `v1.3.61`
-- All test skipping removed — 412 core + 72 harness tests pass, 0 skipped
-  (bats count not independently re-verified in this pass; see the harness's
-  own CI output for current bats count)
+- Test suite (verified directly against real `npm test` output, 2026-08-17,
+  see #177): 491 core + 73 harness + 5 bats tests, 4 skipped total (2 core +
+  2 harness). "0 skipped" was accurate at an earlier snapshot but is no
+  longer current -- do not treat "skipped" as necessarily a regression
+  without checking which tests and why; not independently re-audited in
+  this pass.
 - All pre-commit hooks pass without `--no-verify`
 
 Security requirements:
