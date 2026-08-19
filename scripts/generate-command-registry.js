@@ -87,12 +87,17 @@ const REQUIRED_ROUTES = [
 async function fetchCatalog() {
   return new Promise((resolve, reject) => {
     const url = new URL('/api/integrations/discord/catalog', DUNE_CONSOLE_API_URL);
+    
+    // Only disable TLS verification for localhost/127.0.0.1 (dev only)
+    // Production must use valid HTTPS certificates
+    const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+    
     const options = {
       headers: {
         'Authorization': `Bearer ${DUNE_DISCORD_TOKEN}`,
         'User-Agent': `arrakis-control-panel/${pkgJson.version}`
       },
-      rejectUnauthorized: false // For dev/self-signed certs
+      rejectUnauthorized: isLocalhost ? false : true // TLS only disabled for localhost
     };
 
     https.get(url, options, (res) => {
