@@ -127,24 +127,32 @@ function validateCatalog(catalog) {
   if (!catalog.version) {
     throw new Error('Catalog missing version field');
   }
-  if (catalog.version !== 1) {
-    throw new Error(`Unsupported catalog version: ${catalog.version}`);
+  // Support v1 (original) and v2 (with method, bodyField, selector)
+  // v2 is the current upstream version with multi-route fanning
+  if (catalog.version < 1 || catalog.version > 2) {
+    throw new Error(`Unsupported catalog version: ${catalog.version}. This generator supports v1-v2.`);
   }
   if (!Array.isArray(catalog.groups)) {
     throw new Error('Catalog missing groups array');
   }
 
   // Collect all routes from catalog
+  // v2 catalogs use `routes` (array), v1 use `route` (string)
   const catalogRoutes = new Set();
   for (const group of catalog.groups) {
     if (!Array.isArray(group.subcommands)) {
       throw new Error(`Group "${group.name}" missing subcommands array`);
     }
     for (const subcommand of group.subcommands) {
-      if (!subcommand.route) {
-        throw new Error(`Subcommand "${group.name}/${subcommand.name}" missing route`);
+      // v2: routes array (for fanned-out subcommands)
+      // v1: single route string
+      const routes = subcommand.routes ? subcommand.routes : (subcommand.route ? [subcommand.route] : []);
+      
+      if (routes.length === 0) {
+        throw new Error(`Subcommand "${group.name}/${subcommand.name}" has no route/routes`);
       }
-      catalogRoutes.add(subcommand.route);
+      
+      routes.forEach(r => catalogRoutes.add(r));
     }
   }
 
@@ -165,9 +173,9 @@ function validateCatalog(catalog) {
  * Apply bot-side overrides: exclusions, renames, tier adjustments
  */
 function applyOverrides(catalog, overrides) {
-  const excluded = new Set(overrides.exclude || []);
-  const renames = overrides.rename || {};
-  const retiers = overrides.retier || {};
+  const excluded = new Set((overrides?.exclude) || []);
+  const renames = (overrides?.rename) || {};
+  const retiers = (overrides?.retier) || {};
 
   const result = {
     version: catalog.version,
@@ -184,24 +192,47 @@ function applyOverrides(catalog, overrides) {
         const rename = renames[key] || {};
         const retier = retiers[key];
 
-        return {
+        // v2 catalogs may have `routes` (array) or `route` (string)
+        // Preserve the original structure
+        const subcommandData = {
           name: rename.subcommand || sc.name,
           description: sc.description,
-          route: sc.route,
           capability: sc.capability,
           minTier: retier || sc.minTier,
           params: sc.params || [],
-          routeEnforcesCapability: sc.routeEnforcesCapability !== false
         };
+
+        // Preserve v2 fields if present
+        if (catalog.version >= 2) {
+          if (sc.routes) subcommandData.routes = sc.routes;
+          if (sc.method) subcommandData.method = sc.method;
+          if (sc.selector !== undefined) subcommandData.selector = sc.selector;
+          if (sc.routeEnforcesCapability !== undefined) subcommandData.routeEnforcesCapability = sc.routeEnforcesCapability;
+        }
+        
+        // v1 compatibility
+        if (sc.route && !sc.routes) {
+          subcommandData.route = sc.route;
+          if (sc.routeEnforcesCapability !== undefined) subcommandData.routeEnforcesCapability = sc.routeEnforcesCapability;
+        }
+
+        return subcommandData;
       });
 
     // Only include groups that have subcommands after filtering
     if (filteredSubcommands.length > 0) {
+      if (filteredSubcommands.length > 25) {
+        throw new Error(`Group "${group.name}" has ${filteredSubcommands.length} subcommands, exceeds Discord's 25-subcommand limit.`);
+      }
       result.groups.push({
         name: group.name,
         subcommands: filteredSubcommands
       });
     }
+  }
+
+  return result;
+}
   }
 
   // Validate Discord constraints
