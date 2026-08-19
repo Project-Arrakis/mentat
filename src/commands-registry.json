@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "generatedAt": "2026-08-19T12:00:00Z",
+  "generatorVersion": "1.0.0-rc.5",
+  "groups": [
+    {
+      "name": "core",
+      "subcommands": [
+        {
+          "name": "about",
+          "description": "Show safe bot and adapter metadata.",
+          "route": "/version",
+          "capability": null,
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": false
+        },
+        {
+          "name": "ping",
+          "description": "Measure Discord and adapter latency.",
+          "route": "/latency",
+          "capability": "STATUS_READ",
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": true
+        },
+        {
+          "name": "help",
+          "description": "Show available commands for your role.",
+          "route": null,
+          "capability": null,
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": false
+        },
+        {
+          "name": "setup",
+          "description": "How to add this bot to your own Discord server.",
+          "route": null,
+          "capability": null,
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": false
+        }
+      ]
+    },
+    {
+      "name": "server",
+      "subcommands": [
+        {
+          "name": "health",
+          "description": "Check the console Discord adapter.",
+          "route": "/health",
+          "capability": "STATUS_READ",
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": true
+        },
+        {
+          "name": "status",
+          "description": "Show high-level server status.",
+          "route": "/status",
+          "capability": "STATUS_READ",
+          "minTier": "observer",
+          "params": [
+            {
+              "name": "diagnostic",
+              "type": "BOOLEAN",
+              "required": false,
+              "description": "Admin-only: full diagnostic with containers table."
+            }
+          ],
+          "routeEnforcesCapability": true
+        },
+        {
+          "name": "summary",
+          "description": "Show compact aggregate server status.",
+          "route": "/status",
+          "capability": "STATUS_READ",
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": true
+        },
+        {
+          "name": "readiness",
+          "description": "Show readiness and preflight state.",
+          "route": "/readiness",
+          "capability": "READINESS_READ",
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": true
+        },
+        {
+          "name": "readiness-detail",
+          "description": "Show grouped readiness detail with issues.",
+          "route": "/readiness-detail",
+          "capability": "READINESS_READ",
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": true
+        },
+        {
+          "name": "services",
+          "description": "Show service container state.",
+          "route": "/services",
+          "capability": "SERVICES_READ",
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": true
+        },
+        {
+          "name": "services-detail",
+          "description": "Show detailed service state with logs.",
+          "route": "/services-detail",
+          "capability": "SERVICES_READ",
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": true
+        },
+        {
+          "name": "maintenance",
+          "description": "Show current maintenance note or window (read-only).",
+          "route": "/maintenance",
+          "capability": "READINESS_READ",
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": true
+        }
+      ]
+    },
+    {
+      "name": "data",
+      "subcommands": [
+        {
+          "name": "population",
+          "description": "Show aggregate player count and server population.",
+          "route": "/population",
+          "capability": "POPULATION_READ",
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": true
+        },
+        {
+          "name": "backups",
+          "description": "List recent backup metadata (read-only).",
+          "route": "/backups",
+          "capability": "BACKUPS_READ",
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": true
+        },
+        {
+          "name": "maps",
+          "description": "Show active game maps with state and uptime.",
+          "route": "/maps",
+          "capability": "MAPS_READ",
+          "minTier": "observer",
+          "params": [],
+          "routeEnforcesCapability": true
+        }
+      ]
+    }
+  ]
+}
