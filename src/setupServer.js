@@ -1,6 +1,8 @@
 import express from "express";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { logInfo, logError } from "./logger.js";
 import {
   createDatabase,
@@ -67,10 +69,14 @@ function tokenMatches(provided, expected) {
 export function createSetupServer(config) {
   const app = express();
   const db = createDatabase(config.dbPath);
+  
+  // Resolve public directory relative to this file's location
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const publicDir = join(__dirname, "..", "public");
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-  app.use(express.static("public"));
+  app.use(express.static(publicDir));
 
   // CORS — allow the landing page (acp.darkdante.org) to fetch public API endpoints.
   // No auth endpoints are exposed here; all are read-only public data.
