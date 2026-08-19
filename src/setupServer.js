@@ -245,6 +245,9 @@ export function createSetupServer(config) {
 
           <section class="panel">
             <h2>Step 2: Console Connection</h2>
+            <div style="background: rgba(224, 90, 74, 0.12); border: 1px solid rgba(224, 90, 74, 0.3); border-radius: 6px; padding: 12px; margin-bottom: 16px; font-size: 13px; color: #f5aca5; line-height: 1.5;">
+              <strong>⚠️ Important:</strong> You must restart your console container after configuring the adapter in <code>.env</code>. Without restarting, authentication will fail. Run <code>docker-compose restart dune-server</code> (or equivalent for your setup).
+            </div>
             <div class="field">
               <label for="consoleUrl">Console URL</label>
               <input type="url" name="consoleUrl" id="consoleUrl" placeholder="http://your-server:8088" required>
@@ -257,10 +260,12 @@ export function createSetupServer(config) {
                 <button type="button" class="btn btn--sm" onclick="generateToken()">Generate</button>
               </div>
               <div class="hint">
-                <strong>Enable the adapter first:</strong> In your Dune Docker <code>.env</code>, set:<br>
+                <strong>To get your token:</strong><br>
+                1. In your Dune Docker <code>.env</code>, set:<br>
                 <code>DUNE_DISCORD_ADAPTER_ENABLED=true</code><br>
                 <code>DUNE_DISCORD_ADAPTER_TOKEN_FILE=/repo/runtime/secrets/discord-adapter-token.txt</code><br>
-                Then restart the console. The token is in that file — copy it here.
+                2. <strong>Restart the console</strong> (see warning above)<br>
+                3. The token will be created in that file — copy it here, or click Generate to create a new one
               </div>
             </div>
           </section>
