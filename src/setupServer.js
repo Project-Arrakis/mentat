@@ -325,13 +325,53 @@ export function createSetupServer(config) {
         default_ephemeral: 1
       });
 
-      res.json({ ok: true, guildId, guildName });
+      logInfo("setup.guild_configured", {
+        guildId,
+        guildName,
+        consoleUrl: consoleUrl.replace(/https?:\/\//, "...") // redact for logs
+      });
+
+      // Redirect to success page instead of returning JSON
+      res.redirect(`/setup/success?guildId=${encodeURIComponent(guildId)}&guildName=${encodeURIComponent(guildName)}`);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
-  });
+   });
 
-  // ── Health / Stats ────────────────────────────────────────────────
+   // GET /setup/success — Display success page after guild configuration
+   app.get("/setup/success", (req, res) => {
+     const { guildName } = req.query;
+     const displayName = guildName ? decodeURIComponent(guildName) : "your server";
+
+     const body = `
+       <div class="success-page">
+         <div class="success-icon">✓</div>
+         <h1 style="font-size: 28px; margin-bottom: 12px; color: var(--success);">Setup Complete!</h1>
+         <p style="color: var(--parchment-dark); font-size: 16px; margin-bottom: 20px;">
+           <strong>${esc(displayName)}</strong> is now connected to Arrakis Control Panel.
+         </p>
+         <div class="panel" style="max-width: 500px; margin: 0 auto 20px;">
+           <h2>What's next?</h2>
+           <ol style="text-align: left; color: var(--text-light); line-height: 1.8; margin-left: 20px;">
+             <li>Go back to Discord</li>
+             <li>Assign Discord roles to the four permission tiers (Player, Moderator, Admin, Owner)</li>
+             <li>Run <code>/dune core help</code> to see available commands</li>
+             <li>Run <code>/dune server status</code> to verify connection to your console</li>
+           </ol>
+         </div>
+         <p style="color: var(--muted); font-size: 13px; margin-top: 24px;">
+           Your adapter token has been saved securely. You can now use slash commands in Discord.
+         </p>
+       </div>`;
+
+     res.send(renderPage("Setup Complete", body, {
+       heading: "Arrakis Control Panel",
+       hero: true,
+       glow: true
+     }));
+   });
+
+   // ── Health / Stats ────────────────────────────────────────────────
 
   app.get("/health", (req, res) => {
     res.json({ ok: true, service: "acp-setup" });
