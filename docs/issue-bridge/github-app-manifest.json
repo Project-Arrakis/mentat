@@ -1,0 +1,15 @@
+{
+  "name": "ACP Issue Bridge",
+  "url": "https://github.com/yacketrj/arrakis-control-panel",
+  "hook_attributes": {
+    "url": "https://github.com/yacketrj",
+    "active": false
+  },
+  "redirect_url": "https://github.com/yacketrj/arrakis-control-panel",
+  "public": false,
+  "default_permissions": {
+    "metadata": "read",
+    "issues": "write"
+  },
+  "default_events": []
+}
