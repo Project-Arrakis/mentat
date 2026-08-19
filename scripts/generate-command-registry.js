@@ -233,20 +233,6 @@ function applyOverrides(catalog, overrides) {
 
   return result;
 }
-  }
-
-  // Validate Discord constraints
-  for (const group of result.groups) {
-    if (group.subcommands.length > 25) {
-      throw new Error(
-        `Group "${group.name}" has ${group.subcommands.length} subcommands, ` +
-        `exceeds Discord's 25-subcommand limit. Use overrides.exclude to reduce.`
-      );
-    }
-  }
-
-  return result;
-}
 
 /**
  * Main generator
