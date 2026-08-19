@@ -21,13 +21,15 @@ const db = config.multiTenant ? createDatabase(config.dbPath) : null;
 if (db) initBotStats(db);
 
 // Phase 3: Load command registry artifact at startup
+// CRITICAL-2 FIX: Registry loading is mandatory - bot cannot function without it
 try {
   loadRegistryAtStartup();
   logInfo("startup.registry_loaded", { stage: "configuration" });
 } catch (error) {
-  logError("startup.registry_load_failed", error);
-  // Don't fail startup, but bot won't have commands available
-  // Operator can use /dune admin sync-commands to recover
+  logError("startup.registry_load_failed", error, { fatal: true });
+  console.error("[FATAL] Registry loading failed. Bot cannot start without command registry.");
+  console.error(`Error: ${error.message}`);
+  process.exit(1); // Fail startup explicitly
 }
 // In multi-tenant mode, guilds.adapter_token holds a live credential for
 // every connected operator's Core adapter API in one shared SQLite file.

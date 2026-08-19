@@ -13,23 +13,35 @@
  * pattern.
  */
 function generateToken() {
-  // Generate 32 random bytes (256 bits)
-  const randomBytes = new Uint8Array(32);
-  crypto.getRandomValues(randomBytes);
-  
-  // Convert to hex string
-  const token = Array.from(randomBytes)
-    .map(byte => byte.toString(16).padStart(2, '0'))
-    .join('');
-  
-  // Populate the input field
-  const input = document.getElementById('adapterToken');
-  if (input) {
-    input.value = token;
-    // Flash the input to indicate it was populated
-    input.style.backgroundColor = '#e8f5e9';
-    setTimeout(() => {
-      input.style.backgroundColor = '';
-    }, 200);
+  try {
+    // Generate 32 random bytes (256 bits)
+    const randomBytes = new Uint8Array(32);
+    crypto.getRandomValues(randomBytes);
+    
+    // Convert to hex string
+    const token = Array.from(randomBytes)
+      .map(byte => byte.toString(16).padStart(2, '0'))
+      .join('');
+    
+    // Populate the input field
+    const input = document.getElementById('adapterToken');
+    if (input) {
+      input.value = token;
+      input.focus();
+      // Flash the input to indicate it was populated
+      input.style.backgroundColor = '#5aab61';
+      setTimeout(() => {
+        input.style.backgroundColor = '';
+      }, 300);
+      console.log('[ACP] Token generated successfully');
+    } else {
+      console.error('[ACP] adapterToken input not found');
+    }
+  } catch (error) {
+    console.error('[ACP] Failed to generate token:', error);
+    alert('Error generating token: ' + error.message);
   }
 }
+
+// Verify script loaded
+console.log('[ACP] setup.js loaded');

@@ -7,9 +7,10 @@
  * 
  * Supports:
  * - Loading registry from disk at startup
- * - In-memory caching
- * - Dynamic refresh via /dune admin sync-commands
- * - ETag-based refresh from Core's catalog endpoint
+ * - In-memory caching with validation
+ * - Atomic refresh via promise-based singleton to prevent race conditions
+ * - ETag-based refresh from Core's catalog endpoint with 24h expiration
+ * - Schema validation on all registry loads
  * 
  * Tracked by yacketrj/arrakis-control-panel#181 (Phase 3 runtime loading)
  */
@@ -22,20 +23,70 @@ import { logInfo, logError } from "./logger.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..");
 
-// In-memory registry cache
+// In-memory registry cache with thread-safety
 let cachedRegistry = null;
 let registryLoadTime = null;
 let etag = null;
+let etagExpireTime = null;
+let refreshInProgress = null; // Prevents concurrent refresh calls
+
+const ETAG_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Validate registry structure before use
+ * Throws if registry is malformed
+ */
+function validateRegistry(registry) {
+  if (!registry || typeof registry !== "object") {
+    throw new Error("Registry must be an object");
+  }
+  if (!Array.isArray(registry.groups)) {
+    throw new Error("Registry.groups must be an array");
+  }
+  if (typeof registry.version !== "number") {
+    throw new Error("Registry.version must be a number");
+  }
+  
+  // Validate group structure
+  for (const group of registry.groups) {
+    if (!group.name || typeof group.name !== "string") {
+      throw new Error(`Group missing or invalid name: ${JSON.stringify(group)}`);
+    }
+    if (!Array.isArray(group.subcommands)) {
+      throw new Error(`Group "${group.name}" subcommands must be an array`);
+    }
+    
+    // Validate subcommand structure
+    for (const sc of group.subcommands) {
+      if (!sc.name || typeof sc.name !== "string") {
+        throw new Error(`Subcommand in group "${group.name}" missing or invalid name`);
+      }
+      if (typeof sc.description !== "string") {
+        throw new Error(`Subcommand "${sc.name}" description must be a string`);
+      }
+    }
+  }
+  
+  return true;
+}
 
 /**
  * Load commands-registry.json from disk at startup
+ * Validates registry structure before caching
+ * This is a MANDATORY startup step - bot will not start without a valid registry
  */
 export function loadRegistryAtStartup() {
   try {
     const registryPath = join(repoRoot, "src", "commands-registry.json");
     const registryJson = readFileSync(registryPath, "utf8");
-    cachedRegistry = JSON.parse(registryJson);
+    const registry = JSON.parse(registryJson);
+    
+    // Validate before caching
+    validateRegistry(registry);
+    
+    cachedRegistry = registry;
     registryLoadTime = new Date();
+    etagExpireTime = new Date(Date.now() + ETAG_TTL_MS);
     
     logInfo("registry.loaded_at_startup", {
       groups: cachedRegistry.groups?.length || 0,
@@ -53,67 +104,112 @@ export function loadRegistryAtStartup() {
 
 /**
  * Get the currently cached registry
+ * Throws if registry hasn't been loaded yet
  */
 export function getRegistryFromCache() {
   if (!cachedRegistry) {
-    throw new Error("Registry not loaded. Call loadRegistryAtStartup() first.");
+    const err = new Error("Registry not loaded. Call loadRegistryAtStartup() first.");
+    logError("registry.cache_miss", err);
+    throw err;
   }
   return cachedRegistry;
 }
 
 /**
  * Refresh registry from Core's catalog endpoint
- * Supports ETag-based conditional requests
+ * - Atomic: uses promise-based singleton to prevent concurrent mutations
+ * - Validates new registry before caching
+ * - Supports ETag-based conditional requests with 24h expiration
+ * - Handles 412 (Precondition Failed) by clearing stale ETag
  */
 export async function refreshRegistryFromCore(adapterClient, guildId) {
-  try {
-    const response = await adapterClient.request(guildId, {
-      method: "GET",
-      path: "/api/integrations/discord/catalog",
-      headers: etag ? { "If-None-Match": etag } : {}
-    });
-
-    if (response.status === 304) {
-      // Not modified
-      logInfo("registry.refresh_not_modified", {
-        etag,
-        timestamp: new Date().toISOString()
-      });
-      return cachedRegistry;
-    }
-
-    if (response.status !== 200) {
-      throw new Error(`Core returned ${response.status}`);
-    }
-
-    const newRegistry = response.data;
-    
-    // Update ETag if provided
-    if (response.headers?.etag) {
-      etag = response.headers.etag;
-    }
-
-    cachedRegistry = newRegistry;
-    registryLoadTime = new Date();
-
-    logInfo("registry.refreshed_from_core", {
-      groups: newRegistry.groups?.length || 0,
-      commands: newRegistry.groups?.reduce((sum, g) => sum + (g.subcommands?.length || 0), 0) || 0,
-      version: newRegistry.version,
-      etag: etag || "none",
-      timestamp: registryLoadTime.toISOString()
-    });
-
-    return newRegistry;
-  } catch (error) {
-    logError("registry.refresh_failed", error);
-    throw new Error(`Failed to refresh registry from Core: ${error.message}`);
+  // CRITICAL-1 FIX: Queue refreshes to prevent race condition
+  // If refresh is already in progress, wait for it instead of starting another
+  if (refreshInProgress) {
+    return refreshInProgress;
   }
+
+  refreshInProgress = (async () => {
+    try {
+      // Check if ETag has expired
+      if (etagExpireTime && new Date() > etagExpireTime) {
+        logInfo("registry.etag_expired", { expiredAt: etagExpireTime.toISOString() });
+        etag = null; // Clear stale ETag
+        etagExpireTime = null;
+      }
+
+      const response = await adapterClient.request(guildId, {
+        method: "GET",
+        path: "/api/integrations/discord/catalog",
+        headers: etag ? { "If-None-Match": etag } : {}
+      });
+
+      if (response.status === 304) {
+        // Not modified - refresh ETag expiry
+        etagExpireTime = new Date(Date.now() + ETAG_TTL_MS);
+        logInfo("registry.refresh_not_modified", {
+          etag,
+          expiresAt: etagExpireTime.toISOString(),
+          timestamp: new Date().toISOString()
+        });
+        return cachedRegistry;
+      }
+
+      // HIGH-2 FIX: Handle 412 Precondition Failed (stale ETag)
+      if (response.status === 412) {
+        logInfo("registry.etag_invalid", { 
+          stalEtag: etag,
+          timestamp: new Date().toISOString()
+        });
+        etag = null;
+        etagExpireTime = null;
+        throw new Error("ETag validation failed. Retry sync-commands to fetch fresh registry.");
+      }
+
+      if (response.status !== 200) {
+        throw new Error(`Core returned ${response.status}`);
+      }
+
+      const newRegistry = response.data;
+      
+      // HIGH-3 FIX: Validate registry before caching
+      validateRegistry(newRegistry);
+
+      // Update ETag if provided
+      if (response.headers?.etag) {
+        etag = response.headers.etag;
+        etagExpireTime = new Date(Date.now() + ETAG_TTL_MS);
+      }
+
+      cachedRegistry = newRegistry;
+      registryLoadTime = new Date();
+
+      logInfo("registry.refreshed_from_core", {
+        groups: newRegistry.groups?.length || 0,
+        commands: newRegistry.groups?.reduce((sum, g) => sum + (g.subcommands?.length || 0), 0) || 0,
+        version: newRegistry.version,
+        etag: etag || "none",
+        etagExpiresAt: etagExpireTime?.toISOString() || "none",
+        timestamp: registryLoadTime.toISOString()
+      });
+
+      return newRegistry;
+    } catch (error) {
+      logError("registry.refresh_failed", error);
+      throw new Error(`Failed to refresh registry from Core: ${error.message}`);
+    } finally {
+      // Clear the refresh lock
+      refreshInProgress = null;
+    }
+  })();
+
+  return refreshInProgress;
 }
 
 /**
  * Convert registry format to Discord slash command format
  * Used by buildDuneCommand() Phase 3 integration
+ * MEDIUM-3 FIX: Add defensive checks for null/undefined values
  */
 export function registryToDiscordFormat(registry) {
   if (!registry || !registry.groups) {
@@ -123,16 +219,38 @@ export function registryToDiscordFormat(registry) {
   const commands = [];
 
   for (const group of registry.groups) {
-    const subcommands = (group.subcommands || []).map((sc) => ({
-      name: sc.name.toLowerCase().replace(/\s+/g, "-"),
-      description: sc.description || "No description",
-      options: (sc.params || []).map((param) => ({
-        name: param.name.toLowerCase(),
-        description: param.description || "Parameter",
-        type: 3, // STRING type
-        required: param.required !== false
-      }))
-    }));
+    // Defensive: skip if group name is missing
+    if (!group.name) {
+      logError("registry.invalid_group", { group });
+      continue;
+    }
+
+    const subcommands = (group.subcommands || []).map((sc) => {
+      // Defensive: skip if subcommand name is missing
+      if (!sc.name) {
+        logError("registry.invalid_subcommand", { group: group.name, sc });
+        return null;
+      }
+
+      return {
+        name: sc.name.toLowerCase().replace(/\s+/g, "-"),
+        description: sc.description || "No description",
+        options: (sc.params || []).map((param) => {
+          // Defensive: skip if param name is missing
+          if (!param.name) {
+            logError("registry.invalid_param", { group: group.name, subcommand: sc.name, param });
+            return null;
+          }
+
+          return {
+            name: param.name.toLowerCase(),
+            description: param.description || "Parameter",
+            type: 3, // STRING type
+            required: param.required !== false
+          };
+        }).filter(Boolean) // Remove null entries
+      };
+    }).filter(Boolean); // Remove null entries
 
     if (subcommands.length > 0) {
       commands.push({

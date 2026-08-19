@@ -7,7 +7,8 @@ const pkgVersion = JSON.parse(readFileSync(join(__dirname, "..", "package.json")
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload, redactSecrets } from "./format.js";
-import { getRegistryFromCache, registryToDiscordFormat } from "./registryLoader.js";
+import { logInfo, logError } from "./logger.js";
+import { getRegistryFromCache, registryToDiscordFormat, refreshRegistryFromCore, getRegistryMetadata } from "./registryLoader.js";
 import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed , formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { sendStatusCard, sendOpsCard } from "./statusCard.js";
@@ -931,14 +932,22 @@ async function fetchPrometheusAlerts(adapterClient, actor, guildId) {
  */
 async function syncCommandsPayload(adapterClient, actor, guildId) {
   try {
-    const { refreshRegistryFromCore, getRegistryMetadata } = await import("./registryLoader.js");
-    
+    // MEDIUM-1 FIX: Use top-level import instead of dynamic import (already imported at top)
     const beforeMeta = getRegistryMetadata();
     
     // Attempt refresh from Core
     await refreshRegistryFromCore(adapterClient, guildId);
     
     const afterMeta = getRegistryMetadata();
+    
+    // MEDIUM-2 FIX: Log successful sync with proper structured logging
+    logInfo("sync_commands.success", {
+      guildId,
+      beforeGroups: beforeMeta.groups,
+      afterGroups: afterMeta.groups,
+      beforeVersion: beforeMeta.version,
+      afterVersion: afterMeta.version
+    });
     
     return {
       ok: true,
@@ -950,6 +959,9 @@ async function syncCommandsPayload(adapterClient, actor, guildId) {
       note: "Phase 3: Runtime registry loading. Bot will use updated commands on next invocation."
     };
   } catch (error) {
+    // MEDIUM-2 FIX: Use logError instead of returning error silently
+    logError("sync_commands.failed", error, { guildId });
+    
     return {
       ok: false,
       error: `Failed to sync commands: ${error.message}`,
