@@ -282,6 +282,7 @@ export function renderPage(title, body, opts = {}) {
     ${body}
   </div>
   <script>${sandScript()}</script>
+  <script src="/setup.js"></script>
 </body>
 </html>`;
 }
