@@ -106,7 +106,15 @@ const UPSTREAM_CONTRACT = Object.freeze({
   "guild-grants-enable": { method: "POST", path: "/api/integrations/discord/guild-character-grants/enable", fixture: "ops.json" },
   "guild-grants-disable": { method: "POST", path: "/api/integrations/discord/guild-character-grants/disable", fixture: "ops.json" },
   "guild-grants-default": { method: "POST", path: "/api/integrations/discord/guild-character-grants/default", fixture: "ops.json" },
-  "player-inventory-v2": { method: "POST", path: "/api/integrations/discord/player/inventory", fixture: "ops.json" }
+  "player-inventory-v2": { method: "POST", path: "/api/integrations/discord/player/inventory", fixture: "ops.json" },
+  // discord-catalog: Phase 3 (Command Discovery, #181) route used by
+  // /dune admin sync-commands (registryLoader.js's
+  // refreshRegistryFromCore()) to fetch Core's live command catalog.
+  // Added here per this file's own stated purpose (see the
+  // players-accounts-list/-unlink comment above): catch route additions
+  // that exist in adapterClient.js/DEFAULT_PATHS but were never wired
+  // into config.js's actual runtime paths/methods object.
+  "discord-catalog": { method: "GET", path: "/api/integrations/discord/catalog", fixture: "ops.json" }
 });
 
 function routeToMethodName(route) {

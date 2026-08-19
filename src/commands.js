@@ -936,7 +936,12 @@ async function syncCommandsPayload(adapterClient, actor, guildId) {
     const beforeMeta = getRegistryMetadata();
     
     // Attempt refresh from Core
-    await refreshRegistryFromCore(adapterClient, guildId);
+    // CORRECTNESS FIX (2026-08-19): refreshRegistryFromCore() requires
+    // (adapterClient, actor, guildId) to match adapterClient's real
+    // request() signature -- see registryLoader.js's own comment on
+    // this function for the full root-cause writeup (a guildId-as-route
+    // bug found during live E2E testing, not a Core-reachability issue).
+    await refreshRegistryFromCore(adapterClient, actor, guildId);
     
     const afterMeta = getRegistryMetadata();
     
@@ -982,7 +987,12 @@ async function syncCommandsPayload(adapterClient, actor, guildId) {
       userMessage = "Permission denied. Check Core admin settings.";
     } else if (error.message.includes("500") || error.message.includes("server error")) {
       userMessage = "Core encountered an error. Try again in a few minutes.";
-    } else if (error.message.includes("timeout")) {
+    } else if (error.message.includes("timeout") || error.message.includes("timed out")) {
+      // BUG FIX (2026-08-19, found via test/syncCommands.integration.test.js):
+      // adapterClient.js's real timeout error text is "...request timed
+      // out after Nms." -- the literal substring "timeout" never
+      // appears, so this branch could never match the actual error the
+      // adapter produces. Checking both forms fixes it.
       userMessage = "Request timed out. Core may be unresponsive.";
     } else if (error.message.includes("signature")) {
       userMessage = "Registry verification failed. Possible tampering detected.";

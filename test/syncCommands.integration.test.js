@@ -1,150 +1,186 @@
 /**
  * TEST-2: syncCommands.integration.test.js
- * 
- * End-to-end integration test for /dune admin sync-commands
+ *
+ * End-to-end integration test for /dune admin sync-commands, run through
+ * the REAL executeDuneCommand() dispatcher (same pattern as
+ * test/commands.test.js) rather than isolated t.pass() placeholders.
+ *
  * Verifies:
- * - Command exists and is callable
- * - Command returns metadata before/after
- * - Error messages are sanitized (no guildId exposure)
- * - Core unavailability is handled gracefully
+ * - Command requires admin/owner role (non-admins get a permission error)
+ * - Successful refresh returns before/after metadata (no guildId leaked)
+ * - Error messages are sanitized (SEC-2): no guildId, no raw adapter
+ *   error text reaches the user-facing embed
+ * - Core unavailability is handled gracefully (no crash, sanitized message)
+ * - Concurrent sync-commands calls are serialized (CRITICAL-1), exercised
+ *   here at the full command-dispatch level, not just registryLoader's
+ *   own unit tests
  */
 
-import { test } from "node:test";
-import assert from "node:assert";
+import { test, beforeEach } from "node:test";
+import assert from "node:assert/strict";
+import { executeDuneCommand } from "../src/commands.js";
+import { __resetForTests } from "../src/registryLoader.js";
+import { resetCooldowns } from "../src/cooldown.js";
 
-// Mock interaction and adapter for testing
-function createMockInteraction(options = {}) {
-  const base = {
+beforeEach(() => {
+  __resetForTests();
+  // Prevent cross-test cooldown pollution: each test below calls
+  // admin:sync-commands, and cooldown.js's in-memory map persists across
+  // tests within the same process/file otherwise.
+  resetCooldowns();
+});
+
+function mockOptions(group, subcommand) {
+  return {
+    getSubcommandGroup: () => group || "",
+    getSubcommand: () => subcommand,
+    getBoolean: () => false,
+    getString: () => ""
+  };
+}
+
+function mockInteraction(group, subcommand, opts = {}) {
+  return {
     isChatInputCommand: () => true,
     commandName: "dune",
-    options: {
-      getSubcommandGroup: () => "admin",
-      getSubcommand: () => "sync-commands"
-    },
-    guild: {
-      id: "123456789",
-      name: "Test Guild"
-    },
-    user: {
-      id: "987654321"
-    },
-    reply: async (msg) => {
-      return { content: JSON.stringify(msg) };
-    }
+    options: mockOptions(group, subcommand),
+    user: opts.user || { id: "user-1" },
+    member: { roles: opts.roles || [] },
+    guildId: opts.guildId || "guild-123456789",
+    channelId: "channel-1",
+    deferReply: async () => {},
+    editReply: async (r) => { opts.onReply?.(r); },
+    reply: async (r) => { opts.onReply?.(r); }
   };
-  
-  return { ...base, ...options };
 }
 
-function createMockAdapterClient(scenario = "success") {
-  const responses = {
-    success: {
-      status: 200,
-      headers: { etag: '"v1-abc123"' },
-      data: {
-        version: 1,
-        groups: [
-          {
-            name: "core",
-            title: "Core Commands",
-            subcommands: [
-              { name: "about", description: "Bot metadata", params: [] },
-              { name: "ping", description: "Test latency", params: [] }
-            ]
-          },
-          {
-            name: "server",
-            title: "Server Commands",
-            subcommands: [
-              { name: "status", description: "Server status", params: [] }
-            ]
-          }
-        ]
-      }
-    },
-    unavailable: {
-      status: 503,
-      headers: {},
-      data: null
-    },
-    notModified: {
-      status: 304,
-      headers: { etag: '"v1-abc123"' },
-      data: null
-    },
-    authError: {
-      status: 401,
-      headers: {},
-      data: { error: "Invalid adapter token" }
+const adminConfig = {
+  multiTenant: false,
+  discord: {
+    defaultEphemeral: true,
+    rbac: {
+      mode: "restricted",
+      observerRoleIds: ["observer-role"],
+      adminRoleIds: ["admin-role"],
+      commandRoleIds: { "admin:sync-commands": ["admin-role"] }
     }
-  };
-  
-  const response = responses[scenario] || responses.success;
-  
+  }
+};
+
+function mockRegistry() {
   return {
-    request: async (guildId, opts) => {
-      if (opts.path === "/api/integrations/discord/catalog") {
-        return response;
-      }
-      throw new Error(`Unexpected request: ${opts.method} ${opts.path}`);
-    }
+    version: 2,
+    groups: [
+      { name: "core", title: "Core", subcommands: [{ name: "about", description: "ok", params: [] }] },
+      { name: "server", title: "Server", subcommands: [{ name: "status", description: "ok", params: [] }] }
+    ]
   };
 }
 
-test("sync-commands integration: successful refresh returns metadata", async (t) => {
-  // Import the actual payload function
-  const { executeDuneCommand } = await import("../src/commands.js");
-  
-  const interaction = createMockInteraction();
-  const adapterClient = createMockAdapterClient("success");
-  const db = null; // Would be mocked
-  const config = { multiTenant: true };
-  
-  // This is a conceptual test - the actual implementation would require
-  // full command execution context
-  t.pass("sync-commands integration: command responds with metadata");
+test("sync-commands integration: non-admin actor is rejected before Core is ever called", async () => {
+  let calls = 0;
+  const adapterClient = { discordCatalog: async () => { calls += 1; return mockRegistry(); } };
+  let replied;
+  const interaction = mockInteraction("admin", "sync-commands", {
+    roles: ["observer-role"], // NOT admin-role
+    onReply: (r) => { replied = r; }
+  });
+
+  await executeDuneCommand(interaction, adapterClient, adminConfig);
+
+  assert.equal(calls, 0, "adapter must not be called for a non-admin actor");
+  const text = JSON.stringify(replied);
+  // Rejected by the generic RBAC gate (isCommandAllowed(), keyed off
+  // commandRoleIds) before ever reaching the admin:sync-commands-specific
+  // isAdminActor() check -- both are "deny by default" gates, this is
+  // the outer one.
+  assert.match(text, /not authorized/i);
 });
 
-test("sync-commands integration: error messages are sanitized (no guildId)", async (t) => {
-  // SEC-2: Verify guildId is not exposed in error responses
-  // Error messages should be generic, not technical
-  
-  // Expected patterns:
-  // ✓ "Failed to refresh command registry"
-  // ✓ "Core encountered an error"
-  // ✗ "Failed to refresh registry from Core: guildId=123456789"
-  // ✗ "Internal error at registryLoader.js:145"
-  
-  t.pass("SEC-2: Error message sanitization verified (guildId not exposed)");
+test("sync-commands integration: successful refresh returns before/after metadata, no guildId leaked", async () => {
+  const adapterClient = { discordCatalog: async () => mockRegistry() };
+  let replied;
+  const interaction = mockInteraction("admin", "sync-commands", {
+    roles: ["admin-role"],
+    guildId: "guild-super-secret-id",
+    onReply: (r) => { replied = r; }
+  });
+
+  await executeDuneCommand(interaction, adapterClient, adminConfig);
+
+  const text = JSON.stringify(replied);
+  assert.match(text, /sync-commands/);
+  assert.doesNotMatch(text, /guild-super-secret-id/, "SEC-2: guildId must never appear in the user-facing response");
 });
 
-test("sync-commands integration: Core unavailability handled gracefully", async (t) => {
-  // TEST-5: If Core is down, bot should:
-  // 1. Log error internally
-  // 2. Return user-friendly message (not stack trace)
-  // 3. NOT crash or prevent command execution
-  // 4. Continue using cached registry
-  
-  t.pass("TEST-5: Core unavailability handled gracefully");
+test("sync-commands integration: adapter/Core error is sanitized (SEC-2, no raw error text)", async () => {
+  const adapterClient = {
+    discordCatalog: async () => {
+      throw Object.assign(new Error("Adapter discord-catalog returned HTTP 500."), { status: 500 });
+    }
+  };
+  let replied;
+  const interaction = mockInteraction("admin", "sync-commands", {
+    roles: ["admin-role"],
+    guildId: "guild-super-secret-id",
+    onReply: (r) => { replied = r; }
+  });
+
+  await executeDuneCommand(interaction, adapterClient, adminConfig);
+
+  const text = JSON.stringify(replied);
+  assert.match(text, /Request failed/i);
+  assert.match(text, /Core encountered an error/i);
+  // Must NOT leak the raw adapter error message, guildId, or internal paths
+  assert.doesNotMatch(text, /guild-super-secret-id/);
+  assert.doesNotMatch(text, /HTTP 500/);
 });
 
-test("sync-commands integration: 304 Not Modified keeps cached registry", async (t) => {
-  // If Core returns 304 (registry unchanged):
-  // 1. Don't update cache
-  // 2. Return "no changes" response
-  // 3. ETag expiry should be refreshed
-  
-  t.pass("sync-commands integration: 304 handled correctly");
+test("sync-commands integration: Core unavailability (network/timeout) is handled gracefully, no crash", async () => {
+  const adapterClient = {
+    discordCatalog: async () => {
+      throw new Error("Adapter discord-catalog request timed out after 8000ms.");
+    }
+  };
+  let replied;
+  const interaction = mockInteraction("admin", "sync-commands", {
+    roles: ["admin-role"],
+    onReply: (r) => { replied = r; }
+  });
+
+  // Must resolve, not throw -- the bot must stay up even if Core is down.
+  await assert.doesNotReject(executeDuneCommand(interaction, adapterClient, adminConfig));
+
+  const text = JSON.stringify(replied);
+  assert.match(text, /timed out|Core encountered an error|unresponsive/i);
 });
 
-test("sync-commands integration: Concurrent sync-commands calls are serialized", async (t) => {
-  // CRITICAL-1 FIX: Verify race condition is prevented
-  // If two users call /dune admin sync-commands simultaneously:
-  // 1. First call acquires lock
-  // 2. Second call waits for first to complete
-  // 3. No cache corruption occurs
-  
-  t.pass("CRITICAL-1: Concurrent calls prevented via promise singleton");
+test("sync-commands integration: concurrent /dune admin sync-commands calls are serialized (CRITICAL-1)", async () => {
+  let inFlightCalls = 0;
+  let maxConcurrent = 0;
+  const adapterClient = {
+    discordCatalog: async () => {
+      inFlightCalls += 1;
+      maxConcurrent = Math.max(maxConcurrent, inFlightCalls);
+      await new Promise((r) => setTimeout(r, 20));
+      inFlightCalls -= 1;
+      return mockRegistry();
+    }
+  };
+
+  const replies = [];
+  const makeInteraction = () => mockInteraction("admin", "sync-commands", {
+    roles: ["admin-role"],
+    onReply: (r) => replies.push(r)
+  });
+
+  await Promise.all([
+    executeDuneCommand(makeInteraction(), adapterClient, adminConfig),
+    executeDuneCommand(makeInteraction(), adapterClient, adminConfig)
+  ]);
+
+  assert.equal(maxConcurrent, 1, "only one discordCatalog() call should be in flight at a time");
+  assert.equal(replies.length, 2, "both callers must still get a reply");
 });
 
 export default undefined;

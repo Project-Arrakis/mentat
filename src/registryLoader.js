@@ -9,7 +9,9 @@
  * - Loading registry from disk at startup
  * - In-memory caching with validation
  * - Atomic refresh via promise-based singleton to prevent race conditions
- * - ETag-based refresh from Core's catalog endpoint with 24h expiration
+ * - Full refresh from Core's catalog endpoint (adapterClient.discordCatalog())
+ *   with a 4h staleness-monitoring window (not true HTTP conditional GET --
+ *   see refreshRegistryFromCore()'s own comment for why)
  * - Schema validation on all registry loads
  * 
  * Tracked by yacketrj/arrakis-control-panel#181 (Phase 3 runtime loading)
@@ -27,13 +29,37 @@ const repoRoot = join(__dirname, "..");
 // In-memory registry cache with thread-safety
 let cachedRegistry = null;
 let registryLoadTime = null;
-let etag = null;
+// etagExpireTime: staleness bookkeeping only (logging/monitoring), not a
+// real HTTP ETag -- see refreshRegistryFromCore()'s scope note on why
+// true conditional-GET isn't implemented against adapterClient.request().
 let etagExpireTime = null;
 let refreshInProgress = null; // Prevents concurrent refresh calls
 let registrySignature = null; // SEC-1: Track signature for tampering detection
 
-const ETAG_TTL_MS = 4 * 60 * 60 * 1000; // SEC-3 FIX: Reduced from 24h to 4h
+const ETAG_TTL_MS = 4 * 60 * 60 * 1000; // SEC-3 FIX: Reduced from 24h to 4h; staleness TTL
 const REGISTRY_CONTENT_HASH_KEY = "DUNE_REGISTRY_HASH_KEY"; // Used for HMAC validation
+
+/**
+ * BUG FIX (2026-08-19, found via test/registryLoader.test.js's own
+ * "verifies signature when Core provides one" test): the signature MUST
+ * be computed over the registry payload WITHOUT its own `signature`
+ * field. The original implementation hashed the full JSON (signature
+ * field included), which is circular -- a signer can never know its own
+ * output signature in advance, so no real signature could ever verify
+ * successfully. This went unnoticed because the local committed
+ * registry file never has a `signature` field (hasSig: false in every
+ * production log), so verifyRegistrySignature() was never actually
+ * exercised with a real signature until this test existed.
+ *
+ * canonicalRegistryJson() strips `signature` before serializing, on
+ * both the signing side (hypothetical -- awaits Core producing
+ * signatures) and the verification side, so they operate on the exact
+ * same byte-for-byte payload.
+ */
+function canonicalRegistryJson(registry) {
+  const { signature, ...unsigned } = registry || {};
+  return JSON.stringify(unsigned);
+}
 
 /**
  * SEC-1 FIX: Compute HMAC-SHA256 signature of registry content
@@ -49,6 +75,9 @@ function computeRegistrySignature(registryJson) {
 /**
  * SEC-1 FIX: Verify registry signature before accepting it
  * Prevents MITM attacks and file tampering
+ * `registryJson` MUST already exclude the `signature` field (see
+ * canonicalRegistryJson() above) -- callers pass the canonical form,
+ * never the raw signed payload.
  */
 function verifyRegistrySignature(registryJson, providedSignature) {
   const expectedSignature = computeRegistrySignature(registryJson);
@@ -74,8 +103,12 @@ function verifyRegistrySignature(registryJson, providedSignature) {
  * Validate registry structure before use
  * SEC-4 FIX: Validate command names against Discord constraints
  * Throws if registry is malformed
+ * Exported (not just internal) so test/registryLoader.test.js can verify
+ * validation behavior directly instead of only indirectly via
+ * loadRegistryAtStartup()/refreshRegistryFromCore() -- see TEST-1 in the
+ * Phase 3 audit remediation.
  */
-function validateRegistry(registry) {
+export function validateRegistry(registry) {
   if (!registry || typeof registry !== "object") {
     throw new Error("Registry must be an object");
   }
@@ -154,9 +187,11 @@ export function loadRegistryAtStartup() {
     const registryJson = readFileSync(registryPath, "utf8");
     const registry = JSON.parse(registryJson);
     
-    // SEC-1: Verify signature if present (for remotely fetched registries)
+    // SEC-1: Verify signature if present (for remotely fetched registries).
+    // Must hash the canonical (signature-excluded) form, not the raw file
+    // text -- see canonicalRegistryJson()'s comment for why.
     if (registry.signature) {
-      verifyRegistrySignature(registryJson, registry.signature);
+      verifyRegistrySignature(canonicalRegistryJson(registry), registry.signature);
     }
     
     // Validate structure before caching
@@ -199,10 +234,42 @@ export function getRegistryFromCache() {
  * Refresh registry from Core's catalog endpoint
  * - Atomic: uses promise-based singleton to prevent concurrent mutations
  * - Validates new registry before caching
- * - Supports ETag-based conditional requests with 24h expiration
- * - Handles 412 (Precondition Failed) by clearing stale ETag
+ * - Always performs a full fetch (see note below on conditional GET)
+ *
+ * CORRECTNESS FIX (2026-08-19, found during live E2E testing): the
+ * previous implementation called
+ * `adapterClient.request(guildId, { method, path, headers })` -- but
+ * AdapterClient.request()'s real signature is
+ * `request(route, actor, extra, guildId)`, where `route` is looked up
+ * in a named-route table (cfg.adapter.paths[route]), not an arbitrary
+ * path string. That meant `guildId` was being passed as `route`,
+ * which is never a valid key, so every single call failed with
+ * "Unsupported adapter route: <guildId>" -- unconditionally, whether
+ * or not Core was actually reachable. This was never caught by the
+ * Layer 2 desk-review audits (Architecture/Security/QA) because none
+ * of them traced the actual call into adapterClient.js to verify the
+ * interface matched; it surfaced only during live Discord E2E testing.
+ *
+ * Fix: use the real, named "discord-catalog" route (added to
+ * config.js's DEFAULT_PATHS/DEFAULT_METHODS) via the new
+ * adapterClient.discordCatalog(actor, guildId) convenience method,
+ * matching the exact pattern every other route in this file already
+ * uses (see linkAccountViaSteam(), playerAccountsList(), etc.).
+ *
+ * SCOPE NOTE on ETag/conditional-GET: AdapterClient.request() does not
+ * currently support passing custom request headers on GET, nor does
+ * it expose response status/headers to the caller on success (it
+ * returns only the parsed body, and throws AdapterHttpError with a
+ * `.status` on any non-2xx, which includes 304 and 412). Rather than
+ * half-implement conditional GET against an interface that doesn't
+ * support it, this always performs a full fetch. Local TTL-based
+ * staleness bookkeeping (etagExpireTime) is retained for monitoring/
+ * logging purposes only -- it no longer drives actual HTTP-level
+ * conditional requests. True conditional GET would require extending
+ * AdapterClient.request() itself (a shared, sensitive code path used
+ * by every command), which is intentionally out of scope for this fix.
  */
-export async function refreshRegistryFromCore(adapterClient, guildId) {
+export async function refreshRegistryFromCore(adapterClient, actor, guildId) {
   // CRITICAL-1 FIX: Queue refreshes to prevent race condition
   // If refresh is already in progress, wait for it instead of starting another
   if (refreshInProgress) {
@@ -211,75 +278,37 @@ export async function refreshRegistryFromCore(adapterClient, guildId) {
 
   refreshInProgress = (async () => {
     try {
-      // Check if ETag has expired
+      // Staleness bookkeeping only (see scope note above) -- logged,
+      // not used to skip the fetch.
       if (etagExpireTime && new Date() > etagExpireTime) {
         logInfo("registry.etag_expired", { expiredAt: etagExpireTime.toISOString() });
-        etag = null; // Clear stale ETag
         etagExpireTime = null;
       }
 
-      const response = await adapterClient.request(guildId, {
-        method: "GET",
-        path: "/api/integrations/discord/catalog",
-        headers: etag ? { "If-None-Match": etag } : {}
-      });
+      const newRegistry = await adapterClient.discordCatalog(actor, guildId);
 
-      if (response.status === 304) {
-        // Not modified - refresh ETag expiry
-        etagExpireTime = new Date(Date.now() + ETAG_TTL_MS);
-        logInfo("registry.refresh_not_modified", {
-          etag,
-          expiresAt: etagExpireTime.toISOString(),
-          timestamp: new Date().toISOString()
-        });
-        return cachedRegistry;
-      }
-
-      // HIGH-2 FIX: Handle 412 Precondition Failed (stale ETag)
-      if (response.status === 412) {
-        logInfo("registry.etag_invalid", { 
-          stalEtag: etag,
-          timestamp: new Date().toISOString()
-        });
-        etag = null;
-        etagExpireTime = null;
-        throw new Error("ETag validation failed. Retry sync-commands to fetch fresh registry.");
-      }
-
-      if (response.status !== 200) {
-        throw new Error(`Core returned ${response.status}`);
-      }
-
-      const newRegistry = response.data;
-      
-      // SEC-1 FIX: Verify Core's response signature before trusting it
-      if (response.headers?.["x-registry-signature"]) {
-        const registryJson = JSON.stringify(newRegistry);
-        verifyRegistrySignature(registryJson, response.headers["x-registry-signature"]);
+      // SEC-1: Verify signature if Core provided one in the payload.
+      // Canonical (signature-excluded) form -- see canonicalRegistryJson().
+      if (newRegistry?.signature) {
+        verifyRegistrySignature(canonicalRegistryJson(newRegistry), newRegistry.signature);
       } else {
         logInfo("registry.refresh_no_signature", {
-          note: "Core did not provide X-Registry-Signature header. Proceeding without signature verification (MITM risk)."
+          note: "Core did not provide a signature. Proceeding without signature verification (MITM risk)."
         });
       }
-      
+
       // HIGH-3 FIX: Validate registry before caching
       validateRegistry(newRegistry);
 
-      // Update ETag if provided
-      if (response.headers?.etag) {
-        etag = response.headers.etag;
-        etagExpireTime = new Date(Date.now() + ETAG_TTL_MS);
-      }
-
       cachedRegistry = newRegistry;
       registryLoadTime = new Date();
+      etagExpireTime = new Date(Date.now() + ETAG_TTL_MS);
       registrySignature = newRegistry.signature || null;
 
       logInfo("registry.refreshed_from_core", {
         groups: newRegistry.groups?.length || 0,
         commands: newRegistry.groups?.reduce((sum, g) => sum + (g.subcommands?.length || 0), 0) || 0,
         version: newRegistry.version,
-        etag: etag || "none",
         etagExpiresAt: etagExpireTime?.toISOString() || "none",
         signatureVerified: !!registrySignature,
         timestamp: registryLoadTime.toISOString()
@@ -287,7 +316,10 @@ export async function refreshRegistryFromCore(adapterClient, guildId) {
 
       return newRegistry;
     } catch (error) {
-      logError("registry.refresh_failed", error);
+      // Surface Core's real HTTP status (if any) in the internal log
+      // without leaking it to the end user (see SEC-2 sanitization in
+      // commands.js's syncCommandsPayload()).
+      logError("registry.refresh_failed", error, { status: error?.status });
       throw new Error(`Failed to refresh registry from Core: ${error.message}`);
     } finally {
       // Clear the refresh lock
@@ -365,17 +397,30 @@ export function registryToDiscordFormat(registry) {
 }
 
 /**
- * Get registry metadata (load time, ETag, signature verification, etc.)
+ * Get registry metadata (load time, staleness window, signature verification, etc.)
  */
 export function getRegistryMetadata() {
   return {
     loadTime: registryLoadTime,
     version: cachedRegistry?.version,
     groups: cachedRegistry?.groups?.length || 0,
-    etag,
     etagExpiresAt: etagExpireTime?.toISOString(),
     signatureVerified: !!registrySignature,
     commandCount: cachedRegistry?.groups?.reduce((sum, g) => sum + (g.subcommands?.length || 0), 0) || 0
   };
+}
+
+/**
+ * Test-only: reset all module-level state.
+ * Not used by production code paths -- exists solely so
+ * test/registryLoader.test.js can start each test from a clean slate
+ * instead of leaking cache/lock state across tests in the same process.
+ */
+export function __resetForTests() {
+  cachedRegistry = null;
+  registryLoadTime = null;
+  etagExpireTime = null;
+  refreshInProgress = null;
+  registrySignature = null;
 }
 
