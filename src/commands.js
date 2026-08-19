@@ -949,12 +949,21 @@ async function syncCommandsPayload(adapterClient, actor, guildId) {
       afterVersion: afterMeta.version
     });
     
+    // SEC-2 FIX: Sanitize response - never expose guildId or internal details
     return {
       ok: true,
       action: "sync-commands",
       message: "Command registry refreshed from Core",
-      before: beforeMeta,
-      after: afterMeta,
+      before: {
+        version: beforeMeta.version,
+        groups: beforeMeta.groups,
+        commandCount: beforeMeta.commandCount
+      },
+      after: {
+        version: afterMeta.version,
+        groups: afterMeta.groups,
+        commandCount: afterMeta.commandCount
+      },
       timestamp: new Date().toISOString(),
       note: "Phase 3: Runtime registry loading. Bot will use updated commands on next invocation."
     };
@@ -962,10 +971,27 @@ async function syncCommandsPayload(adapterClient, actor, guildId) {
     // MEDIUM-2 FIX: Use logError instead of returning error silently
     logError("sync_commands.failed", error, { guildId });
     
+    // SEC-2 FIX: Sanitize error message - map specific errors to generic user messages
+    let userMessage = "Failed to refresh command registry. Check Core status and try again.";
+    
+    if (error.message.includes("ENOENT") || error.message.includes("not found")) {
+      userMessage = "Core endpoint not found. Check console configuration.";
+    } else if (error.message.includes("401") || error.message.includes("unauthorized")) {
+      userMessage = "Authentication failed. Check adapter configuration.";
+    } else if (error.message.includes("403") || error.message.includes("forbidden")) {
+      userMessage = "Permission denied. Check Core admin settings.";
+    } else if (error.message.includes("500") || error.message.includes("server error")) {
+      userMessage = "Core encountered an error. Try again in a few minutes.";
+    } else if (error.message.includes("timeout")) {
+      userMessage = "Request timed out. Core may be unresponsive.";
+    } else if (error.message.includes("signature")) {
+      userMessage = "Registry verification failed. Possible tampering detected.";
+    }
+    
     return {
       ok: false,
-      error: `Failed to sync commands: ${error.message}`,
-      hint: "Is Core running? Check that /api/integrations/discord/catalog is accessible.",
+      error: userMessage,
+      hint: "Run /dune core help for more information.",
       timestamp: new Date().toISOString()
     };
   }

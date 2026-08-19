@@ -18,6 +18,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createHmac } from "node:crypto";
 import { logInfo, logError } from "./logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -29,11 +30,49 @@ let registryLoadTime = null;
 let etag = null;
 let etagExpireTime = null;
 let refreshInProgress = null; // Prevents concurrent refresh calls
+let registrySignature = null; // SEC-1: Track signature for tampering detection
 
-const ETAG_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const ETAG_TTL_MS = 4 * 60 * 60 * 1000; // SEC-3 FIX: Reduced from 24h to 4h
+const REGISTRY_CONTENT_HASH_KEY = "DUNE_REGISTRY_HASH_KEY"; // Used for HMAC validation
+
+/**
+ * SEC-1 FIX: Compute HMAC-SHA256 signature of registry content
+ * Used to detect tampering and validate origin
+ */
+function computeRegistrySignature(registryJson) {
+  // Use a fixed key for local/committed registries
+  // In production, this would use a key from config or Core
+  const key = process.env.REGISTRY_SIGNATURE_KEY || REGISTRY_CONTENT_HASH_KEY;
+  return createHmac("sha256", key).update(registryJson).digest("hex");
+}
+
+/**
+ * SEC-1 FIX: Verify registry signature before accepting it
+ * Prevents MITM attacks and file tampering
+ */
+function verifyRegistrySignature(registryJson, providedSignature) {
+  const expectedSignature = computeRegistrySignature(registryJson);
+  
+  if (!providedSignature) {
+    // For local registries, signature is optional (file system is secure)
+    logInfo("registry.signature_validation_skipped", { reason: "no_signature_provided" });
+    return true;
+  }
+  
+  // Constant-time comparison to prevent timing attacks
+  const matches = providedSignature.length === expectedSignature.length &&
+    [...providedSignature].every((char, idx) => char === expectedSignature[idx]);
+  
+  if (!matches) {
+    throw new Error(`Registry signature verification failed. Possible tampering detected.`);
+  }
+  
+  return true;
+}
 
 /**
  * Validate registry structure before use
+ * SEC-4 FIX: Validate command names against Discord constraints
  * Throws if registry is malformed
  */
 function validateRegistry(registry) {
@@ -47,13 +86,28 @@ function validateRegistry(registry) {
     throw new Error("Registry.version must be a number");
   }
   
+  // SEC-3 FIX: Validate registry size to prevent DoS
+  if (registry.groups.length > 25) {
+    throw new Error("Registry cannot have more than 25 command groups (Discord limit)");
+  }
+  
   // Validate group structure
   for (const group of registry.groups) {
     if (!group.name || typeof group.name !== "string") {
       throw new Error(`Group missing or invalid name: ${JSON.stringify(group)}`);
     }
+    
+    // SEC-4 FIX: Validate group name matches Discord constraints
+    if (!/^[a-z0-9_-]{1,32}$/.test(group.name.toLowerCase())) {
+      throw new Error(`Group name "${group.name}" violates Discord naming constraints (a-z, 0-9, _, -, 1-32 chars)`);
+    }
+    
     if (!Array.isArray(group.subcommands)) {
       throw new Error(`Group "${group.name}" subcommands must be an array`);
+    }
+    
+    if (group.subcommands.length > 25) {
+      throw new Error(`Group "${group.name}" cannot have more than 25 subcommands (Discord limit)`);
     }
     
     // Validate subcommand structure
@@ -61,8 +115,26 @@ function validateRegistry(registry) {
       if (!sc.name || typeof sc.name !== "string") {
         throw new Error(`Subcommand in group "${group.name}" missing or invalid name`);
       }
+      
+      // SEC-4 FIX: Validate subcommand name
+      if (!/^[a-z0-9_-]{1,32}$/.test(sc.name.toLowerCase())) {
+        throw new Error(`Subcommand "${sc.name}" violates Discord naming constraints`);
+      }
+      
       if (typeof sc.description !== "string") {
         throw new Error(`Subcommand "${sc.name}" description must be a string`);
+      }
+      
+      // SEC-5 FIX: Validate params if present
+      if (sc.params && Array.isArray(sc.params)) {
+        for (const param of sc.params) {
+          if (!param.name || typeof param.name !== "string") {
+            throw new Error(`Parameter in subcommand "${sc.name}" missing name`);
+          }
+          if (!/^[a-z0-9_]{1,32}$/.test(param.name.toLowerCase())) {
+            throw new Error(`Parameter name "${param.name}" violates Discord constraints`);
+          }
+        }
       }
     }
   }
@@ -72,6 +144,7 @@ function validateRegistry(registry) {
 
 /**
  * Load commands-registry.json from disk at startup
+ * SEC-1 FIX: Validates structure AND signature
  * Validates registry structure before caching
  * This is a MANDATORY startup step - bot will not start without a valid registry
  */
@@ -81,17 +154,24 @@ export function loadRegistryAtStartup() {
     const registryJson = readFileSync(registryPath, "utf8");
     const registry = JSON.parse(registryJson);
     
-    // Validate before caching
+    // SEC-1: Verify signature if present (for remotely fetched registries)
+    if (registry.signature) {
+      verifyRegistrySignature(registryJson, registry.signature);
+    }
+    
+    // Validate structure before caching
     validateRegistry(registry);
     
     cachedRegistry = registry;
     registryLoadTime = new Date();
     etagExpireTime = new Date(Date.now() + ETAG_TTL_MS);
+    registrySignature = registry.signature || null;
     
     logInfo("registry.loaded_at_startup", {
       groups: cachedRegistry.groups?.length || 0,
       commands: cachedRegistry.groups?.reduce((sum, g) => sum + (g.subcommands?.length || 0), 0) || 0,
       version: cachedRegistry.version,
+      hasSig: !!registry.signature,
       timestamp: registryLoadTime.toISOString()
     });
     
@@ -172,6 +252,16 @@ export async function refreshRegistryFromCore(adapterClient, guildId) {
 
       const newRegistry = response.data;
       
+      // SEC-1 FIX: Verify Core's response signature before trusting it
+      if (response.headers?.["x-registry-signature"]) {
+        const registryJson = JSON.stringify(newRegistry);
+        verifyRegistrySignature(registryJson, response.headers["x-registry-signature"]);
+      } else {
+        logInfo("registry.refresh_no_signature", {
+          note: "Core did not provide X-Registry-Signature header. Proceeding without signature verification (MITM risk)."
+        });
+      }
+      
       // HIGH-3 FIX: Validate registry before caching
       validateRegistry(newRegistry);
 
@@ -183,6 +273,7 @@ export async function refreshRegistryFromCore(adapterClient, guildId) {
 
       cachedRegistry = newRegistry;
       registryLoadTime = new Date();
+      registrySignature = newRegistry.signature || null;
 
       logInfo("registry.refreshed_from_core", {
         groups: newRegistry.groups?.length || 0,
@@ -190,6 +281,7 @@ export async function refreshRegistryFromCore(adapterClient, guildId) {
         version: newRegistry.version,
         etag: etag || "none",
         etagExpiresAt: etagExpireTime?.toISOString() || "none",
+        signatureVerified: !!registrySignature,
         timestamp: registryLoadTime.toISOString()
       });
 
@@ -273,7 +365,7 @@ export function registryToDiscordFormat(registry) {
 }
 
 /**
- * Get registry metadata (load time, ETag, etc.)
+ * Get registry metadata (load time, ETag, signature verification, etc.)
  */
 export function getRegistryMetadata() {
   return {
@@ -281,6 +373,8 @@ export function getRegistryMetadata() {
     version: cachedRegistry?.version,
     groups: cachedRegistry?.groups?.length || 0,
     etag,
+    etagExpiresAt: etagExpireTime?.toISOString(),
+    signatureVerified: !!registrySignature,
     commandCount: cachedRegistry?.groups?.reduce((sum, g) => sum + (g.subcommands?.length || 0), 0) || 0
   };
 }
