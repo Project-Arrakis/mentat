@@ -7,6 +7,7 @@ const pkgVersion = JSON.parse(readFileSync(join(__dirname, "..", "package.json")
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload, redactSecrets } from "./format.js";
+import { getRegistryFromCache, registryToDiscordFormat } from "./registryLoader.js";
 import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed , formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { sendStatusCard, sendOpsCard } from "./statusCard.js";
@@ -130,6 +131,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
     // ── admin group ──
     .addSubcommandGroup((g) => g.setName("admin").setDescription("Admin-only diagnostics and management.")
       .addSubcommand((c) => c.setName("doctor").setDescription("Comprehensive system diagnostic across all subsystems."))
+      .addSubcommand((c) => c.setName("sync-commands").setDescription("Phase 3: Refresh command registry from Core's catalog (operator)."))
       .addSubcommand((c) => c.setName("cooldowns").setDescription("Show active command cooldowns."))
       .addSubcommand((c) => c.setName("latency").setDescription("Show adapter request latency history."))
       .addSubcommand((c) => c.setName("events").setDescription("Show recent server incidents and events."))
@@ -443,6 +445,10 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     else if (key === "admin:doctor") {
       if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Doctor diagnostic requires admin or owner role.");
       payload = await doctorPayload(adapterClient, actor, config, guildId);
+    } else if (key === "admin:sync-commands") {
+      if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Sync-commands requires admin or owner role.");
+      // Phase 3: Refresh command registry from Core
+      payload = await syncCommandsPayload(adapterClient, actor, guildId);
     } else if (key === "admin:cooldowns") {
       if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Cooldowns viewer requires admin or owner role.");
       payload = cooldownStats();
@@ -918,117 +924,58 @@ async function fetchPrometheusAlerts(adapterClient, actor, guildId) {
   }
 }
 
+/**
+ * Phase 3: Sync command registry from Core's catalog endpoint
+ * Operator command to refresh the command registry without restarting the bot.
+ * Uses ETag-based conditional requests if Core supports them.
+ */
+async function syncCommandsPayload(adapterClient, actor, guildId) {
+  try {
+    const { refreshRegistryFromCore, getRegistryMetadata } = await import("./registryLoader.js");
+    
+    const beforeMeta = getRegistryMetadata();
+    
+    // Attempt refresh from Core
+    await refreshRegistryFromCore(adapterClient, guildId);
+    
+    const afterMeta = getRegistryMetadata();
+    
+    return {
+      ok: true,
+      action: "sync-commands",
+      message: "Command registry refreshed from Core",
+      before: beforeMeta,
+      after: afterMeta,
+      timestamp: new Date().toISOString(),
+      note: "Phase 3: Runtime registry loading. Bot will use updated commands on next invocation."
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to sync commands: ${error.message}`,
+      hint: "Is Core running? Check that /api/integrations/discord/catalog is accessible.",
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
 export function requiredRoleIdsForCommand(command, rbac) { return rbac?.commandRoleIds?.[command] || []; }
 
 // Public command registry for landing page and docs auto-generation.
 // Returns command groups with display titles, names, descriptions, and roles.
 // This is the single source of truth — the landing page fetches from GET /api/commands
-// so the command reference can never drift from the actual bot implementation.
+// Phase 3: Load registry from generated artifact (Phase 2)
+// Instead of hardcoding commands here, read from src/commands-registry.json
+// which is generated by scripts/generate-command-registry.js and kept in sync
+// with Core's catalog via the /dune admin sync-commands operator command.
 export function getCommandRegistry() {
-  // Import ops descriptions dynamically to avoid circular dependency
-  return [
-    {
-      group: "server",
-      title: "Sietch Watch — Server Health",
-      commands: [
-        { name: "health", desc: "Check the console Discord adapter", role: "observer" },
-        { name: "status", desc: "Show high-level server status", role: "observer" },
-        { name: "summary", desc: "Show compact aggregate server status", role: "observer" },
-        { name: "readiness", desc: "Show readiness and preflight state", role: "observer" },
-        { name: "readiness-detail", desc: "Show grouped readiness detail with issues", role: "observer" },
-        { name: "services", desc: "Show service container state", role: "observer" },
-        { name: "services-detail", desc: "Show detailed service state with logs", role: "observer" },
-        { name: "maintenance", desc: "Show maintenance mode status", role: "admin" }
-      ]
-    },
-    {
-      group: "player",
-      title: "The Personal Ledger — Player Tools",
-      commands: [
-        { name: "link <name>", desc: "Link Discord to your in-game character", role: "observer" },
-        { name: "verify <code>", desc: "Verify a pending character link with a code", role: "observer" },
-        { name: "characters", desc: "List your verified characters", role: "observer" },
-        { name: "enable", desc: "Enable a character in this guild", role: "observer" },
-        { name: "disable", desc: "Disable a character in this guild", role: "observer" },
-        { name: "default", desc: "Set your default character for this guild", role: "observer" },
-        { name: "unlink <id>", desc: "Unlink a character from your Discord", role: "observer" },
-        { name: "faction <name>", desc: "Set your faction for themed embeds", role: "observer" },
-        { name: "whoami", desc: "Show your linked game character info", role: "observer" },
-        { name: "inventory", desc: "View your personal inventory", role: "observer" },
-        { name: "storage", desc: "View your storage containers grouped by map", role: "observer" },
-        { name: "find <item>", desc: "Search for items across your containers", role: "observer" }
-      ]
-    },
-    {
-      group: "ops",
-      title: "Deep Desert Intel — Operations",
-      commands: [
-        { name: "activity", desc: "Player activity statistics", role: "observer" },
-        { name: "combat", desc: "Combat and death statistics", role: "observer" },
-        { name: "resources", desc: "Resource field data (spice, water, minerals)", role: "observer" },
-        { name: "economy", desc: "Currency, trading, and tax data", role: "observer" },
-        { name: "armory", desc: "Server-wide aggregate inventory stats", role: "observer" },
-        { name: "location", desc: "Show map location activity (markers, density)", role: "observer" },
-        { name: "prometheus", desc: "Container and infrastructure metrics", role: "observer" },
-        { name: "soc", desc: "Bridge health and request stats", role: "observer" },
-        { name: "dashboard", desc: "Aggregated operational summary", role: "observer" },
-        { name: "announcements", desc: "Show recent server announcements", role: "observer" },
-        { name: "alerts", desc: "Show active Prometheus alerts", role: "observer" }
-      ]
-    },
-    {
-      group: "data",
-      title: "Data Archives — Server Archives",
-      commands: [
-        { name: "population", desc: "Show server population statistics", role: "observer" },
-        { name: "backups", desc: "List recent database backups", role: "observer" },
-        { name: "maps", desc: "Show active map partitions", role: "observer" }
-      ]
-    },
-    {
-      group: "logs",
-      title: "Logs Explorer — Server Logs",
-      commands: [
-        { name: "dune-cache", desc: "View game cache service logs", role: "admin" },
-        { name: "dune-generated", desc: "View game generated logs", role: "admin" },
-        { name: "dune-server", desc: "View game server logs by name", role: "admin" },
-        { name: "dune-steam", desc: "View Steam integration logs", role: "admin" },
-        { name: "dune-work", desc: "View game work logs", role: "admin" },
-        { name: "orchestrator", desc: "View orchestrator service logs", role: "admin" },
-        { name: "console", desc: "View the console's own container logs", role: "admin" }
-      ]
-    },
-    {
-      group: "admin",
-      title: "Kanly Council — Admin",
-      commands: [
-        { name: "doctor", desc: "Full system diagnostic across all services", role: "admin" },
-        { name: "cooldowns", desc: "Show active command cooldowns", role: "admin" },
-        { name: "latency", desc: "Adapter request latency history", role: "admin" },
-        { name: "events", desc: "Recent server incidents and alerts", role: "admin" },
-        { name: "roles", desc: "Show configured Discord role mappings", role: "admin" },
-        { name: "broadcast <msg>", desc: "Send a message to all in-game players", role: "admin" }
-      ]
-    },
-    {
-      group: "infra",
-      title: "Foundation Stones — Infrastructure",
-      commands: [
-        { name: "version", desc: "Dune stack version", role: "observer" },
-        { name: "servers", desc: "List game servers", role: "observer" },
-        { name: "ports", desc: "Network port status", role: "observer" },
-        { name: "db", desc: "Database status and health", role: "observer" }
-      ]
-    },
-    {
-      group: "core",
-      title: "ACP Core — Core Commands",
-      commands: [
-        { name: "about", desc: "Bot version, security info, connection details", role: "observer" },
-        { name: "ping", desc: "Test Discord and adapter latency", role: "observer" },
-        { name: "help", desc: "List all commands you have permission to use", role: "observer" },
-        { name: "setup", desc: "How to add this bot to your own Discord server", role: "observer" }
-      ]
-    }
-  ];
+  try {
+    const registry = getRegistryFromCache();
+    return registry.groups || [];
+  } catch (error) {
+    // Fallback: if registry load fails, return empty (bot won't list commands)
+    // This prevents a boot failure if the artifact is missing.
+    console.error("Failed to get command registry from cache:", error.message);
+    return [];
+  }
 }

@@ -30,10 +30,19 @@ change notes under `docs/changes/`.
     metadata (L4), boundary conditions (L5)
   - Fully documented in `docs/rfc-command-discovery.md` Phase 2 section
   
-  **Phase 3 (future PR, not in scope):**
-  - buildDuneCommand() loads from commands-registry.json
-  - /dune admin sync-commands operator command
-  - Dynamic background refresh with ETags
+- **Phase 3: Runtime loading from generated registry** (#181, builds on Phase 2):
+  
+  **SCOPE: Load registry at startup, replace hardcoded command definitions, add sync operator command.**
+  
+  - New `src/registryLoader.js` — registry lifecycle management (load at startup, cache, refresh, ETags)
+  - Registry loaded from `src/commands-registry.json` at bot startup via `loadRegistryAtStartup()`
+  - In-memory caching with `getRegistryFromCache()` for fast access
+  - `getCommandRegistry()` in `src/commands.js` now uses cached registry instead of hardcoded definitions
+  - New operator command `/dune admin sync-commands` — refresh registry from Core's catalog endpoint without restart
+  - ETag support for conditional requests (`If-None-Match`) to minimize data transfer on refresh
+  - Registry format conversion via `registryToDiscordFormat()` for Discord slash command compatibility
+  - Registry metadata tracking (load time, version, command count, ETag)
+  - Graceful degradation: if registry fails to load, bot logs error but continues (allows `sync-commands` recovery)
 
 ### Fixed
 - Upstream compatibility pin refresh, `v1.3.79` -> `v1.3.87` (#172). Found

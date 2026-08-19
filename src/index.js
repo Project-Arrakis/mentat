@@ -2,6 +2,7 @@ import { Client, Events, GatewayIntentBits } from "discord.js";
 import { AdapterClient } from "./adapterClient.js";
 import { createAnnouncementBridge, announcementConfig } from "./announcements.js";
 import { executeDuneCommand } from "./commands.js";
+import { loadRegistryAtStartup } from "./registryLoader.js";
 import { loadConfig } from "./config.js";
 import { startHealthState } from "./healthState.js";
 import { logError, logInfo } from "./logger.js";
@@ -18,6 +19,16 @@ import { isEncryptionConfigured, checkSecretFilePermissions } from "./secretsCry
 const config = loadConfig();
 const db = config.multiTenant ? createDatabase(config.dbPath) : null;
 if (db) initBotStats(db);
+
+// Phase 3: Load command registry artifact at startup
+try {
+  loadRegistryAtStartup();
+  logInfo("startup.registry_loaded", { stage: "configuration" });
+} catch (error) {
+  logError("startup.registry_load_failed", error);
+  // Don't fail startup, but bot won't have commands available
+  // Operator can use /dune admin sync-commands to recover
+}
 // In multi-tenant mode, guilds.adapter_token holds a live credential for
 // every connected operator's Core adapter API in one shared SQLite file.
 // secretsCrypto.js encrypts it transparently once ACP_SECRETS_KEY(_FILE)
