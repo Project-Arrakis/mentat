@@ -1,9 +1,10 @@
 ---
 name: Feature Request
 about: Propose a new bot command or feature
-title: "feat: "
-labels: ["enhancement"]
-assignees: []
+title: 'feat: '
+labels: enhancement
+assignees: ''
+
 ---
 
 ## Command

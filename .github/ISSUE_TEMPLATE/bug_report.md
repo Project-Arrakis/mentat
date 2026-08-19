@@ -1,9 +1,10 @@
 ---
 name: Bug Report
 about: Report a bug in the Dune Discord Bot
-title: "bug: "
-labels: ["bug"]
-assignees: []
+title: 'bug: '
+labels: bug, enhancement
+assignees: ''
+
 ---
 
 ## Command
