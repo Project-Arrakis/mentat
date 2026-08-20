@@ -1,0 +1,85 @@
+name: ACP Issue Bridge — Maintenance (private)
+
+# Responsibility (spec section 55/61/75): keep the private label taxonomy
+# bootstrapped, publish this repo's config checksum, and verify it matches
+# the public repo's published checksum (drift detection without needing
+# `contents:read` on the other repository — see
+# docs/issue-bridge/synchronization-policy.md).
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 * * *" # daily
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/acp-issue-bridge.yml"
+      - ".github/scripts/issue-bridge/**"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  bootstrap-and-check:
+    name: bootstrap-and-check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      - name: Bootstrap private labels (own repo, native token)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .github/scripts/issue-bridge/maintenance-bootstrap-labels.mjs private
+
+      - name: Publish this repo's config checksum (own repo, native token)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .github/scripts/issue-bridge/maintenance-config-drift.mjs publish
+
+      # The GitHub App does not exist yet as of this implementation (see
+      # docs/issue-bridge/github-app.md — creating a GitHub App cannot be
+      # done headlessly, it is a documented one-time manual operator step).
+      # Until ACP_ISSUE_BRIDGE_APP_ID is set, the cross-repo drift check
+      # below is SKIPPED rather than hard-failing this job. This is
+      # deliberately different from the bridge's own fail-closed
+      # publication rule (spec section 2): failing this maintenance job
+      # would leave `main` red indefinitely for a known, documented,
+      # pending setup step, which this account's Requirement 1 treats as
+      # everyone's problem to fix, not something to leave failing "on
+      # purpose." Skipping a diagnostic check is safe; the bridge's actual
+      # publication logic (private-comment-created.mjs) has its own,
+      # separate fail-closed token check and is NOT affected by this.
+      - name: Check whether the GitHub App is configured yet
+        id: app-configured
+        run: |
+          if [ -n "${{ secrets.ACP_ISSUE_BRIDGE_APP_ID }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::ACP_ISSUE_BRIDGE_APP_ID is not set yet — skipping the cross-repo config-drift check. See docs/issue-bridge/github-app.md for the one-time setup step. This does not affect the bridge's own publication logic, which has an independent fail-closed check."
+          fi
+
+      - name: Mint ACP Issue Bridge installation token
+        id: bridge-token
+        if: steps.app-configured.outputs.configured == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.ACP_ISSUE_BRIDGE_APP_ID }}
+          private-key: ${{ secrets.ACP_ISSUE_BRIDGE_PRIVATE_KEY }}
+          repositories: |
+            arrakis-control-panel
+            acp-discordbot
+          permission-issues: write
+          permission-metadata: read
+
+      - name: Check config drift against the public repo (App token, issues:read only)
+        if: steps.app-configured.outputs.configured == 'true'
+        env:
+          ACP_BRIDGE_TOKEN: ${{ steps.bridge-token.outputs.token }}
+        run: node .github/scripts/issue-bridge/maintenance-config-drift.mjs check

@@ -346,6 +346,23 @@ change notes under `docs/changes/`.
   showing a dead placeholder link.
 
 ### Added
+- **ACP Issue Bridge** (#184) — fail-closed synchronization between the
+  public community repository (`yacketrj/acp-discordbot`) and this
+  engineering repository. Public issues/comments/edits/closes/reopens/
+  allowlisted-labels mirror inward automatically; private engineering
+  activity only ever crosses outward through an explicit, authorized
+  `/public`, `/public-status`, or `/public-resolution` command, gated by
+  a permission matrix, a security-sensitive lockdown with two-step
+  recovery, and an outbound secret/private-URL scanner. See
+  `docs/issue-bridge/` for the full architecture, STRIDE threat model,
+  command reference, and administration guide, and the implementation
+  report on issue #184 for test evidence and a live smoke-test
+  transcript against the real repositories. 240 automated tests
+  (188 unit, 52 integration/security), 0 semgrep/gitleaks findings.
+  GitHub App creation is a documented, one-time manual operator step
+  (`docs/issue-bridge/github-app.md`) — GitHub Apps cannot be created
+  headlessly; everything else is fully implemented and fails closed
+  until the App exists.
 - `tests/no-personal-identifiers.sh` — this repo had no guard against
   committing real personal infrastructure identifiers (the real OCI VPS
   IP had been sitting in git history with nothing to catch it). Ported
