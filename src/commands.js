@@ -7,7 +7,9 @@ const pkgVersion = JSON.parse(readFileSync(join(__dirname, "..", "package.json")
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload, redactSecrets } from "./format.js";
-import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed , formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed } from "./embedFormat.js";
+import { logInfo, logError } from "./logger.js";
+import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegistryMetadata } from "./registryLoader.js";
+import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed , formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
@@ -130,10 +132,11 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
     // ── admin group ──
     .addSubcommandGroup((g) => g.setName("admin").setDescription("Admin-only diagnostics and management.")
       .addSubcommand((c) => c.setName("doctor").setDescription("Comprehensive system diagnostic across all subsystems."))
+      .addSubcommand((c) => c.setName("sync-commands").setDescription("Check Core's command catalog for drift against the bot's registry."))
       .addSubcommand((c) => c.setName("cooldowns").setDescription("Show active command cooldowns."))
       .addSubcommand((c) => c.setName("latency").setDescription("Show adapter request latency history."))
       .addSubcommand((c) => c.setName("events").setDescription("Show recent server incidents and events."))
-      .addSubcommand((c) => c.setName("roles").setDescription("Show configured admin/observer roles, with current Discord role names."))
+      .addSubcommand((c) => c.setName("roles").setDescription("Show configured admin/player roles, with current Discord role names."))
       .addSubcommand((c) => c.setName("broadcast").setDescription("Send a message to all in-game players (moderator+).")
         .addStringOption((o) => o.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500))))
 
@@ -185,17 +188,55 @@ export function commandDefinitions({ includeWriteGroup = false } = {}) {
   return [buildDuneCommand({ includeWriteGroup }).toJSON()];
 }
 
+// #211: single definition (was duplicated inline at two dispatch sites).
+const OPS_EMBEDS = { alerts: formatAlertsEmbed, activity: formatActivityEmbed, combat: formatCombatEmbed, resources: formatResourcesEmbed, economy: formatEconomyEmbed, armory: formatOpsInventoryEmbed, location: formatLocationEmbed, soc: formatSocEmbed, prometheus: formatPrometheusEmbed, dashboard: formatDashboardEmbed, announcements: formatAnnouncementsEmbed };
+
+// #213: one shared source for the setup-portal URL (mirrors onboarding.js).
+function setupPortalUrl(guildId = "") {
+  const base = process.env.ACP_SETUP_URL || process.env.ACP_BASE_URL || "http://localhost:3100";
+  return `${base}/setup${guildId ? `?guildId=${guildId}` : ""}`;
+}
+
 export async function executeDuneCommand(interaction, adapterClient, config, db = null) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== "dune") return false;
   let embed;
+  // #219: dispatch selects a formatter, never a built embed — embeds are
+  // built AFTER redactSecrets(payload) runs below.
+  let chosenFormatter = null;
 
   const group = interaction.options.getSubcommandGroup() || "";
   const subcommand = interaction.options.getSubcommand();
   const key = group ? `${group}:${subcommand}` : subcommand;
   const guildId = interaction.guildId;
 
+  // #213/U4: an unconfigured multi-tenant guild used to be denied EVERY
+  // command — including /dune core setup, the exact command the
+  // onboarding DM names as the recovery path. Reply with the working
+  // path instead of a dead end.
+  if (config.multiTenant && db && guildId) {
+    const settings = getGuildSettings(db, guildId);
+    const mode = settings?.rbac_mode || "restricted";
+    if (mode !== "open" && getGuildRoles(db, guildId).length === 0) {
+      await interaction.reply({
+        content: [
+          "⚙️ **This server isn't connected to Arrakis Control Panel yet** (no role tiers are configured).",
+          `Finish setup here: ${setupPortalUrl(guildId)}`,
+          "You'll need your console URL, the adapter token, and at least one Discord role mapped to a tier (Player/Moderator/Admin/Owner).",
+          "Once configured, run `/dune core help` to see available commands."
+        ].join("\n"),
+        ephemeral: true
+      });
+      return true;
+    }
+  }
+
   if (!isCommandAllowed(interaction, key, config, db, guildId)) {
-    await interaction.reply({ content: "You are not authorized to use this command.", ephemeral: true });
+    // #213/U8: name the fix, don't dead-end — the user's next step is a
+    // role grant, and only a server admin can do it.
+    await interaction.reply({
+      content: "🔒 You are not authorized to use this command. Access requires one of this server's configured ACP role tiers (Player, Moderator, Admin, or Owner) — ask a server admin to assign you one of the mapped Discord roles.",
+      ephemeral: true
+    });
     return true;
   }
 
@@ -421,34 +462,44 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     }
     // ── ops group ──
     else if (OPS_SUBCOMMAND_NAMES.includes(subcommand)) {
-      // Special: ops alerts queries Prometheus directly, not through Core
+      // #211/U2: `alerts` queries Prometheus directly, not through Core —
+      // it must NOT fall through into the generic ops dispatch below,
+      // which resolved a nonexistent adapterClient.opsAlerts() and
+      // replied with a raw "is not a function" error (discarding the
+      // correct embed and double-applying the cooldown).
       if (subcommand === "alerts") {
         payload = await fetchPrometheusAlerts(adapterClient, actor, guildId);
-        const embeds = { activity: formatActivityEmbed, combat: formatCombatEmbed, resources: formatResourcesEmbed, economy: formatEconomyEmbed, armory: formatOpsInventoryEmbed, location: formatLocationEmbed, soc: formatSocEmbed, prometheus: formatPrometheusEmbed, dashboard: formatDashboardEmbed, announcements: formatAnnouncementsEmbed };
-        embed = (embeds[subcommand] || formatGenericEmbed)(payload);
-        applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
-      }
-      const route = opsRouteFor(subcommand);
-      if (route) {
-        const methodName = route.replace(/-(\w)/g, (_, c) => c.toUpperCase());
-        payload = formatOpsPayload(subcommand, await adapterClient[methodName](actor, guildId));
-        const embeds = { activity: formatActivityEmbed, combat: formatCombatEmbed, resources: formatResourcesEmbed, economy: formatEconomyEmbed, armory: formatOpsInventoryEmbed, location: formatLocationEmbed, soc: formatSocEmbed, prometheus: formatPrometheusEmbed, dashboard: formatDashboardEmbed, announcements: formatAnnouncementsEmbed };
-        embed = (embeds[subcommand] || formatGenericEmbed)(payload);
-        applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
+        chosenFormatter = (p) => (OPS_EMBEDS[subcommand] || formatGenericEmbed)(p, `ops ${subcommand}`);
       } else {
-        payload = { ok: false, error: `Unknown OPS command: ${subcommand}` };
+        const route = opsRouteFor(subcommand);
+        if (route) {
+          const methodName = route.replace(/-(\w)/g, (_, c) => c.toUpperCase());
+          payload = formatOpsPayload(subcommand, await adapterClient[methodName](actor, guildId));
+          chosenFormatter = (p) => (OPS_EMBEDS[subcommand] || formatGenericEmbed)(p, `ops ${subcommand}`);
+        } else {
+          payload = { ok: false, error: `Unknown OPS command: ${subcommand}` };
+        }
       }
     }
     // ── admin group ──
     else if (key === "admin:doctor") {
       if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Doctor diagnostic requires admin or owner role.");
       payload = await doctorPayload(adapterClient, actor, config, guildId);
+    } else if (key === "admin:sync-commands") {
+      if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Sync-commands requires admin or owner role.");
+      // Phase 3: Refresh command registry from Core
+      payload = await syncCommandsPayload(adapterClient, actor, guildId);
     } else if (key === "admin:cooldowns") {
       if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Cooldowns viewer requires admin or owner role.");
       payload = cooldownStats();
     } else if (key === "admin:latency") {
+      // #216: documented admin-only everywhere, but the gate was missing —
+      // lower tiers could read admin diagnostics.
+      if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Latency history requires admin or owner role.");
       payload = getLatencyHistory();
     } else if (key === "admin:events") {
+      // #216: same missing gate as admin:latency.
+      if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Incident log requires admin or owner role.");
       payload = getIncidentHistory();
     } else if (key === "admin:roles") {
       if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Role viewer requires admin or owner role.");
@@ -465,7 +516,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     // ── infra group ──
     else if (key === "infra:version") {
       payload = await adapterClient.version(actor, guildId);
-        embed = formatVersionEmbed(payload);
+      chosenFormatter = formatVersionEmbed;
     } else if (key === "infra:servers") {
       payload = await adapterClient.servers(actor, guildId);
     } else if (key === "infra:ports") {
@@ -495,7 +546,15 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     payload = redactSecrets(payload);
 
     // ── Embed selection ──
-    if (subcommand === "about") {
+    // #210: guarded on !embed — branches above (ops group, infra:version)
+    // pick their dedicated formatter at dispatch time, and the final
+    // `else` here used to unconditionally OVERWRITE those with the
+    // generic debug-dump formatter, leaving every dedicated ops/version
+    // embed computed and then discarded.
+    if (chosenFormatter) {
+      // #219: built HERE, from the redacted payload — never at dispatch.
+      embed = chosenFormatter(payload);
+    } else if (subcommand === "about") {
       embed = formatGenericEmbed(payload, "about");
     } else if (subcommand === "setup") {
       embed = formatSetupEmbed(payload);
@@ -511,8 +570,16 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = diagnostic ? formatReadinessDetailEmbed(payload) : formatGenericEmbed(payload, "readiness");
     } else if (subcommand === "readiness-detail") {
       embed = formatReadinessDetailEmbed(payload);
+    } else if (subcommand === "help") {
+      // #210/U1: the flagship discovery surface — the generic formatter
+      // sliced its arrays to 5 items, hiding ~90% of the command surface.
+      embed = formatHelpEmbed(payload);
+    } else if (subcommand === "sync-commands") {
+      embed = formatSyncCommandsEmbed(payload);
+    } else if (subcommand === "roles") {
+      embed = formatRolesEmbed(payload);
     } else if (subcommand === "services") {
-      embed = formatGenericEmbed(payload, "services");
+      embed = formatServicesSummaryEmbed(payload);
     } else if (subcommand === "services-detail") {
       embed = formatServicesDetailEmbed(payload);
     } else if (subcommand === "maintenance") {
@@ -538,7 +605,9 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     } else if (subcommand === "find") {
       embed = formatFindEmbed(payload);
     } else if (group === "logs") {
-      embed = formatGenericEmbed(payload, `logs:${subcommand}`);
+      // #210/T2/P3: code-block log rendering with a real line budget,
+      // instead of 5 bold-mangled lines from the generic formatter.
+      embed = formatLogsEmbed(payload, subcommand);
     } else if (subcommand === "doctor") {
       embed = formatDoctorEmbed(payload);
     } else if (subcommand === "cooldowns") {
@@ -723,9 +792,11 @@ export async function pingPayload(adapterClient, actor, deferReplyMs = 0, guildI
   };
 }
 
+// #221/F6: missing values stay null (fmt() renders "— None —") instead of
+// the truthy string "unknown" bolded inside a green embed.
 export function statusSummaryPayload(status) {
   const s = status?.result || {};
-  return { ok: status?.ok === true, overall: s.overall || "UNKNOWN", region: s.region || "unknown", mode: s.mode || "unknown", population: s.population || "unknown", automation: { autoscaler: s.automation?.autoscaler || "unknown", autoUpdates: s.automation?.autoUpdates || "unknown" } };
+  return { ok: status?.ok === true, overall: s.overall || "UNKNOWN", region: s.region ?? null, mode: s.mode ?? null, population: s.population ?? null, automation: { autoscaler: s.automation?.autoscaler ?? null, autoUpdates: s.automation?.autoUpdates ?? null } };
 }
 
 export function aboutPayload(config) {
@@ -738,7 +809,9 @@ export function aboutPayload(config) {
   return { ok: true, bot: { name: "arrakis-control-panel", version: pkgVersion, readOnly: false, writesEnabled: writesEnabled(config) }, adapter: { origin: new URL(config.adapter.baseUrl).origin, timeoutMs: config.adapter.timeoutMs }, discord: { rbacMode: config.discord.rbac.mode, defaultEphemeral: config.discord.defaultEphemeral }, boundary: { dockerSocket: false, databaseDirect: false, gameFiles: false, shellCommands: false } };
 }
 
-export function populationPayload(p) { const r = p?.result || {}; return { ok: p?.ok === true, online: r.onlinePlayers ?? "unknown", total: r.totalPlayers ?? "unknown", aggregate: r.aggregate ?? true, detailsSuppressed: r.detailsSuppressed ?? true }; }
+// #215/A7: missing counts stay null (not the truthy string "unknown",
+// which rendered a green "unknown players online" success embed).
+export function populationPayload(p) { const r = p?.result || {}; return { ok: p?.ok === true, online: r.onlinePlayers ?? null, total: r.totalPlayers ?? null, aggregate: r.aggregate ?? true, detailsSuppressed: r.detailsSuppressed ?? true }; }
 
 export function backupPayload(b) { const list = Array.isArray(b?.result?.backups) ? b.result.backups.slice(0, 10) : []; return { ok: b?.ok === true, count: list.length, backups: list.map(x => ({ name: x.name || "unknown", date: x.date || x.createdAt || "unknown", size: x.size || "unknown" })) }; }
 
@@ -748,7 +821,19 @@ function setupPayload(config, interaction) {
   const inviteUrl = clientId
     ? `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot%20applications.commands`
     : "*(Client ID not configured — ask the bot host for the invite link)*";
-  return { ok: true, clientId, guildId, inviteUrl };
+  // #213/A1: in multi-tenant mode the working setup path is the portal,
+  // and the onboarding DM's own recovery instruction is "run /dune core
+  // setup" — so this payload MUST carry the portal link (the old embed
+  // showed only single-tenant self-host instructions, a different
+  // deployment model entirely).
+  return {
+    ok: true,
+    clientId,
+    guildId,
+    inviteUrl,
+    multiTenant: config?.multiTenant === true,
+    setupUrl: config?.multiTenant ? setupPortalUrl(guildId) : ""
+  };
 }
 
 // FIXED 2026-08-06: this list previously contained only 32 entries and
@@ -778,55 +863,55 @@ const WRITE_HELP_ENTRIES = [
 export function helpPayload(config, interaction, db = null, guildId = null) {
   const all = [
     // ── core ──
-    { name: "core:about", desc: "Show safe bot and adapter metadata.", role: "observer" },
-    { name: "core:ping", desc: "Measure Discord and adapter latency.", role: "observer" },
-    { name: "core:help", desc: "Show available commands for your role.", role: "observer" },
-    { name: "core:setup", desc: "How to add this bot to your own Discord server.", role: "observer" },
+    { name: "core:about", desc: "Show safe bot and adapter metadata.", role: "player" },
+    { name: "core:ping", desc: "Measure Discord and adapter latency.", role: "player" },
+    { name: "core:help", desc: "Show available commands for your role.", role: "player" },
+    { name: "core:setup", desc: "How to add this bot to your own Discord server.", role: "player" },
     // ── server ──
-    { name: "server:health", desc: "Check the console Discord adapter.", role: "observer" },
-    { name: "server:status", desc: "Show high-level server status.", role: "observer" },
-    { name: "server:summary", desc: "Show compact aggregate server status.", role: "observer" },
-    { name: "server:readiness", desc: "Show readiness and preflight state.", role: "observer" },
-    { name: "server:readiness-detail", desc: "Show grouped readiness detail with issues.", role: "observer" },
-    { name: "server:services", desc: "Show service container state.", role: "observer" },
-    { name: "server:services-detail", desc: "Show detailed service state with logs.", role: "observer" },
-    { name: "server:maintenance", desc: "Show current maintenance note or window (read-only).", role: "observer" },
+    { name: "server:health", desc: "Check the console Discord adapter.", role: "player" },
+    { name: "server:status", desc: "Show high-level server status.", role: "player" },
+    { name: "server:summary", desc: "Show compact aggregate server status.", role: "player" },
+    { name: "server:readiness", desc: "Show readiness and preflight state.", role: "player" },
+    { name: "server:readiness-detail", desc: "Show grouped readiness detail with issues.", role: "player" },
+    { name: "server:services", desc: "Show service container state.", role: "player" },
+    { name: "server:services-detail", desc: "Show detailed service state with logs.", role: "player" },
+    { name: "server:maintenance", desc: "Show current maintenance note or window (read-only).", role: "player" },
     // ── data ──
-    { name: "data:population", desc: "Show aggregate player count.", role: "observer" },
-    { name: "data:backups", desc: "List recent backup metadata.", role: "observer" },
-    { name: "data:maps", desc: "Show active game maps.", role: "observer" },
+    { name: "data:population", desc: "Show aggregate player count.", role: "player" },
+    { name: "data:backups", desc: "List recent backup metadata.", role: "player" },
+    { name: "data:maps", desc: "Show active game maps.", role: "player" },
     // ── player ──
-    { name: "player:link", desc: "Link your Discord to your game character.", role: "observer" },
-    { name: "player:verify", desc: "Verify a pending character link with a code.", role: "observer" },
-    { name: "player:characters", desc: "List your verified characters.", role: "observer" },
-    { name: "player:enable", desc: "Enable a character in this guild.", role: "observer" },
-    { name: "player:disable", desc: "Disable a character in this guild.", role: "observer" },
-    { name: "player:default", desc: "Set your default character for this guild.", role: "observer" },
-    { name: "player:unlink", desc: "Unlink a character from your Discord.", role: "observer" },
-    { name: "player:faction", desc: "Set your faction for themed embeds.", role: "observer" },
-    { name: "player:whoami", desc: "Show your linked game character info.", role: "observer" },
-    { name: "player:inventory", desc: "View your personal inventory.", role: "observer" },
-    { name: "player:storage", desc: "View your storage containers grouped by map.", role: "observer" },
-    { name: "player:find", desc: "Search for items across your containers.", role: "observer" },
+    { name: "player:link", desc: "Link your Discord to your game character.", role: "player" },
+    { name: "player:verify", desc: "Verify a pending character link with a code.", role: "player" },
+    { name: "player:characters", desc: "List your verified characters.", role: "player" },
+    { name: "player:enable", desc: "Enable a character in this guild.", role: "player" },
+    { name: "player:disable", desc: "Disable a character in this guild.", role: "player" },
+    { name: "player:default", desc: "Set your default character for this guild.", role: "player" },
+    { name: "player:unlink", desc: "Unlink a character from your Discord.", role: "player" },
+    { name: "player:faction", desc: "Set your faction for themed embeds.", role: "player" },
+    { name: "player:whoami", desc: "Show your linked game character info.", role: "player" },
+    { name: "player:inventory", desc: "View your personal inventory.", role: "player" },
+    { name: "player:storage", desc: "View your storage containers grouped by map.", role: "player" },
+    { name: "player:find", desc: "Search for items across your containers.", role: "player" },
     // ── logs ──
-    { name: "logs:dune-cache", desc: "Show dune-cache container logs.", role: "observer" },
-    { name: "logs:dune-generated", desc: "Show dune-generated container logs.", role: "observer" },
-    { name: "logs:dune-server", desc: "Show dune-server container logs.", role: "observer" },
-    { name: "logs:dune-steam", desc: "Show dune-steam container logs.", role: "observer" },
-    { name: "logs:dune-work", desc: "Show dune-work container logs.", role: "observer" },
-    { name: "logs:orchestrator", desc: "Show orchestrator container logs.", role: "observer" },
-    { name: "logs:redblink-dune-docker-console", desc: "Show console adapter logs.", role: "observer" },
+    { name: "logs:dune-cache", desc: "Show dune-cache container logs.", role: "player" },
+    { name: "logs:dune-generated", desc: "Show dune-generated container logs.", role: "player" },
+    { name: "logs:dune-server", desc: "Show dune-server container logs.", role: "player" },
+    { name: "logs:dune-steam", desc: "Show dune-steam container logs.", role: "player" },
+    { name: "logs:dune-work", desc: "Show dune-work container logs.", role: "player" },
+    { name: "logs:orchestrator", desc: "Show orchestrator container logs.", role: "player" },
+    { name: "logs:redblink-dune-docker-console", desc: "Show console adapter logs.", role: "player" },
     // ── ops ──
-    { name: "ops:activity", desc: opsDescriptionFor("activity"), role: "observer" },
-    { name: "ops:combat", desc: opsDescriptionFor("combat"), role: "observer" },
-    { name: "ops:resources", desc: opsDescriptionFor("resources"), role: "observer" },
-    { name: "ops:economy", desc: opsDescriptionFor("economy"), role: "observer" },
-    { name: "ops:armory", desc: opsDescriptionFor("armory"), role: "observer" },
-    { name: "ops:location", desc: opsDescriptionFor("location"), role: "observer" },
-    { name: "ops:soc", desc: opsDescriptionFor("soc"), role: "observer" },
-    { name: "ops:prometheus", desc: opsDescriptionFor("prometheus"), role: "observer" },
-    { name: "ops:dashboard", desc: opsDescriptionFor("dashboard"), role: "observer" },
-    { name: "ops:announcements", desc: opsDescriptionFor("announcements"), role: "observer" },
+    { name: "ops:activity", desc: opsDescriptionFor("activity"), role: "player" },
+    { name: "ops:combat", desc: opsDescriptionFor("combat"), role: "player" },
+    { name: "ops:resources", desc: opsDescriptionFor("resources"), role: "player" },
+    { name: "ops:economy", desc: opsDescriptionFor("economy"), role: "player" },
+    { name: "ops:armory", desc: opsDescriptionFor("armory"), role: "player" },
+    { name: "ops:location", desc: opsDescriptionFor("location"), role: "player" },
+    { name: "ops:soc", desc: opsDescriptionFor("soc"), role: "player" },
+    { name: "ops:prometheus", desc: opsDescriptionFor("prometheus"), role: "player" },
+    { name: "ops:dashboard", desc: opsDescriptionFor("dashboard"), role: "player" },
+    { name: "ops:announcements", desc: opsDescriptionFor("announcements"), role: "player" },
     // Regression fix (issue #162): ops:alerts is registered and
     // dispatchable (buildDuneCommand()'s ops group, commands.js's
     // OPS_SUBCOMMAND_NAMES special-case for querying Prometheus alerts
@@ -834,19 +919,20 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     // from this hardcoded list -- exactly the same class of bug this
     // test's own regression-guard comment above already describes for
     // the player/logs groups. `/dune help` was hiding a real command.
-    { name: "ops:alerts", desc: opsDescriptionFor("alerts"), role: "observer" },
+    { name: "ops:alerts", desc: opsDescriptionFor("alerts"), role: "player" },
     // ── admin ──
     { name: "admin:doctor", desc: "Comprehensive system diagnostic.", role: "admin" },
     { name: "admin:cooldowns", desc: "Show active cooldowns.", role: "admin" },
     { name: "admin:latency", desc: "Adapter latency history.", role: "admin" },
     { name: "admin:events", desc: "Recent incident log.", role: "admin" },
-    { name: "admin:roles", desc: "Show configured admin/observer roles with current names.", role: "admin" },
+    { name: "admin:roles", desc: "Show configured admin/player roles with current names.", role: "admin" },
     { name: "admin:broadcast", desc: "Send a message to all players.", role: "admin" },
+    { name: "admin:sync-commands", desc: "Check Core's command catalog for drift against the bot's registry.", role: "admin" },
     // ── infra ──
-    { name: "infra:version", desc: "Dune stack version.", role: "observer" },
-    { name: "infra:servers", desc: "List game servers.", role: "observer" },
-    { name: "infra:ports", desc: "Network port status.", role: "observer" },
-    { name: "infra:db", desc: "Database status and health.", role: "observer" },
+    { name: "infra:version", desc: "Dune stack version.", role: "player" },
+    { name: "infra:servers", desc: "List game servers.", role: "player" },
+    { name: "infra:ports", desc: "Network port status.", role: "player" },
+    { name: "infra:db", desc: "Database status and health.", role: "player" },
   ];
   // The write group is only registered when writes are enabled
   // (buildDuneCommand() appends it conditionally) -- list it here only in
@@ -918,84 +1004,172 @@ async function fetchPrometheusAlerts(adapterClient, actor, guildId) {
   }
 }
 
+/**
+ * /dune admin sync-commands — Core catalog drift check (issues #192/#196).
+ *
+ * Read-only by design: fetches the INVOKING guild's own Core catalog,
+ * validates it, and reports how it differs from the bot's committed
+ * registry artifact. It never mutates shared state — in multi-tenant
+ * mode each guild talks to its own Core, and caching one tenant's
+ * catalog process-wide let any tenant poison what every other tenant
+ * and the public API saw (#192). Nothing re-registers Discord slash
+ * commands at runtime either (registration happens at deploy from
+ * code), so the old "bot will use updated commands" claim was false
+ * (#196) — drift reported here is acted on by regenerating the
+ * committed artifact (npm run registry:generate) and deploying.
+ */
+async function syncCommandsPayload(adapterClient, actor, guildId) {
+  try {
+    const committed = getRegistryFromCache();
+    const meta = getRegistryMetadata();
+    const fetched = await fetchCoreCatalogForGuild(adapterClient, actor, guildId);
+    const drift = diffRegistries(committed, fetched);
+
+    logInfo("sync_commands.drift_check", {
+      guildId,
+      inSync: drift.inSync,
+      added: drift.added.length,
+      removed: drift.removed.length
+    });
+
+    return {
+      ok: true,
+      action: "sync-commands",
+      message: drift.inSync
+        ? "Core's catalog matches the bot's committed registry."
+        : "Core's catalog has drifted from the bot's committed registry.",
+      registry: { version: meta.version, groups: meta.groups, commandCount: meta.commandCount },
+      coreCatalog: {
+        version: fetched.version,
+        groups: fetched.groups.length,
+        commandCount: fetched.groups.reduce((sum, g) => sum + (g.subcommands?.length || 0), 0)
+      },
+      drift: {
+        inSync: drift.inSync,
+        // Capped so a hostile/buggy Core can't flood the Discord reply
+        added: drift.added.slice(0, 15),
+        removed: drift.removed.slice(0, 15),
+        addedCount: drift.added.length,
+        removedCount: drift.removed.length
+      },
+      timestamp: new Date().toISOString(),
+      note: "Read-only drift check. Slash-command registration only changes on bot deploy; regenerate src/commands-registry.json (npm run registry:generate) to update the committed artifact."
+    };
+  } catch (error) {
+    logError("sync_commands.failed", error, { guildId, status: error?.status });
+
+    // SEC-2: map failures to generic user messages (never leak internals).
+    // Classified by the adapter's real HTTP status, preserved on the
+    // error by fetchCoreCatalogForGuild() — never by message substrings,
+    // which misfired on timeout durations containing "500" (#199).
+    const isTimeout = /timed?\s?out/i.test(error.message || "");
+    let userMessage = "Failed to check Core's catalog. Check Core status and try again.";
+    if (isTimeout) {
+      userMessage = "Request timed out. Core may be unresponsive.";
+    } else if (error.status === 401) {
+      userMessage = "Authentication failed. Check adapter configuration.";
+    } else if (error.status === 403) {
+      userMessage = "Permission denied. Check Core admin settings.";
+    } else if (error.status === 404) {
+      userMessage = "Core does not expose a command catalog (endpoint not found). Your Core version may predate command discovery.";
+    } else if (typeof error.status === "number" && error.status >= 500) {
+      userMessage = "Core encountered an error. Try again in a few minutes.";
+    }
+
+    return {
+      ok: false,
+      error: userMessage,
+      hint: "Run /dune core help for more information.",
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
 export function requiredRoleIdsForCommand(command, rbac) { return rbac?.commandRoleIds?.[command] || []; }
 
-// Public command registry for landing page and docs auto-generation.
-// Returns command groups with display titles, names, descriptions, and roles.
-// This is the single source of truth — the landing page fetches from GET /api/commands
-// so the command reference can never drift from the actual bot implementation.
+// Public command registry for the landing page and docs auto-generation.
+// Served verbatim by GET /api/commands (setupServer.js) to the
+// acp-landing accordion — the shape below IS the public contract
+// ({ group, title, commands: [{ name, desc, role }] }) and is pinned by
+// a regression test. Issues #193/#203: this must stay a curated,
+// display-only projection of the commands buildDuneCommand() actually
+// registers — never the internal Core-catalog registry, which both
+// diverges from the real command tree (#196) and leaks Core's adapter
+// routes/capabilities/methods to unauthenticated callers (#203).
 export function getCommandRegistry() {
-  // Import ops descriptions dynamically to avoid circular dependency
   return [
     {
       group: "server",
       title: "Sietch Watch — Server Health",
       commands: [
-        { name: "health", desc: "Check the console Discord adapter", role: "observer" },
-        { name: "status", desc: "Show high-level server status", role: "observer" },
-        { name: "summary", desc: "Show compact aggregate server status", role: "observer" },
-        { name: "readiness", desc: "Show readiness and preflight state", role: "observer" },
-        { name: "readiness-detail", desc: "Show grouped readiness detail with issues", role: "observer" },
-        { name: "services", desc: "Show service container state", role: "observer" },
-        { name: "services-detail", desc: "Show detailed service state with logs", role: "observer" },
-        { name: "maintenance", desc: "Show maintenance mode status", role: "admin" }
+        { name: "health", desc: "Check the console Discord adapter", role: "player" },
+        { name: "status", desc: "Show high-level server status", role: "player" },
+        { name: "summary", desc: "Show compact aggregate server status", role: "player" },
+        { name: "readiness", desc: "Show readiness and preflight state", role: "player" },
+        { name: "readiness-detail", desc: "Show grouped readiness detail with issues", role: "player" },
+        { name: "services", desc: "Show service container state", role: "player" },
+        { name: "services-detail", desc: "Show detailed service state with logs", role: "player" },
+        { name: "maintenance", desc: "Show maintenance mode status (read-only)", role: "player" }
       ]
     },
     {
       group: "player",
       title: "The Personal Ledger — Player Tools",
       commands: [
-        { name: "link <name>", desc: "Link Discord to your in-game character", role: "observer" },
-        { name: "verify <code>", desc: "Verify a pending character link with a code", role: "observer" },
-        { name: "characters", desc: "List your verified characters", role: "observer" },
-        { name: "enable", desc: "Enable a character in this guild", role: "observer" },
-        { name: "disable", desc: "Disable a character in this guild", role: "observer" },
-        { name: "default", desc: "Set your default character for this guild", role: "observer" },
-        { name: "unlink <id>", desc: "Unlink a character from your Discord", role: "observer" },
-        { name: "faction <name>", desc: "Set your faction for themed embeds", role: "observer" },
-        { name: "whoami", desc: "Show your linked game character info", role: "observer" },
-        { name: "inventory", desc: "View your personal inventory", role: "observer" },
-        { name: "storage", desc: "View your storage containers grouped by map", role: "observer" },
-        { name: "find <item>", desc: "Search for items across your containers", role: "observer" }
+        { name: "link <name>", desc: "Link Discord to your in-game character", role: "player" },
+        { name: "verify <code>", desc: "Verify a pending character link with a code", role: "player" },
+        { name: "characters", desc: "List your verified characters", role: "player" },
+        { name: "enable <id>", desc: "Enable a character in this guild", role: "player" },
+        { name: "disable <id>", desc: "Disable a character in this guild", role: "player" },
+        { name: "default <id>", desc: "Set your default character for this guild", role: "player" },
+        { name: "unlink <id>", desc: "Unlink a character from your Discord", role: "player" },
+        { name: "faction <name>", desc: "Set your faction for themed embeds", role: "player" },
+        { name: "whoami", desc: "Show your linked game character info", role: "player" },
+        { name: "inventory", desc: "View your personal inventory", role: "player" },
+        { name: "storage", desc: "View your storage containers grouped by map", role: "player" },
+        { name: "find <item>", desc: "Search for items across your containers", role: "player" }
       ]
     },
     {
       group: "ops",
       title: "Deep Desert Intel — Operations",
       commands: [
-        { name: "activity", desc: "Player activity statistics", role: "observer" },
-        { name: "combat", desc: "Combat and death statistics", role: "observer" },
-        { name: "resources", desc: "Resource field data (spice, water, minerals)", role: "observer" },
-        { name: "economy", desc: "Currency, trading, and tax data", role: "observer" },
-        { name: "armory", desc: "Server-wide aggregate inventory stats", role: "observer" },
-        { name: "location", desc: "Show map location activity (markers, density)", role: "observer" },
-        { name: "prometheus", desc: "Container and infrastructure metrics", role: "observer" },
-        { name: "soc", desc: "Bridge health and request stats", role: "observer" },
-        { name: "dashboard", desc: "Aggregated operational summary", role: "observer" },
-        { name: "announcements", desc: "Show recent server announcements", role: "observer" },
-        { name: "alerts", desc: "Show active Prometheus alerts", role: "observer" }
+        { name: "activity", desc: "Player activity statistics", role: "player" },
+        { name: "combat", desc: "Combat and death statistics", role: "player" },
+        { name: "resources", desc: "Resource field data (spice, water, minerals)", role: "player" },
+        { name: "economy", desc: "Currency, trading, and tax data", role: "player" },
+        { name: "armory", desc: "Server-wide aggregate inventory stats", role: "player" },
+        { name: "location", desc: "Show map location activity (markers, density)", role: "player" },
+        { name: "prometheus", desc: "Container and infrastructure metrics", role: "player" },
+        { name: "soc", desc: "Bridge health and request stats", role: "player" },
+        { name: "dashboard", desc: "Aggregated operational summary", role: "player" },
+        { name: "announcements", desc: "Show recent server announcements", role: "player" },
+        { name: "alerts", desc: "Show active Prometheus alerts", role: "player" }
       ]
     },
     {
       group: "data",
       title: "Data Archives — Server Archives",
       commands: [
-        { name: "population", desc: "Show server population statistics", role: "observer" },
-        { name: "backups", desc: "List recent database backups", role: "observer" },
-        { name: "maps", desc: "Show active map partitions", role: "observer" }
+        { name: "population", desc: "Show server population statistics", role: "player" },
+        { name: "backups", desc: "List recent database backups", role: "player" },
+        { name: "maps", desc: "Show active game maps", role: "player" }
       ]
     },
     {
       group: "logs",
       title: "Logs Explorer — Server Logs",
+      // #217/C4 + #217/A8: roles corrected to match real enforcement
+      // (observer tier, displayed as "player"); the last entry's name is
+      // the REAL registered subcommand (there is no /dune logs console).
       commands: [
-        { name: "dune-cache", desc: "View game cache service logs", role: "admin" },
-        { name: "dune-generated", desc: "View game generated logs", role: "admin" },
-        { name: "dune-server", desc: "View game server logs by name", role: "admin" },
-        { name: "dune-steam", desc: "View Steam integration logs", role: "admin" },
-        { name: "dune-work", desc: "View game work logs", role: "admin" },
-        { name: "orchestrator", desc: "View orchestrator service logs", role: "admin" },
-        { name: "console", desc: "View the console's own container logs", role: "admin" }
+        { name: "dune-cache", desc: "View game cache service logs", role: "player" },
+        { name: "dune-generated", desc: "View game generated logs", role: "player" },
+        { name: "dune-server", desc: "View game server logs by name", role: "player" },
+        { name: "dune-steam", desc: "View Steam integration logs", role: "player" },
+        { name: "dune-work", desc: "View game work logs", role: "player" },
+        { name: "orchestrator", desc: "View orchestrator service logs", role: "player" },
+        { name: "redblink-dune-docker-console", desc: "View the console's own container logs", role: "player" }
       ]
     },
     {
@@ -1007,27 +1181,28 @@ export function getCommandRegistry() {
         { name: "latency", desc: "Adapter request latency history", role: "admin" },
         { name: "events", desc: "Recent server incidents and alerts", role: "admin" },
         { name: "roles", desc: "Show configured Discord role mappings", role: "admin" },
-        { name: "broadcast <msg>", desc: "Send a message to all in-game players", role: "admin" }
+        { name: "broadcast <msg>", desc: "Send a message to all in-game players", role: "admin" },
+        { name: "sync-commands", desc: "Check Core's command catalog for drift", role: "admin" }
       ]
     },
     {
       group: "infra",
       title: "Foundation Stones — Infrastructure",
       commands: [
-        { name: "version", desc: "Dune stack version", role: "observer" },
-        { name: "servers", desc: "List game servers", role: "observer" },
-        { name: "ports", desc: "Network port status", role: "observer" },
-        { name: "db", desc: "Database status and health", role: "observer" }
+        { name: "version", desc: "Dune stack version", role: "player" },
+        { name: "servers", desc: "List game servers", role: "player" },
+        { name: "ports", desc: "Network port status", role: "player" },
+        { name: "db", desc: "Database status and health", role: "player" }
       ]
     },
     {
       group: "core",
       title: "ACP Core — Core Commands",
       commands: [
-        { name: "about", desc: "Bot version, security info, connection details", role: "observer" },
-        { name: "ping", desc: "Test Discord and adapter latency", role: "observer" },
-        { name: "help", desc: "List all commands you have permission to use", role: "observer" },
-        { name: "setup", desc: "How to add this bot to your own Discord server", role: "observer" }
+        { name: "about", desc: "Bot version, security info, connection details", role: "player" },
+        { name: "ping", desc: "Test Discord and adapter latency", role: "player" },
+        { name: "help", desc: "List all commands you have permission to use", role: "player" },
+        { name: "setup", desc: "How to add this bot to your own Discord server", role: "player" }
       ]
     }
   ];

@@ -1,258 +1,358 @@
-# Installation Guide — Dune Discord Bot
+# Installation Guide — ACP Discord Bot
 
-Add the Dune Discord Bot to your server and deploy it alongside the Dune
-Awakening Selfhost Docker Console.
+**Status:** Current | **Last Updated:** August 2026
 
-## Quick Start
+Complete installation and deployment guide for Arrakis Control Panel.
 
-```bash
-# 1. Clone the repo
-git clone https://github.com/yacketrj/Arrakis-Control-Panel.git
-cd dune-awakening-selfhost-discordbot
+## Installation Options
 
-# 2. Copy and edit the environment file
-cp .env.example .env
-# Fill in DISCORD_BOT_TOKEN, DISCORD_CLIENT_ID, DUNE_CONSOLE_API_URL, DUNE_DISCORD_ADAPTER_TOKEN
+ACP is available as:
 
-# 3. Install and test
-npm ci --omit=dev
-npm run check
+1. **Hosted Bot (Recommended)** — Use the official hosted instance
+2. **Self-Hosted** — Run your own bot instance
+3. **Docker Container** — Deploy in your infrastructure
 
-# 4. Register slash commands
-npm run register
+Choose based on your needs:
 
-# 5. Run the bot
-npm start
-```
+| Option | Setup Time | Maintenance | Cost | Best For |
+|--------|-----------|-------------|------|----------|
+| **Hosted Bot** | 5 min | None | Free | Most server operators |
+| **Self-Hosted** | 20 min | Medium | Low | Large communities, custom features |
+| **Docker** | 10 min | Medium | Hosting | Professional deployments |
 
-## Prerequisites
+## Option 1: Hosted Bot (Recommended)
 
-- Node.js >= 20.18.0
-- Docker (optional, for containerized deployment)
-- A Discord server where you have the **Manage Server** permission
-- Access to the [Discord Developer Portal](https://discord.com/developers/applications)
-- A running Dune Awakening Selfhost Docker Console with the Discord adapter enabled
+### Setup
 
----
+1. **Invite the bot:**
+   ```
+   https://discord.com/oauth2/authorize?client_id=1516816812006969494&scope=bot%20applications.commands&permissions=128
+   ```
 
-## Step 1: Create a Discord Application
+2. **Open setup portal:**
+   ```
+   https://acp-setup.darkdante.org
+   ```
 
-1. Go to [discord.com/developers/applications](https://discord.com/developers/applications)
+3. **Complete the setup form:**
+   - Enter your game server IP and port
+   - Choose Discord channels for status/alerts
+   - Configure permissions
+
+4. **Verify:**
+   ```
+   /status
+   ```
+
+### Pros & Cons
+
+**Pros:**
+- Zero maintenance
+- Always up-to-date
+- No infrastructure required
+- No Docker knowledge needed
+
+**Cons:**
+- Depends on hosting stability
+- Limited customization
+- Data on external servers
+
+## Option 2: Self-Hosted
+
+### Prerequisites
+
+- **Node.js** 18+ (LTS recommended)
+- **Discord Bot Token** (from Discord Developer Portal)
+- **Game Server** connection (IP + port)
+- **Internet connection** for Discord API
+
+### Step 1: Create Discord Application
+
+1. Visit [Discord Developer Portal](https://discord.com/developers/applications)
 2. Click **New Application**
-3. Name it (e.g., "Dune Server Status")
-4. Go to the **Bot** tab in the left sidebar
-5. Click **Add Bot** → **Yes, do it!**
-6. Under the **Token** section, click **Reset Token** → **Copy**
+3. Name it "Arrakis Control Panel"
+4. Go to **Bot** → **Add Bot**
+5. Copy the **TOKEN** (keep this secret!)
+6. Enable these **Intents:**
+   - Message Content Intent
+   - Server Members Intent
+   - Guild Members Intent
 
-**Save this token.** You will never see it again without resetting it.
-Paste it into your `.env` file as `DISCORD_BOT_TOKEN`.
-
-### Disable Unused Privileged Intents
-
-On the Bot page, under **Privileged Gateway Intents**, ensure all three are **OFF**:
-- Server Members Intent — OFF
-- Presence Intent — OFF
-- Message Content Intent — OFF
-
-This bot uses only the **Guilds** intent (no privileged intents required).
-
----
-
-## Step 2: Get Your Application ID and Invite Link
-
-1. Go to the **General Information** tab
-2. Copy the **Application ID** — this is your `DISCORD_CLIENT_ID`
-
-### Generate the Invite URL
-
-Replace `YOUR_CLIENT_ID` in the URL below and open it in a browser:
-
-```
-https://discord.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&scope=bot%20applications.commands&permissions=128
-```
-
-Or build manually:
-
-| Field | Value |
-|-------|-------|
-| **Client ID** | Your Application ID |
-| **Scopes** | `bot`, `applications.commands` |
-| **Permissions** | `128` (View Audit Log -- optional, lets the bot's setup DM reach whoever actually invited it rather than always the server owner; slash commands themselves need no extra permissions) |
-
-This URL adds the bot to your Discord server. Select the target server from the
-dropdown and authorize.
-
-The bot will appear **offline** until you start it — this is normal.
-
----
-
-## Step 3: Enable the Discord Adapter on the Console
-
-On the Dune Console host, enable the adapter:
+### Step 2: Clone Repository
 
 ```bash
-# In your console .env or runtime configuration:
-DUNE_DISCORD_ADAPTER_ENABLED=true
-DUNE_BOT_API_TOKEN_FILE=/path/to/secrets/bot-api-token.txt
+git clone https://github.com/yacketrj/arrakis-control-panel.git
+cd arrakis-control-panel
+npm install
 ```
 
-Create the bot API token file:
+### Step 3: Configure Environment
+
+Create a `.env` file:
+
 ```bash
-echo -n "your-secure-random-token" > /path/to/secrets/bot-api-token.txt
-chmod 600 /path/to/secrets/bot-api-token.txt
+# Discord
+DISCORD_TOKEN=your_bot_token_here
+DISCORD_CLIENT_ID=your_client_id_here
+DISCORD_CLIENT_SECRET=your_client_secret_here
+
+# Game Server
+SERVER_IP=YOUR_SERVER_IP
+GAME_PORT=7777
+CONSOLE_PORT=8088
+CONSOLE_USERNAME=admin
+CONSOLE_PASSWORD=your_password_here
+
+# Setup Portal
+SETUP_PORTAL_URL=https://your-domain.com
+NODE_ENV=production
 ```
 
-This token is what the Discord bot uses to authenticate against the console
-adapter. It must match `DUNE_DISCORD_ADAPTER_TOKEN` on the bot side.
+### Step 4: Add Bot to Your Server
 
----
+1. Go to Discord Developer Portal → Your App → OAuth2 → URL Generator
+2. Select scopes: `bot`, `applications.commands`
+3. Select permissions: `Send Messages`, `Embed Links`, `Use Slash Commands`
+4. Copy the generated URL
+5. Visit the URL and select your server
 
-## Step 4: Configure the Bot Environment
-
-Create a `.env` file in the bot's working directory. Copy `.env.example` and
-fill in your values:
-
-```bash
-# === Required ===
-DISCORD_BOT_TOKEN=                # From Developer Portal > Bot > Token
-DISCORD_CLIENT_ID=                # From Developer Portal > General Information
-DUNE_CONSOLE_API_URL=http://console-host:3000   # Your console WebUI address
-DUNE_DISCORD_ADAPTER_TOKEN=       # Must match the console's bot-api-token
-
-# === Optional: Role-based access ===
-DISCORD_RBAC_MODE=restricted      # restricted (default) or open
-DISCORD_OBSERVER_ROLE_IDS=        # Comma-separated Discord role IDs
-DISCORD_ADMIN_ROLE_IDS=           # Comma-separated Discord role IDs
-DISCORD_ALLOWED_USER_IDS=         # Comma-separated Discord user IDs
-
-# === Optional: Guild-specific registration (dev) ===
-DISCORD_GUILD_ID=                 # Test guild ID for immediate command registration
-
-# === Optional: Ephemeral responses ===
-DISCORD_DEFAULT_EPHEMERAL=true    # Bot replies visible only to command user
-
-# === Optional: Scheduler (status posts) ===
-DUNE_POST_SCHEDULE_TYPE=none      # none, status, status-summary, readiness, services
-DUNE_POST_ALLOWED_CHANNELS=       # Comma-separated channel IDs
-DUNE_SCHEDULER_INTERVAL_MS=300000 # 5 minutes default
-
-# === Optional: Announcements ===
-DUNE_ANNOUNCEMENTS_ENABLED=false  # Set true to forward game announcements to Discord
-DUNE_ANNOUNCEMENTS_CHANNEL=       # Discord channel ID for announcements
-
-# === Optional: Writes (disabled by default) ===
-DUNE_DISCORD_WRITES_ENABLED=false # Set true to enable write commands
-DISCORD_WRITE_ADMIN_ROLE_IDS=     # Roles allowed to execute write commands
-
-# === Optional: Cooldowns ===
-DUNE_COOLDOWN_MS=5000             # Per-user per-command cooldown (ms)
-DUNE_ADMIN_COOLDOWN_MS=1000       # Cooldown for admin roles (ms)
-```
-
-**Production tip:** Use file-based secrets where possible:
-```bash
-DISCORD_BOT_TOKEN_FILE=/run/secrets/discord-bot-token
-DUNE_DISCORD_ADAPTER_TOKEN_FILE=/run/secrets/adapter-token
-```
-
----
-
-## Step 5: Register Slash Commands
+### Step 5: Run the Bot
 
 ```bash
-npm run register
-```
-
-- With `DISCORD_GUILD_ID` set: commands appear instantly in that guild (dev).
-- Without `DISCORD_GUILD_ID`: commands register globally (can take up to 1 hour to propagate).
-
----
-
-## Step 6: Run the Bot
-
-### Option A: Direct (Node.js)
-
-```bash
-npm ci --omit=dev
 npm start
 ```
 
-### Option B: Docker
+Or use a process manager:
 
 ```bash
-# Build the image
-docker build -t dune-discord-bot .
-
-# Run with .env
-docker run -d --name dune-discord-bot \
-  --env-file .env \
-  --restart unless-stopped \
-  dune-discord-bot
+npm install -g pm2
+pm2 start "npm start" --name acp-bot
+pm2 save
 ```
 
-### Option C: Docker Compose (alongside the console)
+### Step 6: Verify
+
+In Discord:
+```
+/status
+```
+
+## Option 3: Docker Container
+
+### Prerequisites
+
+- Docker & Docker Compose
+- Game server IP and credentials
+- Discord bot token
+
+### Step 1: Create docker-compose.yml
 
 ```yaml
-# docker-compose.override.yml
+version: '3.8'
+
 services:
-  discord-bot:
-    image: dune-discord-bot
-    build: ./dune-awakening-selfhost-discordbot
+  acp-bot:
+    image: ghcr.io/yacketrj/arrakis-control-panel:latest
+    container_name: acp-bot
     restart: unless-stopped
-    env_file: ./dune-awakening-selfhost-discordbot/.env
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
+      SERVER_IP: ${SERVER_IP}
+      GAME_PORT: 7777
+      CONSOLE_PORT: 8088
+      NODE_ENV: production
+    volumes:
+      - ./bot-data:/app/data
     networks:
-      - dune-net
+      - dune-network
+
+networks:
+  dune-network:
+    external: true
 ```
 
----
-
-## Step 7: Verify the Installation
-
-1. **Check the bot is online** in Discord (green dot in member list).
-2. Type `/dune ping` in a channel — should show Discord and adapter latency.
-3. Type `/dune about` — should show bot version, read-only status, and boundary.
-4. Run the operator validation:
-   ```bash
-   npm run validate:operator
-   ```
-5. Verify the bot container is healthy:
-   ```bash
-   docker ps --filter name=dune-discord-bot
-   ```
-
-### Troubleshooting
-
-| Symptom | Likely Cause | Fix |
-|---------|-------------|-----|
-| Bot offline | Wrong token or no network | Check `DISCORD_BOT_TOKEN`, verify network connectivity |
-| "Not authorized" | Role not in allowed list | Set `DISCORD_OBSERVER_ROLE_IDS` to include your role |
-| "Adapter request failed" | Console unreachable | Verify `DUNE_CONSOLE_API_URL`, check console adapter enabled |
-| "Missing adapter credential" | Token mismatch | Ensure bot token matches console `bot-api-token` file |
-| Commands not appearing | Registration needed | Run `npm run register` |
-| "Write commands are disabled" | Expected | Set `DUNE_DISCORD_WRITES_ENABLED=true` if needed |
-
----
-
-## Updating
+### Step 2: Create .env
 
 ```bash
-git pull
-npm ci --omit=dev
-npm run register  # Re-register if commands changed
+DISCORD_TOKEN=your_token
+DISCORD_CLIENT_ID=your_client_id
+SERVER_IP=your_game_server_ip
+```
+
+### Step 3: Start Container
+
+```bash
+docker compose up -d
+```
+
+### Step 4: Verify
+
+```bash
+docker logs -f acp-bot
+```
+
+Watch for:
+```
+✅ Bot ready! Logged in as ACP#1234
+✅ Connected to server at 192.168.1.100:7777
+```
+
+## Securing Your Deployment
+
+### Discord Bot Token Security
+
+🔒 **NEVER commit your bot token to Git!**
+
+- Store in `.env` (add to `.gitignore`)
+- Use environment variables in production
+- Rotate token if compromised:
+  1. Discord Developer Portal → Bot → Regenerate Token
+  2. Update `.env` or environment
+  3. Restart bot
+
+### Server Credentials
+
+🔒 **Console credentials should be secure:**
+
+- Use a dedicated admin account (not your personal account)
+- Use a strong, unique password (20+ characters)
+- Never log in externally with this password
+- Rotate every 30 days
+
+### Network Security
+
+- Only expose game port (7777 UDP) to players
+- Keep console port (8088) internal only
+- Use a reverse proxy with HTTPS for web access
+- Use firewall to restrict access
+
+## Systemd Service (Self-Hosted)
+
+Run as a Linux system service:
+
+### Step 1: Create Service File
+
+```bash
+sudo nano /etc/systemd/system/acp-bot.service
+```
+
+### Step 2: Add Configuration
+
+```ini
+[Unit]
+Description=Arrakis Control Panel Discord Bot
+After=network.target
+
+[Service]
+Type=simple
+User=acp
+WorkingDirectory=/home/acp/arrakis-control-panel
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=10
+
+Environment="NODE_ENV=production"
+EnvironmentFile=/home/acp/.env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Step 3: Enable & Start
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable acp-bot
+sudo systemctl start acp-bot
+```
+
+### Step 4: Monitor
+
+```bash
+# Check status
+sudo systemctl status acp-bot
+
+# View logs
+sudo journalctl -u acp-bot -f
+
+# Restart
+sudo systemctl restart acp-bot
+```
+
+## Upgrading
+
+### Hosted Bot
+
+Updates are automatic. No action needed.
+
+### Self-Hosted
+
+```bash
+git pull origin main
+npm install
 npm start
 ```
 
-For Docker:
+Or with Docker:
+
 ```bash
-docker build -t dune-discord-bot .
-docker stop dune-discord-bot && docker rm dune-discord-bot
-docker run -d --name dune-discord-bot --env-file .env --restart unless-stopped dune-discord-bot
+docker compose pull
+docker compose down
+docker compose up -d
 ```
 
-## Sources
+## Troubleshooting Installation
 
-- [Discord Developer Portal](https://discord.com/developers/applications)
-- [Discord OAuth2 Documentation](https://discord.com/developers/docs/topics/oauth2)
-- `docs/discord-setup.md` — Discord-specific setup details
-- `docs/configuration.md` — Full configuration reference
-- `docs/security-model.md` — Security model and RBAC
+### Bot Doesn't Respond
+
+1. Check bot is online in Discord
+2. Verify token is correct in `.env`
+3. Check logs: `docker logs acp-bot` or `npm start`
+4. Ensure bot has permission to use slash commands in channels
+
+### Can't Connect to Game Server
+
+1. Verify server IP and port in `.env`
+2. Test connectivity: `telnet SERVER_IP 8088`
+3. Check firewall allows outbound on port 7777 and 8088
+4. Verify console credentials work
+
+### Port Already in Use
+
+If you get "EADDRINUSE" error:
+
+```bash
+# Find process using port
+lsof -i :3000
+
+# Kill process
+kill -9 <PID>
+```
+
+### Module Not Found
+
+```bash
+# Reinstall dependencies
+rm -rf node_modules package-lock.json
+npm install
+```
+
+## Next Steps
+
+1. **[Quick Start](quick-start-guide.md)** — Basic usage
+2. **[Discord Setup](discord-setup.md)** — Configure Discord channels
+3. **[User Guide](user-guide.md)** — Command reference
+4. **[Admin Guide](admin-guide.md)** — Admin features
+5. **[Configuration](configuration.md)** — Advanced settings
+
+## Getting Help
+
+- **[FAQ](faq.md)** — Common questions
+- **[Troubleshooting](troubleshooting.md)** — Problem solving
+- **[GitHub Issues](https://github.com/yacketrj/arrakis-control-panel/issues)** — Bug reports
+- **[Discussions](https://github.com/yacketrj/arrakis-control-panel/discussions)** — Questions & ideas
+
+---
+
+**Ready?** Head to the [Quick Start Guide](quick-start-guide.md) to begin! 🎮

@@ -47,6 +47,10 @@ const DEFAULT_PATHS = Object.freeze({
   "guild-grants-default": "/api/integrations/discord/guild-character-grants/default",
   "player-inventory-v2": "/api/integrations/discord/player/inventory",
   "players-accounts-link-steam": "/api/integrations/discord/players/accounts/link-steam",
+  // discord-catalog: Phase 3 (Command Discovery, #181) route for fetching
+  // Core's live command catalog, used by /dune admin sync-commands to
+  // refresh the bot's registry without a restart. See registryLoader.js.
+  "discord-catalog": "/api/integrations/discord/catalog",
   // players-link-verify: was in UNMERGED_ROUTES with no corresponding
   // path/method entry here at all (an orphaned key -- calling it would
   // have thrown "Unsupported adapter route" regardless of Core's state).
@@ -121,7 +125,8 @@ const DEFAULT_METHODS = Object.freeze({
   "players-accounts-link-steam": "POST",
   "players-link-verify": "POST",
   "players-accounts-list": "POST",
-  "players-accounts-unlink": "POST"
+  "players-accounts-unlink": "POST",
+  "discord-catalog": "GET"
 });
 
 const RBAC_MODES = new Set(["restricted", "open"]);
@@ -263,7 +268,8 @@ export function loadConfig(env = process.env) {
         // reintroduced by not checking for it against every existing entry
         // in this block before considering the earlier fix complete.
         "players-accounts-list": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_ACCOUNTS_LIST_PATH") || DEFAULT_PATHS["players-accounts-list"],
-        "players-accounts-unlink": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_ACCOUNTS_UNLINK_PATH") || DEFAULT_PATHS["players-accounts-unlink"]
+        "players-accounts-unlink": optionalEnv(env, "DUNE_ADAPTER_PLAYERS_ACCOUNTS_UNLINK_PATH") || DEFAULT_PATHS["players-accounts-unlink"],
+        "discord-catalog": optionalEnv(env, "DUNE_ADAPTER_DISCORD_CATALOG_PATH") || DEFAULT_PATHS["discord-catalog"]
       },
       methods: {
         health: parseMethod(env.DUNE_ADAPTER_HEALTH_METHOD, DEFAULT_METHODS.health),
@@ -314,7 +320,8 @@ export function loadConfig(env = process.env) {
         "players-link-verify": parseMethod(env.DUNE_ADAPTER_PLAYERS_LINK_VERIFY_METHOD, DEFAULT_METHODS["players-link-verify"]),
         "players-accounts-link-steam": parseMethod(env.DUNE_ADAPTER_PLAYERS_ACCOUNTS_LINK_STEAM_METHOD, DEFAULT_METHODS["players-accounts-link-steam"]),
         "players-accounts-list": parseMethod(env.DUNE_ADAPTER_PLAYERS_ACCOUNTS_LIST_METHOD, DEFAULT_METHODS["players-accounts-list"]),
-        "players-accounts-unlink": parseMethod(env.DUNE_ADAPTER_PLAYERS_ACCOUNTS_UNLINK_METHOD, DEFAULT_METHODS["players-accounts-unlink"])
+        "players-accounts-unlink": parseMethod(env.DUNE_ADAPTER_PLAYERS_ACCOUNTS_UNLINK_METHOD, DEFAULT_METHODS["players-accounts-unlink"]),
+        "discord-catalog": parseMethod(env.DUNE_ADAPTER_DISCORD_CATALOG_METHOD, DEFAULT_METHODS["discord-catalog"])
       }
     }
   };
