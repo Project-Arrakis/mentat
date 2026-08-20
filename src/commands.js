@@ -219,7 +219,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     if (mode !== "open" && getGuildRoles(db, guildId).length === 0) {
       await interaction.reply({
         content: [
-          "⚙️ **This server isn't connected to Arrakis Control Panel yet** (no role tiers are configured).",
+          "⚙️ **This server isn't connected to Sentinel yet** (no role tiers are configured).",
           `Finish setup here: ${setupPortalUrl(guildId)}`,
           "You'll need your console URL, the adapter token, and at least one Discord role mapped to a tier (Player/Moderator/Admin/Owner).",
           "Once configured, run `/dune core help` to see available commands."
@@ -234,7 +234,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     // #213/U8: name the fix, don't dead-end — the user's next step is a
     // role grant, and only a server admin can do it.
     await interaction.reply({
-      content: "🔒 You are not authorized to use this command. Access requires one of this server's configured ACP role tiers (Player, Moderator, Admin, or Owner) — ask a server admin to assign you one of the mapped Discord roles.",
+      content: "🔒 You are not authorized to use this command. Access requires one of this server's configured Sentinel role tiers (Player, Moderator, Admin, or Owner) — ask a server admin to assign you one of the mapped Discord roles.",
       ephemeral: true
     });
     return true;
@@ -1197,7 +1197,7 @@ export function getCommandRegistry() {
     },
     {
       group: "core",
-      title: "ACP Core — Core Commands",
+      title: "Sentinel Core — Core Commands",
       commands: [
         { name: "about", desc: "Bot version, security info, connection details", role: "player" },
         { name: "ping", desc: "Test Discord and adapter latency", role: "player" },

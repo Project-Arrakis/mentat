@@ -62,7 +62,7 @@ export function duneEmbed({ title, color = "spice", description, fields = [], ti
   // #217/C2: the footer carries the brand only. setTimestamp() below
   // already renders the time localized to each viewer — the old text
   // time duplicated it in the SERVER's locale/timezone, not theirs.
-  const footerText = "🏜️ Arrakis Control Panel";
+  const footerText = "🏜️ Dune: Awakening Docker — Sentinel";
 
   const embed = new EmbedBuilder()
     .setTitle(title)
@@ -800,7 +800,7 @@ export function formatSetupEmbed(setup) {
   // single-tenant self-host instructions with no portal link at all).
   if (setup?.multiTenant && setup?.setupUrl) {
     return duneEmbed({
-      title: "🔧 Connect This Server to ACP",
+      title: "🔧 Connect This Server to Sentinel",
       color: "spice",
       description: [
         "**Connect your Discord server to your Dune Awakening console** via the setup portal.\n",
