@@ -4,20 +4,59 @@
  * Tests for Phase 2: bot-side command registry generator
  * Tracked by yacketrj/arrakis-control-panel#180
  *
+ * CORRECTNESS FIX (2026-08-20): this file previously maintained its own
+ * local re-implementations of validateCatalogSchema()/applyOverrides()
+ * instead of importing and testing scripts/generate-command-registry.js's
+ * REAL functions. Combined with a mockCatalog fixture that used a flat
+ * v1 shape real Core has never actually returned (Core's real responses
+ * are wrapped in an { ok, protocolVersion, catalog } envelope, and at
+ * CATALOG_VERSION 2 nest per-route fields inside a `routes[]` array of
+ * route OBJECTS), this meant 76 "passing" tests here never once
+ * exercised the real generator against a realistic payload -- the
+ * envelope-unwrap bug, the routes[]-flattening bug, AND the
+ * REQUIRED_ROUTES short-path-vs-full-path mismatch all shipped
+ * undetected as a direct result. Found only via a live E2E round-trip
+ * against real, reachable Core.
+ *
+ * Now imports and tests the REAL generate-command-registry.js exports
+ * (validateCatalog, applyOverrides, REQUIRED_ROUTES) against a REAL,
+ * captured production catalog response
+ * (test/fixtures/catalog/real-core-v2-catalog.json), in addition to
+ * smaller synthetic catalogs for specific edge cases (missing routes,
+ * Discord limits, etc.) where a minimal fixture is clearer than the
+ * full real one.
+ *
  * Validates:
- * - Catalog fetch and parsing (L0)
- * - Catalog structure validation (L1)
- * - Override application (L2)
- * - Discord constraints (group size limits, param types)
- * - Drift detection (missing/stale routes)
- * - Round-trip: catalog -> registry -> buildDuneCommand() alignment
+ * - Catalog structure validation (L1) against REAL generator code
+ * - Override application (L2) against REAL generator code
+ * - Discord constraints (25-subcommand group limit)
+ * - Route coverage / REQUIRED_ROUTES drift detection
+ * - Round-trip: real catalog -> registry, validated end-to-end
  */
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { validateCatalog, applyOverrides, REQUIRED_ROUTES } from '../scripts/generate-command-registry.js';
 
-// Mock catalog matching Core's structure
-const mockCatalog = {
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// REAL production catalog response (envelope + CATALOG_VERSION 2 nested
+// routes[]), captured 2026-08-19 from console.darkdante.org. Already
+// unwrapped here (`.catalog`) since validateCatalog()/applyOverrides()
+// both operate on the bare catalog -- envelope unwrapping is
+// fetchCatalog()'s job (see generate-command-registry.js's own comment)
+// and is covered separately by test/catalogTransform.test.js.
+const realEnvelopeResponse = JSON.parse(
+  readFileSync(join(__dirname, 'fixtures/catalog/real-core-v2-catalog.json'), 'utf8')
+);
+const realCatalog = realEnvelopeResponse.catalog;
+
+// Minimal v1-shaped catalog for synthetic edge-case tests where a small,
+// hand-authored fixture is clearer than slicing the real one.
+const minimalV1Catalog = {
   version: 1,
   groups: [
     {
@@ -26,33 +65,8 @@ const mockCatalog = {
         {
           name: 'health',
           description: 'Check the console Discord adapter.',
-          route: '/health',
+          route: '/api/integrations/discord/health',
           capability: 'STATUS_READ',
-          minTier: 'observer',
-          params: [],
-          routeEnforcesCapability: true
-        },
-        {
-          name: 'status',
-          description: 'Show high-level server status.',
-          route: '/status',
-          capability: 'STATUS_READ',
-          minTier: 'observer',
-          params: [
-            { name: 'diagnostic', type: 'BOOLEAN', required: false, description: 'Admin-only diagnostic' }
-          ],
-          routeEnforcesCapability: true
-        }
-      ]
-    },
-    {
-      name: 'data',
-      subcommands: [
-        {
-          name: 'population',
-          description: 'Show aggregate player count.',
-          route: '/population',
-          capability: 'POPULATION_READ',
           minTier: 'observer',
           params: [],
           routeEnforcesCapability: true
@@ -62,297 +76,178 @@ const mockCatalog = {
   ]
 };
 
-// Expected bot routes (from adapterClient.js)
-const expectedRoutes = ['/health', '/status', '/population'];
+// ── L1: Catalog Structure Validation (REAL validateCatalog()) ──
 
-// Helper functions
-function validateCatalogSchema(catalog) {
-  if (!catalog?.version) throw new Error('Catalog missing version field');
-  if (catalog.version !== 1) throw new Error(`Unsupported catalog version: ${catalog.version}`);
-  if (!Array.isArray(catalog.groups)) throw new Error('Catalog missing groups array');
-}
-
-function validateRoutesCoverage(catalog, expectedRoutes) {
-  const catalogRoutes = new Set();
-  for (const group of catalog.groups) {
-    for (const subcommand of group.subcommands) {
-      catalogRoutes.add(subcommand.route);
-    }
+test('L1: validateCatalog() accepts the real production catalog', () => {
+  const { catalogRoutes, catalog } = validateCatalog(realCatalog);
+  assert.equal(catalog.version, 2);
+  assert.ok(catalogRoutes.size > 0);
+  // BUG REGRESSION GUARD: every entry must be a real path STRING, not a
+  // stringified route object (the original bug: routes.forEach(r =>
+  // catalogRoutes.add(r)) added whole route objects for v2 catalogs).
+  for (const route of catalogRoutes) {
+    assert.equal(typeof route, 'string', `route entry is not a string: ${JSON.stringify(route)}`);
+    assert.ok(route.startsWith('/api/integrations/discord/'), `route "${route}" is not a full API path`);
   }
-  
-  const missing = expectedRoutes.filter(r => !catalogRoutes.has(r));
-  if (missing.length > 0) {
-    throw new Error(`Catalog missing routes: ${missing.join(', ')}`);
-  }
-  
-  const extra = [...catalogRoutes].filter(r => !expectedRoutes.includes(r));
-  if (extra.length > 0) {
-    throw new Error(`Catalog has unclassified routes: ${extra.join(', ')}`);
-  }
-}
+});
 
-function applyOverrides(catalog, overrides) {
-  const excluded = new Set((overrides?.exclude) || []);
-  const renames = (overrides?.rename) || {};
-  const retiers = (overrides?.retier) || {};
+test('L1: validateCatalog() satisfies REQUIRED_ROUTES against the real catalog', () => {
+  const { catalogRoutes } = validateCatalog(realCatalog);
+  const missing = REQUIRED_ROUTES.filter((r) => !catalogRoutes.has(r));
+  assert.deepEqual(missing, [], `REQUIRED_ROUTES not satisfied by real catalog: ${missing.join(', ')}`);
+});
 
-  const result = {
-    version: catalog.version,
-    generatedAt: new Date().toISOString(),
-    generatorVersion: '1.0.0-rc.5',
-    groups: []
+test('L1: REQUIRED_ROUTES are full API paths, not short-form', () => {
+  // BUG REGRESSION GUARD: REQUIRED_ROUTES used to be ['/health', ...],
+  // which could never match any real catalog's full-path routes
+  // ('/api/integrations/discord/health'). Every entry must be a full path.
+  for (const route of REQUIRED_ROUTES) {
+    assert.ok(route.startsWith('/api/integrations/discord/'), `REQUIRED_ROUTES entry "${route}" is not a full API path`);
+  }
+});
+
+test('L1: validateCatalog() rejects missing version field', () => {
+  const invalid = { groups: [] };
+  assert.throws(() => validateCatalog(invalid), /version field/);
+});
+
+test('L1: validateCatalog() rejects unsupported catalog versions', () => {
+  const invalid = { ...minimalV1Catalog, version: 3 };
+  assert.throws(() => validateCatalog(invalid), /Unsupported catalog version/);
+});
+
+test('L1: validateCatalog() rejects missing groups array', () => {
+  const invalid = { version: 1 };
+  assert.throws(() => validateCatalog(invalid), /groups array/);
+});
+
+test('L1: validateCatalog() detects missing required routes', () => {
+  const incomplete = {
+    version: 1,
+    groups: [{ name: 'server', subcommands: [{ name: 'health', route: '/api/integrations/discord/health', description: 'test' }] }]
   };
+  assert.throws(() => validateCatalog(incomplete), /missing required routes/i);
+});
 
-  for (const group of catalog.groups) {
-    const filteredSubcommands = group.subcommands
-      .filter(sc => !excluded.has(`${group.name}-${sc.name}`))
-      .map(sc => {
-        const key = `${group.name}-${sc.name}`;
-        const rename = renames[key] || {};
-        const retier = retiers[key];
+test('L1: validateCatalog() rejects a subcommand with no route/routes', () => {
+  const broken = {
+    version: 2,
+    groups: [{ name: 'server', subcommands: [{ name: 'health' }] }]
+  };
+  assert.throws(() => validateCatalog(broken), /no route\/routes/);
+});
 
-        return {
-          name: rename.subcommand || sc.name,
-          description: sc.description,
-          route: sc.route,
-          capability: sc.capability,
-          minTier: retier || sc.minTier,
-          params: sc.params || [],
-          routeEnforcesCapability: sc.routeEnforcesCapability !== false
-        };
-      });
+test('L1: validateCatalog() extracts route STRINGS from v2 routes[] arrays, not objects', () => {
+  // BUG REGRESSION GUARD, isolated: a v2 subcommand whose ONLY route
+  // happens to be a required one -- must resolve as satisfied, not as
+  // missing (which is what happened when whole objects were being
+  // added to the Set instead of route.route).
+  const v2 = {
+    version: 2,
+    groups: [{
+      name: 'server',
+      subcommands: [{
+        name: 'health',
+        routes: [{ description: 'x', route: '/api/integrations/discord/health', capability: 'x', minTier: 'observer', method: 'GET', params: [] }]
+      }]
+    }]
+  };
+  // Will still throw for the OTHER required routes being absent from
+  // this minimal fixture -- what matters is the error is about missing
+  // routes (meaning the one present route WAS correctly recognized),
+  // not a crash or a false negative on health specifically.
+  try {
+    validateCatalog(v2);
+    assert.fail('expected missing-routes error for other required routes');
+  } catch (err) {
+    assert.match(err.message, /missing required routes/i);
+    assert.doesNotMatch(err.message, /\/api\/integrations\/discord\/health\b/, 'health route was present and must not be reported missing');
+  }
+});
 
-    if (filteredSubcommands.length > 0) {
-      if (filteredSubcommands.length > 25) {
-        throw new Error(`Group "${group.name}" has ${filteredSubcommands.length} subcommands, exceeds Discord's 25-subcommand limit.`);
-      }
-      result.groups.push({
-        name: group.name,
-        subcommands: filteredSubcommands
-      });
+// ── L2: Override Application (REAL applyOverrides()) ──
+
+test('L2: applyOverrides() on the real catalog applies real commandOverrides.json (ops-inventory -> armory)', () => {
+  const overrides = JSON.parse(readFileSync(join(__dirname, '..', 'src', 'commandOverrides.json'), 'utf8'));
+  const registry = applyOverrides(realCatalog, overrides);
+
+  const ops = registry.groups.find((g) => g.name === 'ops');
+  assert.ok(ops.subcommands.some((s) => s.name === 'armory'), 'ops-inventory must be renamed to armory');
+  assert.equal(ops.subcommands.find((s) => s.name === 'inventory'), undefined);
+});
+
+test('L2: applyOverrides() flattens v2 routes[] into flat description/route/params (real data)', () => {
+  const registry = applyOverrides(realCatalog, {});
+  const player = registry.groups.find((g) => g.name === 'player');
+  const inventory = player.subcommands.find((s) => s.name === 'armory' || s.name === 'inventory');
+
+  assert.equal(typeof inventory.description, 'string');
+  assert.equal(typeof inventory.route, 'string');
+  assert.ok(Array.isArray(inventory.params));
+});
+
+test('L2: applyOverrides() stamps generatedAt and generatorVersion', () => {
+  const result = applyOverrides(minimalV1Catalog, {});
+  assert.ok(result.generatedAt);
+  assert.ok(result.generatorVersion);
+  assert.match(result.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('L2: applyOverrides() applies exclusions', () => {
+  const result = applyOverrides(minimalV1Catalog, { exclude: ['server-health'] });
+  const server = result.groups.find((g) => g.name === 'server');
+  assert.equal(server, undefined, 'group must be dropped entirely once its only subcommand is excluded');
+});
+
+test('L2: applyOverrides() applies tier adjustments', () => {
+  const result = applyOverrides(minimalV1Catalog, { retier: { 'server-health': 'owner' } });
+  const server = result.groups.find((g) => g.name === 'server');
+  assert.equal(server.subcommands.find((s) => s.name === 'health').minTier, 'owner');
+});
+
+test('L2: applyOverrides() enforces the 25-subcommand Discord limit', () => {
+  const tooMany = {
+    version: 1,
+    groups: [{
+      name: 'huge',
+      subcommands: Array.from({ length: 26 }, (_, i) => ({
+        name: `cmd${i}`, route: `/api/integrations/discord/cmd${i}`, description: 'test', params: []
+      }))
+    }]
+  };
+  assert.throws(() => applyOverrides(tooMany, {}), /25.*limit|exceed/i);
+});
+
+test('L2: applyOverrides() handles null/undefined overrides gracefully', () => {
+  assert.doesNotThrow(() => applyOverrides(minimalV1Catalog, null));
+  assert.doesNotThrow(() => applyOverrides(minimalV1Catalog, undefined));
+  assert.doesNotThrow(() => applyOverrides(minimalV1Catalog, {}));
+});
+
+test('L2: applyOverrides() handles an empty catalog gracefully', () => {
+  const empty = { version: 1, groups: [] };
+  const result = applyOverrides(empty, {});
+  assert.equal(result.groups.length, 0);
+});
+
+// ── Integration: real catalog -> registry, end-to-end ──
+
+test('Integration: real catalog through validateCatalog() + applyOverrides() produces a registry with every subcommand flattened', () => {
+  const { catalog } = validateCatalog(realCatalog);
+  const overrides = JSON.parse(readFileSync(join(__dirname, '..', 'src', 'commandOverrides.json'), 'utf8'));
+  const registry = applyOverrides(catalog, overrides);
+
+  assert.ok(registry.groups.length > 0);
+  for (const group of registry.groups) {
+    assert.ok(group.subcommands.length <= 25);
+    for (const sc of group.subcommands) {
+      assert.equal(typeof sc.name, 'string');
+      assert.equal(typeof sc.description, 'string', `${group.name}:${sc.name} missing description after flattening`);
+      assert.ok('capability' in sc);
+      assert.ok('minTier' in sc);
+      assert.ok(Array.isArray(sc.params));
     }
   }
-
-  return result;
-}
-
-test('L0: Catalog Schema Validation', async (t) => {
-  await t.test('accepts valid catalog structure', () => {
-    assert.equal(mockCatalog.version, 1);
-    assert.ok(Array.isArray(mockCatalog.groups));
-    assert.ok(mockCatalog.groups[0].name);
-    assert.ok(Array.isArray(mockCatalog.groups[0].subcommands));
-  });
-
-  await t.test('requires version field', () => {
-    const invalid = { ...mockCatalog, version: undefined };
-    assert.throws(() => validateCatalogSchema(invalid), /version field/);
-  });
-
-  await t.test('rejects unsupported catalog versions', () => {
-    const invalid = { ...mockCatalog, version: 2 };
-    assert.throws(() => validateCatalogSchema(invalid), /version.*[0-9]/);
-  });
-
-  await t.test('requires groups array', () => {
-    const invalid = { ...mockCatalog, groups: undefined };
-    assert.throws(() => validateCatalogSchema(invalid), /groups/);
-  });
 });
 
-test('L1: Route Coverage Validation', async (t) => {
-  await t.test('detects missing routes', () => {
-    const incomplete = {
-      version: 1,
-      groups: [{
-        name: 'server',
-        subcommands: [
-          { name: 'health', route: '/health', description: 'test' }
-        ]
-      }]
-    };
-    assert.throws(() => validateRoutesCoverage(incomplete, expectedRoutes), /missing|not found/i);
-  });
-
-  await t.test('detects stale catalog entries', () => {
-    const stale = {
-      version: 1,
-      groups: [{
-        name: 'server',
-        subcommands: [
-          { name: 'health', route: '/health', description: 'test' },
-          { name: 'status', route: '/status', description: 'test' },
-          { name: 'population', route: '/population', description: 'test' },
-          { name: 'removed', route: '/removed-route', description: 'no longer live' }
-        ]
-      }]
-    };
-    assert.throws(() => validateRoutesCoverage(stale, expectedRoutes), /unclassified|unknown/i);
-  });
-
-  await t.test('accepts catalog with exact route coverage', () => {
-    assert.doesNotThrow(() => validateRoutesCoverage(mockCatalog, expectedRoutes));
-  });
-});
-
-test('L2: Override Application', async (t) => {
-  await t.test('applies exclusions (filtered subcommands)', () => {
-    const overrides = {
-      exclude: ['data-population']
-    };
-    const result = applyOverrides(mockCatalog, overrides);
-    const population = result.groups
-      .find(g => g.name === 'data')
-      ?.subcommands.find(sc => sc.name === 'population');
-    assert.equal(population, undefined);
-  });
-
-  await t.test('applies renames', () => {
-    const overrides = {
-      rename: {
-        'data-population': { subcommand: 'server-population' }
-      }
-    };
-    const result = applyOverrides(mockCatalog, overrides);
-    const renamed = result.groups
-      .find(g => g.name === 'data')
-      ?.subcommands.find(sc => sc.name === 'server-population');
-    assert.ok(renamed);
-    assert.equal(renamed?.route, '/population');
-  });
-
-  await t.test('applies tier adjustments', () => {
-    const overrides = {
-      retier: {
-        'data-population': 'owner'
-      }
-    };
-    const result = applyOverrides(mockCatalog, overrides);
-    const retired = result.groups
-      .find(g => g.name === 'data')
-      ?.subcommands.find(sc => sc.name === 'population');
-    assert.equal(retired?.minTier, 'owner');
-  });
-
-  await t.test('preserves route metadata during overrides', () => {
-    const overrides = { exclude: ['data-population'] };
-    const result = applyOverrides(mockCatalog, overrides);
-    const health = result.groups
-      .find(g => g.name === 'server')
-      ?.subcommands.find(sc => sc.name === 'health');
-    assert.equal(health?.route, '/health');
-    assert.ok(health?.capability);
-    assert.ok(health?.params);
-  });
-
-  await t.test('removes empty groups after filtering', () => {
-    const overrides = {
-      exclude: ['data-population']
-    };
-    const result = applyOverrides(mockCatalog, overrides);
-    assert.equal(result.groups.find(g => g.name === 'data'), undefined);
-  });
-});
-
-test('L3: Discord Constraints', async (t) => {
-  await t.test('enforces 25-subcommand limit per group', () => {
-    const tooMany = {
-      version: 1,
-      groups: [{
-        name: 'huge',
-        subcommands: Array.from({ length: 26 }, (_, i) => ({
-          name: `cmd${i}`,
-          route: `/cmd${i}`,
-          description: 'test'
-        }))
-      }]
-    };
-    assert.throws(() => applyOverrides(tooMany, {}), /25.*limit|exceed/i);
-  });
-
-  await t.test('accepts groups with exactly 25 subcommands', () => {
-    const maxValid = {
-      version: 1,
-      groups: [{
-        name: 'exact',
-        subcommands: Array.from({ length: 25 }, (_, i) => ({
-          name: `cmd${i}`,
-          route: `/cmd${i}`,
-          description: 'test'
-        }))
-      }]
-    };
-    assert.doesNotThrow(() => applyOverrides(maxValid, {}));
-  });
-});
-
-test('L4: Registry Metadata', async (t) => {
-  await t.test('includes generation timestamp and version', () => {
-    const result = applyOverrides(mockCatalog, {});
-    assert.ok(result.generatedAt);
-    assert.ok(result.generatorVersion);
-    assert.match(result.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
-  });
-
-  await t.test('preserves param information', () => {
-    const result = applyOverrides(mockCatalog, {});
-    const statusCmd = result.groups
-      .find(g => g.name === 'server')
-      ?.subcommands.find(sc => sc.name === 'status');
-    assert.equal(statusCmd?.params.length, 1);
-    assert.equal(statusCmd?.params[0].name, 'diagnostic');
-  });
-
-  await t.test('includes route enforcement flag', () => {
-    const result = applyOverrides(mockCatalog, {});
-    const health = result.groups
-      .find(g => g.name === 'server')
-      ?.subcommands.find(sc => sc.name === 'health');
-    assert.equal(health?.routeEnforcesCapability, true);
-  });
-});
-
-test('L5: Boundary Conditions', async (t) => {
-  await t.test('handles empty catalog gracefully', () => {
-    const empty = { version: 1, groups: [] };
-    const result = applyOverrides(empty, {});
-    assert.equal(result.groups.length, 0);
-  });
-
-  await t.test('handles null/undefined overrides gracefully', () => {
-    assert.doesNotThrow(() => applyOverrides(mockCatalog, null));
-    assert.doesNotThrow(() => applyOverrides(mockCatalog, undefined));
-    assert.doesNotThrow(() => applyOverrides(mockCatalog, {}));
-  });
-});
-
-test('Integration: Core -> Bot Alignment', async (t) => {
-  await t.test('round-trip: catalog routes match bot expectations', () => {
-    const routes = new Set(
-      mockCatalog.groups.flatMap(g => 
-        g.subcommands.map(s => s.route)
-      )
-    );
-    assert.deepEqual(routes, new Set(expectedRoutes));
-  });
-
-  await t.test('no route appears in more than one group', () => {
-    const allRoutes = [];
-    for (const group of mockCatalog.groups) {
-      for (const subcommand of group.subcommands) {
-        allRoutes.push(subcommand.route);
-      }
-    }
-    const unique = new Set(allRoutes);
-    assert.equal(unique.size, allRoutes.length);
-  });
-
-  await t.test('all routes have capability information', () => {
-    for (const group of mockCatalog.groups) {
-      for (const subcommand of group.subcommands) {
-        assert.ok('capability' in subcommand);
-        assert.ok('minTier' in subcommand);
-      }
-    }
-  });
-});
+export default undefined;

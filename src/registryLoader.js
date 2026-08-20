@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createHmac } from "node:crypto";
 import { logInfo, logError } from "./logger.js";
+import { transformCatalogToRegistry, applyCommandOverrides } from "./catalogTransform.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..");
@@ -176,6 +177,26 @@ export function validateRegistry(registry) {
 }
 
 /**
+ * Load src/commandOverrides.json for use during a runtime refresh.
+ * Best-effort: an operator-editable file going missing/malformed
+ * should not break /dune admin sync-commands entirely -- falls back to
+ * no overrides (Core's raw names/tiers) and logs why, rather than
+ * throwing and discarding an otherwise-valid refresh.
+ */
+function loadOverridesForRefresh() {
+  try {
+    const overridesPath = join(repoRoot, "src", "commandOverrides.json");
+    return JSON.parse(readFileSync(overridesPath, "utf8"));
+  } catch (error) {
+    logInfo("registry.overrides_load_failed_during_refresh", {
+      note: "Proceeding without bot-side overrides (exclude/rename/retier) for this refresh.",
+      error: error.message
+    });
+    return {};
+  }
+}
+
+/**
  * Load commands-registry.json from disk at startup
  * SEC-1 FIX: Validates structure AND signature
  * Validates registry structure before caching
@@ -285,17 +306,28 @@ export async function refreshRegistryFromCore(adapterClient, actor, guildId) {
         etagExpireTime = null;
       }
 
-      const newRegistry = await adapterClient.discordCatalog(actor, guildId);
+      const rawResponse = await adapterClient.discordCatalog(actor, guildId);
 
       // SEC-1: Verify signature if Core provided one in the payload.
       // Canonical (signature-excluded) form -- see canonicalRegistryJson().
-      if (newRegistry?.signature) {
-        verifyRegistrySignature(canonicalRegistryJson(newRegistry), newRegistry.signature);
+      // Checked on the raw response, before transform/override, since
+      // that's the exact byte-for-byte payload Core would have signed.
+      if (rawResponse?.signature) {
+        verifyRegistrySignature(canonicalRegistryJson(rawResponse), rawResponse.signature);
       } else {
         logInfo("registry.refresh_no_signature", {
           note: "Core did not provide a signature. Proceeding without signature verification (MITM risk)."
         });
       }
+
+      // CORRECTNESS FIX (2026-08-20): Core's raw response is
+      // { ok, protocolVersion, catalog: { version, groups } } with v2
+      // subcommands shaped { name, routes: [...] } -- transform to the
+      // bot's flat internal shape before validating/caching. See
+      // catalogTransform.js's own module comment for the full
+      // root-cause writeup (found via live E2E testing).
+      const transformed = transformCatalogToRegistry(rawResponse);
+      const newRegistry = applyCommandOverrides(transformed, loadOverridesForRefresh());
 
       // HIGH-3 FIX: Validate registry before caching
       validateRegistry(newRegistry);

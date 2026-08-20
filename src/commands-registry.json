@@ -1,130 +1,141 @@
 {
-  "version": 1,
-  "generatedAt": "2026-08-19T12:00:00Z",
-  "generatorVersion": "1.0.0-rc.5",
+  "version": 2,
   "groups": [
-    {
-      "name": "core",
-      "subcommands": [
-        {
-          "name": "about",
-          "description": "Show safe bot and adapter metadata.",
-          "route": "/version",
-          "capability": null,
-          "minTier": "observer",
-          "params": [],
-          "routeEnforcesCapability": false
-        },
-        {
-          "name": "ping",
-          "description": "Measure Discord and adapter latency.",
-          "route": "/latency",
-          "capability": "STATUS_READ",
-          "minTier": "observer",
-          "params": [],
-          "routeEnforcesCapability": true
-        },
-        {
-          "name": "help",
-          "description": "Show available commands for your role.",
-          "route": null,
-          "capability": null,
-          "minTier": "observer",
-          "params": [],
-          "routeEnforcesCapability": false
-        },
-        {
-          "name": "setup",
-          "description": "How to add this bot to your own Discord server.",
-          "route": null,
-          "capability": null,
-          "minTier": "observer",
-          "params": [],
-          "routeEnforcesCapability": false
-        }
-      ]
-    },
     {
       "name": "server",
       "subcommands": [
         {
           "name": "health",
           "description": "Check the console Discord adapter.",
-          "route": "/health",
-          "capability": "STATUS_READ",
-          "minTier": "observer",
+          "route": "/api/integrations/discord/health",
+          "capability": "status:read",
+          "minTier": "public",
+          "method": "GET",
           "params": [],
-          "routeEnforcesCapability": true
+          "routeEnforcesCapability": false,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Check the console Discord adapter.",
+              "route": "/api/integrations/discord/health",
+              "capability": "status:read",
+              "minTier": "public",
+              "method": "GET",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": false,
+              "params": []
+            }
+          ]
         },
         {
           "name": "status",
           "description": "Show high-level server status.",
-          "route": "/status",
-          "capability": "STATUS_READ",
-          "minTier": "observer",
+          "route": "/api/integrations/discord/status",
+          "capability": "status:read",
+          "minTier": "public",
+          "method": "POST",
           "params": [
             {
               "name": "diagnostic",
               "type": "BOOLEAN",
               "required": false,
-              "description": "Admin-only: full diagnostic with containers table."
+              "description": "Admin-only: full diagnostic with containers table.",
+              "bodyField": "diagnostic"
             }
           ],
-          "routeEnforcesCapability": true
-        },
-        {
-          "name": "summary",
-          "description": "Show compact aggregate server status.",
-          "route": "/status",
-          "capability": "STATUS_READ",
-          "minTier": "observer",
-          "params": [],
-          "routeEnforcesCapability": true
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Show high-level server status.",
+              "diagnosticCapability": "logs:read",
+              "route": "/api/integrations/discord/status",
+              "capability": "status:read",
+              "minTier": "public",
+              "diagnosticMinTier": "admin",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": [
+                {
+                  "name": "diagnostic",
+                  "type": "BOOLEAN",
+                  "required": false,
+                  "description": "Admin-only: full diagnostic with containers table.",
+                  "bodyField": "diagnostic"
+                }
+              ]
+            }
+          ]
         },
         {
           "name": "readiness",
           "description": "Show readiness and preflight state.",
-          "route": "/readiness",
-          "capability": "READINESS_READ",
+          "route": "/api/integrations/discord/readiness",
+          "capability": "readiness:read",
           "minTier": "observer",
+          "method": "POST",
           "params": [],
-          "routeEnforcesCapability": true
-        },
-        {
-          "name": "readiness-detail",
-          "description": "Show grouped readiness detail with issues.",
-          "route": "/readiness-detail",
-          "capability": "READINESS_READ",
-          "minTier": "observer",
-          "params": [],
-          "routeEnforcesCapability": true
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Show readiness and preflight state.",
+              "route": "/api/integrations/discord/readiness",
+              "capability": "readiness:read",
+              "minTier": "observer",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
         },
         {
           "name": "services",
           "description": "Show service container state.",
-          "route": "/services",
-          "capability": "SERVICES_READ",
+          "route": "/api/integrations/discord/services",
+          "capability": "services:read",
           "minTier": "observer",
+          "method": "POST",
           "params": [],
-          "routeEnforcesCapability": true
-        },
-        {
-          "name": "services-detail",
-          "description": "Show detailed service state with logs.",
-          "route": "/services-detail",
-          "capability": "SERVICES_READ",
-          "minTier": "observer",
-          "params": [],
-          "routeEnforcesCapability": true
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Show service container state.",
+              "route": "/api/integrations/discord/services",
+              "capability": "services:read",
+              "minTier": "observer",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
         },
         {
           "name": "maintenance",
-          "description": "Show current maintenance note or window (read-only).",
-          "route": "/maintenance",
-          "capability": "READINESS_READ",
+          "description": "Show current maintenance/readiness state (runs the same check as /dune server readiness).",
+          "route": "/api/integrations/discord/maintenance",
+          "capability": "readiness:read",
           "minTier": "observer",
+          "method": "POST",
           "params": [],
-          "routeEnforcesCapability": true
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Show current maintenance/readiness state (runs the same check as /dune server readiness).",
+              "route": "/api/integrations/discord/maintenance",
+              "capability": "readiness:read",
+              "minTier": "observer",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
         }
       ]
     },
@@ -134,31 +145,780 @@
         {
           "name": "population",
           "description": "Show aggregate player count and server population.",
-          "route": "/population",
-          "capability": "POPULATION_READ",
-          "minTier": "observer",
+          "route": "/api/integrations/discord/population",
+          "capability": "population:read",
+          "minTier": "moderator",
+          "method": "POST",
           "params": [],
-          "routeEnforcesCapability": true
-        },
-        {
-          "name": "backups",
-          "description": "List recent backup metadata (read-only).",
-          "route": "/backups",
-          "capability": "BACKUPS_READ",
-          "minTier": "observer",
-          "params": [],
-          "routeEnforcesCapability": true
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Show aggregate player count and server population.",
+              "route": "/api/integrations/discord/population",
+              "capability": "population:read",
+              "minTier": "moderator",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
         },
         {
           "name": "maps",
           "description": "Show active game maps with state and uptime.",
-          "route": "/maps",
-          "capability": "MAPS_READ",
-          "minTier": "observer",
+          "route": "/api/integrations/discord/map-state",
+          "capability": "maps:read",
+          "minTier": "moderator",
+          "method": "POST",
           "params": [],
-          "routeEnforcesCapability": true
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Show active game maps with state and uptime.",
+              "route": "/api/integrations/discord/map-state",
+              "capability": "maps:read",
+              "minTier": "moderator",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "backups",
+          "description": "List recent backup metadata (read-only).",
+          "route": "/api/integrations/discord/backups/list",
+          "capability": "backups:read",
+          "minTier": "moderator",
+          "method": "GET",
+          "params": [],
+          "routeEnforcesCapability": false,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "List recent backup metadata (read-only).",
+              "route": "/api/integrations/discord/backups/list",
+              "capability": "backups:read",
+              "minTier": "moderator",
+              "method": "GET",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": false,
+              "params": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ops",
+      "subcommands": [
+        {
+          "name": "activity",
+          "description": "Recent server activity summary.",
+          "route": "/api/integrations/discord/ops/activity",
+          "capability": "ops:activity:read",
+          "minTier": "admin",
+          "method": "POST",
+          "params": [],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Recent server activity summary.",
+              "route": "/api/integrations/discord/ops/activity",
+              "capability": "ops:activity:read",
+              "minTier": "admin",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "combat",
+          "description": "Recent combat statistics summary.",
+          "route": "/api/integrations/discord/ops/combat",
+          "capability": "ops:combat:read",
+          "minTier": "admin",
+          "method": "POST",
+          "params": [],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Recent combat statistics summary.",
+              "route": "/api/integrations/discord/ops/combat",
+              "capability": "ops:combat:read",
+              "minTier": "admin",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "resources",
+          "description": "Deep Desert / Hagga Basin resource summary.",
+          "route": "/api/integrations/discord/ops/resources",
+          "capability": "ops:resources:read",
+          "minTier": "admin",
+          "method": "POST",
+          "params": [],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Deep Desert / Hagga Basin resource summary.",
+              "route": "/api/integrations/discord/ops/resources",
+              "capability": "ops:resources:read",
+              "minTier": "admin",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "economy",
+          "description": "Server economy summary.",
+          "route": "/api/integrations/discord/ops/economy",
+          "capability": "ops:economy:read",
+          "minTier": "admin",
+          "method": "POST",
+          "params": [],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Server economy summary.",
+              "route": "/api/integrations/discord/ops/economy",
+              "capability": "ops:economy:read",
+              "minTier": "admin",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "armory",
+          "description": "Aggregate armory/inventory summary.",
+          "route": "/api/integrations/discord/ops/inventory",
+          "capability": "ops:inventory:read",
+          "minTier": "admin",
+          "method": "POST",
+          "params": [],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Aggregate armory/inventory summary.",
+              "route": "/api/integrations/discord/ops/inventory",
+              "capability": "ops:inventory:read",
+              "minTier": "admin",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "soc",
+          "description": "Security operations center bridge-request summary.",
+          "route": "/api/integrations/discord/ops/soc",
+          "capability": "ops:soc:read",
+          "minTier": "admin",
+          "method": "POST",
+          "params": [],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Security operations center bridge-request summary.",
+              "route": "/api/integrations/discord/ops/soc",
+              "capability": "ops:soc:read",
+              "minTier": "admin",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "prometheus",
+          "description": "Prometheus-backed metrics summary.",
+          "route": "/api/integrations/discord/ops/prometheus",
+          "capability": "ops:prometheus:read",
+          "minTier": "admin",
+          "method": "POST",
+          "params": [],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Prometheus-backed metrics summary.",
+              "route": "/api/integrations/discord/ops/prometheus",
+              "capability": "ops:prometheus:read",
+              "minTier": "admin",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "announcements",
+          "description": "Show recent in-game player announcements.",
+          "route": "/api/integrations/discord/announcements",
+          "capability": "maps:read",
+          "minTier": "moderator",
+          "method": "POST",
+          "params": [],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Show recent in-game player announcements.",
+              "route": "/api/integrations/discord/announcements",
+              "capability": "maps:read",
+              "minTier": "moderator",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "logs",
+      "subcommands": [
+        {
+          "name": "service",
+          "description": "Show recent logs from a specific game service container.",
+          "route": "/api/integrations/discord/logs",
+          "capability": "logs:read",
+          "minTier": "admin",
+          "method": "POST",
+          "params": [
+            {
+              "name": "service",
+              "type": "STRING",
+              "required": true,
+              "description": "Service/container name.",
+              "bodyField": "service"
+            }
+          ],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Show recent logs from a specific game service container.",
+              "route": "/api/integrations/discord/logs",
+              "capability": "logs:read",
+              "minTier": "admin",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": [
+                {
+                  "name": "service",
+                  "type": "STRING",
+                  "required": true,
+                  "description": "Service/container name.",
+                  "bodyField": "service"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "admin",
+      "subcommands": [
+        {
+          "name": "broadcast",
+          "description": "Send a message to all in-game players.",
+          "route": "/api/integrations/discord/broadcast",
+          "capability": "broadcast:send",
+          "minTier": "admin",
+          "method": "POST",
+          "params": [
+            {
+              "name": "message",
+              "type": "STRING",
+              "required": true,
+              "description": "Message to broadcast.",
+              "maxLength": 500,
+              "bodyField": "message"
+            }
+          ],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": true,
+          "routes": [
+            {
+              "description": "Send a message to all in-game players.",
+              "route": "/api/integrations/discord/broadcast",
+              "capability": "broadcast:send",
+              "minTier": "admin",
+              "method": "POST",
+              "requiresWritesEnabled": true,
+              "routeEnforcesCapability": true,
+              "params": [
+                {
+                  "name": "message",
+                  "type": "STRING",
+                  "required": true,
+                  "description": "Message to broadcast.",
+                  "maxLength": 500,
+                  "bodyField": "message"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "player",
+      "subcommands": [
+        {
+          "name": "link",
+          "description": "Link your Discord to your game character.",
+          "route": "/api/integrations/discord/players/link",
+          "capability": "player-link:write",
+          "minTier": "moderator",
+          "method": "POST",
+          "params": [
+            {
+              "name": "character",
+              "bodyField": "characterName",
+              "type": "STRING",
+              "required": true,
+              "description": "Your character name."
+            }
+          ],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Link your Discord to your game character.",
+              "route": "/api/integrations/discord/players/link",
+              "capability": "player-link:write",
+              "minTier": "moderator",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": [
+                {
+                  "name": "character",
+                  "bodyField": "characterName",
+                  "type": "STRING",
+                  "required": true,
+                  "description": "Your character name."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "verify",
+          "description": "Verify a pending character link with a code.",
+          "route": "/api/integrations/discord/players/link/verify",
+          "capability": "player-link:write",
+          "minTier": "moderator",
+          "method": "POST",
+          "params": [
+            {
+              "name": "code",
+              "type": "STRING",
+              "required": true,
+              "description": "Verification code from in-game whisper.",
+              "bodyField": "code"
+            }
+          ],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Verify a pending character link with a code.",
+              "route": "/api/integrations/discord/players/link/verify",
+              "capability": "player-link:write",
+              "minTier": "moderator",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": [
+                {
+                  "name": "code",
+                  "type": "STRING",
+                  "required": true,
+                  "description": "Verification code from in-game whisper.",
+                  "bodyField": "code"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "unlink",
+          "description": "Unlink your character from your Discord.",
+          "route": "/api/integrations/discord/players/unlink",
+          "capability": "player-link:write",
+          "minTier": "moderator",
+          "method": "POST",
+          "params": [],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Unlink your character from your Discord.",
+              "route": "/api/integrations/discord/players/unlink",
+              "capability": "player-link:write",
+              "minTier": "moderator",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "whoami",
+          "description": "Show your linked game character info.",
+          "route": "/api/integrations/discord/players/me",
+          "capability": "inventory:read",
+          "minTier": "moderator",
+          "method": "POST",
+          "params": [],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Show your linked game character info.",
+              "route": "/api/integrations/discord/players/me",
+              "capability": "inventory:read",
+              "minTier": "moderator",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "inventory",
+          "description": "View your personal inventory.",
+          "route": "/api/integrations/discord/players/inventory",
+          "capability": "inventory:read",
+          "minTier": "moderator",
+          "method": "POST",
+          "params": [
+            {
+              "name": "search",
+              "bodyField": "query",
+              "type": "STRING",
+              "required": false,
+              "description": "Filter by item name (optional)."
+            }
+          ],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "View your personal inventory.",
+              "selector": null,
+              "route": "/api/integrations/discord/players/inventory",
+              "capability": "inventory:read",
+              "minTier": "moderator",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            },
+            {
+              "description": "View your personal inventory, filtered by item name.",
+              "selector": {
+                "param": "search",
+                "present": true
+              },
+              "route": "/api/integrations/discord/players/inventory-search",
+              "capability": "inventory:read",
+              "minTier": "moderator",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": [
+                {
+                  "name": "search",
+                  "bodyField": "query",
+                  "type": "STRING",
+                  "required": false,
+                  "description": "Filter by item name (optional)."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "storage",
+          "description": "View your storage containers grouped by map.",
+          "route": "/api/integrations/discord/players/storage",
+          "capability": "storage:read",
+          "minTier": "moderator",
+          "method": "POST",
+          "params": [
+            {
+              "name": "scope",
+              "type": "STRING",
+              "required": false,
+              "description": "Storage scope: \"owned\" (default) or \"guild\".",
+              "choices": [
+                "owned",
+                "guild"
+              ],
+              "bodyField": "scope"
+            }
+          ],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "View your storage containers grouped by map.",
+              "selector": null,
+              "route": "/api/integrations/discord/players/storage",
+              "capability": "storage:read",
+              "minTier": "moderator",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": [
+                {
+                  "name": "scope",
+                  "type": "STRING",
+                  "required": false,
+                  "description": "Storage scope: \"owned\" (default) or \"guild\".",
+                  "choices": [
+                    "owned",
+                    "guild"
+                  ],
+                  "bodyField": "scope"
+                }
+              ]
+            },
+            {
+              "description": "View guild-scoped storage containers.",
+              "selector": {
+                "param": "scope",
+                "equals": "guild"
+              },
+              "route": "/api/integrations/discord/guilds/storage",
+              "capability": "guild:read",
+              "minTier": "moderator",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "find",
+          "description": "Search for items across your containers.",
+          "route": "/api/integrations/discord/players/find",
+          "capability": "inventory:read",
+          "minTier": "moderator",
+          "method": "POST",
+          "params": [
+            {
+              "name": "query",
+              "type": "STRING",
+              "required": true,
+              "description": "Item name to search for.",
+              "bodyField": "query"
+            },
+            {
+              "name": "scope",
+              "type": "STRING",
+              "required": false,
+              "description": "Search scope: \"owned\" (default) or \"guild\".",
+              "choices": [
+                "owned",
+                "guild"
+              ],
+              "bodyField": "scope"
+            }
+          ],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Search for items across your containers.",
+              "selector": null,
+              "route": "/api/integrations/discord/players/find",
+              "capability": "inventory:read",
+              "minTier": "moderator",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": [
+                {
+                  "name": "query",
+                  "type": "STRING",
+                  "required": true,
+                  "description": "Item name to search for.",
+                  "bodyField": "query"
+                },
+                {
+                  "name": "scope",
+                  "type": "STRING",
+                  "required": false,
+                  "description": "Search scope: \"owned\" (default) or \"guild\".",
+                  "choices": [
+                    "owned",
+                    "guild"
+                  ],
+                  "bodyField": "scope"
+                }
+              ]
+            },
+            {
+              "description": "Search for items across guild containers.",
+              "selector": {
+                "param": "scope",
+                "equals": "guild"
+              },
+              "route": "/api/integrations/discord/guilds/find",
+              "capability": "guild:read",
+              "minTier": "moderator",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": [
+                {
+                  "name": "query",
+                  "type": "STRING",
+                  "required": true,
+                  "description": "Item name to search for.",
+                  "bodyField": "query"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "infra",
+      "subcommands": [
+        {
+          "name": "version",
+          "description": "Show Dune stack version.",
+          "route": "/api/integrations/discord/version",
+          "capability": null,
+          "minTier": null,
+          "method": "GET",
+          "params": [],
+          "routeEnforcesCapability": false,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Show Dune stack version.",
+              "route": "/api/integrations/discord/version",
+              "capability": null,
+              "minTier": null,
+              "method": "GET",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": false,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "servers",
+          "description": "List game servers.",
+          "route": "/api/integrations/discord/servers",
+          "capability": "services:read",
+          "minTier": "observer",
+          "method": "POST",
+          "params": [],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "List game servers.",
+              "route": "/api/integrations/discord/servers",
+              "capability": "services:read",
+              "minTier": "observer",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "ports",
+          "description": "Show network port and listener status.",
+          "route": "/api/integrations/discord/ports",
+          "capability": "services:read",
+          "minTier": "observer",
+          "method": "POST",
+          "params": [],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Show network port and listener status.",
+              "route": "/api/integrations/discord/ports",
+              "capability": "services:read",
+              "minTier": "observer",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
+        },
+        {
+          "name": "db",
+          "description": "Show database status and health.",
+          "route": "/api/integrations/discord/db",
+          "capability": "services:read",
+          "minTier": "observer",
+          "method": "POST",
+          "params": [],
+          "routeEnforcesCapability": true,
+          "requiresWritesEnabled": false,
+          "routes": [
+            {
+              "description": "Show database status and health.",
+              "route": "/api/integrations/discord/db",
+              "capability": "services:read",
+              "minTier": "observer",
+              "method": "POST",
+              "requiresWritesEnabled": false,
+              "routeEnforcesCapability": true,
+              "params": []
+            }
+          ]
         }
       ]
     }
-  ]
+  ],
+  "generatedAt": "2026-08-20T01:59:07.484Z",
+  "generatorVersion": "1.0.0-rc.5"
 }
