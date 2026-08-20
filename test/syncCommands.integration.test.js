@@ -7,11 +7,14 @@
  *
  * Verifies:
  * - Command requires admin/owner role (non-admins get a permission error)
- * - Successful refresh returns before/after metadata (no guildId leaked)
+ * - Successful drift check reports registry vs Core catalog (no guildId
+ *   leaked)
  * - Error messages are sanitized (SEC-2): no guildId, no raw adapter
- *   error text reaches the user-facing embed
+ *   error text reaches the user-facing embed — classified by the
+ *   adapter's HTTP status, not message substrings (#199)
  * - Core unavailability is handled gracefully (no crash, sanitized message)
- * - Concurrent sync-commands calls are serialized (CRITICAL-1), exercised
+ * - A sync never mutates the shared registry served to other tenants and
+ *   the public API (#192 cross-tenant poisoning regression), exercised
  *   here at the full command-dispatch level, not just registryLoader's
  *   own unit tests
  */
@@ -19,11 +22,14 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { executeDuneCommand } from "../src/commands.js";
-import { __resetForTests } from "../src/registryLoader.js";
+import { __resetForTests, loadRegistryAtStartup, getRegistryFromCache, getRegistryMetadata } from "../src/registryLoader.js";
 import { resetCooldowns } from "../src/cooldown.js";
 
 beforeEach(() => {
   __resetForTests();
+  // sync-commands compares Core's catalog against the committed registry
+  // artifact — load it exactly as index.js does at startup.
+  loadRegistryAtStartup();
   // Prevent cross-test cooldown pollution: each test below calls
   // admin:sync-commands, and cooldown.js's in-memory map persists across
   // tests within the same process/file otherwise.
@@ -155,32 +161,66 @@ test("sync-commands integration: Core unavailability (network/timeout) is handle
   assert.match(text, /timed out|Core encountered an error|unresponsive/i);
 });
 
-test("sync-commands integration: concurrent /dune admin sync-commands calls are serialized (CRITICAL-1)", async () => {
-  let inFlightCalls = 0;
-  let maxConcurrent = 0;
+test("sync-commands integration: a sync never mutates the shared registry (#192 poisoning regression)", async () => {
+  const committedBefore = getRegistryFromCache();
+  const metaBefore = getRegistryMetadata();
+
+  // A (hostile or just different) tenant Core returns a catalog that
+  // looks nothing like the committed artifact...
   const adapterClient = {
-    discordCatalog: async () => {
-      inFlightCalls += 1;
-      maxConcurrent = Math.max(maxConcurrent, inFlightCalls);
+    discordCatalog: async () => ({
+      version: 99,
+      groups: [{ name: "evil", subcommands: [{ name: "poisoned", description: "injected", params: [] }] }]
+    })
+  };
+  let replied;
+  const interaction = mockInteraction("admin", "sync-commands", {
+    roles: ["admin-role"],
+    guildId: "guild-tenant-a",
+    onReply: (r) => { replied = r; }
+  });
+
+  await executeDuneCommand(interaction, adapterClient, adminConfig);
+
+  // ...the invoker gets an honest drift report...
+  const text = JSON.stringify(replied);
+  assert.match(text, /drift/i);
+
+  // ...and shared process state is untouched: what every other tenant
+  // and the public GET /api/commands see is still the committed artifact.
+  const cachedAfter = getRegistryFromCache();
+  assert.equal(cachedAfter.version, committedBefore.version);
+  assert.equal(getRegistryMetadata().commandCount, metaBefore.commandCount);
+  assert.ok(!cachedAfter.groups.some((g) => g.name === "evil"));
+});
+
+test("sync-commands integration: concurrent syncs from different guilds each fetch their own Core", async () => {
+  const calls = [];
+  const adapterClient = {
+    discordCatalog: async (actor, guildId) => {
+      calls.push(guildId);
       await new Promise((r) => setTimeout(r, 20));
-      inFlightCalls -= 1;
       return mockRegistry();
     }
   };
 
   const replies = [];
-  const makeInteraction = () => mockInteraction("admin", "sync-commands", {
+  const makeInteraction = (guildId) => mockInteraction("admin", "sync-commands", {
     roles: ["admin-role"],
+    guildId,
     onReply: (r) => replies.push(r)
   });
 
   await Promise.all([
-    executeDuneCommand(makeInteraction(), adapterClient, adminConfig),
-    executeDuneCommand(makeInteraction(), adapterClient, adminConfig)
+    executeDuneCommand(makeInteraction("guild-a"), adapterClient, adminConfig),
+    executeDuneCommand(makeInteraction("guild-b"), adapterClient, adminConfig)
   ]);
 
-  assert.equal(maxConcurrent, 1, "only one discordCatalog() call should be in flight at a time");
-  assert.equal(replies.length, 2, "both callers must still get a reply");
+  // Each guild talks to its OWN Core: coalescing guild-b's check onto
+  // guild-a's in-flight fetch (the old "CRITICAL-1 serialization") would
+  // report one tenant the other tenant's catalog.
+  assert.deepEqual(calls.sort(), ["guild-a", "guild-b"]);
+  assert.equal(replies.length, 2, "both callers must get a reply");
 });
 
 export default undefined;

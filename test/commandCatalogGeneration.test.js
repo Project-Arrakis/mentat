@@ -167,13 +167,29 @@ test('L1: validateCatalog() extracts route STRINGS from v2 routes[] arrays, not 
 
 // ── L2: Override Application (REAL applyOverrides()) ──
 
-test('L2: applyOverrides() on the real catalog applies real commandOverrides.json (ops-inventory -> armory)', () => {
-  const overrides = JSON.parse(readFileSync(join(__dirname, '..', 'src', 'commandOverrides.json'), 'utf8'));
-  const registry = applyOverrides(realCatalog, overrides);
-
+test('L2: applyOverrides() rename mechanism actually fires against real data (#206/K18)', () => {
+  // The SHIPPED "ops-inventory -> armory" rename is a historical no-op:
+  // current Core already ships the subcommand as `armory` natively, so
+  // the `ops-inventory` key matches nothing. The previous version of
+  // this test asserted the post-rename name existed — true with or
+  // without the override applied, i.e. a tautology that could never
+  // fail. Exercise the mechanism with an override keyed to a name the
+  // real fixture actually contains.
+  const registry = applyOverrides(realCatalog, { rename: { 'ops-armory': { subcommand: 'arsenal' } } });
   const ops = registry.groups.find((g) => g.name === 'ops');
-  assert.ok(ops.subcommands.some((s) => s.name === 'armory'), 'ops-inventory must be renamed to armory');
-  assert.equal(ops.subcommands.find((s) => s.name === 'inventory'), undefined);
+  assert.ok(ops.subcommands.some((s) => s.name === 'arsenal'), 'ops-armory must be renamed to arsenal');
+  assert.equal(ops.subcommands.find((s) => s.name === 'armory'), undefined, 'the pre-rename name must be gone');
+});
+
+test('L2: shipped commandOverrides.json applies cleanly to the real catalog (every entry currently a no-op)', () => {
+  // Every shipped override keys a command current Core does not expose
+  // (guild-character-grants-*, ops-inventory, server-restart,
+  // carepackage-grant-all) — kept as documented intent for when Core
+  // ships those routes. Applying them must be byte-identical to applying
+  // no overrides at all; if this ever fails, an entry started matching
+  // real data and deserves its own real assertion above.
+  const overrides = JSON.parse(readFileSync(join(__dirname, '..', 'src', 'commandOverrides.json'), 'utf8'));
+  assert.deepEqual(applyOverrides(realCatalog, overrides).groups, applyOverrides(realCatalog, {}).groups);
 });
 
 test('L2: applyOverrides() flattens v2 routes[] into flat description/route/params (real data)', () => {

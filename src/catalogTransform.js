@@ -5,7 +5,7 @@
  * bot's internal, flat registry shape used by:
  *   - scripts/generate-command-registry.js (Phase 2, offline generation,
  *     produces the committed src/commands-registry.json artifact)
- *   - src/registryLoader.js's refreshRegistryFromCore() (Phase 3, runtime
+ *   - src/registryLoader.js's fetchCoreCatalogForGuild() (Phase 3, runtime
  *     /dune admin sync-commands refresh)
  *
  * BUG FIX (2026-08-20, found via live E2E testing against real, reachable
@@ -17,7 +17,7 @@
  *   1. RESPONSE ENVELOPE: the HTTP response body is
  *      { ok, protocolVersion, catalog: { version, groups } } -- the
  *      actual catalog is nested under `.catalog`, not at the top level.
- *      registryLoader.js's refreshRegistryFromCore() was passing the
+ *      registryLoader.js's fetchCoreCatalogForGuild() was passing the
  *      whole envelope into validateRegistry(), which correctly rejected
  *      it ("Registry.groups must be an array") since `.groups` doesn't
  *      exist at that level.
@@ -77,7 +77,10 @@ export function flattenSubcommand(sc) {
     return sc;
   }
 
-  const [primary, ...rest] = sc.routes;
+  // Prefer the default (selector-less) route as the flattened summary's
+  // primary — routes[0] is not guaranteed to be the default variant for
+  // multi-route subcommands like player:inventory (#206/K19).
+  const primary = sc.routes.find((r) => r.selector == null) ?? sc.routes[0];
 
   // Union of params across all routes, de-duplicated by name. Multiple
   // routes can define the same param (e.g. player:inventory's `search`
@@ -146,7 +149,7 @@ export function transformCatalogToRegistry(rawResponse) {
  * retier) to an already-flattened registry (post-transformCatalogToRegistry()).
  *
  * Shared between scripts/generate-command-registry.js (Phase 2 offline
- * generation) and registryLoader.js's refreshRegistryFromCore() (Phase 3
+ * generation) and registryLoader.js's fetchCoreCatalogForGuild() (Phase 3
  * runtime sync) -- previously generate-command-registry.js had its own
  * copy of this logic and the runtime refresh path had none at all,
  * meaning /dune admin sync-commands would silently regress any excluded/

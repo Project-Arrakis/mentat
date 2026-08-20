@@ -47,7 +47,7 @@
 
 import https from 'node:https';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { transformCatalogToRegistry, applyCommandOverrides } from '../src/catalogTransform.js';
 
@@ -71,10 +71,11 @@ try {
     const [key, ...rest] = line.split('=');
     return [key.trim(), rest.join('=').trim().replace(/^["']|["']$/g, '')];
   }));
-} catch {
-  // No .env present -- fine for import/testing; main()'s own fetch will
-  // fail loudly with a clear "Unauthorized"/network error if actually
-  // run without real credentials.
+} catch (error) {
+  // Only a MISSING .env is fine (import/testing; main()'s own fetch will
+  // fail loudly without real credentials). Anything else — EACCES, EISDIR,
+  // a parse-time crash — must surface, not be silently swallowed (#206).
+  if (error.code !== 'ENOENT') throw error;
 }
 
 const DUNE_CONSOLE_API_URL = env.DUNE_CONSOLE_API_URL || 'https://127.0.0.1:8089';
@@ -236,7 +237,7 @@ function validateCatalog(catalog) {
  *
  * CORRECTNESS FIX (2026-08-20): this used to hand-roll its own
  * flatten-and-override logic, DUPLICATING (and, for v2, getting wrong
- * in a different way than) what refreshRegistryFromCore() needed at
+ * in a different way than) what fetchCoreCatalogForGuild() needed at
  * runtime. Now delegates to catalogTransform.js's
  * transformCatalogToRegistry() (envelope unwrap + v2 routes[]
  * flattening) and applyCommandOverrides() (exclude/rename/retier) --
@@ -316,6 +317,10 @@ async function main() {
 // by tests.
 export { validateCatalog, applyOverrides, REQUIRED_ROUTES };
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL() (not string concatenation) so the guard survives
+// spaces, symlinks, and percent-encodable characters in the script path
+// — `file://${argv[1]}` silently never matched in those cases, making
+// the generator a no-op with exit 0 (#206).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }

@@ -8,7 +8,7 @@ import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload, redactSecrets } from "./format.js";
 import { logInfo, logError } from "./logger.js";
-import { getRegistryFromCache, registryToDiscordFormat, refreshRegistryFromCore, getRegistryMetadata } from "./registryLoader.js";
+import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegistryMetadata } from "./registryLoader.js";
 import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed , formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { sendStatusCard, sendOpsCard } from "./statusCard.js";
@@ -132,7 +132,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
     // ── admin group ──
     .addSubcommandGroup((g) => g.setName("admin").setDescription("Admin-only diagnostics and management.")
       .addSubcommand((c) => c.setName("doctor").setDescription("Comprehensive system diagnostic across all subsystems."))
-      .addSubcommand((c) => c.setName("sync-commands").setDescription("Phase 3: Refresh command registry from Core's catalog (operator)."))
+      .addSubcommand((c) => c.setName("sync-commands").setDescription("Check Core's command catalog for drift against the bot's registry."))
       .addSubcommand((c) => c.setName("cooldowns").setDescription("Show active command cooldowns."))
       .addSubcommand((c) => c.setName("latency").setDescription("Show adapter request latency history."))
       .addSubcommand((c) => c.setName("events").setDescription("Show recent server incidents and events."))
@@ -849,6 +849,7 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "admin:events", desc: "Recent incident log.", role: "admin" },
     { name: "admin:roles", desc: "Show configured admin/observer roles with current names.", role: "admin" },
     { name: "admin:broadcast", desc: "Send a message to all players.", role: "admin" },
+    { name: "admin:sync-commands", desc: "Check Core's command catalog for drift against the bot's registry.", role: "admin" },
     // ── infra ──
     { name: "infra:version", desc: "Dune stack version.", role: "observer" },
     { name: "infra:servers", desc: "List game servers.", role: "observer" },
@@ -926,78 +927,77 @@ async function fetchPrometheusAlerts(adapterClient, actor, guildId) {
 }
 
 /**
- * Phase 3: Sync command registry from Core's catalog endpoint
- * Operator command to refresh the command registry without restarting the bot.
- * Uses ETag-based conditional requests if Core supports them.
+ * /dune admin sync-commands — Core catalog drift check (issues #192/#196).
+ *
+ * Read-only by design: fetches the INVOKING guild's own Core catalog,
+ * validates it, and reports how it differs from the bot's committed
+ * registry artifact. It never mutates shared state — in multi-tenant
+ * mode each guild talks to its own Core, and caching one tenant's
+ * catalog process-wide let any tenant poison what every other tenant
+ * and the public API saw (#192). Nothing re-registers Discord slash
+ * commands at runtime either (registration happens at deploy from
+ * code), so the old "bot will use updated commands" claim was false
+ * (#196) — drift reported here is acted on by regenerating the
+ * committed artifact (npm run registry:generate) and deploying.
  */
 async function syncCommandsPayload(adapterClient, actor, guildId) {
   try {
-    // MEDIUM-1 FIX: Use top-level import instead of dynamic import (already imported at top)
-    const beforeMeta = getRegistryMetadata();
-    
-    // Attempt refresh from Core
-    // CORRECTNESS FIX (2026-08-19): refreshRegistryFromCore() requires
-    // (adapterClient, actor, guildId) to match adapterClient's real
-    // request() signature -- see registryLoader.js's own comment on
-    // this function for the full root-cause writeup (a guildId-as-route
-    // bug found during live E2E testing, not a Core-reachability issue).
-    await refreshRegistryFromCore(adapterClient, actor, guildId);
-    
-    const afterMeta = getRegistryMetadata();
-    
-    // MEDIUM-2 FIX: Log successful sync with proper structured logging
-    logInfo("sync_commands.success", {
+    const committed = getRegistryFromCache();
+    const meta = getRegistryMetadata();
+    const fetched = await fetchCoreCatalogForGuild(adapterClient, actor, guildId);
+    const drift = diffRegistries(committed, fetched);
+
+    logInfo("sync_commands.drift_check", {
       guildId,
-      beforeGroups: beforeMeta.groups,
-      afterGroups: afterMeta.groups,
-      beforeVersion: beforeMeta.version,
-      afterVersion: afterMeta.version
+      inSync: drift.inSync,
+      added: drift.added.length,
+      removed: drift.removed.length
     });
-    
-    // SEC-2 FIX: Sanitize response - never expose guildId or internal details
+
     return {
       ok: true,
       action: "sync-commands",
-      message: "Command registry refreshed from Core",
-      before: {
-        version: beforeMeta.version,
-        groups: beforeMeta.groups,
-        commandCount: beforeMeta.commandCount
+      message: drift.inSync
+        ? "Core's catalog matches the bot's committed registry."
+        : "Core's catalog has drifted from the bot's committed registry.",
+      registry: { version: meta.version, groups: meta.groups, commandCount: meta.commandCount },
+      coreCatalog: {
+        version: fetched.version,
+        groups: fetched.groups.length,
+        commandCount: fetched.groups.reduce((sum, g) => sum + (g.subcommands?.length || 0), 0)
       },
-      after: {
-        version: afterMeta.version,
-        groups: afterMeta.groups,
-        commandCount: afterMeta.commandCount
+      drift: {
+        inSync: drift.inSync,
+        // Capped so a hostile/buggy Core can't flood the Discord reply
+        added: drift.added.slice(0, 15),
+        removed: drift.removed.slice(0, 15),
+        addedCount: drift.added.length,
+        removedCount: drift.removed.length
       },
       timestamp: new Date().toISOString(),
-      note: "Phase 3: Runtime registry loading. Bot will use updated commands on next invocation."
+      note: "Read-only drift check. Slash-command registration only changes on bot deploy; regenerate src/commands-registry.json (npm run registry:generate) to update the committed artifact."
     };
   } catch (error) {
-    // MEDIUM-2 FIX: Use logError instead of returning error silently
-    logError("sync_commands.failed", error, { guildId });
-    
-    // SEC-2 FIX: Sanitize error message - map specific errors to generic user messages
-    let userMessage = "Failed to refresh command registry. Check Core status and try again.";
-    
-    if (error.message.includes("ENOENT") || error.message.includes("not found")) {
-      userMessage = "Core endpoint not found. Check console configuration.";
-    } else if (error.message.includes("401") || error.message.includes("unauthorized")) {
-      userMessage = "Authentication failed. Check adapter configuration.";
-    } else if (error.message.includes("403") || error.message.includes("forbidden")) {
-      userMessage = "Permission denied. Check Core admin settings.";
-    } else if (error.message.includes("500") || error.message.includes("server error")) {
-      userMessage = "Core encountered an error. Try again in a few minutes.";
-    } else if (error.message.includes("timeout") || error.message.includes("timed out")) {
-      // BUG FIX (2026-08-19, found via test/syncCommands.integration.test.js):
-      // adapterClient.js's real timeout error text is "...request timed
-      // out after Nms." -- the literal substring "timeout" never
-      // appears, so this branch could never match the actual error the
-      // adapter produces. Checking both forms fixes it.
+    logError("sync_commands.failed", error, { guildId, status: error?.status });
+
+    // SEC-2: map failures to generic user messages (never leak internals).
+    // Classified by the adapter's real HTTP status, preserved on the
+    // error by fetchCoreCatalogForGuild() — never by message substrings,
+    // which misfired on timeout durations containing "500" (#199).
+    const isTimeout = /timed?\s?out/i.test(error.message || "");
+    let userMessage = "Failed to check Core's catalog. Check Core status and try again.";
+    if (isTimeout) {
       userMessage = "Request timed out. Core may be unresponsive.";
-    } else if (error.message.includes("signature")) {
-      userMessage = "Registry verification failed. Possible tampering detected.";
+    } else if (error.status === 401) {
+      userMessage = "Authentication failed. Check adapter configuration.";
+    } else if (error.status === 403) {
+      userMessage = "Permission denied. Check Core admin settings.";
+    } else if (error.status === 404) {
+      userMessage = "Core does not expose a command catalog (endpoint not found). Your Core version may predate command discovery.";
+    } else if (typeof error.status === "number" && error.status >= 500) {
+      userMessage = "Core encountered an error. Try again in a few minutes.";
     }
-    
+
     return {
       ok: false,
       error: userMessage,
@@ -1009,21 +1009,120 @@ async function syncCommandsPayload(adapterClient, actor, guildId) {
 
 export function requiredRoleIdsForCommand(command, rbac) { return rbac?.commandRoleIds?.[command] || []; }
 
-// Public command registry for landing page and docs auto-generation.
-// Returns command groups with display titles, names, descriptions, and roles.
-// This is the single source of truth — the landing page fetches from GET /api/commands
-// Phase 3: Load registry from generated artifact (Phase 2)
-// Instead of hardcoding commands here, read from src/commands-registry.json
-// which is generated by scripts/generate-command-registry.js and kept in sync
-// with Core's catalog via the /dune admin sync-commands operator command.
+// Public command registry for the landing page and docs auto-generation.
+// Served verbatim by GET /api/commands (setupServer.js) to the
+// acp-landing accordion — the shape below IS the public contract
+// ({ group, title, commands: [{ name, desc, role }] }) and is pinned by
+// a regression test. Issues #193/#203: this must stay a curated,
+// display-only projection of the commands buildDuneCommand() actually
+// registers — never the internal Core-catalog registry, which both
+// diverges from the real command tree (#196) and leaks Core's adapter
+// routes/capabilities/methods to unauthenticated callers (#203).
 export function getCommandRegistry() {
-  try {
-    const registry = getRegistryFromCache();
-    return registry.groups || [];
-  } catch (error) {
-    // Fallback: if registry load fails, return empty (bot won't list commands)
-    // This prevents a boot failure if the artifact is missing.
-    console.error("Failed to get command registry from cache:", error.message);
-    return [];
-  }
+  return [
+    {
+      group: "server",
+      title: "Sietch Watch — Server Health",
+      commands: [
+        { name: "health", desc: "Check the console Discord adapter", role: "observer" },
+        { name: "status", desc: "Show high-level server status", role: "observer" },
+        { name: "summary", desc: "Show compact aggregate server status", role: "observer" },
+        { name: "readiness", desc: "Show readiness and preflight state", role: "observer" },
+        { name: "readiness-detail", desc: "Show grouped readiness detail with issues", role: "observer" },
+        { name: "services", desc: "Show service container state", role: "observer" },
+        { name: "services-detail", desc: "Show detailed service state with logs", role: "observer" },
+        { name: "maintenance", desc: "Show maintenance mode status", role: "admin" }
+      ]
+    },
+    {
+      group: "player",
+      title: "The Personal Ledger — Player Tools",
+      commands: [
+        { name: "link <name>", desc: "Link Discord to your in-game character", role: "observer" },
+        { name: "verify <code>", desc: "Verify a pending character link with a code", role: "observer" },
+        { name: "characters", desc: "List your verified characters", role: "observer" },
+        { name: "enable", desc: "Enable a character in this guild", role: "observer" },
+        { name: "disable", desc: "Disable a character in this guild", role: "observer" },
+        { name: "default", desc: "Set your default character for this guild", role: "observer" },
+        { name: "unlink <id>", desc: "Unlink a character from your Discord", role: "observer" },
+        { name: "faction <name>", desc: "Set your faction for themed embeds", role: "observer" },
+        { name: "whoami", desc: "Show your linked game character info", role: "observer" },
+        { name: "inventory", desc: "View your personal inventory", role: "observer" },
+        { name: "storage", desc: "View your storage containers grouped by map", role: "observer" },
+        { name: "find <item>", desc: "Search for items across your containers", role: "observer" }
+      ]
+    },
+    {
+      group: "ops",
+      title: "Deep Desert Intel — Operations",
+      commands: [
+        { name: "activity", desc: "Player activity statistics", role: "observer" },
+        { name: "combat", desc: "Combat and death statistics", role: "observer" },
+        { name: "resources", desc: "Resource field data (spice, water, minerals)", role: "observer" },
+        { name: "economy", desc: "Currency, trading, and tax data", role: "observer" },
+        { name: "armory", desc: "Server-wide aggregate inventory stats", role: "observer" },
+        { name: "location", desc: "Show map location activity (markers, density)", role: "observer" },
+        { name: "prometheus", desc: "Container and infrastructure metrics", role: "observer" },
+        { name: "soc", desc: "Bridge health and request stats", role: "observer" },
+        { name: "dashboard", desc: "Aggregated operational summary", role: "observer" },
+        { name: "announcements", desc: "Show recent server announcements", role: "observer" },
+        { name: "alerts", desc: "Show active Prometheus alerts", role: "observer" }
+      ]
+    },
+    {
+      group: "data",
+      title: "Data Archives — Server Archives",
+      commands: [
+        { name: "population", desc: "Show server population statistics", role: "observer" },
+        { name: "backups", desc: "List recent database backups", role: "observer" },
+        { name: "maps", desc: "Show active map partitions", role: "observer" }
+      ]
+    },
+    {
+      group: "logs",
+      title: "Logs Explorer — Server Logs",
+      commands: [
+        { name: "dune-cache", desc: "View game cache service logs", role: "admin" },
+        { name: "dune-generated", desc: "View game generated logs", role: "admin" },
+        { name: "dune-server", desc: "View game server logs by name", role: "admin" },
+        { name: "dune-steam", desc: "View Steam integration logs", role: "admin" },
+        { name: "dune-work", desc: "View game work logs", role: "admin" },
+        { name: "orchestrator", desc: "View orchestrator service logs", role: "admin" },
+        { name: "console", desc: "View the console's own container logs", role: "admin" }
+      ]
+    },
+    {
+      group: "admin",
+      title: "Kanly Council — Admin",
+      commands: [
+        { name: "doctor", desc: "Full system diagnostic across all services", role: "admin" },
+        { name: "cooldowns", desc: "Show active command cooldowns", role: "admin" },
+        { name: "latency", desc: "Adapter request latency history", role: "admin" },
+        { name: "events", desc: "Recent server incidents and alerts", role: "admin" },
+        { name: "roles", desc: "Show configured Discord role mappings", role: "admin" },
+        { name: "broadcast <msg>", desc: "Send a message to all in-game players", role: "admin" },
+        { name: "sync-commands", desc: "Check Core's command catalog for drift", role: "admin" }
+      ]
+    },
+    {
+      group: "infra",
+      title: "Foundation Stones — Infrastructure",
+      commands: [
+        { name: "version", desc: "Dune stack version", role: "observer" },
+        { name: "servers", desc: "List game servers", role: "observer" },
+        { name: "ports", desc: "Network port status", role: "observer" },
+        { name: "db", desc: "Database status and health", role: "observer" }
+      ]
+    },
+    {
+      group: "core",
+      title: "ACP Core — Core Commands",
+      commands: [
+        { name: "about", desc: "Bot version, security info, connection details", role: "observer" },
+        { name: "ping", desc: "Test Discord and adapter latency", role: "observer" },
+        { name: "help", desc: "List all commands you have permission to use", role: "observer" },
+        { name: "setup", desc: "How to add this bot to your own Discord server", role: "observer" }
+      ]
+    }
+  ];
 }

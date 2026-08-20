@@ -109,7 +109,7 @@ const UPSTREAM_CONTRACT = Object.freeze({
   "player-inventory-v2": { method: "POST", path: "/api/integrations/discord/player/inventory", fixture: "ops.json" },
   // discord-catalog: Phase 3 (Command Discovery, #181) route used by
   // /dune admin sync-commands (registryLoader.js's
-  // refreshRegistryFromCore()) to fetch Core's live command catalog.
+  // fetchCoreCatalogForGuild()) to fetch Core's live command catalog.
   // Added here per this file's own stated purpose (see the
   // players-accounts-list/-unlink comment above): catch route additions
   // that exist in adapterClient.js/DEFAULT_PATHS but were never wired

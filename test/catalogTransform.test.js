@@ -3,7 +3,7 @@
  *
  * Tests for the shared Core-catalog-to-registry transform, used by both
  * scripts/generate-command-registry.js (Phase 2) and
- * registryLoader.js's refreshRegistryFromCore() (Phase 3).
+ * registryLoader.js's fetchCoreCatalogForGuild() (Phase 3).
  *
  * Uses a REAL, captured production catalog response
  * (test/fixtures/catalog/real-core-v2-catalog.json, captured 2026-08-19

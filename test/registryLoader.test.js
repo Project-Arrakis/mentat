@@ -1,27 +1,26 @@
 /**
  * TEST-1: registryLoader.test.js
  *
- * Comprehensive test suite for Phase 3 registry loading, validation, and refresh.
- * Covers:
+ * Test suite for Phase 3 registry loading, validation, and the
+ * side-effect-free Core catalog drift fetch. Covers:
  * - Startup loading (happy path, validation)
- * - Signature verification (SEC-1)
- * - Refresh from Core (happy path, errors, race conditions) -- against the
- *   REAL adapterClient.discordCatalog(actor, guildId) interface, not the
- *   guildId-as-route shape the original (buggy) implementation assumed.
- * - Staleness window bookkeeping (SEC-3)
- * - Registry validation and DoS prevention (SEC-4)
- * - Concurrent refresh prevention (CRITICAL-1)
+ * - Registry validation and DoS prevention (SEC-3/SEC-4), including the
+ *   #206/K10 regression (names validated AS-IS, not lowercased first)
+ * - fetchCoreCatalogForGuild() against the REAL
+ *   adapterClient.discordCatalog(actor, guildId) interface — asserting
+ *   it NEVER writes shared cache state (#192 cross-tenant poisoning
+ *   regression) and preserves the adapter's HTTP status on errors (#199)
+ * - diffRegistries() drift computation
  */
 
 import { test, beforeEach } from "node:test";
 import assert from "node:assert";
-import { createHmac } from "node:crypto";
 import {
   loadRegistryAtStartup,
   getRegistryFromCache,
   getRegistryMetadata,
-  refreshRegistryFromCore,
-  registryToDiscordFormat,
+  fetchCoreCatalogForGuild,
+  diffRegistries,
   validateRegistry,
   __resetForTests
 } from "../src/registryLoader.js";
@@ -46,15 +45,8 @@ function createMockRegistry(overrides = {}) {
   };
 }
 
-function computeSignature(data) {
-  const key = process.env.REGISTRY_SIGNATURE_KEY || "DUNE_REGISTRY_HASH_KEY";
-  return createHmac("sha256", key)
-    .update(typeof data === "string" ? data : JSON.stringify(data))
-    .digest("hex");
-}
-
 // Mock adapterClient matching the REAL interface used by
-// refreshRegistryFromCore(): adapterClient.discordCatalog(actor, guildId)
+// fetchCoreCatalogForGuild(): adapterClient.discordCatalog(actor, guildId)
 // either resolves with the parsed body, or rejects with an
 // AdapterHttpError-shaped error (has a `.status`).
 function mockAdapterClient({ resolves, rejects } = {}) {
@@ -79,17 +71,6 @@ test("registryLoader: loadRegistryAtStartup() loads valid registry from disk", (
   assert.ok(registry.groups.length > 0);
 });
 
-test("registryLoader: loadRegistryAtStartup() throws if file missing", (t) => {
-  // Covered indirectly: loadRegistryAtStartup() reads a fixed path
-  // (src/commands-registry.json) with no override hook, so exercising
-  // a genuinely-missing-file path would require filesystem-level
-  // mocking of node:fs that risks masking real behavior elsewhere in
-  // the same process. The failure path itself (throw + logError) is
-  // still exercised structurally by the "rejects malformed JSON"-style
-  // assertions below via validateRegistry().
-  t.skip("requires fs-level mocking; validated structurally via validateRegistry() tests below");
-});
-
 // ── validateRegistry() ──
 
 test("registryLoader: validateRegistry() rejects missing groups array", () => {
@@ -105,6 +86,29 @@ test("registryLoader: validateRegistry() rejects invalid group names", () => {
     groups: [{ name: "Invalid Name!", subcommands: [] }]
   });
   assert.throws(() => validateRegistry(registry), /naming constraints/);
+});
+
+test("registryLoader: validateRegistry() rejects UPPERCASE names (#206/K10 regression)", () => {
+  // Discord requires lowercase command names. The original check
+  // lowercased the name before testing it against a lowercase-only
+  // regex, so "Core"/"About" sailed through the very validation that
+  // exists to reject them.
+  assert.throws(
+    () => validateRegistry(createMockRegistry({ groups: [{ name: "Core", subcommands: [] }] })),
+    /naming constraints/
+  );
+  assert.throws(
+    () => validateRegistry(createMockRegistry({
+      groups: [{ name: "core", subcommands: [{ name: "About", description: "ok" }] }]
+    })),
+    /naming constraints/
+  );
+  assert.throws(
+    () => validateRegistry(createMockRegistry({
+      groups: [{ name: "core", subcommands: [{ name: "about", description: "ok", params: [{ name: "Diagnostic" }] }] }]
+    })),
+    /Parameter name/
+  );
 });
 
 test("registryLoader: validateRegistry() rejects invalid subcommand names (SEC-4)", () => {
@@ -170,160 +174,125 @@ test("registryLoader: getRegistryFromCache() throws if registry not loaded", () 
   assert.throws(() => getRegistryFromCache(), /Registry not loaded/);
 });
 
-test("registryLoader: getRegistryMetadata() includes version and group count", () => {
+test("registryLoader: getRegistryMetadata() includes version, group and command counts", () => {
   loadRegistryAtStartup();
   const meta = getRegistryMetadata();
 
   assert.strictEqual(typeof meta.version, "number");
   assert.strictEqual(typeof meta.groups, "number");
   assert.ok(meta.groups > 0);
+  assert.ok(meta.commandCount > 0);
   assert.ok(meta.loadTime instanceof Date);
 });
 
-test("registryLoader: getRegistryMetadata() staleness window is ~4 hours (SEC-3)", () => {
-  loadRegistryAtStartup();
-  const meta = getRegistryMetadata();
+// ── fetchCoreCatalogForGuild() — against the REAL adapterClient interface ──
 
-  assert.ok(meta.etagExpiresAt);
-  const deltaMs = new Date(meta.etagExpiresAt) - new Date();
-  const fourHours = 4 * 60 * 60 * 1000;
-  const tolerance = 60 * 1000; // 1 minute
-
-  assert.ok(
-    deltaMs > fourHours - tolerance && deltaMs < fourHours + tolerance,
-    `staleness window should be ~4h, got ${Math.round(deltaMs / (60 * 1000))} minutes`
-  );
-});
-
-// ── refreshRegistryFromCore() -- against the REAL adapterClient interface ──
-
-test("registryLoader: refreshRegistryFromCore() calls adapterClient.discordCatalog(actor, guildId)", async () => {
+test("registryLoader: fetchCoreCatalogForGuild() calls adapterClient.discordCatalog(actor, guildId)", async () => {
   const registry = createMockRegistry();
   const adapter = mockAdapterClient({ resolves: registry });
 
-  const result = await refreshRegistryFromCore(adapter, { id: "user-1" }, "guild-123");
+  const result = await fetchCoreCatalogForGuild(adapter, { id: "user-1" }, "guild-123");
 
   assert.strictEqual(adapter.calls.length, 1);
   assert.deepStrictEqual(adapter.calls[0], { actor: { id: "user-1" }, guildId: "guild-123" });
   assert.strictEqual(result.version, registry.version);
 });
 
-test("registryLoader: refreshRegistryFromCore() caches the new registry on success", async () => {
-  const registry = createMockRegistry({ version: 2 });
-  const adapter = mockAdapterClient({ resolves: registry });
+test("registryLoader: fetchCoreCatalogForGuild() unwraps Core's response envelope", async () => {
+  const registry = createMockRegistry();
+  const adapter = mockAdapterClient({ resolves: { ok: true, protocolVersion: 1, catalog: registry } });
 
-  await refreshRegistryFromCore(adapter, { id: "user-1" }, "guild-123");
-
-  const cached = getRegistryFromCache();
-  assert.strictEqual(cached.version, 2);
+  const result = await fetchCoreCatalogForGuild(adapter, { id: "user-1" }, "guild-123");
+  assert.strictEqual(result.version, registry.version);
+  assert.strictEqual(result.groups.length, registry.groups.length);
 });
 
-test("registryLoader: refreshRegistryFromCore() rejects an invalid registry from Core (HIGH-3)", async () => {
+test("registryLoader: fetchCoreCatalogForGuild() NEVER writes the shared cache (#192 poisoning regression)", async () => {
+  const committed = loadRegistryAtStartup();
+  const before = getRegistryMetadata();
+
+  // A hostile/foreign tenant's Core returns a completely different
+  // (valid-looking) catalog...
+  const foreign = createMockRegistry({
+    version: 99,
+    groups: [{ name: "evil", subcommands: [{ name: "totally-legit", description: "poisoned entry", params: [] }] }]
+  });
+  const adapter = mockAdapterClient({ resolves: foreign });
+  const fetched = await fetchCoreCatalogForGuild(adapter, { id: "tenant-admin" }, "guild-evil");
+
+  // ...the fetch RETURNS it for drift comparison...
+  assert.strictEqual(fetched.version, 99);
+
+  // ...but shared process state is untouched: every other tenant and
+  // the public API still see the committed artifact.
+  const cached = getRegistryFromCache();
+  assert.strictEqual(cached.version, committed.version);
+  assert.strictEqual(getRegistryMetadata().commandCount, before.commandCount);
+  assert.ok(!cached.groups.some((g) => g.name === "evil"));
+});
+
+test("registryLoader: fetchCoreCatalogForGuild() rejects an invalid catalog from Core (HIGH-3)", async () => {
   const adapter = mockAdapterClient({ resolves: { version: 1 } }); // missing groups
 
   await assert.rejects(
-    refreshRegistryFromCore(adapter, { id: "user-1" }, "guild-123"),
-    /Failed to refresh registry from Core/
+    fetchCoreCatalogForGuild(adapter, { id: "user-1" }, "guild-123"),
+    /Failed to fetch Core catalog/
   );
 });
 
-test("registryLoader: refreshRegistryFromCore() propagates Core/adapter errors (e.g. unreachable Core)", async () => {
-  const adapter = mockAdapterClient({ rejects: Object.assign(new Error("Adapter timed out"), { status: 0 }) });
+test("registryLoader: fetchCoreCatalogForGuild() preserves the adapter's HTTP status on errors (#199)", async () => {
+  const adapter = mockAdapterClient({
+    rejects: Object.assign(new Error("Adapter discord-catalog returned HTTP 503."), { status: 503 })
+  });
 
   await assert.rejects(
-    refreshRegistryFromCore(adapter, { id: "user-1" }, "guild-123"),
-    /Failed to refresh registry from Core: Adapter timed out/
+    fetchCoreCatalogForGuild(adapter, { id: "user-1" }, "guild-123"),
+    (error) => {
+      assert.match(error.message, /Failed to fetch Core catalog/);
+      assert.strictEqual(error.status, 503, "HTTP status must survive the wrap so callers can classify without substring-matching");
+      return true;
+    }
   );
 });
 
-test("registryLoader: refreshRegistryFromCore() prevents concurrent calls (CRITICAL-1)", async () => {
-  const registry = createMockRegistry();
-  let resolveCount = 0;
-  const adapter = {
-    calls: [],
-    async discordCatalog(actor, guildId) {
-      this.calls.push({ actor, guildId });
-      // Simulate network latency so both calls overlap in time
-      await new Promise((r) => setTimeout(r, 20));
-      resolveCount += 1;
-      return registry;
-    }
-  };
-
-  const [r1, r2] = await Promise.all([
-    refreshRegistryFromCore(adapter, { id: "a" }, "guild-1"),
-    refreshRegistryFromCore(adapter, { id: "a" }, "guild-1")
-  ]);
-
-  // Only ONE underlying adapter call should have happened -- the second
-  // caller must have been served by the same in-flight promise, not a
-  // second concurrent fetch (this is exactly the race condition
-  // CRITICAL-1 fixed).
-  assert.strictEqual(adapter.calls.length, 1);
-  assert.strictEqual(resolveCount, 1);
-  assert.strictEqual(r1.version, registry.version);
-  assert.strictEqual(r2.version, registry.version);
-});
-
-test("registryLoader: refreshRegistryFromCore() allows a fresh call after the previous one completes", async () => {
+test("registryLoader: concurrent fetches for different guilds are independent (multi-tenant)", async () => {
   const registry = createMockRegistry();
   const adapter = mockAdapterClient({ resolves: registry });
 
-  await refreshRegistryFromCore(adapter, { id: "a" }, "guild-1");
-  await refreshRegistryFromCore(adapter, { id: "a" }, "guild-1");
+  await Promise.all([
+    fetchCoreCatalogForGuild(adapter, { id: "a" }, "guild-1"),
+    fetchCoreCatalogForGuild(adapter, { id: "b" }, "guild-2")
+  ]);
 
+  // Each guild talks to its OWN Core — coalescing guild-2's check onto
+  // guild-1's in-flight fetch (the old CRITICAL-1 "serialization") would
+  // report one tenant the other tenant's catalog.
   assert.strictEqual(adapter.calls.length, 2);
+  assert.deepStrictEqual(adapter.calls.map((c) => c.guildId).sort(), ["guild-1", "guild-2"]);
 });
 
-test("registryLoader: refreshRegistryFromCore() verifies signature when Core provides one (SEC-1)", async () => {
-  const registry = createMockRegistry();
-  const signedJson = JSON.stringify(registry);
-  const signature = computeSignature(signedJson);
-  const adapter = mockAdapterClient({ resolves: { ...registry, signature } });
+// ── diffRegistries() ──
 
-  await assert.doesNotReject(refreshRegistryFromCore(adapter, { id: "a" }, "guild-1"));
+test("registryLoader: diffRegistries() reports in-sync for identical registries", () => {
+  const a = createMockRegistry();
+  const drift = diffRegistries(a, createMockRegistry());
+  assert.strictEqual(drift.inSync, true);
+  assert.deepStrictEqual(drift.added, []);
+  assert.deepStrictEqual(drift.removed, []);
 });
 
-test("registryLoader: refreshRegistryFromCore() rejects a tampered/mismatched signature (SEC-1)", async () => {
-  const registry = createMockRegistry();
-  const adapter = mockAdapterClient({ resolves: { ...registry, signature: "not-a-real-signature" } });
-
-  await assert.rejects(
-    refreshRegistryFromCore(adapter, { id: "a" }, "guild-1"),
-    /signature verification failed/i
-  );
-});
-
-// ── registryToDiscordFormat() ──
-
-test("registryLoader: registryToDiscordFormat() handles null/undefined gracefully", () => {
-  assert.deepStrictEqual(registryToDiscordFormat(null).toJSON(), []);
-  assert.deepStrictEqual(registryToDiscordFormat(undefined).toJSON(), []);
-  assert.deepStrictEqual(registryToDiscordFormat({}).toJSON(), []);
-});
-
-test("registryLoader: registryToDiscordFormat() converts a valid registry", () => {
-  const result = registryToDiscordFormat(createMockRegistry()).toJSON();
-
-  assert.strictEqual(result.length, 1);
-  assert.strictEqual(result[0].name, "core");
-  assert.strictEqual(result[0].options[0].name, "about");
-});
-
-test("registryLoader: registryToDiscordFormat() skips subcommands with missing names", () => {
-  const registry = createMockRegistry({
-    groups: [{
-      name: "core",
-      subcommands: [
-        { name: "about", description: "ok" },
-        { description: "missing name, should be skipped" }
-      ]
-    }]
+test("registryLoader: diffRegistries() reports added and removed command keys", () => {
+  const committed = createMockRegistry();
+  const fetched = createMockRegistry({
+    groups: [
+      { name: "core", subcommands: [{ name: "ping", description: "new", params: [] }] }
+    ]
   });
 
-  const result = registryToDiscordFormat(registry).toJSON();
-  assert.strictEqual(result[0].options.length, 1);
-  assert.strictEqual(result[0].options[0].name, "about");
+  const drift = diffRegistries(committed, fetched);
+  assert.strictEqual(drift.inSync, false);
+  assert.deepStrictEqual(drift.added, ["core:ping"]);
+  assert.deepStrictEqual(drift.removed, ["core:about"]);
 });
 
 export default undefined;
