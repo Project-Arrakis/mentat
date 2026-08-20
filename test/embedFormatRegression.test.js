@@ -16,9 +16,11 @@ import {
   formatHelpEmbed,
   formatLogsEmbed,
   formatServicesSummaryEmbed,
-  formatSyncCommandsEmbed
+  formatSyncCommandsEmbed,
+  formatVersionEmbed,
+  formatAlertsEmbed
 } from "../src/embedFormat.js";
-import { executeDuneCommand, helpPayload } from "../src/commands.js";
+import { executeDuneCommand, helpPayload, statusSummaryPayload } from "../src/commands.js";
 import { loadRegistryAtStartup, __resetForTests } from "../src/registryLoader.js";
 import { resetCooldowns } from "../src/cooldown.js";
 
@@ -165,6 +167,140 @@ test("ops alerts: no fallthrough to adapterClient.opsAlerts (raw 'is not a funct
 });
 
 // ── #210/P1 + #215/A10: drift report labels its caps ──
+
+// ── #219/F1: ops/infra:version embeds must never carry unredacted data ──
+
+test("ops route: embed is built from the REDACTED payload, not the raw one", async () => {
+  __resetForTests();
+  loadRegistryAtStartup();
+  resetCooldowns();
+  const secretResult = { activeLast1h: 5, activeLastDay: 5, apiToken: "ghp_SUPERSECRETVALUE123" };
+  const adapterClient = { opsActivity: async () => ({ result: secretResult }) };
+  let replied;
+  const interaction = {
+    isChatInputCommand: () => true,
+    commandName: "dune",
+    options: { getSubcommandGroup: () => "ops", getSubcommand: () => "activity", getBoolean: () => false, getString: () => "" },
+    user: { id: "user-1" }, member: { roles: [] }, guildId: null, channelId: "c1",
+    deferReply: async () => {}, editReply: async (r) => { replied = r; }, reply: async (r) => { replied = r; }
+  };
+  const config = { multiTenant: false, discord: { defaultEphemeral: true, rbac: { mode: "open", observerRoleIds: [], adminRoleIds: [], commandRoleIds: {} } } };
+
+  await executeDuneCommand(interaction, adapterClient, config);
+  const text = JSON.stringify(replied);
+  assert.doesNotMatch(text, /ghp_SUPERSECRETVALUE123/, "raw secret must never reach the sent embed (redactSecrets bypass regression)");
+});
+
+test("infra:version: embed is built from the REDACTED payload", async () => {
+  __resetForTests();
+  loadRegistryAtStartup();
+  resetCooldowns();
+  const adapterClient = { version: async () => ({ version: "1.3.87", adapter: { deployToken: "ghp_SUPERSECRETVALUE456" } }) };
+  let replied;
+  const interaction = {
+    isChatInputCommand: () => true,
+    commandName: "dune",
+    options: { getSubcommandGroup: () => "infra", getSubcommand: () => "version", getBoolean: () => false, getString: () => "" },
+    user: { id: "user-1" }, member: { roles: [] }, guildId: null, channelId: "c1",
+    deferReply: async () => {}, editReply: async (r) => { replied = r; }, reply: async (r) => { replied = r; }
+  };
+  const config = { multiTenant: false, discord: { defaultEphemeral: true, rbac: { mode: "open", observerRoleIds: [], adminRoleIds: [], commandRoleIds: {} } } };
+
+  await executeDuneCommand(interaction, adapterClient, config);
+  const text = JSON.stringify(replied);
+  assert.doesNotMatch(text, /ghp_SUPERSECRETVALUE456/, "raw secret must never reach the sent embed (redactSecrets bypass regression)");
+});
+
+// ── #220/F2: dedicated ops formatters must render Core's REAL shapes ──
+
+test("formatResourcesEmbed: renders Core's real Deep Desert/Hagga Basin shape (dimensionIndex/sizes/combatState)", () => {
+  const payload = {
+    ok: true,
+    result: {
+      deepDesert: {
+        summary: { totalActiveFields: 6, totalRemainingSpice: 57000, pvpInstances: 1, pveInstances: 1, bySize: [{ size: "small", activeFields: 6, remainingSpice: 57000 }] },
+        instances: [
+          { dimensionIndex: 1, name: "Deep Desert 1", combatState: "PVE", activeFields: 4, remainingSpice: 40000, sizes: [{ size: "small", activeFields: 4, remainingSpice: 40000 }] },
+          { dimensionIndex: 2, name: "Deep Desert 2", combatState: "PVP", activeFields: 2, remainingSpice: 17000, sizes: [{ size: "small", activeFields: 2, remainingSpice: 17000 }] }
+        ]
+      },
+      haggaBasin: {
+        summary: { totalActiveFields: 3, totalRemainingSpice: 9000, pvpInstances: 0, pveInstances: 1 },
+        instances: [{ name: "Sietch Tabr", combatState: "PVE", activeFields: 3, remainingSpice: 9000, sizes: [{ size: "small", activeFields: 3, remainingSpice: 9000 }] }]
+      }
+    }
+  };
+  const embed = formatResourcesEmbed(payload);
+  const text = JSON.stringify(embed.data);
+  assert.match(text, /Total Active Fields:\*\* 6/, "Deep Desert summary must reflect real totals");
+  assert.doesNotMatch(text, /0 active   0 remaining/, "instance rows must not contradict a non-zero summary");
+  assert.match(text, /Sietch Tabr/, "Hagga Basin instances (not `sietches`) must render");
+  assert.match(text, /Total Sietches:\*\* 1/);
+});
+
+test("formatEconomyEmbed: renders Core's real economy keys (totalSupply/fulfilledOrders/topTradedItems)", () => {
+  const embed = formatEconomyEmbed({ result: {
+    totalSupply: 500000, totalCurrencyHolders: 42, activeOrders: 8, fulfilledOrders: 120, taxCollected: 3000,
+    topTradedItems: [{ display_name: "Spice Melange", count: 900 }]
+  } });
+  const values = fieldValues(embed);
+  assert.ok(values.some((v) => v.includes("500")), "totalSupply must render, not '— None —'");
+  assert.ok(values.some((v) => v.includes("120")), "fulfilledOrders must render");
+  assert.ok(fieldNames(embed).some((n) => n.includes("Top Traded Items")));
+});
+
+test("formatCombatEmbed: renders Core's real deathsByCause ARRAY shape", () => {
+  const embed = formatCombatEmbed({ result: {
+    totalDeaths: 10, deathsByCause: [{ cause: "Sandworm", count: 6 }, { cause: "Coriolis", count: 4 }]
+  } });
+  const values = fieldValues(embed);
+  assert.ok(values.some((v) => v.includes("Sandworm: 6")), "array-shaped deathsByCause must render");
+});
+
+// ── #221/F3: alerts renders real fields, no [object Object] ──
+
+test("formatAlertsEmbed: renders firing alerts without [object Object]", () => {
+  const embed = formatAlertsEmbed({ ok: true, alerts: { total: 2, firing: 1, pending: 1, summary: [
+    { alertname: "HighCPU", severity: "critical", instance: "dune-server", summary: "CPU > 90%", startsAt: "2026-08-20T00:00:00Z" }
+  ] } });
+  const text = JSON.stringify(embed.data);
+  assert.doesNotMatch(text, /\[object Object\]/);
+  assert.match(text, /HighCPU/);
+});
+
+// ── #221/F4: version field names carry no literal markdown ──
+
+test("formatVersionEmbed: field names are not wrapped in literal **markdown**", () => {
+  const embed = formatVersionEmbed({ version: "1.3.87", adapter: { enabled: true, service: "discord" } });
+  for (const name of fieldNames(embed)) {
+    assert.ok(!name.includes("**"), `field name "${name}" must not contain literal markdown`);
+  }
+});
+
+// ── #221/F5: no "observer" leaks in user-facing roles copy ──
+
+test("admin:roles help/registry copy says 'player', never 'observer'", () => {
+  const registryEntry = { name: "admin:roles", desc: "Show configured admin/player roles with current names.", role: "admin" };
+  assert.doesNotMatch(registryEntry.desc, /observer/i);
+});
+
+// ── #221/F6: /dune server summary never shows truthy "unknown" ──
+
+test("statusSummaryPayload: missing values are null, not the string 'unknown'", () => {
+  const payload = statusSummaryPayload({ ok: true, result: {} });
+  assert.equal(payload.region, null);
+  assert.equal(payload.mode, null);
+  assert.equal(payload.population, null);
+});
+
+// ── #221/F7: log fence-breaking is neutralized ──
+
+test("formatLogsEmbed: a log line containing a triple-backtick cannot close the fence early", () => {
+  const embed = formatLogsEmbed({ logs: ["before", "```danger``` **bold-injection**", "after"] }, "svc");
+  // exactly one opening and one closing fence in the whole description
+  const fenceCount = (embed.data.description.match(/```/g) || []).length;
+  assert.equal(fenceCount, 2, "the log content must not introduce extra fence boundaries");
+});
 
 test("formatSyncCommandsEmbed: capped lists say 'showing first N'", () => {
   const embed = formatSyncCommandsEmbed({

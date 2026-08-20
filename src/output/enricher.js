@@ -26,7 +26,8 @@ export function enrichEmbed(embed, context = {}) {
 }
 
 export function enrichContent(content, context = {}) {
-  return `${content}\n\n${SAND_EMOJI} ${buildFooter(context)}`;
+  // #221/F8: buildFooter() already leads with the emoji — no double 🏜️.
+  return `${content}\n\n${buildFooter(context)}`;
 }
 
 function buildFooter(context = {}) {

@@ -889,8 +889,13 @@ export function formatCombatEmbed(payload) {
     { name: "🏆 Top Killer", value: fmt(r.topKiller), inline: true },
     { name: "📊 K/D Ratio", value: r.kdRatio ? `\`${r.kdRatio}\`` : "—", inline: true },
   ];
-  if (r.deathCauses && Object.keys(r.deathCauses).length > 0) {
-    fields.push({ name: "☠️ Deaths by Cause", value: Object.entries(r.deathCauses).slice(0, 5).map(([cause, count]) => `• ${cause}: ${count}`).join("\n"), inline: false });
+  // #220/F2: Core sends deathsByCause as an ARRAY of {cause, count} —
+  // the old object-shaped deathCauses is kept as a fallback.
+  const causeEntries = Array.isArray(r.deathsByCause)
+    ? r.deathsByCause.map((c) => [c.cause, c.count])
+    : Object.entries(r.deathCauses || {});
+  if (causeEntries.length > 0) {
+    fields.push({ name: "☠️ Deaths by Cause", value: causeEntries.slice(0, 5).map(([cause, count]) => `• ${cause}: ${count}`).join("\n"), inline: false });
   }
   // #212/T1: guard on length too — an empty array produced a field with
   // value "", which Discord's API rejects (whole reply fails).
@@ -917,115 +922,99 @@ function sizeField(row, size, field) {
   return s?.[field] ?? row?.[size + field.charAt(0).toUpperCase() + field.slice(1)] ?? 0;
 }
 
+// #220/F2: Core's real resources shape (console/api/src/duneDb.js) is
+// { deepDesert: { summary: { totalActiveFields, totalRemainingSpice,
+// pvpInstances, pveInstances, bySize: [{size, activeFields,
+// remainingSpice}] }, instances: [{ dimensionIndex, name, combatState,
+// activeFields, remainingSpice, sizes: [...] }] }, haggaBasin: { same —
+// note `instances`, not `sietches` } }. The previous version read
+// imagined flat fields (smallActive, totalSietches, …) that Core never
+// sends, so real deployments rendered a summary contradicted by all-zero
+// instance rows and an empty Hagga section. Legacy synthetic shapes are
+// kept as fallbacks.
+function resourceSectionStats(section) {
+  const list = Array.isArray(section?.instances)
+    ? section.instances
+    : (Array.isArray(section?.sietches) ? section.sietches : []);
+  const sum = section?.summary || {};
+  const bySize = Array.isArray(sum.bySize) ? sum.bySize : [];
+  const isPvp = (row) => String(row?.combatState || row?.type || row?.mode || "").toUpperCase() === "PVP";
+  const isPve = (row) => String(row?.combatState || row?.type || row?.mode || "").toUpperCase() === "PVE";
+  const rowTotal = (row, field) =>
+    row?.[field] ?? (sizeField(row, "small", field) + sizeField(row, "medium", field) + sizeField(row, "large", field));
+  const sizeStat = (size, field) => {
+    const b = bySize.find((x) => x.size === size);
+    if (b && b[field] != null) return b[field];
+    return list.reduce((acc, row) => acc + sizeField(row, size, field), 0);
+  };
+  return {
+    list,
+    totalActive: sum.totalActiveFields ?? list.reduce((acc, row) => acc + rowTotal(row, "activeFields"), 0),
+    totalRemaining: sum.totalRemainingSpice ?? list.reduce((acc, row) => acc + rowTotal(row, "remainingSpice"), 0),
+    sizeStat,
+    pvp: sum.pvpInstances ?? sum.pvpSietches ?? list.filter(isPvp).length,
+    pve: sum.pveInstances ?? sum.pveSietches ?? list.filter(isPve).length
+  };
+}
+
+function resourceRowField(row, fallbackName) {
+  const name = row.name || row.id || fallbackName;
+  const state = String(row.combatState || row.type || row.mode || "UNKNOWN").toUpperCase();
+  const badge = state === "PVP" ? "🔴" : state === "PVE" ? "🟢" : "⚪";
+  const line = (size, label) => {
+    const active = sizeField(row, size, "activeFields");
+    const remaining = sizeField(row, size, "remainingSpice");
+    return `**${label}** ${String(active).padStart(3)} active   ${Number(remaining || 0).toLocaleString().padStart(8)} remaining`;
+  };
+  const lines = [line("small", "Small:  ")];
+  const mA = sizeField(row, "medium", "activeFields"); const mR = sizeField(row, "medium", "remainingSpice");
+  const lA = sizeField(row, "large", "activeFields"); const lR = sizeField(row, "large", "remainingSpice");
+  if (mA > 0 || mR > 0) lines.push(line("medium", "Medium:"));
+  if (lA > 0 || lR > 0) lines.push(line("large", "Large: "));
+  return { name: `${badge} ${name} — ${state}`, value: lines.join("\n"), inline: false };
+}
+
 export function formatResourcesEmbed(payload) {
   const r = payload?.result || payload || {};
   const fields = [];
 
-  // ── Deep Desert Section ──
-  const dd = r.deepDesert || {};
-  const ddInstances = Array.isArray(dd.instances) ? dd.instances : [];
-  const ddSummary = dd.summary || {};
+  const dd = resourceSectionStats(r.deepDesert || {});
+  const hb = resourceSectionStats(r.haggaBasin || {});
 
-  // Deep Desert Summary
-  const ddTotalActive = ddSummary.totalActiveFields ?? ddInstances.reduce((s, i) => s + ((sizeField(i, "small", "activeFields")) + (sizeField(i, "medium", "activeFields")) + (sizeField(i, "large", "activeFields"))), 0);
-  const ddTotalRemaining = ddSummary.totalRemainingSpice ?? ddInstances.reduce((s, i) => s + ((sizeField(i, "small", "remainingSpice")) + (sizeField(i, "medium", "remainingSpice")) + (sizeField(i, "large", "remainingSpice"))), 0);
-  const ddSmallActive = ddSummary.smallActiveFields ?? ddInstances.reduce((s, i) => s + (sizeField(i, "small", "activeFields")), 0);
-  const ddMediumActive = ddSummary.mediumActiveFields ?? ddInstances.reduce((s, i) => s + (sizeField(i, "medium", "activeFields")), 0);
-  const ddLargeActive = ddSummary.largeActiveFields ?? ddInstances.reduce((s, i) => s + (sizeField(i, "large", "activeFields")), 0);
-  const ddSmallRemaining = ddSummary.smallRemainingSpice ?? ddInstances.reduce((s, i) => s + (sizeField(i, "small", "remainingSpice")), 0);
-  const ddMediumRemaining = ddSummary.mediumRemainingSpice ?? ddInstances.reduce((s, i) => s + (sizeField(i, "medium", "remainingSpice")), 0);
-  const ddLargeRemaining = ddSummary.largeRemainingSpice ?? ddInstances.reduce((s, i) => s + (sizeField(i, "large", "remainingSpice")), 0);
-  const ddPvPCount = ddSummary.pvpInstances ?? ddInstances.filter(i => i.type === "pvp" || i.mode === "pvp").length;
-  const ddPvECount = ddSummary.pveInstances ?? ddInstances.filter(i => i.type === "pve" || i.mode === "pve").length;
+  if (dd.list.length > 0 || (r.deepDesert && Object.keys(r.deepDesert).length > 0)) {
+    const txt = [
+      `**Total Active Fields:** ${dd.totalActive.toLocaleString()}`,
+      `**Total Remaining Spice:** ${dd.totalRemaining.toLocaleString()}`,
+      `**Small Fields:** ${dd.sizeStat("small", "activeFields").toLocaleString()} active · ${dd.sizeStat("small", "remainingSpice").toLocaleString()} remaining`,
+      `**Medium Fields:** ${dd.sizeStat("medium", "activeFields").toLocaleString()} active · ${dd.sizeStat("medium", "remainingSpice").toLocaleString()} remaining`,
+      `**Large Fields:** ${dd.sizeStat("large", "activeFields").toLocaleString()} active · ${dd.sizeStat("large", "remainingSpice").toLocaleString()} remaining`,
+      `**PvP Instances:** ${dd.pvp} · **PvE Instances:** ${dd.pve}`
+    ].join("\n");
+    fields.push({ name: "🏜️ Deep Desert — Summary", value: txt, inline: false });
 
-  let ddSummaryText = "";
-  ddSummaryText += `**Total Active Fields:** ${ddTotalActive.toLocaleString()}\n`;
-  ddSummaryText += `**Total Remaining Spice:** ${ddTotalRemaining.toLocaleString()}\n`;
-  ddSummaryText += `**Small Fields:** ${ddSmallActive.toLocaleString()} active · ${ddSmallRemaining.toLocaleString()} remaining\n`;
-  ddSummaryText += `**Medium Fields:** ${ddMediumActive.toLocaleString()} active · ${ddMediumRemaining.toLocaleString()} remaining\n`;
-  ddSummaryText += `**Large Fields:** ${ddLargeActive.toLocaleString()} active · ${ddLargeRemaining.toLocaleString()} remaining\n`;
-  ddSummaryText += `**PvP Instances:** ${ddPvPCount} · **PvE Instances:** ${ddPvECount}`;
-
-  fields.push({ name: "🏜️ Deep Desert — Summary", value: ddSummaryText, inline: false });
-
-  // Deep Desert Instance List
-  if (ddInstances.length > 0) {
-    const sorted = [...ddInstances].sort((a, b) => {
-      const aNum = parseInt(String(a.name || a.id || "").replace(/\D/g, ""), 10) || 0;
-      const bNum = parseInt(String(b.name || b.id || "").replace(/\D/g, ""), 10) || 0;
-      return aNum - bNum || String(a.name || a.id || "").localeCompare(String(b.name || b.id || ""));
+    const sorted = [...dd.list].sort((a, b) => {
+      const aNum = a.dimensionIndex ?? (parseInt(String(a.name || a.id || "").replace(/\D/g, ""), 10) || 0);
+      const bNum = b.dimensionIndex ?? (parseInt(String(b.name || b.id || "").replace(/\D/g, ""), 10) || 0);
+      return aNum - bNum || String(a.name || "").localeCompare(String(b.name || ""));
     });
-
-    for (const inst of sorted) {
-      const instName = inst.name || inst.id || "Unknown";
-      const instType = (inst.type || inst.mode || "pve").toUpperCase();
-      const typeBadge = instType === "PVP" ? "🔴" : "🟢";
-      const sActive = inst.smallActive ?? 0;
-      const mActive = inst.mediumActive ?? 0;
-      const lActive = inst.largeActive ?? 0;
-      const sRemaining = inst.smallRemaining ?? 0;
-      const mRemaining = inst.mediumRemaining ?? 0;
-      const lRemaining = inst.largeRemaining ?? 0;
-
-      let instText = "";
-      instText += `**Small:**   ${String(sActive).padStart(3)} active   ${sRemaining.toLocaleString().padStart(8)} remaining\n`;
-      instText += `**Medium:** ${String(mActive).padStart(3)} active   ${mRemaining.toLocaleString().padStart(8)} remaining\n`;
-      instText += `**Large:**   ${String(lActive).padStart(3)} active   ${lRemaining.toLocaleString().padStart(8)} remaining`;
-
-      fields.push({ name: `${typeBadge} ${instName} — ${instType}`, value: instText, inline: false });
-    }
+    sorted.forEach((row, idx) => fields.push(resourceRowField(row, `Instance ${idx + 1}`)));
   }
 
-  // ── Hagga Basin Section ──
-  const hb = r.haggaBasin || {};
-  const hbSietches = Array.isArray(hb.sietches) ? hb.sietches : [];
-  const hbSummary = hb.summary || {};
+  if (hb.list.length > 0 || (r.haggaBasin && Object.keys(r.haggaBasin).length > 0)) {
+    const txt = [
+      `**Total Active Fields:** ${hb.totalActive.toLocaleString()}`,
+      `**Total Remaining Spice:** ${hb.totalRemaining.toLocaleString()}`,
+      `**Total Sietches:** ${hb.list.length}`,
+      `**PvP Sietches:** ${hb.pvp} · **PvE Sietches:** ${hb.pve}`
+    ].join("\n");
+    fields.push({ name: "🏔️ Hagga Basin — Summary", value: txt, inline: false });
 
-  // Hagga Basin Summary
-  const hbTotalActive = hbSummary.totalActiveFields ?? hbSietches.reduce((s, si) => s + ((sizeField(si, "small", "activeFields")) + (sizeField(si, "medium", "activeFields")) + (sizeField(si, "large", "activeFields"))), 0);
-  const hbTotalRemaining = hbSummary.totalRemainingSpice ?? hbSietches.reduce((s, si) => s + ((sizeField(si, "small", "remainingSpice")) + (sizeField(si, "medium", "remainingSpice")) + (sizeField(si, "large", "remainingSpice"))), 0);
-  const hbTotalSietches = hbSummary.totalSietches ?? hbSietches.length;
-  const hbPvPCount = hbSummary.pvpSietches ?? hbSietches.filter(s => s.type === "pvp" || s.mode === "pvp").length;
-  const hbPvECount = hbSummary.pveSietches ?? hbSietches.filter(s => s.type === "pve" || s.mode === "pve").length;
-
-  let hbSummaryText = "";
-  hbSummaryText += `**Total Active Fields:** ${hbTotalActive.toLocaleString()}\n`;
-  hbSummaryText += `**Total Remaining Spice:** ${hbTotalRemaining.toLocaleString()}\n`;
-  hbSummaryText += `**Total Sietches:** ${hbTotalSietches}\n`;
-  hbSummaryText += `**PvP Sietches:** ${hbPvPCount} · **PvE Sietches:** ${hbPvECount}`;
-
-  fields.push({ name: "🏔️ Hagga Basin — Summary", value: hbSummaryText, inline: false });
-
-  // Hagga Basin Sietch List
-  if (hbSietches.length > 0) {
-    const sorted = [...hbSietches].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-
-    for (const sietch of sorted) {
-      const sietchName = sietch.name || "Unknown Sietch";
-      const sietchType = (sietch.type || sietch.mode || "pve").toUpperCase();
-      const typeBadge = sietchType === "PVP" ? "🔴" : "🟢";
-      const sActive = sietch.smallActive ?? 0;
-      const mActive = sietch.mediumActive ?? 0;
-      const lActive = sietch.largeActive ?? 0;
-      const sRemaining = sietch.smallRemaining ?? 0;
-      const mRemaining = sietch.mediumRemaining ?? 0;
-      const lRemaining = sietch.largeRemaining ?? 0;
-
-      let sietchText = "";
-      sietchText += `**Small:**   ${String(sActive).padStart(3)} active   ${sRemaining.toLocaleString().padStart(8)} remaining`;
-      if (mActive > 0 || mRemaining > 0) {
-        sietchText += `\n**Medium:** ${String(mActive).padStart(3)} active   ${mRemaining.toLocaleString().padStart(8)} remaining`;
-      }
-      if (lActive > 0 || lRemaining > 0) {
-        sietchText += `\n**Large:**   ${String(lActive).padStart(3)} active   ${lRemaining.toLocaleString().padStart(8)} remaining`;
-      }
-
-      fields.push({ name: `${typeBadge} ${sietchName} — ${sietchType}`, value: sietchText, inline: false });
-    }
+    const sorted = [...hb.list].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    sorted.forEach((row, idx) => fields.push(resourceRowField(row, `Sietch ${idx + 1}`)));
   }
 
-  // ── Legacy Fallback (if no Deep Desert or Hagga Basin data) ──
-  if (ddInstances.length === 0 && hbSietches.length === 0) {
+  // Legacy fallback (no sectioned data at all)
+  if (fields.length === 0) {
     fields.push({ name: "🌶️ Spice Fields", value: fmtCount(r.spiceFields), inline: true });
     fields.push({ name: "💧 Water Wells", value: fmtCount(r.waterWells), inline: true });
     fields.push({ name: "⛏️ Mineral Nodes", value: fmtCount(r.mineralNodes), inline: true });
@@ -1037,35 +1026,47 @@ export function formatResourcesEmbed(payload) {
     fields.push({ name: "📊 Extraction Rates", value: Object.entries(r.resourceRates).slice(0, 5).map(([res, rate]) => `• ${res}: ${rate}/h`).join("\n"), inline: false });
   }
 
-  const hasDetailedData = ddInstances.length > 0 || hbSietches.length > 0;
+  const hasDetailedData = dd.list.length > 0 || hb.list.length > 0;
   return duneEmbed({
     title: "🌶️ Spice Melange",
-    color: ((r.spiceFields ?? 0) > 0 || ddTotalActive > 0 || hbTotalActive > 0) ? "success" : "warning",
+    color: ((r.spiceFields ?? 0) > 0 || dd.totalActive > 0 || hb.totalActive > 0) ? "success" : "warning",
     description: hasDetailedData ? "🏜️ **Deep Desert & Hagga Basin spice field overview**" : "🏜️ **Resource field overview**",
     fields
   });
 }
 
 // ── OPS: Economy ──
+// #220/F2: Core's real economy shape is { totalCurrencyHolders,
+// totalSupply, activeOrders, fulfilledOrders, taxCollected,
+// currencyBreakdown, topTradedItems } — the previous field names
+// (totalCurrency, totalTaxes, transactions24h, marketplaces, topTraders)
+// rendered "— None —" on every real deployment. Legacy names kept as
+// fallbacks.
 export function formatEconomyEmbed(payload) {
   const r = payload?.result || payload || {};
+  const supply = r.totalSupply ?? r.totalCurrency ?? r.totalSolari;
   const fields = [
-    { name: "💰 Total Currency", value: fmtCount(r.totalCurrency ?? r.totalSolari), inline: true },
+    { name: "💰 Total Currency", value: fmtCount(supply), inline: true },
+    { name: "👥 Currency Holders", value: fmtCount(r.totalCurrencyHolders), inline: true },
     { name: "📦 Active Orders", value: fmtCount(r.activeOrders), inline: true },
-    { name: "🏛️ Total Taxes", value: fmtCount(r.totalTaxes), inline: true },
-    { name: "📈 Transactions (24h)", value: fmtCount(r.transactions24h), inline: true },
-    { name: "🏪 Marketplaces", value: fmtCount(r.marketplaces), inline: true },
+    { name: "✅ Fulfilled Orders", value: fmtCount(r.fulfilledOrders), inline: true },
+    { name: "🏛️ Taxes Collected", value: fmtCount(r.taxCollected ?? r.totalTaxes), inline: true },
   ];
-  // #212/T1: guard on length too — an empty array produced a field with
-  // value "", which Discord's API rejects (whole reply fails).
+  const topItems = Array.isArray(r.topTradedItems) ? r.topTradedItems : [];
+  if (topItems.length > 0) {
+    fields.push({
+      name: "🥇 Top Traded Items",
+      value: topItems.slice(0, 5).map((t) => `• ${t.display_name || t.displayName || t.template_id || t.templateId || t.item || t.name || "?"}: ${t.count ?? t.total ?? t.volume ?? "?"}`).join("\n"),
+      inline: false
+    });
+  }
+  // Legacy synthetic shape fallback (#212/T1 length guard retained)
   if (Array.isArray(r.topTraders) && r.topTraders.length > 0) {
     fields.push({ name: "🥇 Top Traders", value: r.topTraders.slice(0, 3).map(t => `• ${t.name || t.character}: ${fmtCount(t.volume)}`).join("\n"), inline: false });
   }
   return duneEmbed({
     title: "💰 Economy Statistics",
-    // #215/A6: key the color on values this embed actually renders —
-    // totalSupply/totalCurrencyHolders are never displayed (or present).
-    color: ((r.totalCurrency ?? r.totalSolari ?? 0) > 0 || (r.activeOrders ?? 0) > 0) ? "success" : "warning",
+    color: ((supply ?? 0) > 0 || (r.activeOrders ?? 0) > 0) ? "success" : "warning",
     description: "🪙 **Economic overview**",
     fields
   });
@@ -1182,6 +1183,48 @@ export function formatDashboardEmbed(payload) {
   });
 }
 
+// ── OPS: Alerts (#221/F3) ──
+// Renders /dune ops alerts (Prometheus alert query) — the generic
+// formatter showed the firing list as "**[object Object]**".
+export function formatAlertsEmbed(payload) {
+  if (payload?.ok === false) {
+    return duneEmbed({
+      title: "🚨 Active Alerts",
+      color: "error",
+      description: `🔴 ${payload?.error || "Failed to query alerts."}`,
+      fields: payload?.hint ? [{ name: "💡 Hint", value: payload.hint, inline: false }] : []
+    });
+  }
+  const a = payload?.alerts || {};
+  const firing = Array.isArray(a.summary) ? a.summary : [];
+  const fields = [
+    { name: "🔥 Firing", value: fmtCount(a.firing ?? firing.length), inline: true },
+    { name: "⏳ Pending", value: fmtCount(a.pending ?? 0), inline: true },
+    { name: "📊 Total", value: fmtCount(a.total ?? firing.length), inline: true }
+  ];
+  for (const alert of firing.slice(0, 10)) {
+    const detail = [alert.summary, alert.instance ? `on \`${alert.instance}\`` : "", alert.startsAt ? `since ${alert.startsAt}` : ""]
+      .filter(Boolean).join(" · ");
+    fields.push({
+      name: `🔥 ${alert.alertname || "unknown"} (${alert.severity || "none"})`,
+      value: detail || "— no detail —",
+      inline: false
+    });
+  }
+  if (firing.length > 10) {
+    fields.push({ name: "…", value: `*…and ${firing.length - 10} more firing alerts*`, inline: false });
+  }
+  const anyFiring = (a.firing ?? firing.length) > 0;
+  const anyPending = (a.pending ?? 0) > 0;
+  return duneEmbed({
+    title: "🚨 Active Alerts",
+    color: anyFiring ? "error" : anyPending ? "warning" : "success",
+    description: anyFiring
+      ? `🔥 **${a.firing ?? firing.length} alert${(a.firing ?? firing.length) === 1 ? "" : "s"} firing**`
+      : anyPending ? "🟡 **Alerts pending — none firing**" : "🟢 **No active alerts**"
+  , fields });
+}
+
 // ── OPS: Announcements ──
 export function formatAnnouncementsEmbed(payload) {
   const announcements = payload?.announcements || payload?.result?.announcements || [];
@@ -1275,7 +1318,10 @@ export function formatLogsEmbed(payload, service = "") {
     let size = 0;
     // newest lines are most useful — walk backwards until the budget fills
     for (let i = lines.length - 1; i >= 0; i -= 1) {
-      const line = String(lines[i]);
+      // #221/F7: a log line containing ``` would close the code fence
+      // early and let the remainder render as markdown — break the run
+      // with a zero-width space.
+      const line = String(lines[i]).replaceAll("```", "`\u200b``");
       if (size + line.length + 1 > 3600) break;
       kept.unshift(line);
       size += line.length + 1;
@@ -1299,8 +1345,10 @@ export function formatVersionEmbed(payload) {
     title: "📦 Version",
     color: "success",
     description: `**${v}**`,
+    // #221/F4: Discord does not render markdown in field NAMES — the old
+    // `**${k}**` showed literal asterisks around lowercase keys.
     fields: Object.entries(adapter).slice(0, 6).map(([k, val]) => ({
-      name: `**${k}**`,
+      name: displayLabel(k),
       value: String(val || "— Unknown —"),
       inline: true
     }))

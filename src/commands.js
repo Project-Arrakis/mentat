@@ -9,7 +9,7 @@ import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload, redactSecrets } from "./format.js";
 import { logInfo, logError } from "./logger.js";
 import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegistryMetadata } from "./registryLoader.js";
-import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed , formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed } from "./embedFormat.js";
+import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed , formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
@@ -136,7 +136,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("cooldowns").setDescription("Show active command cooldowns."))
       .addSubcommand((c) => c.setName("latency").setDescription("Show adapter request latency history."))
       .addSubcommand((c) => c.setName("events").setDescription("Show recent server incidents and events."))
-      .addSubcommand((c) => c.setName("roles").setDescription("Show configured admin/observer roles, with current Discord role names."))
+      .addSubcommand((c) => c.setName("roles").setDescription("Show configured admin/player roles, with current Discord role names."))
       .addSubcommand((c) => c.setName("broadcast").setDescription("Send a message to all in-game players (moderator+).")
         .addStringOption((o) => o.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500))))
 
@@ -189,7 +189,7 @@ export function commandDefinitions({ includeWriteGroup = false } = {}) {
 }
 
 // #211: single definition (was duplicated inline at two dispatch sites).
-const OPS_EMBEDS = { activity: formatActivityEmbed, combat: formatCombatEmbed, resources: formatResourcesEmbed, economy: formatEconomyEmbed, armory: formatOpsInventoryEmbed, location: formatLocationEmbed, soc: formatSocEmbed, prometheus: formatPrometheusEmbed, dashboard: formatDashboardEmbed, announcements: formatAnnouncementsEmbed };
+const OPS_EMBEDS = { alerts: formatAlertsEmbed, activity: formatActivityEmbed, combat: formatCombatEmbed, resources: formatResourcesEmbed, economy: formatEconomyEmbed, armory: formatOpsInventoryEmbed, location: formatLocationEmbed, soc: formatSocEmbed, prometheus: formatPrometheusEmbed, dashboard: formatDashboardEmbed, announcements: formatAnnouncementsEmbed };
 
 // #213: one shared source for the setup-portal URL (mirrors onboarding.js).
 function setupPortalUrl(guildId = "") {
@@ -200,6 +200,9 @@ function setupPortalUrl(guildId = "") {
 export async function executeDuneCommand(interaction, adapterClient, config, db = null) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== "dune") return false;
   let embed;
+  // #219: dispatch selects a formatter, never a built embed — embeds are
+  // built AFTER redactSecrets(payload) runs below.
+  let chosenFormatter = null;
 
   const group = interaction.options.getSubcommandGroup() || "";
   const subcommand = interaction.options.getSubcommand();
@@ -466,13 +469,13 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       // correct embed and double-applying the cooldown).
       if (subcommand === "alerts") {
         payload = await fetchPrometheusAlerts(adapterClient, actor, guildId);
-        embed = (OPS_EMBEDS[subcommand] || formatGenericEmbed)(payload, `ops ${subcommand}`);
+        chosenFormatter = (p) => (OPS_EMBEDS[subcommand] || formatGenericEmbed)(p, `ops ${subcommand}`);
       } else {
         const route = opsRouteFor(subcommand);
         if (route) {
           const methodName = route.replace(/-(\w)/g, (_, c) => c.toUpperCase());
           payload = formatOpsPayload(subcommand, await adapterClient[methodName](actor, guildId));
-          embed = (OPS_EMBEDS[subcommand] || formatGenericEmbed)(payload, `ops ${subcommand}`);
+          chosenFormatter = (p) => (OPS_EMBEDS[subcommand] || formatGenericEmbed)(p, `ops ${subcommand}`);
         } else {
           payload = { ok: false, error: `Unknown OPS command: ${subcommand}` };
         }
@@ -513,7 +516,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     // ── infra group ──
     else if (key === "infra:version") {
       payload = await adapterClient.version(actor, guildId);
-        embed = formatVersionEmbed(payload);
+      chosenFormatter = formatVersionEmbed;
     } else if (key === "infra:servers") {
       payload = await adapterClient.servers(actor, guildId);
     } else if (key === "infra:ports") {
@@ -548,8 +551,9 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     // `else` here used to unconditionally OVERWRITE those with the
     // generic debug-dump formatter, leaving every dedicated ops/version
     // embed computed and then discarded.
-    if (embed) {
-      // dispatch already chose the embed
+    if (chosenFormatter) {
+      // #219: built HERE, from the redacted payload — never at dispatch.
+      embed = chosenFormatter(payload);
     } else if (subcommand === "about") {
       embed = formatGenericEmbed(payload, "about");
     } else if (subcommand === "setup") {
@@ -788,9 +792,11 @@ export async function pingPayload(adapterClient, actor, deferReplyMs = 0, guildI
   };
 }
 
+// #221/F6: missing values stay null (fmt() renders "— None —") instead of
+// the truthy string "unknown" bolded inside a green embed.
 export function statusSummaryPayload(status) {
   const s = status?.result || {};
-  return { ok: status?.ok === true, overall: s.overall || "UNKNOWN", region: s.region || "unknown", mode: s.mode || "unknown", population: s.population || "unknown", automation: { autoscaler: s.automation?.autoscaler || "unknown", autoUpdates: s.automation?.autoUpdates || "unknown" } };
+  return { ok: status?.ok === true, overall: s.overall || "UNKNOWN", region: s.region ?? null, mode: s.mode ?? null, population: s.population ?? null, automation: { autoscaler: s.automation?.autoscaler ?? null, autoUpdates: s.automation?.autoUpdates ?? null } };
 }
 
 export function aboutPayload(config) {
@@ -919,7 +925,7 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "admin:cooldowns", desc: "Show active cooldowns.", role: "admin" },
     { name: "admin:latency", desc: "Adapter latency history.", role: "admin" },
     { name: "admin:events", desc: "Recent incident log.", role: "admin" },
-    { name: "admin:roles", desc: "Show configured admin/observer roles with current names.", role: "admin" },
+    { name: "admin:roles", desc: "Show configured admin/player roles with current names.", role: "admin" },
     { name: "admin:broadcast", desc: "Send a message to all players.", role: "admin" },
     { name: "admin:sync-commands", desc: "Check Core's command catalog for drift against the bot's registry.", role: "admin" },
     // ── infra ──
