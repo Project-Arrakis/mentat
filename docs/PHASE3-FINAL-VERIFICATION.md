@@ -1,5 +1,21 @@
 # Phase 3: Command Discovery Runtime Loading - Final Verification Report
 
+> **⚠️ CORRECTION (2026-08-20, issues #190/#204/#205 — read this first):**
+> This report's "PRODUCTION READY / all findings remediated" conclusion
+> was **false when written**. The real test suite exited 1 with 2
+> failures at the commit this report describes ("71/71" counted only
+> the 73-test harness subgroup); `/dune admin sync-commands` did not
+> work at all at that commit (the very next commit fixes "sync-commands
+> never reached Core"); the SEC-1 signature framework it credits was
+> ineffective (committed default HMAC key, short-circuiting compare,
+> `signatureVerified` always false — #202); and the CRITICAL-1
+> "serialization" it credits was itself a cross-tenant poisoning bug in
+> multi-tenant mode (#192). A 2026-08-20 max-effort code review found
+> 25 verified findings in this "verified" code — see tracking issue
+> #190 for the register and remediation. Retained unedited below as the
+> historical record; treat every ✅ below as a claim, not a fact.
+
+
 **Date:** 2026-08-19  
 **Status:** ✅ PRODUCTION READY  
 **All Findings Remediated:** YES

@@ -30,19 +30,71 @@ change notes under `docs/changes/`.
     metadata (L4), boundary conditions (L5)
   - Fully documented in `docs/rfc-command-discovery.md` Phase 2 section
   
-- **Phase 3: Runtime loading from generated registry** (#181, builds on Phase 2):
-  
-  **SCOPE: Load registry at startup, replace hardcoded command definitions, add sync operator command.**
-  
-  - New `src/registryLoader.js` — registry lifecycle management (load at startup, cache, refresh, ETags)
-  - Registry loaded from `src/commands-registry.json` at bot startup via `loadRegistryAtStartup()`
-  - In-memory caching with `getRegistryFromCache()` for fast access
-  - `getCommandRegistry()` in `src/commands.js` now uses cached registry instead of hardcoded definitions
-  - New operator command `/dune admin sync-commands` — refresh registry from Core's catalog endpoint without restart
-  - ETag support for conditional requests (`If-None-Match`) to minimize data transfer on refresh
-  - Registry format conversion via `registryToDiscordFormat()` for Discord slash command compatibility
-  - Registry metadata tracking (load time, version, command count, ETag)
-  - Graceful degradation: if registry fails to load, bot logs error but continues (allows `sync-commands` recovery)
+- **Phase 3: Runtime registry loading + Core catalog drift check** (#181;
+  scope corrected 2026-08-20 by the #190 review remediation — this entry
+  previously claimed ETag conditional requests, `registryToDiscordFormat()`
+  runtime conversion, registry-driven `getCommandRegistry()`, and
+  graceful degradation on load failure, none of which was true of the
+  code as shipped):
+
+  - New `src/registryLoader.js` — loads the committed
+    `src/commands-registry.json` at startup (`loadRegistryAtStartup()`),
+    validates it (Discord naming/size constraints), and caches it
+    in-memory (`getRegistryFromCache()`). Loading is **mandatory**: the
+    bot refuses to start (`process.exit(1)`) on a missing/invalid
+    registry — there is deliberately no degraded mode.
+  - The committed registry is an INTERNAL artifact describing Core's
+    Discord-adapter catalog. The public `GET /api/commands` contract
+    remains the curated list in `getCommandRegistry()` (see Security
+    below for why).
+  - New operator command `/dune admin sync-commands` — a **read-only
+    drift check**: fetches the invoking guild's own Core catalog,
+    validates it, and reports how it differs from the committed
+    artifact. It never mutates shared state and never re-registers
+    Discord commands (registration only changes on deploy); drift is
+    acted on by regenerating the artifact (`npm run registry:generate`)
+    and deploying.
+  - New shared `src/catalogTransform.js` — envelope unwrap + v2
+    `routes[]` flattening + override application, used identically by
+    the Phase 2 generator and the runtime drift check, tested against a
+    captured real production catalog fixture.
+
+### Security
+- **2026-08-20 code-review remediation** (tracking issue #190; 25
+  verified findings from a max-effort multi-agent review of the Phase 3
+  branch, all filed as issues #191–#208):
+  - Untracked `runtime/bot.db` (multi-tenant credential store schema)
+    from git and ignored `runtime/`, `data/`, `*.db` (#191). The
+    committed blob was schema-only — no secret leaked.
+  - Removed the cross-tenant registry poisoning path: one guild's
+    `/dune admin sync-commands` could overwrite the registry served to
+    every tenant and the public API with its own Core's (potentially
+    hostile) catalog (#192). Syncs are now side-effect-free per-guild
+    drift checks.
+  - Restored the public `GET /api/commands` contract
+    (`{group,title,commands:[{name,desc,role}]}`) that the acp-landing
+    accordion consumes — the branch had broken the production landing
+    page and simultaneously disclosed Core's internal adapter routes/
+    capabilities/methods to unauthenticated callers (#193, #203). The
+    shape is now pinned by `test/commandRegistryContract.test.js`.
+  - Removed the ineffective SEC-1 registry-signature framework
+    (committed default HMAC key, short-circuiting compare,
+    `signatureVerified` always false, nothing signs) — #202 tracks a
+    real Core-side signing design.
+  - Setup portal: removed the Generate-token button that minted tokens
+    Core can never accept (#194); guild names are now resolved
+    server-side instead of persisting "Unknown" for every setup (#195);
+    the console-restart warning now gives the correct, working command
+    (`dune console restart`) instead of naming a nonexistent compose
+    service (#197); the success page looks the guild up by id instead
+    of double-decoding attacker-influencable query text (#198); the
+    setup log no longer records each tenant's console host (#207).
+  - sync-commands failures are classified by the adapter's real HTTP
+    status instead of message substrings (#199); `sync-commands` is
+    listed in `/dune core help` (#200); the register endpoint's covering
+    test asserts the real 302 contract (#201); registry name validation
+    rejects uppercase names again (#206); dead
+    `registryToDiscordFormat()`/ETag state removed (#208).
 
 ### Fixed
 - Upstream compatibility pin refresh, `v1.3.79` -> `v1.3.87` (#172). Found

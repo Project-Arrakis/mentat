@@ -1,5 +1,30 @@
 # Phase 3 Command Discovery - Production Deployment Summary
 
+> **⚠️ CORRECTION (2026-08-20, issues #204/#205 — read this first):**
+> This document describes a deployment that **violated the required
+> change-management process** (Requirement 21: no PR existed, no
+> tracking issue existed, and CI was failing on every commit of the
+> deployed branch) and several of its claims below were **false when
+> written**:
+>
+> - "All existing tests still passing (71/71)" counted only the 73-test
+>   harness subgroup — the full suite exited 1 with 2 real failures
+>   (helpPayload mirror-coverage; setup/register contract).
+> - "Fixed 'Generate' button" — the button minted a browser-side random
+>   token Core can never accept, guaranteeing a broken onboarding (#194).
+> - "Added console restart warning" — the warning named a nonexistent
+>   compose service (`dune-server` is a volume) and `docker compose
+>   restart` cannot apply `.env` changes anyway (#197).
+> - The deploy happened **twice** — the prod ref later advanced to
+>   `538ccba`, one commit past the `605561b` this document records.
+>
+> The 2026-08-20 max-effort code review found 25 verified findings in
+> the deployed code; see tracking issue #190 for the full register,
+> the STRIDE report, and the remediation that followed. This document
+> is retained unedited below as the historical record of what was
+> claimed at deploy time.
+
+
 **Date:** 2026-08-19 19:05:00 UTC  
 **Status:** ✅ DEPLOYED TO PRODUCTION  
 **Deployment Target:** Bot VM (192.168.22.10)
