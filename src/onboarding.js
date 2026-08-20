@@ -6,15 +6,15 @@ const SETUP_URL = process.env.ACP_SETUP_URL || process.env.ACP_BASE_URL || "http
 
 function setupMessageFor(guild, setupLink) {
   return [
-    `🐛 **Welcome to ACP!**`,
+    `🏜️ **Welcome to ACP!**`,
     ``,
     `I've been added to **${guild.name}**. To get started, you need to connect this server to your Arrakis Control Panel.`,
     ``,
-    `**Setup takes 2 minutes:**`,
-    `1. Click the setup link below`,
-    `2. Sign in with Discord`,
+    `**Setup steps** (a few minutes; a bit longer the first time, since it includes a one-time console configuration):`,
+    `1. Click the setup link below and sign in with Discord`,
+    `2. Enable the Discord adapter in your console's \`.env\`, create the adapter token file, and recreate the console container (the portal shows the exact commands)`,
     `3. Enter your console URL and adapter token`,
-    `4. Configure your roles`,
+    `4. Map Discord roles to the four tiers (Player, Moderator, Admin, Owner)`,
     ``,
     `🔗 **Setup Link:** ${setupLink}`,
     ``,
@@ -25,7 +25,7 @@ function setupMessageFor(guild, setupLink) {
 function ownerNoticeFor(guild, inviter) {
   const inviterLabel = inviter.tag || inviter.username || inviter.id;
   return [
-    `🐛 **ACP was added to ${guild.name}**`,
+    `🏜️ **ACP was added to ${guild.name}**`,
     ``,
     `**${inviterLabel}** added the Arrakis Control Panel bot to your server and has been sent the setup instructions.`,
     ``,
@@ -45,15 +45,15 @@ function ownerNoticeFor(guild, inviter) {
 // both.
 function fallbackNoticeFor(guild, setupLink) {
   return [
-    `🐛 **Welcome to ACP!**`,
+    `🏜️ **Welcome to ACP!**`,
     ``,
     `I've been added to **${guild.name}**. If you're the one who just invited me, here's how to get started:`,
     ``,
-    `**Setup takes 2 minutes:**`,
-    `1. Click the setup link below`,
-    `2. Sign in with Discord`,
+    `**Setup steps** (a few minutes; a bit longer the first time, since it includes a one-time console configuration):`,
+    `1. Click the setup link below and sign in with Discord`,
+    `2. Enable the Discord adapter in your console's \`.env\`, create the adapter token file, and recreate the console container (the portal shows the exact commands)`,
     `3. Enter your console URL and adapter token`,
-    `4. Configure your roles`,
+    `4. Map Discord roles to the four tiers (Player, Moderator, Admin, Owner)`,
     ``,
     `🔗 **Setup Link:** ${setupLink}`,
     ``,
