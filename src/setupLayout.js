@@ -282,7 +282,6 @@ export function renderPage(title, body, opts = {}) {
     ${body}
   </div>
   <script>${sandScript()}</script>
-  <script src="/setup.js" defer></script>
 </body>
 </html>`;
 }

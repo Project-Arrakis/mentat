@@ -66,6 +66,27 @@ function tokenMatches(provided, expected) {
   return timingSafeEqual(providedBuf, expectedBuf);
 }
 
+// Issue #195 fix: the setup form's guild <select> submits only the guild
+// id, so the previously-trusted req.body.guildName was always undefined
+// and every completed setup persisted (and displayed) "Unknown". Resolve
+// the real name server-side from the same Discord OAuth token the flow
+// already holds. Best-effort: any failure falls back to "Unknown" rather
+// than blocking registration (the name is display-only).
+async function resolveGuildName(accessToken, guildId) {
+  if (!accessToken || !guildId) return "Unknown";
+  try {
+    const guildsRes = await fetch("https://discord.com/api/v10/users/@me/guilds", {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!guildsRes.ok) return "Unknown";
+    const guilds = await guildsRes.json();
+    const match = Array.isArray(guilds) ? guilds.find((g) => g.id === guildId) : null;
+    return (match && typeof match.name === "string" && match.name.trim()) || "Unknown";
+  } catch {
+    return "Unknown";
+  }
+}
+
 export function createSetupServer(config) {
   const app = express();
   const db = createDatabase(config.dbPath);
@@ -246,7 +267,7 @@ export function createSetupServer(config) {
           <section class="panel">
             <h2>Step 2: Console Connection</h2>
             <div style="background: rgba(224, 90, 74, 0.12); border: 1px solid rgba(224, 90, 74, 0.3); border-radius: 6px; padding: 12px; margin-bottom: 16px; font-size: 13px; color: #f5aca5; line-height: 1.5;">
-              <strong>⚠️ Important:</strong> You must restart your console container after configuring the adapter in <code>.env</code>. Without restarting, authentication will fail. Run <code>docker-compose restart dune-server</code> (or equivalent for your setup).
+              <strong>⚠️ Important:</strong> After enabling the adapter in your Dune Docker <code>.env</code>, you must <em>recreate</em> the console container — a plain restart does not pick up <code>.env</code> changes. From your install directory run <code>dune console restart</code> (or <code>docker compose -f docker-compose.web.yml up -d --force-recreate redblink-dune-docker-console</code>). Without this, authentication will fail.
             </div>
             <div class="field">
               <label for="consoleUrl">Console URL</label>
@@ -255,17 +276,14 @@ export function createSetupServer(config) {
             </div>
             <div class="field">
               <label for="adapterToken">Adapter Token</label>
-              <div class="token-row">
-                <input type="text" name="adapterToken" id="adapterToken" placeholder="your-adapter-token" required>
-                <button type="button" class="btn btn--sm" onclick="generateToken()">Generate</button>
-              </div>
+              <input type="text" name="adapterToken" id="adapterToken" placeholder="your-adapter-token" required>
               <div class="hint">
                 <strong>To get your token:</strong><br>
                 1. In your Dune Docker <code>.env</code>, set:<br>
                 <code>DUNE_DISCORD_ADAPTER_ENABLED=true</code><br>
                 <code>DUNE_DISCORD_ADAPTER_TOKEN_FILE=/repo/runtime/secrets/discord-adapter-token.txt</code><br>
-                2. <strong>Restart the console</strong> (see warning above)<br>
-                3. The token will be created in that file — copy it here, or click Generate to create a new one
+                2. <strong>Recreate the console container</strong> (see warning above)<br>
+                3. Copy the token from <code>runtime/secrets/discord-adapter-token.txt</code> into this field — the console only accepts the token it holds in that file, so a made-up value cannot work
               </div>
             </div>
           </section>
@@ -316,7 +334,10 @@ export function createSetupServer(config) {
         return res.status(400).json({ error: "Missing required fields" });
       }
 
-      const guildName = req.body.guildName || "Unknown";
+      // Issue #195: resolve the real guild name server-side (the form's
+      // <select> submits only the id). Skipped when no OAuth token is
+      // present (e.g. API/test callers) — falls back to "Unknown".
+      const guildName = await resolveGuildName(req.body.accessToken, guildId);
 
       upsertGuild(db, {
         guildId,
@@ -336,23 +357,30 @@ export function createSetupServer(config) {
         default_ephemeral: 1
       });
 
-      logInfo("setup.guild_configured", {
-        guildId,
-        guildName,
-        consoleUrl: consoleUrl.replace(/https?:\/\//, "...") // redact for logs
-      });
+      // Issue #207 (Req 24): do NOT log consoleUrl — even scheme-stripped
+      // it identified each tenant's console host/IP:port. guildId is
+      // enough for correlation.
+      logInfo("setup.guild_configured", { guildId, guildName });
 
-      // Redirect to success page instead of returning JSON
-      res.redirect(`/setup/success?guildId=${encodeURIComponent(guildId)}&guildName=${encodeURIComponent(guildName)}`);
+      // Issue #198: redirect with the guild id ONLY — the success page
+      // looks the stored name up from the DB, so no attacker-chosen (or
+      // double-decoded) display text ever rides the query string.
+      res.redirect(`/setup/success?guildId=${encodeURIComponent(guildId)}`);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
    });
 
-   // GET /setup/success — Display success page after guild configuration
+   // GET /setup/success — Display success page after guild configuration.
+   // Issue #198: the display name comes from the DB (looked up by guild
+   // id), never from the query string — the old version both rendered
+   // attacker-chosen query text on an unauthenticated page and called
+   // decodeURIComponent() on a value Express had already percent-decoded
+   // (URIError → 500 for any guild name containing a literal '%').
    app.get("/setup/success", (req, res) => {
-     const { guildName } = req.query;
-     const displayName = guildName ? decodeURIComponent(guildName) : "your server";
+     const { guildId } = req.query;
+     const guild = guildId ? getGuild(db, guildId) : null;
+     const displayName = guild?.guild_name || "Your server";
 
      const body = `
        <div class="success-page">
