@@ -79,6 +79,25 @@ Authorization here is a **GitHub repository role** (`write`/`maintain`/
 two are unrelated permission systems. Grant the actor the appropriate
 GitHub collaborator role on the private repository, not a Discord role.
 
+## GitGuardian PR check flags `secretScan.test.js`'s own fixtures
+
+`secretScan.test.js` deliberately contains fake JWT and generic-high-
+entropy-shaped strings to verify the scanner detects these patterns (see
+`testing.md`). Gitleaks and Semgrep are configured (via
+`.gitleaks.toml`/`.semgrepignore`) to ignore this file; GitGuardian's
+GitHub PR check is a separate, dashboard-backed integration and requires
+a different remediation: mark the specific incident IDs as `Ignored`
+(reason: `false_positive`) via the GitGuardian dashboard or API
+(`POST /v1/incidents/secrets/{id}/ignore`), rather than via a repo-local
+config file — `.gitguardian.yaml`'s `ignored_matches` governs the local
+`ggshield` CLI/pre-commit hook only, it does not affect the hosted
+GitHub PR check, which evaluates the full commit history of the PR
+against GitGuardian's own incident database regardless of local config.
+**The PR check's cached status does not automatically refresh** just
+because the underlying incident was marked ignored via the API/dashboard
+— a new commit (or closing/reopening the PR) is needed to trigger a
+fresh GitGuardian scan that reflects the current ignored state.
+
 ## Where to look for evidence
 
 Every decision emits a structured, single-line JSON audit event
