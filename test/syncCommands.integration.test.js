@@ -103,7 +103,7 @@ test("sync-commands integration: non-admin actor is rejected before Core is ever
   assert.match(text, /not authorized/i);
 });
 
-test("sync-commands integration: successful refresh returns before/after metadata, no guildId leaked", async () => {
+test("sync-commands integration: successful drift check renders the dedicated embed, no guildId leaked", async () => {
   const adapterClient = { discordCatalog: async () => mockRegistry() };
   let replied;
   const interaction = mockInteraction("admin", "sync-commands", {
@@ -115,7 +115,10 @@ test("sync-commands integration: successful refresh returns before/after metadat
   await executeDuneCommand(interaction, adapterClient, adminConfig);
 
   const text = JSON.stringify(replied);
-  assert.match(text, /sync-commands/);
+  // #210/P1: the dedicated drift-check embed, not a generic debug dump
+  assert.match(text, /Command Catalog Drift Check/);
+  assert.match(text, /Bot Registry/);
+  assert.match(text, /Core Catalog/);
   assert.doesNotMatch(text, /guild-super-secret-id/, "SEC-2: guildId must never appear in the user-facing response");
 });
 
@@ -135,7 +138,7 @@ test("sync-commands integration: adapter/Core error is sanitized (SEC-2, no raw 
   await executeDuneCommand(interaction, adapterClient, adminConfig);
 
   const text = JSON.stringify(replied);
-  assert.match(text, /Request failed/i);
+  assert.match(text, /Command Catalog Drift Check/);
   assert.match(text, /Core encountered an error/i);
   // Must NOT leak the raw adapter error message, guildId, or internal paths
   assert.doesNotMatch(text, /guild-super-secret-id/);

@@ -36,7 +36,9 @@ export async function sendError(interaction, { error, context = {} } = {}) {
   }
   const embed = new EmbedBuilder()
     .setTitle("\u274C Error")
-    .setColor(0xdc3545)
+    // #217/C3: one error red everywhere (matches embedFormat.js's
+    // DUNE_COLORS.error) instead of two competing shades.
+    .setColor(0xE74C3C)
     .setDescription(friendly.slice(0, 2048));
   if (detail) {
     try {
@@ -61,7 +63,7 @@ export async function sendText(interaction, { content, context = {} } = {}) {
   return interaction.editReply({ content: enriched });
 }
 
-export async function sendEphemeral(interaction, { title, description, color = 0xdc3545 } = {}) {
+export async function sendEphemeral(interaction, { title, description, color = 0xE74C3C } = {}) {
   const embed = { title, description, color };
   return interaction.reply({ embeds: [embed], ephemeral: true });
 }

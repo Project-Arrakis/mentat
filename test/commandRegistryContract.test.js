@@ -38,8 +38,10 @@ test("contract: getCommandRegistry() returns the public accordion shape", () => 
     for (const cmd of group.commands) {
       assert.equal(typeof cmd.name, "string", `command in "${group.group}" missing name`);
       assert.equal(typeof cmd.desc, "string", `command "${cmd.name}" missing desc`);
-      assert.ok(["observer", "moderator", "admin", "owner"].includes(cmd.role),
-        `command "${cmd.name}" has unexpected role "${cmd.role}"`);
+      // #217/C1: "player" is the canonical user-facing tier label on every
+      // display surface (the DB/config-internal name stays "observer").
+      assert.ok(["player", "moderator", "admin", "owner"].includes(cmd.role),
+        `command "${cmd.name}" has unexpected role "${cmd.role}" (user-facing surfaces must say "player", not "observer")`);
     }
   }
 });

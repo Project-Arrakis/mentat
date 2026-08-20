@@ -22,8 +22,12 @@ function fmt(val) {
   if (val === null || val === undefined) return "— None —";
   if (typeof val === "boolean") return val ? "✅ Yes" : "❌ No";
   if (typeof val === "number") return val < 10000 ? `\`${val.toLocaleString()}\`` : `\`${(val / 1000).toFixed(1)}k\``;
-  const s = String(val).trim();
+  let s = String(val).trim();
   if (!s) return "— None —";
+  // #218/P4: truncate BEFORE wrapping in markdown, so a downstream
+  // 1024-char field slice can never cut a closing ** off and corrupt
+  // the rest of the field's rendering.
+  if (s.length > 1000) s = `${s.slice(0, 999)}…`;
   return `**${s}**`;
 }
 
@@ -49,11 +53,16 @@ function augmentMax(item) {
   return MAX_RANGED_AUGMENTS;
 }
 
-export function duneEmbed({ title, color = "spice", description, fields = [], timestamp = true, faction } = {}) {
+export function duneEmbed({ title, color = "spice", description, fields = [], timestamp = true, faction, quote: includeQuote } = {}) {
   const embedColor = faction ? (DUNE_COLORS[faction] || DUNE_COLORS[color] || DUNE_COLORS.spice) : (DUNE_COLORS[color] || DUNE_COLORS.spice);
-  const quote = randomQuote(faction);
-  const timeStr = timestamp ? new Date().toLocaleString("en-US", { timeZoneName: "short" }) : "";
-  const footerText = `🏜️ Arrakis Control Panel${timeStr ? " · " + timeStr : ""}`;
+  // #218/PR1: never append a flavor quote to an error embed — a random
+  // faction quote ("Obey or be destroyed.") under a denial or failure
+  // reads as taunting the user. Callers may override via `quote`.
+  const showQuote = includeQuote ?? color !== "error";
+  // #217/C2: the footer carries the brand only. setTimestamp() below
+  // already renders the time localized to each viewer — the old text
+  // time duplicated it in the SERVER's locale/timezone, not theirs.
+  const footerText = "🏜️ Arrakis Control Panel";
 
   const embed = new EmbedBuilder()
     .setTitle(title)
@@ -62,14 +71,26 @@ export function duneEmbed({ title, color = "spice", description, fields = [], ti
   if (description) embed.setDescription(description);
   if (timestamp) embed.setTimestamp();
 
-  // Add data fields first
-  const dataFields = fields.slice(0, 24);
+  // #218/T3: never silently drop overflow fields — Discord allows 25;
+  // reserve one for the quote (when shown) and one for an explicit
+  // overflow marker whenever anything would be cut.
+  const maxData = showQuote ? 24 : 25;
+  let dataFields = fields;
+  let dropped = 0;
+  if (fields.length > maxData) {
+    dataFields = fields.slice(0, maxData - 1);
+    dropped = fields.length - dataFields.length;
+  }
   for (const field of dataFields) {
     embed.addFields({ name: String(field.name).slice(0, 256), value: String(field.value).slice(0, 1024), inline: field.inline ?? false });
   }
+  if (dropped > 0) {
+    embed.addFields({ name: "…", value: `*…and ${dropped} more entr${dropped === 1 ? "y" : "ies"} not shown*`, inline: false });
+  }
 
-  // Always end with the faction quote as a separator
-  embed.addFields({ name: "\u200b", value: `*"${quote}"*`, inline: false });
+  if (showQuote) {
+    embed.addFields({ name: "\u200b", value: `*"${randomQuote(faction)}"*`, inline: false });
+  }
 
   return embed;
 }
@@ -216,15 +237,23 @@ function parseCliSections(raw = "") {
 
 // ── Population ──
 export function formatPopulationEmbed(population) {
-  const online = population?.online ?? "— Unknown —";
-  const total = population?.total ?? "— Unknown —";
+  // #215/A7: only claim (green) success when a real number came back —
+  // the old code substituted the truthy string "unknown", rendering a
+  // green "**unknown** / **unknown** players online".
+  const online = population?.online;
+  const total = population?.total;
+  const hasData = typeof online === "number" || (typeof online === "string" && online !== "" && online !== "unknown");
   return duneEmbed({
     title: "👥 Server Population",
-    color: population?.online ? "success" : "warning",
-    description: `### **${online}** / **${total}** players online`,
+    color: hasData ? "success" : "warning",
+    description: hasData
+      ? `### **${online}** / **${total ?? "?"}** players online`
+      : "🟡 **Population data unavailable** — the console did not return player counts.",
     fields: [
       { name: "🔒 Aggregate", value: fmtBool(population?.aggregate), inline: true },
-      { name: "🔐 Details", value: population?.detailsSuppressed ? "🔒 Suppressed" : "⚠️ Exposed", inline: true },
+      // "Visible" is honest without reading like a breach report the way
+      // "⚠️ Exposed" did to every player (#215/A7).
+      { name: "🔐 Details", value: population?.detailsSuppressed ? "🔒 Suppressed" : "👁️ Visible", inline: true },
     ]
   });
 }
@@ -264,8 +293,17 @@ const DISPLAY_NAMES = {
   deferReplyMs: "Discord", idempotencyKey: "Idempotency",
   needsConfirmation: "Confirm?", risk: "Risk", tier: "Tier",
   family: "Family", available: "Available", locked: "Locked",
-  availableCount: "Available", rbacMode: "RBAC",
+  // #210/P2: "availableCount" previously also mapped to "Available",
+  // rendering two identically-named fields in one embed.
+  availableCount: "Available Count", rbacMode: "RBAC",
 };
+
+// #217/C5: shared label prettifier so nested sub-keys get the same
+// capitalization treatment as top-level keys ("Registry › Groups", not
+// "Registry › groups").
+function displayLabel(key) {
+  return DISPLAY_NAMES[key] || key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, " $1");
+}
 
 export function formatGenericEmbed(payload, title) {
   const ok = payload?.ok !== false;
@@ -281,14 +319,13 @@ export function formatGenericEmbed(payload, title) {
         continue;
       }
 
-    const label = DISPLAY_NAMES[key] || key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, " $1");
+    const label = displayLabel(key);
 
     if (typeof val === "object" && !Array.isArray(val)) {
       // Flatten nested objects into sub-fields
       for (const [k2, v2] of Object.entries(val).slice(0, 5)) {
         if (v2 === null || v2 === undefined) continue;
-        const subLabel = DISPLAY_NAMES[k2] || k2;
-        fields.push({ name: `${label} › ${subLabel}`, value: formatValue(v2), inline: true });
+        fields.push({ name: `${label} › ${displayLabel(k2)}`, value: formatValue(v2), inline: true });
       }
     } else if (Array.isArray(val)) {
       if (val.length === 0) continue;
@@ -302,8 +339,11 @@ export function formatGenericEmbed(payload, title) {
     }
   }
 
+  // #217/C5: title-case the label so generic titles match the dedicated
+  // embeds' casing ("📊 Verify", not "📊 verify").
+  const displayTitle = String(title).charAt(0).toUpperCase() + String(title).slice(1);
   return duneEmbed({
-    title: `📊 ${title}`,
+    title: `📊 ${displayTitle}`,
     color: ok ? "spice" : "error",
     description: ok ? null : "🔴 Request failed",
     fields: fields.slice(0, 20)
@@ -411,7 +451,9 @@ export function formatStorageEmbed(payload) {
   const totalItems = containers.reduce((sum, c) => sum + (Number(c.item_count) || 0), 0);
   return duneEmbed({
     title: `🗄️ ${scopeLabel} Storage`,
-    color: payload?.containers?.length ? "success" : "warning",
+    // #215/A5: key on the containers actually rendered (payload.grouped)
+    // — payload.containers never exists, so success renders orange.
+    color: containers.length ? "success" : "warning",
     description: desc.slice(0, 2048),
     fields: [
       { name: "📦 Containers", value: fmtCount(payload?.count ?? containers.length), inline: true },
@@ -750,9 +792,33 @@ export function formatDbEmbed(payload) {
 
 export function formatSetupEmbed(setup) {
   const inviteUrl = setup?.inviteUrl || "";
-  const clientId = setup?.clientId || "?";
   const guildId = setup?.guildId || "";
 
+  // #213/A1: in multi-tenant mode the ONLY working setup path is the
+  // portal — the onboarding DM tells users this command has "the setup
+  // link", so it must actually show it (the old embed rendered
+  // single-tenant self-host instructions with no portal link at all).
+  if (setup?.multiTenant && setup?.setupUrl) {
+    return duneEmbed({
+      title: "🔧 Connect This Server to ACP",
+      color: "spice",
+      description: [
+        "**Connect your Discord server to your Dune Awakening console** via the setup portal.\n",
+        "### 🚀 Setup Portal",
+        `**${setup.setupUrl}**`,
+        "",
+        "The portal walks you through:",
+        "1. Signing in with Discord and picking this server",
+        "2. Enabling the Discord adapter in your console's `.env`, creating the adapter token file, and recreating the console container",
+        "3. Entering your console URL and adapter token",
+        "4. Mapping Discord roles to the four permission tiers — **Player**, **Moderator**, **Admin**, **Owner**",
+        "",
+        "After setup, run `/dune core help` to see your available commands and `/dune server status` to verify the console connection."
+      ].join("\n").slice(0, 2048)
+    });
+  }
+
+  const clientId = setup?.clientId || "?";
   return duneEmbed({
     title: "🔧 Add This Bot to Your Server",
     color: "spice",
@@ -766,19 +832,20 @@ export function formatSetupEmbed(setup) {
       "",
       "### 🏷️ Step 2: Create Roles",
       "The bot uses Discord roles to control access. Create these roles:",
-      "• **Dune Observer** — can use all read-only commands",
+      "• **Dune Player** — can use all read-only commands",
       "• **Dune Admin** — can use admin commands and diagnostics",
       "",
       "### 📐 Step 3: Find Your Role & Guild IDs",
       "1. **Enable Developer Mode:** Settings → Advanced → Developer Mode ON",
       "2. **Right-click your server icon** → Copy Server ID",
       "3. **Right-click each role** → Copy Role ID",
-      `Your guild ID${guildId ? " is `" + guildId + "`" : ": *(run this command in a server to see it)*"}`,
+      `Your guild ID${guildId ? " is \`" + guildId + "\`" : ": *(run this command in a server to see it)*"}`,
       "",
       "### ⚙️ Step 4: Configure the Bot",
-      "Add these values to your \`.env\` file:",
+      "Add these values to your \`.env\` file (the Player role goes in the",
+      "config's observer slot — same tier, older internal name):",
       "```bash",
-      "DISCORD_OBSERVER_ROLE_IDS=your-observer-role-id",
+      "DISCORD_OBSERVER_ROLE_IDS=your-player-role-id",
       "DISCORD_ADMIN_ROLE_IDS=your-admin-role-id",
       "DISCORD_GUILD_ID=" + (guildId || "your-server-id"),
       "```",
@@ -825,9 +892,10 @@ export function formatCombatEmbed(payload) {
   if (r.deathCauses && Object.keys(r.deathCauses).length > 0) {
     fields.push({ name: "☠️ Deaths by Cause", value: Object.entries(r.deathCauses).slice(0, 5).map(([cause, count]) => `• ${cause}: ${count}`).join("\n"), inline: false });
   }
-  if (r.topPvP && Array.isArray(r.topPvP)) {
+  // #212/T1: guard on length too — an empty array produced a field with
+  // value "", which Discord's API rejects (whole reply fails).
+  if (Array.isArray(r.topPvP) && r.topPvP.length > 0) {
     fields.push({ name: "🥇 Top PvP", value: r.topPvP.slice(0, 3).map(p => `• ${p.name || p.character}: ${p.kills || 0} kills`).join("\n"), inline: false });
-const sf = (inst, size, field) => { const sizes = Array.isArray(inst?.sizes) ? inst.sizes : []; const s = sizes.find(x => x.size === size); return s?.[field] ?? inst?.[size + field.charAt(0).toUpperCase() + field.slice(1)] ?? 0; };
   }
   return duneEmbed({
     title: "⚔️ Combat Statistics",
@@ -838,6 +906,17 @@ const sf = (inst, size, field) => { const sizes = Array.isArray(inst?.sizes) ? i
 }
 
 // ── OPS: Resources (Spice Melange) ──
+// #212: per-size field accessor for instance/sietch rows. Previously a
+// helper named `sf` was stranded INSIDE formatCombatEmbed's topPvP
+// branch (and `ssf` didn't exist at all), so every summary-less payload
+// crashed with "sf is not defined" / "ssf is not defined" and the user
+// saw a raw ReferenceError instead of their resource stats.
+function sizeField(row, size, field) {
+  const sizes = Array.isArray(row?.sizes) ? row.sizes : [];
+  const s = sizes.find((x) => x.size === size);
+  return s?.[field] ?? row?.[size + field.charAt(0).toUpperCase() + field.slice(1)] ?? 0;
+}
+
 export function formatResourcesEmbed(payload) {
   const r = payload?.result || payload || {};
   const fields = [];
@@ -848,14 +927,14 @@ export function formatResourcesEmbed(payload) {
   const ddSummary = dd.summary || {};
 
   // Deep Desert Summary
-  const ddTotalActive = ddSummary.totalActiveFields ?? ddInstances.reduce((s, i) => s + ((sf(i, "small", "activeFields")) + (sf(i, "medium", "activeFields")) + (sf(i, "large", "activeFields"))), 0);
-  const ddTotalRemaining = ddSummary.totalRemainingSpice ?? ddInstances.reduce((s, i) => s + ((sf(i, "small", "remainingSpice")) + (sf(i, "medium", "remainingSpice")) + (sf(i, "large", "remainingSpice"))), 0);
-  const ddSmallActive = ddSummary.smallActiveFields ?? ddInstances.reduce((s, i) => s + (sf(i, "small", "activeFields")), 0);
-  const ddMediumActive = ddSummary.mediumActiveFields ?? ddInstances.reduce((s, i) => s + (sf(i, "medium", "activeFields")), 0);
-  const ddLargeActive = ddSummary.largeActiveFields ?? ddInstances.reduce((s, i) => s + (sf(i, "large", "activeFields")), 0);
-  const ddSmallRemaining = ddSummary.smallRemainingSpice ?? ddInstances.reduce((s, i) => s + (sf(i, "small", "remainingSpice")), 0);
-  const ddMediumRemaining = ddSummary.mediumRemainingSpice ?? ddInstances.reduce((s, i) => s + (sf(i, "medium", "remainingSpice")), 0);
-  const ddLargeRemaining = ddSummary.largeRemainingSpice ?? ddInstances.reduce((s, i) => s + (sf(i, "large", "remainingSpice")), 0);
+  const ddTotalActive = ddSummary.totalActiveFields ?? ddInstances.reduce((s, i) => s + ((sizeField(i, "small", "activeFields")) + (sizeField(i, "medium", "activeFields")) + (sizeField(i, "large", "activeFields"))), 0);
+  const ddTotalRemaining = ddSummary.totalRemainingSpice ?? ddInstances.reduce((s, i) => s + ((sizeField(i, "small", "remainingSpice")) + (sizeField(i, "medium", "remainingSpice")) + (sizeField(i, "large", "remainingSpice"))), 0);
+  const ddSmallActive = ddSummary.smallActiveFields ?? ddInstances.reduce((s, i) => s + (sizeField(i, "small", "activeFields")), 0);
+  const ddMediumActive = ddSummary.mediumActiveFields ?? ddInstances.reduce((s, i) => s + (sizeField(i, "medium", "activeFields")), 0);
+  const ddLargeActive = ddSummary.largeActiveFields ?? ddInstances.reduce((s, i) => s + (sizeField(i, "large", "activeFields")), 0);
+  const ddSmallRemaining = ddSummary.smallRemainingSpice ?? ddInstances.reduce((s, i) => s + (sizeField(i, "small", "remainingSpice")), 0);
+  const ddMediumRemaining = ddSummary.mediumRemainingSpice ?? ddInstances.reduce((s, i) => s + (sizeField(i, "medium", "remainingSpice")), 0);
+  const ddLargeRemaining = ddSummary.largeRemainingSpice ?? ddInstances.reduce((s, i) => s + (sizeField(i, "large", "remainingSpice")), 0);
   const ddPvPCount = ddSummary.pvpInstances ?? ddInstances.filter(i => i.type === "pvp" || i.mode === "pvp").length;
   const ddPvECount = ddSummary.pveInstances ?? ddInstances.filter(i => i.type === "pve" || i.mode === "pve").length;
 
@@ -903,8 +982,8 @@ export function formatResourcesEmbed(payload) {
   const hbSummary = hb.summary || {};
 
   // Hagga Basin Summary
-  const hbTotalActive = hbSummary.totalActiveFields ?? hbSietches.reduce((s, si) => s + ((ssf(i, "small", "activeFields")) + (ssf(i, "medium", "activeFields")) + (ssf(i, "large", "activeFields"))), 0);
-  const hbTotalRemaining = hbSummary.totalRemainingSpice ?? hbSietches.reduce((s, si) => s + ((ssf(i, "small", "remainingSpice")) + (ssf(i, "medium", "remainingSpice")) + (ssf(i, "large", "remainingSpice"))), 0);
+  const hbTotalActive = hbSummary.totalActiveFields ?? hbSietches.reduce((s, si) => s + ((sizeField(si, "small", "activeFields")) + (sizeField(si, "medium", "activeFields")) + (sizeField(si, "large", "activeFields"))), 0);
+  const hbTotalRemaining = hbSummary.totalRemainingSpice ?? hbSietches.reduce((s, si) => s + ((sizeField(si, "small", "remainingSpice")) + (sizeField(si, "medium", "remainingSpice")) + (sizeField(si, "large", "remainingSpice"))), 0);
   const hbTotalSietches = hbSummary.totalSietches ?? hbSietches.length;
   const hbPvPCount = hbSummary.pvpSietches ?? hbSietches.filter(s => s.type === "pvp" || s.mode === "pvp").length;
   const hbPvECount = hbSummary.pveSietches ?? hbSietches.filter(s => s.type === "pve" || s.mode === "pve").length;
@@ -961,7 +1040,7 @@ export function formatResourcesEmbed(payload) {
   const hasDetailedData = ddInstances.length > 0 || hbSietches.length > 0;
   return duneEmbed({
     title: "🌶️ Spice Melange",
-    color: (r.spiceFields ?? ddTotalActive ?? hbTotalActive ?? 0) > 0 ? "success" : "warning",
+    color: ((r.spiceFields ?? 0) > 0 || ddTotalActive > 0 || hbTotalActive > 0) ? "success" : "warning",
     description: hasDetailedData ? "🏜️ **Deep Desert & Hagga Basin spice field overview**" : "🏜️ **Resource field overview**",
     fields
   });
@@ -977,12 +1056,16 @@ export function formatEconomyEmbed(payload) {
     { name: "📈 Transactions (24h)", value: fmtCount(r.transactions24h), inline: true },
     { name: "🏪 Marketplaces", value: fmtCount(r.marketplaces), inline: true },
   ];
-  if (r.topTraders && Array.isArray(r.topTraders)) {
+  // #212/T1: guard on length too — an empty array produced a field with
+  // value "", which Discord's API rejects (whole reply fails).
+  if (Array.isArray(r.topTraders) && r.topTraders.length > 0) {
     fields.push({ name: "🥇 Top Traders", value: r.topTraders.slice(0, 3).map(t => `• ${t.name || t.character}: ${fmtCount(t.volume)}`).join("\n"), inline: false });
   }
   return duneEmbed({
     title: "💰 Economy Statistics",
-    color: (r.totalSupply ?? r.totalCurrencyHolders ?? 0) > 0 ? "success" : "warning",
+    // #215/A6: key the color on values this embed actually renders —
+    // totalSupply/totalCurrencyHolders are never displayed (or present).
+    color: ((r.totalCurrency ?? r.totalSolari ?? 0) > 0 || (r.activeOrders ?? 0) > 0) ? "success" : "warning",
     description: "🪙 **Economic overview**",
     fields
   });
@@ -1016,7 +1099,9 @@ export function formatLocationEmbed(payload) {
     { name: "🏰 Territories", value: fmtCount(r.territories), inline: true },
     { name: "👥 Avg Density", value: r.avgDensity ? `\`${r.avgDensity}/km²\`` : "—", inline: true },
   ];
-  if (r.hotspots && Array.isArray(r.hotspots)) {
+  // #212/T1: guard on length too — an empty array produced a field with
+  // value "", which Discord's API rejects (whole reply fails).
+  if (Array.isArray(r.hotspots) && r.hotspots.length > 0) {
     fields.push({ name: "🔥 Hotspots", value: r.hotspots.slice(0, 5).map(h => `• ${h.name || h.location}: ${h.players || h.count} players`).join("\n"), inline: false });
   }
   if (r.territoryControl && Object.keys(r.territoryControl).length > 0) {
@@ -1117,44 +1202,93 @@ export function formatAnnouncementsEmbed(payload) {
 
 // ── Dedicated formatters replacing formatGenericEmbed ──
 
+// #210/U6: services payloads are { result: { overall, services: [{ name,
+// status }] } } — the old version expected an object map and never
+// matched, so /dune server services rendered "Services: 3 items"
+// without naming a single service.
 export function formatServicesSummaryEmbed(payload) {
-  const services = payload?.services || payload?.result?.services || {};
-  const fields = Object.entries(services).slice(0, 24).map(([name, state]) => ({
-    name: `**${name}**`,
-    value: state || "— Unknown —",
+  const raw = payload?.result?.services ?? payload?.services ?? [];
+  const list = Array.isArray(raw)
+    ? raw
+    : Object.entries(raw).map(([name, status]) => ({ name, status }));
+  const down = list.filter((svc) => !/^(up|running|ready|ok|healthy)$/i.test(String(svc.status || "")));
+  const fields = list.slice(0, 23).map((svc) => ({
+    name: `${down.includes(svc) ? "🔴" : "🟢"} ${svc.name || "unknown"}`,
+    value: String(svc.status || "— Unknown —"),
     inline: true
   }));
   return duneEmbed({
     title: "🔧 Services",
-    color: fields.length > 0 ? "success" : "warning",
-    description: fields.length > 0 ? undefined : "— No service data available —",
+    color: list.length === 0 ? "warning" : down.length > 0 ? "warning" : "success",
+    description: list.length === 0
+      ? "— No service data available —"
+      : down.length === 0
+        ? `🟢 **All ${list.length} services healthy**`
+        : `🔴 **${down.length} of ${list.length} services unhealthy**`,
     fields
   });
 }
 
+// #210: rolesConfigPayload returns two shapes — multi-tenant
+// ({ roles: ["player: …", …], rbacMode, source }) and single-tenant
+// ({ admin: […], observer: […], allowedUserIds: […] }). Render both;
+// the observer tier is labeled "Player" on every display surface (#217).
 export function formatRolesEmbed(payload) {
-  const roles = payload?.roles || payload?.result || {};
-  const fields = Object.entries(roles).slice(0, 24).map(([name, value]) => ({
-    name: `**${name}**`,
-    value: String(value || "— None —"),
-    inline: true
-  }));
+  const fields = [];
+  if (Array.isArray(payload?.roles)) {
+    fields.push({
+      name: "🎭 Configured Roles",
+      value: payload.roles.map((r) => `• ${r}`).join("\n").slice(0, 1024) || "— None —",
+      inline: false
+    });
+  } else {
+    const tiers = [
+      ["👤 Player Roles", payload?.observer],
+      ["🛡️ Admin Roles", payload?.admin],
+      ["🔑 Allowed User IDs", payload?.allowedUserIds]
+    ];
+    for (const [label, values] of tiers) {
+      if (Array.isArray(values) && values.length > 0) {
+        fields.push({ name: label, value: values.map((v) => `• ${v}`).join("\n").slice(0, 1024), inline: false });
+      }
+    }
+  }
+  if (payload?.rbacMode) fields.push({ name: "⚙️ RBAC Mode", value: `\`${payload.rbacMode}\``, inline: true });
+  if (payload?.source) fields.push({ name: "📦 Source", value: payload.source, inline: true });
   return duneEmbed({
     title: "👥 Role Configuration",
-    color: "success",
-    description: payload?.source ? `Source: ${payload.source}` : undefined,
+    color: "spice",
     fields: fields.length > 0 ? fields : [{ name: "Status", value: "— No role data available —" }]
   });
 }
 
-export function formatLogsEmbed(payload) {
-  const lines = Array.isArray(payload?.lines) ? payload.lines : [];
-  const service = payload?.service || "unknown";
+// #210/T2/P3: logs responses are { logs: [...] } — render as a code
+// block (log text must not be interpreted as markdown) with far more
+// than the generic formatter's 5-line cap.
+export function formatLogsEmbed(payload, service = "") {
+  const lines = payload?.logs ?? payload?.result?.logs ?? payload?.lines ?? [];
+  const svc = service || payload?.service || "unknown";
+  let body = "— No log output —";
+  let shown = 0;
+  if (Array.isArray(lines) && lines.length > 0) {
+    const kept = [];
+    let size = 0;
+    // newest lines are most useful — walk backwards until the budget fills
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = String(lines[i]);
+      if (size + line.length + 1 > 3600) break;
+      kept.unshift(line);
+      size += line.length + 1;
+    }
+    shown = kept.length;
+    const omitted = lines.length - shown;
+    body = `\`\`\`\n${kept.join("\n")}\n\`\`\`${omitted > 0 ? `\n*…${omitted} earlier line${omitted === 1 ? "" : "s"} not shown*` : ""}`;
+  }
   return duneEmbed({
-    title: `📋 Logs: ${service}`,
-    color: lines.length > 0 ? "success" : "warning",
-    description: lines.length > 0 ? lines.map(l => `\`${String(l).slice(0, 120)}\``).join("\n").slice(0, 2048) : "— No log output —",
-    fields: [{ name: "Service", value: `\`${service}\``, inline: true }, { name: "Lines", value: fmtCount(lines.length), inline: true }]
+    title: `📋 Logs: ${svc}`,
+    color: shown > 0 ? "spice" : "warning",
+    description: body.slice(0, 4000),
+    fields: [{ name: "Lines Shown", value: `\`${shown}\` of \`${Array.isArray(lines) ? lines.length : 0}\``, inline: true }]
   });
 }
 
@@ -1184,16 +1318,102 @@ export function formatPlayerCommandEmbed(payload, commandName) {
   });
 }
 
+// #210/U1/T4: renders the FULL command surface, one field per command
+// group (a single comma-joined field overflowed the 1024-char limit and
+// truncated mid-name). The old generic-formatter path showed the first
+// 5 of 50+ commands.
 export function formatHelpEmbed(payload) {
   const available = payload?.available || [];
   const locked = payload?.locked || [];
+  const total = payload?.total ?? available.length + locked.length;
+
+  const groupOf = (name) => (name.includes(":") ? name.split(":")[0] : name);
+  const shortOf = (name) => (name.includes(":") ? name.split(":").slice(1).join(":") : name);
+
+  const byGroup = new Map();
+  for (const name of available) {
+    const g = groupOf(name);
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g).push(shortOf(name));
+  }
+
+  const fields = [];
+  for (const [g, names] of byGroup) {
+    fields.push({
+      name: `📂 ${g}`,
+      value: names.map((n) => `\`${n}\``).join(" · ").slice(0, 1024),
+      inline: false
+    });
+  }
+  if (locked.length > 0) {
+    const lockedNames = locked.map((n) => `\`${n}\``);
+    let value = "";
+    let omitted = 0;
+    for (const n of lockedNames) {
+      if (value.length + n.length + 3 > 990) { omitted = lockedNames.length - (value ? value.split(" · ").length : 0); break; }
+      value += (value ? " · " : "") + n;
+    }
+    fields.push({
+      name: `🔒 Locked for your role (${locked.length})`,
+      value: `${value}${omitted > 0 ? ` · *…and ${omitted} more*` : ""}`,
+      inline: false
+    });
+  }
+
   return duneEmbed({
-    title: "📚 Available Commands",
-    color: "success",
-    description: `${payload?.availableCount || available.length} commands available for your role.`,
-    fields: [
-      { name: "Available", value: available.length > 0 ? available.map(c => `\`${c}\``).join(", ").slice(0, 1024) : "— None —", inline: false },
-      { name: "Locked", value: locked.length > 0 ? locked.map(c => `\`${c}\``).join(", ").slice(0, 1024) : "— None —", inline: false }
-    ]
+    title: "📚 Command Reference",
+    color: "spice",
+    description: `**${payload?.availableCount ?? available.length}** of **${total}** commands available for your role · RBAC: \`${payload?.rbacMode || "unknown"}\``,
+    fields
+  });
+}
+
+// #210/P1 + #199/U9: dedicated renderer for the sync-commands drift
+// check — action in the description, one field per drift direction,
+// capped lists labeled, color keyed to drift state.
+export function formatSyncCommandsEmbed(payload) {
+  if (payload?.ok === false) {
+    return duneEmbed({
+      title: "🔄 Command Catalog Drift Check",
+      color: "error",
+      description: `🔴 ${payload?.error || "Drift check failed."}`,
+      fields: payload?.hint ? [{ name: "💡 Hint", value: payload.hint, inline: false }] : []
+    });
+  }
+
+  const drift = payload?.drift || {};
+  const inSync = drift.inSync === true;
+  const reg = payload?.registry || {};
+  const core = payload?.coreCatalog || {};
+
+  const fields = [
+    { name: "🤖 Bot Registry", value: `v${reg.version ?? "?"} · ${reg.groups ?? "?"} groups · ${reg.commandCount ?? "?"} commands`, inline: true },
+    { name: "🎛️ Core Catalog", value: `v${core.version ?? "?"} · ${core.groups ?? "?"} groups · ${core.commandCount ?? "?"} commands`, inline: true }
+  ];
+
+  const capNote = (shownArr, totalCount) =>
+    totalCount > (shownArr?.length || 0) ? ` — showing first ${shownArr.length}` : "";
+  if (Array.isArray(drift.added) && drift.added.length > 0) {
+    fields.push({
+      name: `➕ In Core, not in registry (${drift.addedCount ?? drift.added.length})${capNote(drift.added, drift.addedCount ?? drift.added.length)}`,
+      value: drift.added.map((k) => `• \`${k}\``).join("\n").slice(0, 1024),
+      inline: false
+    });
+  }
+  if (Array.isArray(drift.removed) && drift.removed.length > 0) {
+    fields.push({
+      name: `➖ In registry, not in Core (${drift.removedCount ?? drift.removed.length})${capNote(drift.removed, drift.removedCount ?? drift.removed.length)}`,
+      value: drift.removed.map((k) => `• \`${k}\``).join("\n").slice(0, 1024),
+      inline: false
+    });
+  }
+
+  return duneEmbed({
+    title: "🔄 Command Catalog Drift Check",
+    color: inSync ? "success" : "warning",
+    description: inSync
+      ? "🟢 **In sync** — Core's catalog matches the bot's committed registry. No action needed."
+      : "🟡 **Drift detected** — Core's catalog differs from the committed registry.\n**Next step:** regenerate the artifact (`npm run registry:generate`) against this Core and deploy it. Slash-command registration only changes on deploy — this check is read-only.",
+    fields
   });
 }
