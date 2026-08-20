@@ -15,3 +15,12 @@ src/steamLinkServer.js
 
 # Test files with safe dynamic regex usage (escapeRegExp is used)
 test/toolReferencePolicy.test.js
+
+# ACP Issue Bridge secret-scanner test fixtures: deliberately fake/example
+# JWT and AWS-access-key-shaped strings used to verify our own
+# scanForSensitiveContent() actually detects these patterns (see SEC-004
+# and the "detects a JWT" / "detects an AWS access key id" tests). Not real
+# credentials — verified 2026-08-19 before adding this exclusion, same
+# precedent as the setupServer.js/steamLinkServer.js entries above (path
+# exclusion + rationale, not inline nosemgrep comments).
+.github/scripts/issue-bridge/lib/secretScan.test.js

@@ -1,0 +1,21 @@
+# GitGuardian (ggshield) local ignore list.
+#
+# Both entries below are the ACP Issue Bridge's own outbound secret-scanner
+# test fixtures — deliberately fake/example JWT and generic-high-entropy
+# strings used to verify scanForSensitiveContent() actually detects these
+# patterns (see .github/scripts/issue-bridge/lib/secretScan.test.js,
+# "detects a JWT" and "detects a generic secret-looking assignment"). Not
+# real credentials. Same false-positive class already allowlisted for
+# semgrep (.semgrepignore) and gitleaks (.gitleaks.toml's `.github/` path
+# allowlist) for this same file. Verified 2026-08-19/20 before ignoring.
+#
+# `match` values are the stable secret SHA GitGuardian computes from the
+# matched string, generated via `ggshield secret ignore --last-found`
+# after `ggshield secret scan path .github/scripts/issue-bridge/lib/secretScan.test.js`.
+secret:
+  ignored_matches:
+    - match: 84584e00db257278bee11fdfb83c381191d0871f227e35783fd511badb1aad67
+      name: "ACP Issue Bridge test fixture: fake generic high-entropy secret (secretScan.test.js)"
+    - match: 6d14dc5e7675835609dddc76652e771e4b405b623824bcfc6e65e2bd3811c2da
+      name: "ACP Issue Bridge test fixture: fake JWT (secretScan.test.js)"
+version: 2

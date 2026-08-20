@@ -1,0 +1,110 @@
+# ACP Issue Bridge — canonical policy configuration.
+#
+# This file MUST be byte-for-byte identical in both repositories:
+#   yacketrj/acp-discordbot          (public)
+#   yacketrj/arrakis-control-panel   (private, this copy)
+#
+# The public repo cannot read this private repo's copy at workflow run time
+# (that would require granting the public repo's Actions runner read access
+# to private repo contents, which violates the least-privilege GitHub App
+# scope in docs/issue-bridge/github-app.md). Each repo therefore carries its
+# own copy, and `issue-bridge-maintenance.yml` (private repo) fails the build
+# if the two copies drift — see docs/issue-bridge/synchronization-policy.md.
+#
+# Policy constants live ONLY here, never hard-coded in scripts/workflows
+# (see docs/issue-bridge/administration.md).
+
+version: 1
+
+repositories:
+  public: yacketrj/acp-discordbot
+  private: yacketrj/arrakis-control-panel
+
+sync:
+  public_issue_create: true
+  public_issue_edit: true
+  public_comment_create: true
+  public_close: true
+  public_reopen: true
+  public_labels: true
+  private_default_publish: false
+  private_close_closes_public: false
+
+commands:
+  internal: /internal
+  public: /public
+  public_status: /public-status
+  resolution: /public-resolution
+  security: /security
+  security_clear: /security-clear
+  pause: /sync-pause
+  resume: /sync-resume
+
+permissions:
+  publish: maintain
+  public_status: maintain
+  resolution: maintain
+  pause: maintain
+  resume: maintain
+  security: write
+  security_clear: admin
+
+security:
+  fail_closed: true
+  secret_detection: true
+  block_private_urls: true
+  suppress_mentions: true
+  max_body_bytes: 60000
+  max_comment_bytes: 20000
+
+labels:
+  sync_enabled: sync:enabled
+  sync_paused: sync:paused
+  sync_error: sync:error
+  security_sensitive: visibility:security-sensitive
+  source_public: source:public
+  source_internal: source:internal
+  visibility_internal: visibility:internal
+  public_closed: status:public-closed
+
+status_labels:
+  confirmed: status:confirmed
+  planned: status:planned
+  in-progress: status:in-progress
+  blocked: status:blocked
+  testing: status:testing
+  ready-for-release: status:ready-for-release
+  released: status:released
+
+never_expose_publicly:
+  l01: visibility:internal
+  l02: visibility:security-sensitive
+  l03: sync:enabled
+  l04: sync:paused
+  l05: sync:error
+  l06: source:internal
+  l07: source:public
+
+label_mapping:
+  "type:bug": "type:bug"
+  "type:feature": "type:feature"
+  "type:documentation": "type:documentation"
+  "type:support": "type:support"
+  "type:compatibility": "type:compatibility"
+  "type:performance": "type:performance"
+  "priority:p0": "priority:p0"
+  "priority:p1": "priority:p1"
+  "priority:p2": "priority:p2"
+  "priority:p3": "priority:p3"
+  "area:discord": "area:discord"
+  "area:commands": "area:commands"
+  "area:readiness": "area:readiness"
+  "area:metrics": "area:metrics"
+  "area:notifications": "area:notifications"
+  "area:deployment": "area:deployment"
+  "area:documentation": "area:documentation"
+  "area:authentication": "area:authentication"
+  "area:permissions": "area:permissions"
+  "area:observability": "area:observability"
+  "area:webui": "area:webui"
+  "area:api": "area:api"

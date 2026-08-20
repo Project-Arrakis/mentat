@@ -1,0 +1,62 @@
+name: ACP Issue Bridge — Private Comment Processor
+
+# Responsibility (docs/issue-bridge/architecture.md): the ONLY path by which
+# private -> public publication can happen. Ignores public-mirrored/bridge
+# comments, detects a command, authorizes the actor, evaluates security
+# state, scans content, and publishes ONLY if every check passes. Fails
+# closed on any ambiguity (spec section 2/60).
+#
+# NOTE: sections 55/60 of the implementation spec suggest a separate
+# `issue-bridge-private-security.yml` workflow. That is deliberately
+# consolidated into this single workflow instead: `/security` is just one
+# more command branch inside the same comment-command state machine
+# (private-comment-created.mjs), and a second workflow reacting to the same
+# `issue_comment.created` event would have to independently re-parse the
+# same comment to decide "is this the security case?", adding a race/
+# ordering hazard for zero separation-of-concerns benefit. See
+# docs/issue-bridge/architecture.md "Workflow consolidation decision".
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acp-issue-bridge-private-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  process-comment:
+    name: process-comment
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      - name: Mint ACP Issue Bridge installation token
+        id: bridge-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.ACP_ISSUE_BRIDGE_APP_ID }}
+          private-key: ${{ secrets.ACP_ISSUE_BRIDGE_PRIVATE_KEY }}
+          repositories: |
+            arrakis-control-panel
+            acp-discordbot
+          # Explicit narrowing (belt-and-suspenders on top of the App's own
+          # least-privilege grant, section 5/85): errors loudly if the App's
+          # installation ever has more or less than this, instead of silently
+          # minting a broader token than intended.
+          permission-issues: write
+          permission-metadata: read
+
+      - name: Process private comment
+        env:
+          ACP_BRIDGE_TOKEN: ${{ steps.bridge-token.outputs.token }}
+          ACP_BRIDGE_BOT_LOGIN: ${{ steps.bridge-token.outputs.app-slug }}[bot]
+        run: node .github/scripts/issue-bridge/private-comment-created.mjs
