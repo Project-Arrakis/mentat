@@ -105,9 +105,15 @@ export function createSetupServer(config) {
   app.use(express.urlencoded({ extended: true }));
   app.use(express.static(publicDir));
 
-  // CORS — allow the landing page (acp.darkdante.org) to fetch public API endpoints.
+  // CORS — allow the landing page to fetch public API endpoints.
   // No auth endpoints are exposed here; all are read-only public data.
+  // #224: sentinel.darkdante.org added ahead of the DNS/Tunnel cutover —
+  // safe to add early since a CORS allowlist only widens what's
+  // accepted, it can't break the still-live acp.darkdante.org origin.
+  // Remove the acp.* origins once issue #224's domain migration is
+  // verified complete end-to-end.
   const ALLOWED_ORIGINS = [
+    "https://sentinel.darkdante.org",
     "https://acp.darkdante.org",
     "https://acp-landing.pages.dev",
     "http://localhost:5173",
