@@ -97,6 +97,50 @@ change notes under `docs/changes/`.
     `registryToDiscordFormat()`/ETag state removed (#208).
 
 ### Fixed
+- **2026-08-20 UI/UX review remediation** (27 verified findings from a
+  dedicated UI/UX Designer hat review of all bot output, issues
+  #210–#218; "Player" is now the canonical user-facing tier label on
+  every display surface — internal config/DB keys keep "observer" so no
+  operator deployment breaks):
+  - `/dune core help` now renders the FULL command surface via the
+    dedicated help formatter, one field per group — the generic
+    formatter's 5-item slice hid ~90% of commands (#210). The embed
+    selection chain no longer overwrites dispatch-chosen embeds, which
+    had also silently discarded every dedicated ops/version formatter.
+  - `/dune ops alerts` fixed (fell through to a nonexistent adapter
+    method and replied with a raw JS error, #211); `/dune ops resources`
+    no longer crashes on summary-less payloads (`sf`/`ssf`
+    ReferenceErrors), and empty top-lists no longer emit empty fields
+    Discord rejects (#212).
+  - Multi-tenant first-run dead ends closed (#213): unconfigured guilds
+    get the setup-portal link instead of a blanket denial; `/dune core
+    setup` shows the portal link in multi-tenant mode; denials name the
+    next step; the portal requires an Admin/Owner role mapping instead
+    of completing a setup that locks everyone out.
+  - Setup portal (#214): token instructions now include creating the
+    token file (Core only reads it — following the old instructions
+    verbatim dead-ended at a missing file and a 503); register errors
+    render styled pages instead of raw JSON; dead notification markup
+    removed.
+  - Accuracy (#215): error footers show the real version (ESM `require`
+    bug made every error footer "vunknown"); missing population data
+    renders an honest warning instead of a green "unknown players
+    online"; "saved securely" is only claimed when at-rest encryption is
+    actually configured; `/api/version` reads package.json;
+    storage/economy status colors key on rendered data.
+  - `admin:latency`/`admin:events` now enforce the admin gate their
+    documentation always claimed (#216).
+  - Consistency (#217): one tier vocabulary (Player/Moderator/Admin/
+    Owner) across portal, help, public registry, and setup embed; public
+    registry roles/names corrected to match real enforcement (logs and
+    maintenance are player-tier; `logs console` →
+    `redblink-dune-docker-console`); one footer format; one error red.
+  - Polish (#218): no flavor quotes on error/denial embeds ("Obey or be
+    destroyed." under a denial read as taunting); 🏜️ welcome instead of
+    the 🐛 bug emoji; honest onboarding time estimate; markdown-safe
+    truncation; status card gains a text summary (screen readers,
+    notification previews) and a population-aware cache key; overflowing
+    embeds say "…and N more" instead of silently dropping fields.
 - Upstream compatibility pin refresh, `v1.3.79` -> `v1.3.87` (#172). Found
   and fixed a real production 404 bug and a documentation defect:
   - **False LIVE claim, now corrected:** `players-accounts-list`,
