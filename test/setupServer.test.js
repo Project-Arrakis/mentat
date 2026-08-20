@@ -36,7 +36,7 @@ test("GET / returns a friendly landing page, not Express's default 404", async (
     const res = await fetch(`${base}/`);
     assert.equal(res.status, 200);
     const html = await res.text();
-    assert.ok(html.includes("Arrakis Control Panel"), "should title the landing page");
+    assert.ok(html.includes("Dune: Awakening Docker") && html.includes("Sentinel"), "should title the landing page");
     assert.ok(!html.includes("Cannot GET /"), "must not be the Express default error page");
   });
 });

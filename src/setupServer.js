@@ -134,11 +134,11 @@ export function createSetupServer(config) {
   app.get("/", (req, res) => {
     const body = `
       <section class="panel" style="max-width:480px;margin:0 auto;text-align:center;">
-        <p style="color:var(--muted);font-size:15px;margin-bottom:20px;">This server hosts the Arrakis Control Panel setup flow, which connects a Discord server to its Dune Awakening game console.</p>
+        <p style="color:var(--muted);font-size:15px;margin-bottom:20px;">This server hosts the Sentinel setup flow, which connects a Discord server to its Dune Awakening game console.</p>
         <a href="/setup" class="btn">Continue to Setup</a>
       </section>`;
-    res.send(renderPage("Arrakis Control Panel", body, {
-      heading: "Arrakis Control Panel",
+    res.send(renderPage("Dune: Awakening Docker — Sentinel", body, {
+      heading: "Dune: Awakening Docker — Sentinel",
       subtitle: "Connect your Discord server to your game console.",
       hero: true,
       center: true
@@ -175,8 +175,8 @@ export function createSetupServer(config) {
           Sign in with Discord
         </a>
       </section>`;
-    res.send(renderPage("ACP Setup", body, {
-      heading: "Arrakis Control Panel",
+    res.send(renderPage("Sentinel Setup", body, {
+      heading: "Dune: Awakening Docker — Sentinel",
       subtitle: "Connect your Discord server to your game console.",
       hero: true,
       center: true
@@ -310,7 +310,7 @@ export function createSetupServer(config) {
           </div>
         </form>`;
 
-      res.send(renderPage("ACP Setup — Configure Server", body));
+      res.send(renderPage("Sentinel Setup — Configure Server", body));
 
     } catch (err) {
       errorPage(res, 500, "Setup Error", err.message);
@@ -394,7 +394,7 @@ export function createSetupServer(config) {
          <div class="success-icon">✓</div>
          <h1 style="font-size: 28px; margin-bottom: 12px; color: var(--success);">Setup Complete!</h1>
          <p style="color: var(--parchment-dark); font-size: 16px; margin-bottom: 20px;">
-           <strong>${esc(displayName)}</strong> is now connected to Arrakis Control Panel.
+           <strong>${esc(displayName)}</strong> is now connected to Sentinel.
          </p>
          <div class="panel" style="max-width: 500px; margin: 0 auto 20px;">
            <h2>What's next?</h2>
@@ -413,7 +413,7 @@ export function createSetupServer(config) {
        </div>`;
 
      res.send(renderPage("Setup Complete", body, {
-       heading: "Arrakis Control Panel",
+       heading: "Dune: Awakening Docker — Sentinel",
        hero: true,
        glow: true
      }));
