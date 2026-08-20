@@ -61,6 +61,22 @@ test("does not flag an obvious placeholder secret assignment", () => {
   assert.equal(result.categories.includes("generic-secret-assignment"), false);
 });
 
+test("L2 audit finding, fixed 2026-08-19: a real secret is NOT exempted merely because a placeholder-shaped word appears as a substring within it", () => {
+  // Regression test for a real bypass found during a Security Architect
+  // review pass: the exclude check used to run against the WHOLE match,
+  // so `sk-live-example-<realvalue>` was wrongly exempted because
+  // "-example-" happens to be hyphen-bounded (a real \b match) inside an
+  // otherwise real-looking secret. The exclude check must apply only to
+  // the captured VALUE, and only when the value is ENTIRELY a placeholder.
+  const result = scanForSensitiveContent("api_key: sk-live-example-9f8e7d6c5b4a3210realsecretvalue");
+  assert.ok(result.categories.includes("generic-secret-assignment"), "must still be blocked");
+});
+
+test("still exempts a value that IS entirely the word 'example'", () => {
+  const result = scanForSensitiveContent("api_key: example");
+  assert.equal(result.categories.includes("generic-secret-assignment"), false);
+});
+
 test("configurable: detects RFC1918 addresses when enabled (default)", () => {
   const result = scanForSensitiveContent("connect to 192.168.1.50 for the console");
   assert.ok(result.categories.includes("rfc1918-address"));

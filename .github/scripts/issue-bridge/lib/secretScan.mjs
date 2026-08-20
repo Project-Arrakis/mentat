@@ -24,9 +24,23 @@ const MANDATORY_PATTERNS = [
     // DUNE_DISCORD_ADAPTER_TOKEN, where "_TOKEN" has no \b before it
     // (underscore is a word character) — matching the keyword as a suffix
     // of a longer identifier is intentional, not a bug.
+    //
+    // IMPORTANT: the value is captured in its own group (group 1) so the
+    // placeholder exclusion can be checked against ONLY the value, not the
+    // whole match. Checking the whole match (a real bug, found and fixed
+    // 2026-08-19 during a Security Architect review pass) let a real
+    // secret slip through undetected any time a placeholder-shaped word
+    // appeared ANYWHERE in the assignment, e.g.
+    // `api_key: sk-live-example-9f8e7d6c5b4a3210realsecretvalue` was
+    // wrongly treated as safe purely because "-example-" is hyphen-bounded
+    // (a real \b match) inside an otherwise real-looking secret value.
     category: "generic-secret-assignment",
-    regex: /(?:api[_-]?key|secret|token|password|passwd|pwd|client[_-]?secret)[A-Za-z0-9_-]*\s*[:=]\s*['"]?[A-Za-z0-9\-_/+=]{8,}['"]?/i,
-    exclude: /\b(none|null|changeme|example|xxxx+|redacted|\*+|placeholder|<[^>]+>|\$\{[^}]+\})\b/i
+    regex: /(?:api[_-]?key|secret|token|password|passwd|pwd|client[_-]?secret)[A-Za-z0-9_-]*\s*[:=]\s*['"]?([A-Za-z0-9\-_/+=]{8,})['"]?/i,
+    // Anchored (^...$) against the captured VALUE only: the value must be
+    // ENTIRELY a placeholder to be excluded, not merely contain a
+    // placeholder-shaped substring.
+    exclude: /^(none|null|changeme|xxxx+|redacted|\*+|placeholder|example|<[^>]*>|\$\{[^}]*\})$/i,
+    valueGroup: 1
   }
 ];
 
@@ -55,9 +69,15 @@ export function scanForSensitiveContent(text, options = {}) {
 
   const categories = new Set();
 
-  for (const { category, regex, exclude } of MANDATORY_PATTERNS) {
+  for (const { category, regex, exclude, valueGroup } of MANDATORY_PATTERNS) {
     const match = regex.exec(text);
-    if (match && !(exclude && exclude.test(match[0]))) {
+    if (!match) continue;
+    // When a pattern declares `valueGroup`, the exclude check applies ONLY
+    // to that captured value, not the whole match — see the
+    // generic-secret-assignment comment above for why this distinction is
+    // security-relevant, not stylistic.
+    const candidateForExclusion = valueGroup !== undefined ? match[valueGroup] : match[0];
+    if (!(exclude && exclude.test(candidateForExclusion))) {
       categories.add(category);
     }
   }
