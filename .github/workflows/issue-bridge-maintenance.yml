@@ -42,8 +42,32 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node .github/scripts/issue-bridge/maintenance-config-drift.mjs publish
 
+      # The GitHub App does not exist yet as of this implementation (see
+      # docs/issue-bridge/github-app.md — creating a GitHub App cannot be
+      # done headlessly, it is a documented one-time manual operator step).
+      # Until ACP_ISSUE_BRIDGE_APP_ID is set, the cross-repo drift check
+      # below is SKIPPED rather than hard-failing this job. This is
+      # deliberately different from the bridge's own fail-closed
+      # publication rule (spec section 2): failing this maintenance job
+      # would leave `main` red indefinitely for a known, documented,
+      # pending setup step, which this account's Requirement 1 treats as
+      # everyone's problem to fix, not something to leave failing "on
+      # purpose." Skipping a diagnostic check is safe; the bridge's actual
+      # publication logic (private-comment-created.mjs) has its own,
+      # separate fail-closed token check and is NOT affected by this.
+      - name: Check whether the GitHub App is configured yet
+        id: app-configured
+        run: |
+          if [ -n "${{ secrets.ACP_ISSUE_BRIDGE_APP_ID }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::ACP_ISSUE_BRIDGE_APP_ID is not set yet — skipping the cross-repo config-drift check. See docs/issue-bridge/github-app.md for the one-time setup step. This does not affect the bridge's own publication logic, which has an independent fail-closed check."
+          fi
+
       - name: Mint ACP Issue Bridge installation token
         id: bridge-token
+        if: steps.app-configured.outputs.configured == 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.ACP_ISSUE_BRIDGE_APP_ID }}
@@ -55,6 +79,7 @@ jobs:
           permission-metadata: read
 
       - name: Check config drift against the public repo (App token, issues:read only)
+        if: steps.app-configured.outputs.configured == 'true'
         env:
           ACP_BRIDGE_TOKEN: ${{ steps.bridge-token.outputs.token }}
         run: node .github/scripts/issue-bridge/maintenance-config-drift.mjs check

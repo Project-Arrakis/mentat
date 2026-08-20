@@ -14,6 +14,18 @@
 5. Run the safe live smoke test in `testing.md` before relying on the
    bridge for real issues.
 
+**Before the App exists**, the private repo's
+`issue-bridge-maintenance.yml` deliberately SKIPS its cross-repo
+config-drift check (rather than failing the job) with a visible
+`::warning::` annotation, so merging this implementation does not leave
+`main`'s Actions in a failing state while the one-time App setup is
+still pending. The public repo's maintenance workflow is unaffected — it
+only ever publishes its own checksum with its own native token. Neither
+skip affects the bridge's actual publication logic
+(`private-comment-created.mjs`), which has its own, independent
+fail-closed token check on every real event — this only concerns the
+periodic drift-check diagnostic.
+
 ## Repository configuration checklist
 
 - [ ] Both repos have `.github/acp-issue-bridge.yml` (byte-identical —
