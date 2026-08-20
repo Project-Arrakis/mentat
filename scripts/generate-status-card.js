@@ -135,7 +135,7 @@ export async function generateStatusCard({ title, overall, region, mode, populat
 
   ctx.fillStyle = "#ffffff";
   ctx.font = "12px \"Dune Rise\"";
-  ctx.fillText(`Thumper · ${quote || "The spice must flow."}`, cx + 24, CARD_BOT - 20);
+  ctx.fillText(`Sentinel · ${quote || "The spice must flow."}`, cx + 24, CARD_BOT - 20);
 
   return canvas;
 }

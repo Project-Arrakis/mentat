@@ -1,4 +1,4 @@
-# Arrakis Control Panel — Dune Discord Bot
+# Dune: Awakening Docker — Sentinel
 
 > *"A beginning is a very delicate time."*
 
@@ -7,13 +7,13 @@ economies — all pulsing to the rhythm of the deep desert. But you cannot stand
 at the console every hour. You need eyes that never close. You need a watcher
 that speaks the old tongue and warns your tribe when the sand shifts.
 
-**ACP** is that watcher.
+**Sentinel** is that watcher.
 
-Named for the Fremen device that calls the great worms with a steady beat, this
-bot hammers the data streams of your server and brings them to Discord — status
-cards, population counts, map readiness, backup lists, combat stats, and more.
-It posts scheduled updates. It forwards in-game announcements. It lets your
-moderators speak to the game and your admins diagnose from anywhere.
+Standing the watch every stronghold needs, this bot hammers the data streams
+of your server and brings them to Discord — status cards, population counts,
+map readiness, backup lists, combat stats, and more. It posts scheduled
+updates. It forwards in-game announcements. It lets your moderators speak to
+the game and your admins diagnose from anywhere.
 
 And like any Fremen tool, it is built for survival: read-only by default,
 bearer-token protected, secrets never exposed, no Docker socket, no database
@@ -43,7 +43,7 @@ without leaving Discord.
 
 ### For Server Owners (Full Setup)
 
-ACP is a **single, hosted bot** — you don't create a Discord application,
+Sentinel is a **single, hosted bot** — you don't create a Discord application,
 run a process, or register commands. You invite the existing bot and
 connect your console through a web setup portal:
 
@@ -61,14 +61,14 @@ the [Installation Guide](docs/installation-guide.md).
 
 If the bot is already in your Discord server:
 
-1. Ask a server admin to give you the **Dune Observer** role
+1. Ask a server admin to give you the **Player** role
 2. Type `/dune` in any channel and pick a command
 3. See the [User Guide](docs/user-guide.md) for a full list of commands
 
 ### For Maintainers (Running Your Own Instance)
 
 The hosted bot is the supported path for server owners. If you are
-operating ACP yourself (the way the live bot currently runs, self-hosted
+operating Sentinel yourself (the way the live bot currently runs, self-hosted
 on its own VPS — see `compliance/runbooks/backup-recovery.md` for the
 current hosting architecture and a planned, not-yet-executed future
 migration to shared hardware):

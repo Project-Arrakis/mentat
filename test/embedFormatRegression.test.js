@@ -302,6 +302,23 @@ test("formatLogsEmbed: a log line containing a triple-backtick cannot close the 
   assert.equal(fenceCount, 2, "the log content must not introduce extra fence boundaries");
 });
 
+// ── #222: brand rename pin (Arrakis Control Panel/ACP -> Dune: Awakening
+// Docker — Sentinel). Regression guard so the old name can never silently
+// creep back into a footer or embed. ──
+
+test("brand: duneEmbed footer and enricher footer both say Sentinel, never the old name", async () => {
+  const { enrichEmbed } = await import("../src/output/enricher.js");
+  const { EmbedBuilder } = await import("discord.js");
+
+  const embed = duneEmbed({ title: "x", description: "y" });
+  assert.match(embed.data.footer.text, /Dune: Awakening Docker — Sentinel/);
+  assert.doesNotMatch(embed.data.footer.text, /Arrakis Control Panel/);
+
+  const bare = enrichEmbed(new EmbedBuilder().setTitle("x"));
+  assert.match(bare.data.footer.text, /Dune: Awakening Docker — Sentinel/);
+  assert.doesNotMatch(bare.data.footer.text, /Arrakis Control Panel/);
+});
+
 test("formatSyncCommandsEmbed: capped lists say 'showing first N'", () => {
   const embed = formatSyncCommandsEmbed({
     ok: true,

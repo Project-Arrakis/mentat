@@ -6,9 +6,9 @@ const SETUP_URL = process.env.ACP_SETUP_URL || process.env.ACP_BASE_URL || "http
 
 function setupMessageFor(guild, setupLink) {
   return [
-    `🏜️ **Welcome to ACP!**`,
+    `🏜️ **Welcome to Sentinel!**`,
     ``,
-    `I've been added to **${guild.name}**. To get started, you need to connect this server to your Arrakis Control Panel.`,
+    `I've been added to **${guild.name}**. To get started, you need to connect this server to Sentinel.`,
     ``,
     `**Setup steps** (a few minutes; a bit longer the first time, since it includes a one-time console configuration):`,
     `1. Click the setup link below and sign in with Discord`,
@@ -25,9 +25,9 @@ function setupMessageFor(guild, setupLink) {
 function ownerNoticeFor(guild, inviter) {
   const inviterLabel = inviter.tag || inviter.username || inviter.id;
   return [
-    `🏜️ **ACP was added to ${guild.name}**`,
+    `🏜️ **Sentinel was added to ${guild.name}**`,
     ``,
-    `**${inviterLabel}** added the Arrakis Control Panel bot to your server and has been sent the setup instructions.`,
+    `**${inviterLabel}** added the Sentinel bot to your server and has been sent the setup instructions.`,
     ``,
     `You don't need to do anything unless setup isn't completed -- if it looks stuck, you (as server owner) can also run \`/dune core setup\` for the setup link.`
   ].join("\n");
@@ -45,7 +45,7 @@ function ownerNoticeFor(guild, inviter) {
 // both.
 function fallbackNoticeFor(guild, setupLink) {
   return [
-    `🏜️ **Welcome to ACP!**`,
+    `🏜️ **Welcome to Sentinel!**`,
     ``,
     `I've been added to **${guild.name}**. If you're the one who just invited me, here's how to get started:`,
     ``,
