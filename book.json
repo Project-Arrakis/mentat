@@ -1,0 +1,35 @@
+{
+  "root": "./docs",
+  "title": "Arrakis Control Panel — Discord Bot for Dune: Awakening",
+  "description": "Complete documentation for the ACP Discord bot that connects your Dune: Awakening server to Discord.",
+  "author": "Arrakis Control Panel Team",
+  "language": "en",
+  "gitbook": ">=3.0.0",
+  "structure": {
+    "readme": "README.md",
+    "summary": "SUMMARY.md"
+  },
+  "links": {
+    "sidebar": {
+      "GitHub Repository": "https://github.com/yacketrj/arrakis-control-panel",
+      "Discord Server": "https://discord.gg/your-discord",
+      "Report an Issue": "https://github.com/yacketrj/arrakis-control-panel/issues",
+      "Contributing": "https://github.com/yacketrj/arrakis-control-panel/blob/main/CONTRIBUTING.md"
+    }
+  },
+  "plugins": [
+    "search",
+    "prism",
+    "-lunr",
+    "github",
+    "scripts"
+  ],
+  "pluginsConfig": {
+    "github": {
+      "url": "https://github.com/yacketrj/arrakis-control-panel"
+    },
+    "scripts": {
+      "files": ["./_ga.js"]
+    }
+  }
+}

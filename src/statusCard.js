@@ -6,8 +6,10 @@ import { getGuildFaction } from "./database.js";
 const CARD_CACHE = new Map();
 const CACHE_TTL_MS = 30_000;
 
-function cacheKey(guildId, title, overall) {
-  return `${guildId}:${title}:${overall}`;
+// #218/P5: population is part of the key — a card cached on title+state
+// alone kept showing a stale player count for up to 30s.
+function cacheKey(guildId, title, overall, population) {
+  return `${guildId}:${title}:${overall}:${population ?? ""}`;
 }
 
 function getCached(key) {
@@ -50,7 +52,7 @@ export async function sendStatusCard({ interaction, statusData, title, quote, ad
 
   const faction = db && guildId ? getGuildFaction(db, guildId) : "";
   const resolvedQuote = quote || randomQuote(faction || undefined);
-  const ck = cacheKey(guildId || "", title || r.title || "Server", overall);
+  const ck = cacheKey(guildId || "", title || r.title || "Server", overall, r.population);
   const cached = getCached(ck);
 
   let buffer;
@@ -75,7 +77,12 @@ export async function sendStatusCard({ interaction, statusData, title, quote, ad
   }
 
   const attachment = new AttachmentBuilder(buffer, { name: "status-card.png" });
-  await interaction.editReply({ files: [attachment], embeds: [] });
+  // #218/P5: a text summary alongside the PNG — screen readers and
+  // notification previews get nothing from an image-only reply, and the
+  // key values weren't copyable.
+  const mapSummary = maps.slice(0, 4).map((m) => `${m.name}: ${m.state}`).join(", ");
+  const summary = `🌍 ${title || r.title || "Server"} — ${overall} · 👥 ${r.population ?? "—"}${mapSummary ? ` · 🗺️ ${mapSummary}` : ""}`.slice(0, 180);
+  await interaction.editReply({ content: summary, files: [attachment], embeds: [] });
 }
 
 export async function sendOpsCard({ interaction, payload, subcommand, adapterClient, guildId, db = null } = {}) {

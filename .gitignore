@@ -14,3 +14,17 @@ logs/
 
 # Added by ggshield
 .cache_ggshield
+
+# Runtime state — NEVER commit (issue #191). runtime/bot.db and
+# data/acp.db are the bot's live multi-tenant credential store
+# (guilds.adapter_token, KEK/DEK secret tables). A tracked database
+# here means one `git add -A` on a deployed machine pushes live
+# per-operator adapter tokens to GitHub.
+runtime/
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3

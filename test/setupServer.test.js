@@ -174,13 +174,18 @@ test("POST /setup/register persists all four tier role rows", async () => {
       moderatorRoleId: "mod-role",
       observerRoleId: "player-role"
     };
+    // Issue #201: the endpoint intentionally 302s the browser form to the
+    // success page (which looks the guild up from the DB by id) instead
+    // of returning JSON — assert the redirect contract, then verify
+    // persistence directly against the database below.
     const res = await fetch(`${base}/setup/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      redirect: "manual"
     });
-    assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { ok: true, guildId: "g-role-tiers", guildName: "Unknown" });
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get("location"), "/setup/success?guildId=g-role-tiers");
 
     const db = createDatabase(dbPath);
     const roles = getGuildRoles(db, "g-role-tiers");

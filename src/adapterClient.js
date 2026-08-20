@@ -362,6 +362,17 @@ export class AdapterClient {
   // standalone match-only route on Core to call.
   linkAccountViaSteam(actor, playerControllerId, steamId64List, guildId) { return this.request("players-accounts-link-steam", actor, { playerControllerId, steamId64List }, guildId); }
 
+  // Phase 3 (Command Discovery, #181): fetch Core's live command catalog
+  // for /dune admin sync-commands. Uses the standard request() path --
+  // no ETag/conditional-GET support here (request() doesn't expose
+  // response headers or support custom request headers for GET), so
+  // this always does a full fetch. registryLoader.js's caller-side
+  // staleness bookkeeping (load time, TTL) still applies; only the
+  // HTTP-level conditional-GET optimization is intentionally omitted
+  // rather than half-implemented against an interface that doesn't
+  // support it.
+  discordCatalog(actor, guildId) { return this.request("discord-catalog", actor, undefined, guildId); }
+
   async request(route, actor, extra = undefined, guildId = null) {
     const cfg = this._resolveConfig(guildId);
     const path = cfg.adapter.paths[route];

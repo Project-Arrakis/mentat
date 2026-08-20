@@ -1,6 +1,8 @@
 import express from "express";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { logInfo, logError } from "./logger.js";
 import {
   createDatabase,
@@ -16,6 +18,12 @@ import {
 } from "./database.js";
 import { esc } from "./htmlEscape.js";
 import { renderPage, errorPage } from "./setupLayout.js";
+import { isEncryptionConfigured } from "./secretsCrypto.js";
+
+// #215/A2: version comes from package.json — a hardcoded literal here
+// drifted two release candidates behind the real version.
+const __setupDirname = dirname(fileURLToPath(import.meta.url));
+const PKG_VERSION = JSON.parse(readFileSync(join(__setupDirname, "..", "package.json"), "utf8")).version;
 
 const DISCORD_OAUTH_URL = "https://discord.com/api/v10/oauth2/authorize";
 const DISCORD_TOKEN_URL = "https://discord.com/api/v10/oauth2/token";
@@ -64,13 +72,38 @@ function tokenMatches(provided, expected) {
   return timingSafeEqual(providedBuf, expectedBuf);
 }
 
+// Issue #195 fix: the setup form's guild <select> submits only the guild
+// id, so the previously-trusted req.body.guildName was always undefined
+// and every completed setup persisted (and displayed) "Unknown". Resolve
+// the real name server-side from the same Discord OAuth token the flow
+// already holds. Best-effort: any failure falls back to "Unknown" rather
+// than blocking registration (the name is display-only).
+async function resolveGuildName(accessToken, guildId) {
+  if (!accessToken || !guildId) return "Unknown";
+  try {
+    const guildsRes = await fetch("https://discord.com/api/v10/users/@me/guilds", {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!guildsRes.ok) return "Unknown";
+    const guilds = await guildsRes.json();
+    const match = Array.isArray(guilds) ? guilds.find((g) => g.id === guildId) : null;
+    return (match && typeof match.name === "string" && match.name.trim()) || "Unknown";
+  } catch {
+    return "Unknown";
+  }
+}
+
 export function createSetupServer(config) {
   const app = express();
   const db = createDatabase(config.dbPath);
+  
+  // Resolve public directory relative to this file's location
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const publicDir = join(__dirname, "..", "public");
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-  app.use(express.static("public"));
+  app.use(express.static(publicDir));
 
   // CORS — allow the landing page (acp.darkdante.org) to fetch public API endpoints.
   // No auth endpoints are exposed here; all are read-only public data.
@@ -106,7 +139,7 @@ export function createSetupServer(config) {
       </section>`;
     res.send(renderPage("Arrakis Control Panel", body, {
       heading: "Arrakis Control Panel",
-      subtitle: "Arrakis is where you go to die.",
+      subtitle: "Connect your Discord server to your game console.",
       hero: true,
       center: true
     }));
@@ -206,22 +239,6 @@ export function createSetupServer(config) {
           <p class="welcome">Welcome, ${userName}!</p>
         </div>
 
-        <div id="form-error" class="notification notification--error" role="alert">
-          <span class="notification__icon">!</span>
-          <div class="notification__body">
-            <div class="notification__title">Error</div>
-            <div id="form-error-msg"></div>
-          </div>
-        </div>
-
-        <div id="form-success" class="notification notification--success" role="status">
-          <span class="notification__icon">&#x2714;</span>
-          <div class="notification__body">
-            <div class="notification__title">Connected</div>
-            <div id="form-success-msg">Your server has been connected. Use <code>/dune core help</code> in Discord.</div>
-          </div>
-        </div>
-
         <form id="setup-form" action="/setup/register" method="POST">
           <input type="hidden" name="discordUserId" value="${userId}">
           <input type="hidden" name="accessToken" value="${accessToken}">
@@ -239,6 +256,9 @@ export function createSetupServer(config) {
 
           <section class="panel">
             <h2>Step 2: Console Connection</h2>
+            <div style="background: rgba(224, 90, 74, 0.12); border: 1px solid rgba(224, 90, 74, 0.3); border-radius: 6px; padding: 12px; margin-bottom: 16px; font-size: 13px; color: #f5aca5; line-height: 1.5;">
+              <strong>⚠️ Important:</strong> After enabling the adapter in your Dune Docker <code>.env</code>, you must <em>recreate</em> the console container — a plain restart does not pick up <code>.env</code> changes. From your install directory run <code>dune console restart</code> (or <code>docker compose -f docker-compose.web.yml up -d --force-recreate redblink-dune-docker-console</code>). Without this, authentication will fail.
+            </div>
             <div class="field">
               <label for="consoleUrl">Console URL</label>
               <input type="url" name="consoleUrl" id="consoleUrl" placeholder="http://your-server:8088" required>
@@ -246,15 +266,17 @@ export function createSetupServer(config) {
             </div>
             <div class="field">
               <label for="adapterToken">Adapter Token</label>
-              <div class="token-row">
-                <input type="text" name="adapterToken" id="adapterToken" placeholder="your-adapter-token" required>
-                <button type="button" class="btn btn--sm" onclick="generateToken()">Generate</button>
-              </div>
+              <input type="text" name="adapterToken" id="adapterToken" placeholder="your-adapter-token" required>
               <div class="hint">
-                <strong>Enable the adapter first:</strong> In your Dune Docker <code>.env</code>, set:<br>
+                <strong>To set up your token</strong> (the console only accepts the token held in its token file, so the file must exist and this field must contain the same value):<br>
+                1. In your Dune Docker <code>.env</code>, set:<br>
                 <code>DUNE_DISCORD_ADAPTER_ENABLED=true</code><br>
-                <code>DUNE_BOT_API_TOKEN_FILE=/repo/runtime/secrets/discord-adapter-token.txt</code><br>
-                Then restart the console. The token is in that file — copy it here.
+                <code>DUNE_DISCORD_ADAPTER_TOKEN_FILE=/repo/runtime/secrets/discord-adapter-token.txt</code><br>
+                2. <strong>Create the token file</strong> — the console reads it but does not generate it. From your Dune Docker install directory:<br>
+                <code>openssl rand -hex 32 &gt; runtime/secrets/discord-adapter-token.txt</code><br>
+                <code>chmod 600 runtime/secrets/discord-adapter-token.txt</code><br>
+                3. <strong>Recreate the console container</strong> (see warning above)<br>
+                4. Paste the same token value here (<code>cat runtime/secrets/discord-adapter-token.txt</code>)
               </div>
             </div>
           </section>
@@ -267,9 +289,9 @@ export function createSetupServer(config) {
               <div class="hint">Members can use owner-tier actions (backups, restarts, updates) when writes are enabled</div>
             </div>
             <div class="field">
-              <label for="adminRoleId">Admin Role</label>
-              <input type="text" name="adminRoleId" id="adminRoleId" placeholder="Discord role ID">
-              <div class="hint">Members can use admin commands</div>
+              <label for="adminRoleId">Admin Role <em>(required)</em></label>
+              <input type="text" name="adminRoleId" id="adminRoleId" placeholder="Discord role ID" required>
+              <div class="hint">Members can use admin commands. Required — without an Admin (or Owner) role mapping, nobody can administer the bot after setup</div>
             </div>
             <div class="field">
               <label for="moderatorRoleId">Moderator Role <em>(optional)</em></label>
@@ -277,9 +299,9 @@ export function createSetupServer(config) {
               <div class="hint">Members can use read-only commands and future moderation tools</div>
             </div>
             <div class="field">
-              <label for="observerRoleId">Player Role</label>
+              <label for="observerRoleId">Player Role <em>(recommended)</em></label>
               <input type="text" name="observerRoleId" id="observerRoleId" placeholder="Discord role ID">
-              <div class="hint">Members can use read-only commands</div>
+              <div class="hint">Members can use read-only commands. Without it, only members holding one of the roles above can use the bot at all</div>
             </div>
           </section>
 
@@ -301,11 +323,26 @@ export function createSetupServer(config) {
     try {
       const { discordUserId, guildId, consoleUrl, adapterToken, ownerRoleId, adminRoleId, moderatorRoleId, observerRoleId } = req.body;
 
+      // #214/U7: this endpoint serves a browser form POST — errors must
+      // render a styled page with a way back, not a bare JSON body.
       if (!guildId || !consoleUrl || !adapterToken) {
-        return res.status(400).json({ error: "Missing required fields" });
+        return errorPage(res, 400, "Missing Required Fields",
+          "Server, console URL, and adapter token are all required. Use your browser's Back button to return to the form — your entries are preserved.");
       }
 
-      const guildName = req.body.guildName || "Unknown";
+      // #213/U4: a setup with no role mappings completed "successfully"
+      // and then locked every member (including the person who set it
+      // up) out of every command with no hint why. Require at least an
+      // Admin or Owner mapping so someone can always administer the bot.
+      if (!adminRoleId && !ownerRoleId) {
+        return errorPage(res, 400, "Role Configuration Required",
+          "Map at least an Admin or Owner Discord role. In restricted mode (the default), members without a mapped role cannot use any command — with no Admin or Owner mapping, nobody could administer the bot after setup. Use your browser's Back button to return to the form and set a role ID.");
+      }
+
+      // Issue #195: resolve the real guild name server-side (the form's
+      // <select> submits only the id). Skipped when no OAuth token is
+      // present (e.g. API/test callers) — falls back to "Unknown".
+      const guildName = await resolveGuildName(req.body.accessToken, guildId);
 
       upsertGuild(db, {
         guildId,
@@ -325,13 +362,64 @@ export function createSetupServer(config) {
         default_ephemeral: 1
       });
 
-      res.json({ ok: true, guildId, guildName });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
+      // Issue #207 (Req 24): do NOT log consoleUrl — even scheme-stripped
+      // it identified each tenant's console host/IP:port. guildId is
+      // enough for correlation.
+      logInfo("setup.guild_configured", { guildId, guildName });
 
-  // ── Health / Stats ────────────────────────────────────────────────
+      // Issue #198: redirect with the guild id ONLY — the success page
+      // looks the stored name up from the DB, so no attacker-chosen (or
+      // double-decoded) display text ever rides the query string.
+      res.redirect(`/setup/success?guildId=${encodeURIComponent(guildId)}`);
+    } catch (err) {
+      // #214/U7: styled error page for the browser flow, not raw JSON.
+      errorPage(res, 500, "Setup Failed",
+        `Something went wrong while saving your configuration: ${err.message}. Use your browser's Back button to return to the form and try again.`);
+    }
+   });
+
+   // GET /setup/success — Display success page after guild configuration.
+   // Issue #198: the display name comes from the DB (looked up by guild
+   // id), never from the query string — the old version both rendered
+   // attacker-chosen query text on an unauthenticated page and called
+   // decodeURIComponent() on a value Express had already percent-decoded
+   // (URIError → 500 for any guild name containing a literal '%').
+   app.get("/setup/success", (req, res) => {
+     const { guildId } = req.query;
+     const guild = guildId ? getGuild(db, guildId) : null;
+     const displayName = guild?.guild_name || "Your server";
+
+     const body = `
+       <div class="success-page">
+         <div class="success-icon">✓</div>
+         <h1 style="font-size: 28px; margin-bottom: 12px; color: var(--success);">Setup Complete!</h1>
+         <p style="color: var(--parchment-dark); font-size: 16px; margin-bottom: 20px;">
+           <strong>${esc(displayName)}</strong> is now connected to Arrakis Control Panel.
+         </p>
+         <div class="panel" style="max-width: 500px; margin: 0 auto 20px;">
+           <h2>What's next?</h2>
+           <ol style="text-align: left; color: var(--text-light); line-height: 1.8; margin-left: 20px;">
+             <li>Go back to Discord</li>
+             <li>Assign Discord roles to the four permission tiers (Player, Moderator, Admin, Owner)</li>
+             <li>Run <code>/dune core help</code> to see available commands</li>
+             <li>Run <code>/dune server status</code> to verify connection to your console</li>
+           </ol>
+         </div>
+         <p style="color: var(--muted); font-size: 13px; margin-top: 24px;">
+           ${isEncryptionConfigured()
+             ? "Your adapter token is encrypted at rest. You can now use slash commands in Discord."
+             : "Your adapter token is stored on the bot host (the operator has not configured at-rest encryption — <code>ACP_SECRETS_KEY</code>). You can now use slash commands in Discord."}
+         </p>
+       </div>`;
+
+     res.send(renderPage("Setup Complete", body, {
+       heading: "Arrakis Control Panel",
+       hero: true,
+       glow: true
+     }));
+   });
+
+   // ── Health / Stats ────────────────────────────────────────────────
 
   app.get("/health", (req, res) => {
     res.json({ ok: true, service: "acp-setup" });
@@ -339,7 +427,7 @@ export function createSetupServer(config) {
 
   app.get("/api/version", (_req, res) => {
     res.set("Cache-Control", "public, max-age=3600");
-    res.json({ version: "1.0.0-rc.3", name: "arrakis-control-panel" });
+    res.json({ version: PKG_VERSION, name: "arrakis-control-panel" });
   });
 
   app.get("/api/live-stats", (req, res) => {

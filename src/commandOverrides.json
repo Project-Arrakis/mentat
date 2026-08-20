@@ -1,0 +1,15 @@
+{
+  "exclude": [
+    "guild-character-grants-enable",
+    "guild-character-grants-disable"
+  ],
+  "rename": {
+    "ops-inventory": {
+      "subcommand": "armory"
+    }
+  },
+  "retier": {
+    "server-restart": "owner",
+    "carepackage-grant-all": "owner"
+  }
+}
