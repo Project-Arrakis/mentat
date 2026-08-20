@@ -97,6 +97,38 @@ change notes under `docs/changes/`.
     `registryToDiscordFormat()`/ETag state removed (#208).
 
 ### Fixed
+- **2026-08-20 UI/UX verification-pass remediation** (a second, independent
+  UI/UX Designer hat dispatch verified the remediation below against real
+  rendered output and real Core provider shapes; found and fixed one
+  regression the remediation itself introduced plus residual gaps,
+  issues #219–#221):
+  - **Security regression, introduced by the #210 fix and closed same-day**
+    (#219): the ops group and `infra:version` built their embeds at
+    dispatch time from the payload BEFORE `redactSecrets()` ran, so a
+    secret in an ops/version response could reach the sent embed
+    verbatim. Dispatch now records the formatter, never a built embed;
+    the embed is always built after redaction.
+  - **Dedicated ops formatters read field names Core never sends** (#220):
+    verified against Core's real providers (`console/api/src/duneDb.js`)
+    that `formatResourcesEmbed`/`formatEconomyEmbed`/`formatCombatEmbed`
+    used invented field names (`smallActive`, `totalSietches`,
+    `totalCurrency`, object-shaped `deathCauses`) instead of Core's real
+    ones (`sizes[]`, `haggaBasin.instances`, `totalSupply`,
+    array-shaped `deathsByCause`) — real deployments would have seen
+    self-contradicting zeros and "— None —" on data that was actually
+    present. Rewritten against Core's real shapes with legacy fallbacks,
+    pinned by fixtures matching the real provider return values.
+  - `/dune ops alerts` gets a dedicated formatter — was rendering firing
+    alerts as `[object Object]` (#221).
+  - Residual "observer" leaks removed from the `admin roles` slash-command
+    description and help metadata — "player" is now the label everywhere
+    a user can see it, completing the #217 directive.
+  - `/dune server summary` no longer shows a bolded "**unknown**" for
+    missing region/mode/population.
+  - `formatVersionEmbed` field names no longer show literal `**asterisks**`
+    (Discord doesn't render markdown in field names).
+  - A log line containing a literal triple-backtick can no longer break
+    out of the log code fence.
 - **2026-08-20 UI/UX review remediation** (27 verified findings from a
   dedicated UI/UX Designer hat review of all bot output, issues
   #210–#218; "Player" is now the canonical user-facing tier label on
