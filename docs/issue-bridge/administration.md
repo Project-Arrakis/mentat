@@ -31,13 +31,13 @@ periodic drift-check diagnostic.
 - [ ] Both repos have `.github/acp-issue-bridge.yml` (byte-identical —
       verified by the maintenance workflow's drift check).
 - [ ] Both repos have the App secrets set.
-- [ ] The App is installed on exactly `yacketrj/acp-discordbot` and
-      `yacketrj/arrakis-control-panel` — not "all repositories."
+- [ ] The App is installed on exactly `Project-Arrakis/acp-discordbot` and
+      `Project-Arrakis/sentinel` — not "all repositories."
 - [ ] Public repo: Issue Forms exist under `.github/ISSUE_TEMPLATE/`,
       Discussions enabled (already true — verified via `gh api
-      repos/yacketrj/acp-discordbot --jq .has_discussions`).
+      repos/Project-Arrakis/acp-discordbot --jq .has_discussions`).
 - [ ] Private repo: label taxonomy present (already bootstrapped live —
-      `gh label list --repo yacketrj/arrakis-control-panel`).
+      `gh label list --repo Project-Arrakis/sentinel`).
 
 ## Disabling the bridge
 
@@ -65,7 +65,7 @@ what the bridge *would* have done, and it's a one-click re-enable.
 the same Sync ID (section 44/61) and refused to guess which is canonical.
 Recovery is manual:
 
-1. `gh issue list --repo yacketrj/arrakis-control-panel --label sync:error`
+1. `gh issue list --repo Project-Arrakis/sentinel --label sync:error`
 2. For each flagged issue, inspect its `ACP-ISSUE-BRIDGE` metadata block
    and decide which one is the real mirror for that public issue.
 3. Close/relabel the duplicate(s) (remove `source:public` and

@@ -8,12 +8,15 @@ change notes under `docs/changes/`.
 
 ### Changed
 - ACP Issue Bridge config (`.github/acp-issue-bridge.yml`) repoints
-  `repositories.public`/`repositories.private` from `yacketrj/...` to
-  `Project-Arrakis/...`, ahead of this repo's planned org transfer (#228).
+  `repositories.public`/`repositories.private` from `yacketrj/acp-discordbot`
+  / `yacketrj/arrakis-control-panel` to `Project-Arrakis/acp-discordbot` /
+  `Project-Arrakis/sentinel` (#228) — this repo has since actually
+  transferred to `Project-Arrakis` **and been renamed from
+  `arrakis-control-panel` to `sentinel`** as part of the same migration.
   **Not yet live** — merging is deliberately deferred until the GitHub App
-  is reinstalled under the `Project-Arrakis` org and both repos actually
-  transfer; see `docs/issue-bridge/github-app.md`'s new "Org migration"
-  section for the exact manual sequencing.
+  is reinstalled under the `Project-Arrakis` org and `acp-discordbot` also
+  transfers; see `docs/issue-bridge/github-app.md`'s "Org migration"
+  section for the exact manual sequencing and current status.
 
 ### Added
 - **Phase 2: Bot-side command registry generator** (#180, depends on
