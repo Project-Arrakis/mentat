@@ -50,7 +50,7 @@ jobs:
   # in dune-ops-observability-addon. trivy-filesystem below is not yet
   # converted (kept inline) pending that same follow-up.
   semgrep-sast:
-    uses: Project-Arrakis/.github/.github/workflows/reusable-security-scan.yml@feat/reusable-security-scan-workflow
+    uses: Project-Arrakis/.github/.github/workflows/reusable-security-scan.yml@main
     with:
       run-gitleaks: false
       run-trivy: false
@@ -58,7 +58,7 @@ jobs:
       SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
   secret-scan:
-    uses: Project-Arrakis/.github/.github/workflows/reusable-security-scan.yml@feat/reusable-security-scan-workflow
+    uses: Project-Arrakis/.github/.github/workflows/reusable-security-scan.yml@main
     with:
       run-semgrep: false
       run-trivy: false
