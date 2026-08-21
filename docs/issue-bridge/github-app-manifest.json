@@ -2,7 +2,7 @@
   "name": "ACP Issue Bridge",
   "url": "https://github.com/Project-Arrakis/sentinel",
   "hook_attributes": {
-    "url": "https://github.com/yacketrj",
+    "url": "https://github.com/Project-Arrakis",
     "active": false
   },
   "redirect_url": "https://github.com/Project-Arrakis/sentinel",
