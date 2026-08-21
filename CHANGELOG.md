@@ -6,12 +6,21 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
+### Changed
+- ACP Issue Bridge config (`.github/acp-issue-bridge.yml`) repoints
+  `repositories.public`/`repositories.private` from `yacketrj/...` to
+  `Project-Arrakis/...`, ahead of this repo's planned org transfer (#228).
+  **Not yet live** — merging is deliberately deferred until the GitHub App
+  is reinstalled under the `Project-Arrakis` org and both repos actually
+  transfer; see `docs/issue-bridge/github-app.md`'s new "Org migration"
+  section for the exact manual sequencing.
+
 ### Added
 - **Phase 2: Bot-side command registry generator** (#180, depends on
   dune-awakening-selfhost-docker#337 Phase 1 Core endpoint):
-  
+
   **SCOPE: Generation-only. Phase 3 (runtime loading) is a separate PR.**
-  
+
   - New `scripts/generate-command-registry.js` — fetches Core's catalog
     endpoint (`GET /api/integrations/discord/catalog`) and generates
     `src/commands-registry.json` artifact with bot-side overrides applied.
@@ -29,7 +38,7 @@ change notes under `docs/changes/`.
     coverage (L1), override application (L2), Discord constraints (L3),
     metadata (L4), boundary conditions (L5)
   - Fully documented in `docs/rfc-command-discovery.md` Phase 2 section
-  
+
 - **Phase 3: Runtime registry loading + Core catalog drift check** (#181;
   scope corrected 2026-08-20 by the #190 review remediation — this entry
   previously claimed ETag conditional requests, `registryToDiscordFormat()`

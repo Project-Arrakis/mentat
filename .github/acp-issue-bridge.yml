@@ -1,8 +1,8 @@
 # ACP Issue Bridge — canonical policy configuration.
 #
 # This file MUST be byte-for-byte identical in both repositories:
-#   yacketrj/acp-discordbot          (public)
-#   yacketrj/arrakis-control-panel   (private, this copy)
+#   Project-Arrakis/acp-discordbot          (public)
+#   Project-Arrakis/arrakis-control-panel   (private, this copy)
 #
 # The public repo cannot read this private repo's copy at workflow run time
 # (that would require granting the public repo's Actions runner read access
@@ -17,8 +17,8 @@
 version: 1
 
 repositories:
-  public: yacketrj/acp-discordbot
-  private: yacketrj/arrakis-control-panel
+  public: Project-Arrakis/acp-discordbot
+  private: Project-Arrakis/arrakis-control-panel
 
 sync:
   public_issue_create: true

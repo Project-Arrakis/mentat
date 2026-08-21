@@ -92,11 +92,47 @@ Option A, and does not remove the need for a human — it exists only so
 the exact permission set is reproducible from a checked-in file rather
 than retyped by hand.
 
+## Org migration (yacketrj → Project-Arrakis): required manual action
+
+**Status: not yet done.** Both repositories' `.github/acp-issue-bridge.yml`
+now point at `Project-Arrakis/...` slugs (updated ahead of the transfer, on
+a branch, deliberately not merged yet — see
+`yacketrj/arrakis-control-panel#228`). Merging that change before the steps
+below are complete will break the live bridge, since the config would name
+an owner the repos aren't actually under yet.
+
+This hits the exact same platform limitation as initial App creation above
+— no `gh api`/REST call can move a GitHub App's ownership or change who can
+install it. A human with an authenticated `yacketrj` browser session must:
+
+1. Go to the "ACP Issue Bridge" App's settings page → **Advanced** tab →
+   **Transfer ownership** → transfer to the `Project-Arrakis` organization.
+   (Preferred over loosening "Where can this GitHub App be installed?" to
+   "Any account": transfer keeps the App tightly scoped to exactly the org
+   that uses it, rather than making it installable by any GitHub account,
+   which would be a real, avoidable widening of exposure for a private
+   automation credential.)
+2. Transfer `arrakis-control-panel` and `acp-discordbot` to `Project-Arrakis`
+   (both together — the bridge's `create-github-app-token` step resolves its
+   target account from `github.repository_owner`, so both repos must be
+   under the same owner for token minting to find both in one installation).
+3. On the App's **Install App** page (now under `Project-Arrakis`), install
+   on the `Project-Arrakis` organization → **Only select repositories** →
+   `arrakis-control-panel` and `acp-discordbot`.
+4. Confirm whether the `ACP_ISSUE_BRIDGE_APP_ID` / `ACP_ISSUE_BRIDGE_PRIVATE_KEY`
+   repository secrets survived the transfer on both repos (GitHub's docs
+   don't explicitly guarantee repo secrets carry over on an org transfer) —
+   re-add them if not. Values are unchanged (same App, same keypair).
+5. Merge `#228`'s config-fix branch on both repos.
+6. Run the verification checklist below against the new org location, then
+   the live smoke test in `docs/issue-bridge/testing.md`.
+
 ## Required secrets (both repositories)
 
 Set these as encrypted repository secrets on **both**
 `yacketrj/acp-discordbot` and `yacketrj/arrakis-control-panel` (Settings →
-Secrets and variables → Actions → New repository secret):
+Secrets and variables → Actions → New repository secret) — or their
+`Project-Arrakis` org locations, once transferred:
 
 | Secret | Value |
 | --- | --- |
