@@ -31,11 +31,11 @@ periodic drift-check diagnostic.
 - [ ] Both repos have `.github/acp-issue-bridge.yml` (byte-identical —
       verified by the maintenance workflow's drift check).
 - [ ] Both repos have the App secrets set.
-- [ ] The App is installed on exactly `Project-Arrakis/acp-discordbot` and
+- [ ] The App is installed on exactly `Project-Arrakis/sentinel-support` and
       `Project-Arrakis/sentinel` — not "all repositories."
 - [ ] Public repo: Issue Forms exist under `.github/ISSUE_TEMPLATE/`,
       Discussions enabled (already true — verified via `gh api
-      repos/Project-Arrakis/acp-discordbot --jq .has_discussions`).
+      repos/Project-Arrakis/sentinel-support --jq .has_discussions`).
 - [ ] Private repo: label taxonomy present (already bootstrapped live —
       `gh label list --repo Project-Arrakis/sentinel`).
 

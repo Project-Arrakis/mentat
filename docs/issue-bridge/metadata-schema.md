@@ -20,7 +20,7 @@ don't overlap:
 ```
 schema_version: 1
 sync_id: ACP-PUBLIC-52
-public_repository: Project-Arrakis/acp-discordbot
+public_repository: Project-Arrakis/sentinel-support
 public_issue: 52
 created_from_event: issues.opened:<workflow-run-id>
 ```
@@ -36,7 +36,7 @@ SEC-011).
 schema_version: 1
 direction: public-to-private
 sync_id: ACP-PUBLIC-52
-source_repository: Project-Arrakis/acp-discordbot
+source_repository: Project-Arrakis/sentinel-support
 source_issue: 52
 source_comment: 23891827
 ```

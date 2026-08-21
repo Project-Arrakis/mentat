@@ -10,7 +10,7 @@ constants through source code"). Both are bootstrapped for real via
 missing, never edits an existing label's color/description since a
 maintainer may have deliberately customized it).
 
-## Public taxonomy (`Project-Arrakis/acp-discordbot`)
+## Public taxonomy (`Project-Arrakis/sentinel-support`)
 
 - **Type:** `type:bug` `type:feature` `type:documentation` `type:support`
   `type:compatibility` `type:performance`

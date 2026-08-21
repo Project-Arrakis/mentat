@@ -101,20 +101,21 @@ than retyped by hand.
 
 ## Org migration (yacketrj → Project-Arrakis): required manual action
 
-**Status as of 2026-08-21, partially done:**
-- `arrakis-control-panel` has already been transferred to `Project-Arrakis`
-  **and renamed to `sentinel`** (not just moved — the repo slug itself
-  changed). `.github/acp-issue-bridge.yml` in both repos now points at
-  `Project-Arrakis/sentinel` / `Project-Arrakis/acp-discordbot` (updated
-  ahead of the transfer, on a branch, deliberately not merged yet — see
-  `Project-Arrakis/sentinel#228`). Merging that change before the steps
-  below are complete will break the live bridge, since the config would
-  name an owner `acp-discordbot` isn't actually under yet.
-- `acp-discordbot` has **not** been transferred yet — still
-  `yacketrj/acp-discordbot`.
+**Status as of 2026-08-21, repos done, App still pending:**
+- `arrakis-control-panel` has been transferred to `Project-Arrakis` **and
+  renamed to `sentinel`** (not just moved — the repo slug itself changed).
+- `acp-discordbot` has also been transferred to `Project-Arrakis` **and
+  renamed to `sentinel-support`**.
+- `.github/acp-issue-bridge.yml` in both repos now points at
+  `Project-Arrakis/sentinel` / `Project-Arrakis/sentinel-support` (updated
+  on a branch, deliberately not merged yet — see
+  `Project-Arrakis/sentinel#228`). Merging before the App step below is
+  done will break the live bridge, since the App has no installation to
+  mint tokens against yet.
 - The "ACP Issue Bridge" GitHub App has **not** been transferred/installed
   on `Project-Arrakis` yet (confirmed via `gh api
-  orgs/Project-Arrakis/installations` returning zero installations).
+  orgs/Project-Arrakis/installations` returning zero installations as of
+  this writing — re-check before assuming this is still true).
 
 This hits the exact same platform limitation as initial App creation above
 — no `gh api`/REST call can move a GitHub App's ownership or change who can
@@ -127,28 +128,23 @@ install it. A human with an authenticated `yacketrj` browser session must:
    that uses it, rather than making it installable by any GitHub account,
    which would be a real, avoidable widening of exposure for a private
    automation credential.)
-2. Transfer `acp-discordbot` to `Project-Arrakis` (`sentinel` is already
-   there — the bridge's `create-github-app-token` step resolves its target
-   account from `github.repository_owner`, so both repos must be under the
-   same owner for token minting to find both in one installation).
-3. On the App's **Install App** page (now under `Project-Arrakis`), install
+2. On the App's **Install App** page (now under `Project-Arrakis`), install
    on the `Project-Arrakis` organization → **Only select repositories** →
-   `sentinel` and `acp-discordbot`.
-4. Confirm whether the `ACP_ISSUE_BRIDGE_APP_ID` / `ACP_ISSUE_BRIDGE_PRIVATE_KEY`
-   repository secrets survived the `sentinel` transfer (GitHub's docs don't
-   explicitly guarantee repo secrets carry over on an org transfer) — check
-   both repos once `acp-discordbot` moves too, re-add if not. Values are
-   unchanged (same App, same keypair).
-5. Merge `#228`'s config-fix branch on both repos.
-6. Run the verification checklist below against the new org location, then
+   `sentinel` and `sentinel-support`.
+3. Confirm whether the `ACP_ISSUE_BRIDGE_APP_ID` / `ACP_ISSUE_BRIDGE_PRIVATE_KEY`
+   repository secrets survived both transfers (GitHub's docs don't
+   explicitly guarantee repo secrets carry over on an org transfer) —
+   re-add on either repo if not. Values are unchanged (same App, same
+   keypair).
+4. Merge `#228`'s config-fix branch on both repos.
+5. Run the verification checklist below against the new org location, then
    the live smoke test in `docs/issue-bridge/testing.md`.
 
 ## Required secrets (both repositories)
 
 Set these as encrypted repository secrets on **both**
-`Project-Arrakis/acp-discordbot` and `Project-Arrakis/sentinel` (Settings →
-Secrets and variables → Actions → New repository secret) — or their
-`Project-Arrakis` org locations, once transferred:
+`Project-Arrakis/sentinel-support` and `Project-Arrakis/sentinel` (Settings →
+Secrets and variables → Actions → New repository secret):
 
 | Secret | Value |
 | --- | --- |

@@ -1,7 +1,7 @@
 # ACP Issue Bridge — canonical policy configuration.
 #
 # This file MUST be byte-for-byte identical in both repositories:
-#   Project-Arrakis/acp-discordbot          (public)
+#   Project-Arrakis/sentinel-support          (public)
 #   Project-Arrakis/sentinel   (private, this copy)
 #
 # The public repo cannot read this private repo's copy at workflow run time
@@ -17,7 +17,7 @@
 version: 1
 
 repositories:
-  public: Project-Arrakis/acp-discordbot
+  public: Project-Arrakis/sentinel-support
   private: Project-Arrakis/sentinel
 
 sync:

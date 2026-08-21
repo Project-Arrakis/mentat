@@ -78,14 +78,14 @@ just a Bearer token to `GitHubClient`.
 
 1. Create a clearly labeled throwaway issue in the public repo:
    ```
-   gh issue create --repo Project-Arrakis/acp-discordbot \
+   gh issue create --repo Project-Arrakis/sentinel-support \
      --title "[BRIDGE TEST] <short description>" \
      --body "Throwaway issue used to validate the ACP Issue Bridge. Safe to ignore/delete."
    ```
 2. Run the relevant orchestration script directly with a real token in
    place of the Actions-minted one:
    ```
-   GITHUB_REPOSITORY=Project-Arrakis/acp-discordbot \
+   GITHUB_REPOSITORY=Project-Arrakis/sentinel-support \
    ACP_BRIDGE_TOKEN=$(gh auth token) \
    ACP_BRIDGE_BOT_LOGIN=<n/a until the App exists> \
    ACP_BRIDGE_EVENT_JSON=<captured event payload> \

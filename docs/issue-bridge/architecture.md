@@ -22,7 +22,7 @@ long-running state, a persistent listener, or infrastructure beyond what
 GitHub already runs for every repository.
 
 ```
-Project-Arrakis/acp-discordbot (PUBLIC)          Project-Arrakis/sentinel (PRIVATE)
+Project-Arrakis/sentinel-support (PUBLIC)          Project-Arrakis/sentinel (PRIVATE)
 ┌────────────────────────────┐            ┌──────────────────────────────────┐
 │ issues: opened              │──Actions──▶│ (creates private mirror issue)   │
 │ issue_comment: created       │──Actions──▶│ (mirrors comment)                │

@@ -58,7 +58,7 @@ change for a one-off case.
 failed because the public repo hasn't published a checksum yet.
 
 1. Confirm both repos' `.github/acp-issue-bridge.yml` are actually
-   identical: `diff <(gh api repos/Project-Arrakis/acp-discordbot/contents/.github/acp-issue-bridge.yml --jq '.content' | base64 -d) <(gh api repos/Project-Arrakis/sentinel/contents/.github/acp-issue-bridge.yml --jq '.content' | base64 -d)`
+   identical: `diff <(gh api repos/Project-Arrakis/sentinel-support/contents/.github/acp-issue-bridge.yml --jq '.content' | base64 -d) <(gh api repos/Project-Arrakis/sentinel/contents/.github/acp-issue-bridge.yml --jq '.content' | base64 -d)`
 2. If they differ, decide which is correct, copy it to the other repo,
    commit, and push — this triggers `issue-bridge-maintenance.yml`'s
    `push` trigger on the config file path automatically.

@@ -17,7 +17,7 @@ const REAL_CONFIG_PATH = join(REPO_ROOT, ".github", "acp-issue-bridge.yml");
 test("loads and validates the real repo config file", () => {
   const config = loadConfig(REAL_CONFIG_PATH);
   assert.equal(config.version, 1);
-  assert.equal(config.repositories.public, "Project-Arrakis/acp-discordbot");
+  assert.equal(config.repositories.public, "Project-Arrakis/sentinel-support");
   assert.equal(config.repositories.private, "Project-Arrakis/sentinel");
   assert.equal(config.commands.security_clear, "/security-clear");
   assert.equal(config.permissions.security_clear, "admin");
