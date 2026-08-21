@@ -101,6 +101,19 @@ jobs:
           hide-progress: true
           skip-dirs: node_modules,.git
 
+  hadolint:
+    name: hadolint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Install hadolint
+        run: |
+          curl -sL https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64 -o /usr/local/bin/hadolint
+          echo "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507  /usr/local/bin/hadolint" | sha256sum -c -
+          chmod +x /usr/local/bin/hadolint
+      - name: Lint Dockerfile
+        run: hadolint Dockerfile
+
   trivy-image:
     name: trivy-image
     runs-on: ubuntu-24.04
