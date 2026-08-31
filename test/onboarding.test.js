@@ -82,7 +82,8 @@ test("DMs the owner directly with the fallback notice when no inviter can be det
   await handleGuildCreate({}, guild, db, NO_DELAY);
 
   assert.equal(owner.sentMessages.length, 1);
-  assert.match(owner.sentMessages[0].content, /Welcome to Sentinel/);
+  assert.match(owner.sentMessages[0].content, /Welcome to Mentat/);
+  assert.doesNotMatch(owner.sentMessages[0].content, /\bSentinel\b/);
   assert.match(owner.sentMessages[0].content, /if you're the one who just invited me/i, "the fallback message must acknowledge the reader might be the inviter, not just assume they're the owner");
 });
 
@@ -100,7 +101,8 @@ test("retries the audit log lookup on a Missing Permissions error (a real timing
   await handleGuildCreate({}, guild, db, NO_DELAY);
 
   assert.equal(inviter.sentMessages.length, 1, "should succeed on the 3rd attempt and DM the real inviter, not fall back");
-  assert.match(inviter.sentMessages[0].content, /Welcome to Sentinel/);
+  assert.match(inviter.sentMessages[0].content, /Welcome to Mentat/);
+  assert.doesNotMatch(inviter.sentMessages[0].content, /\bSentinel\b/);
 });
 
 test("gives up after 3 attempts and falls back to the owner when every retry hits Missing Permissions", async () => {
@@ -143,10 +145,11 @@ test("DMs the real inviter (from the BOT_ADD audit log entry) when the inviter i
   await handleGuildCreate({}, guild, db, NO_DELAY);
 
   assert.equal(inviter.sentMessages.length, 1, "the real inviter should get the full setup DM");
-  assert.match(inviter.sentMessages[0].content, /Welcome to Sentinel/);
+  assert.match(inviter.sentMessages[0].content, /Welcome to Mentat/);
+  assert.doesNotMatch(inviter.sentMessages[0].content, /\bSentinel\b/);
 
   assert.equal(owner.sentMessages.length, 1, "the owner should get a distinct notice, not nothing");
-  assert.match(owner.sentMessages[0].content, /added the Sentinel bot/);
+  assert.match(owner.sentMessages[0].content, /added the Mentat bot/);
   assert.match(owner.sentMessages[0].content, /AdminUser/, "the owner's notice should name the real inviter");
   assert.ok(!owner.sentMessages[0].content.includes("Setup takes 2 minutes"), "the owner's notice must not be a duplicate full setup DM");
 });
@@ -163,7 +166,8 @@ test("DMs only the owner (no separate notice) when the audit log shows the owner
   await handleGuildCreate({}, guild, db, NO_DELAY);
 
   assert.equal(owner.sentMessages.length, 1, "should send exactly one message, not a setup DM plus a redundant notice");
-  assert.match(owner.sentMessages[0].content, /Welcome to Sentinel/);
+  assert.match(owner.sentMessages[0].content, /Welcome to Mentat/);
+  assert.doesNotMatch(owner.sentMessages[0].content, /\bSentinel\b/);
 });
 
 test("does not throw and does not send any DM when fetchOwner() itself fails", async () => {

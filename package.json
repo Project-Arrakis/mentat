@@ -1,8 +1,8 @@
 {
-  "name": "arrakis-control-panel",
+  "name": "mentat",
   "version": "1.0.0-rc.5",
   "private": true,
-  "description": "Dune: Awakening Docker — Sentinel: a self-hosted Discord control panel for Dune Awakening server operations.",
+  "description": "Dune: Awakening Docker — Mentat: a self-hosted Discord control panel for Dune Awakening server operations.",
   "type": "module",
   "engines": {
     "node": ">=20.18.0"
