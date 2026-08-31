@@ -24,3 +24,14 @@ test/toolReferencePolicy.test.js
 # precedent as the setupServer.js/steamLinkServer.js entries above (path
 # exclusion + rationale, not inline nosemgrep comments).
 .github/scripts/issue-bridge/lib/secretScan.test.js
+
+# compatEnv.js compatibility-layer tests: deliberately use a realistic
+# 64-hex-char, ACP_SECRETS_KEY-shaped constant (REALISTIC_SECRET) to prove
+# resolveCompatEnv()'s warnings never leak a real value through captured
+# console.warn output — asserting against the actual value, not just that
+# the warning template lacks an interpolation slot. Not a real credential.
+# Same precedent as the ACP Issue Bridge entry above (path exclusion +
+# rationale, not inline nosemgrep comments) — flagged by semgrep's
+# generic-secrets rule on Phase 4's PR (sentinel#234), verified before
+# adding this exclusion.
+test/compatEnv.test.js
