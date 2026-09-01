@@ -100,7 +100,7 @@ function parsePositiveInt(value, fallback) {
 }
 
 function defaultActor() {
-  return { userId: "scheduler", username: "ACP", guildId: "scheduler", channelId: "scheduler", roleIds: [] };
+  return { userId: "scheduler", username: "Mentat", guildId: "scheduler", channelId: "scheduler", roleIds: [] };
 }
 
 export function startDailyDigest({ adapterClient, client, channelId, hour = 8, consoleDashboardUrl, grafanaDashboardUrl, onError = () => {} } = {}) {

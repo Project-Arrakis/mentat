@@ -194,5 +194,5 @@ export function alertSubscriber({
 }
 
 function defaultActor() {
-  return { userId: "scheduler", username: "ACP", guildId: "scheduler", channelId: "scheduler", roleIds: [] };
+  return { userId: "scheduler", username: "Mentat", guildId: "scheduler", channelId: "scheduler", roleIds: [] };
 }

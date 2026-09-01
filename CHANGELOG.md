@@ -6,6 +6,33 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
+### Changed
+- **Rebrand: Sentinel → Mentat (Phase 4 of the Project Arrakis rename).**
+  Application branding (embed footers, onboarding DMs, setup-portal pages,
+  `/api/version`, `/health`, the status-card image caption, `package.json`)
+  now says "Mentat" instead of "Sentinel". See
+  `docs/env-var-compatibility.md` for the new environment-variable
+  compatibility layer this introduces.
+  - New `MENTAT_*` canonical environment variables, with `SENTINEL_*` and
+    `ACP_*` accepted as deprecated aliases (`SENTINEL_*` takes precedence
+    over `ACP_*` if both are set to different values) for: `BASE_URL`,
+    `MULTI_TENANT`, `SETUP_PORT`, `CONSOLE_DASHBOARD_URL`,
+    `GRAFANA_DASHBOARD_URL`, `OAUTH_REDIRECT_URI`, `STEAM_LINK_PORT`,
+    `STEAM_LINK_BASE_URL`, `INSTANCE_ID`, `STATS_ENABLED`, `SETUP_URL`.
+    Existing `ACP_*` deployments continue to work unchanged; a one-line
+    deprecation warning (variable names only, never values) is logged once
+    per process start for anyone still on the old names.
+  - **`ACP_DB_PATH` is intentionally NOT yet included above.** It is
+    deferred until the `acp.db` → `mentat.db` file migration ships
+    (tracked separately) — adding a `MENTAT_DB_PATH` alias before that
+    migration exists could point a fresh deployment at a silently-created,
+    empty database. Set `ACP_DB_PATH` as before in the meantime.
+  - The synthetic system-actor username in stored notification/audit
+    records changes from `"ACP"` to `"Mentat"` going forward only —
+    existing historical records are not rewritten.
+  - Legacy alias removal will only happen in a future release explicitly
+    marked "breaking" in this file.
+
 ### Added
 - **Phase 2: Bot-side command registry generator** (#180, depends on
   dune-awakening-selfhost-docker#337 Phase 1 Core endpoint):

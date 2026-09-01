@@ -4,6 +4,14 @@ export function logInfo(event, fields = {}, sink = console.log) {
   writeLog("info", event, fields, sink);
 }
 
+// logWarn: for non-fatal, operator-actionable notices (e.g. deprecated
+// compatibility env vars). Always routes fields through redactSecrets()
+// via writeLog(), the same as logInfo/logError -- callers must never rely
+// on "I just won't pass a value" alone.
+export function logWarn(event, fields = {}, sink = console.warn) {
+  writeLog("warn", event, fields, sink);
+}
+
 export function logError(event, error, fields = {}, sink = console.error) {
   writeLog("error", event, {
     ...fields,

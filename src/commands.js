@@ -8,6 +8,7 @@ import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
 import { formatError, formatPayload, redactSecrets } from "./format.js";
 import { logInfo, logError } from "./logger.js";
+import { resolveCompatEnv } from "./compatEnv.js";
 import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegistryMetadata } from "./registryLoader.js";
 import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed , formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
@@ -193,7 +194,7 @@ const OPS_EMBEDS = { alerts: formatAlertsEmbed, activity: formatActivityEmbed, c
 
 // #213: one shared source for the setup-portal URL (mirrors onboarding.js).
 function setupPortalUrl(guildId = "") {
-  const base = process.env.ACP_SETUP_URL || process.env.ACP_BASE_URL || "http://localhost:3100";
+  const base = resolveCompatEnv(process.env, "SETUP_URL", { urlShaped: true }) || resolveCompatEnv(process.env, "BASE_URL", { urlShaped: true }) || "http://localhost:3100";
   return `${base}/setup${guildId ? `?guildId=${guildId}` : ""}`;
 }
 
@@ -219,7 +220,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     if (mode !== "open" && getGuildRoles(db, guildId).length === 0) {
       await interaction.reply({
         content: [
-          "⚙️ **This server isn't connected to Sentinel yet** (no role tiers are configured).",
+          "⚙️ **This server isn't connected to Mentat yet** (no role tiers are configured).",
           `Finish setup here: ${setupPortalUrl(guildId)}`,
           "You'll need your console URL, the adapter token, and at least one Discord role mapped to a tier (Player/Moderator/Admin/Owner).",
           "Once configured, run `/dune core help` to see available commands."
@@ -234,7 +235,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     // #213/U8: name the fix, don't dead-end — the user's next step is a
     // role grant, and only a server admin can do it.
     await interaction.reply({
-      content: "🔒 You are not authorized to use this command. Access requires one of this server's configured Sentinel role tiers (Player, Moderator, Admin, or Owner) — ask a server admin to assign you one of the mapped Discord roles.",
+      content: "🔒 You are not authorized to use this command. Access requires one of this server's configured Mentat role tiers (Player, Moderator, Admin, or Owner) — ask a server admin to assign you one of the mapped Discord roles.",
       ephemeral: true
     });
     return true;
@@ -1197,7 +1198,7 @@ export function getCommandRegistry() {
     },
     {
       group: "core",
-      title: "Sentinel Core — Core Commands",
+      title: "Mentat — Core Commands",
       commands: [
         { name: "about", desc: "Bot version, security info, connection details", role: "player" },
         { name: "ping", desc: "Test Discord and adapter latency", role: "player" },

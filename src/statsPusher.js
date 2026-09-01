@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { logError, logInfo } from "./logger.js";
 import { getCommandCount, getAllGuilds, getActiveGuilds, saveStatsSnapshot } from "./database.js";
 import { sendChannelAlert } from "./notifications.js";
+import { resolveCompatEnv } from "./compatEnv.js";
 
 const PUSH_INTERVAL_MS = Number.parseInt(process.env.STATS_PUSH_INTERVAL_MS || "300000", 10) || 300000;
 // Identifies this bot process/deployment for log correlation and for the
@@ -18,7 +19,7 @@ const PUSH_INTERVAL_MS = Number.parseInt(process.env.STATS_PUSH_INTERVAL_MS || "
 // without bound, for a key nothing consumes. As of issue #83.2 / KV
 // removal, no KV key is written at all anymore -- the payload is stored
 // in the local stats_snapshot table instead.
-const INSTANCE_ID = process.env.ACP_INSTANCE_ID || randomUUID();
+const INSTANCE_ID = resolveCompatEnv(process.env, "INSTANCE_ID") || randomUUID();
 
 function getVersion() {
   try {
@@ -54,7 +55,7 @@ function isValidNumber(value) {
 //   opsResources  -> { ok, result: { totalFields, totalValueRemaining, resourcesByMap, spiceFieldsBySize } }
 //   opsCombat     -> { ok, result: { totalDeaths, pvpDeaths, pveDeaths, ... } }
 //   opsEconomy    -> { ok, result: { totalCurrencyHolders, totalSupply, ... } }
-const SYSTEM_ACTOR = Object.freeze({ userId: "stats-pusher", username: "ACP", guildId: "stats", channelId: "stats", roleIds: [] });
+const SYSTEM_ACTOR = Object.freeze({ userId: "stats-pusher", username: "Mentat", guildId: "stats", channelId: "stats", roleIds: [] });
 
 // Aggregate game-level stats across all active guilds. Each guild has its
 // own console URL and adapter token (stored in the guilds table). We call
@@ -281,7 +282,7 @@ export function startStatsPusher({ client, db, adapterClient, alertChannelId = p
   // (#83.2) there is no cloud dependency anymore, so the feature is
   // simply opt-out. Operators who never wanted the Core ops polls can
   // set ACP_STATS_ENABLED=false.
-  if (String(process.env.ACP_STATS_ENABLED ?? "true").toLowerCase() === "false") {
+  if (String(resolveCompatEnv(process.env, "STATS_ENABLED") ?? "true").toLowerCase() === "false") {
     logInfo("stats_pusher.skipped", { reason: "disabled_by_env" });
     return { active: false, stop() {} };
   }

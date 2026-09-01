@@ -37,5 +37,5 @@ function buildFooter(context = {}) {
   // #217/C2: no text-format time here — enrichEmbed()'s setTimestamp()
   // already renders the time localized to each viewer, and the old UTC
   // ISO string both duplicated it and diverged from duneEmbed's footer.
-  return `${SAND_EMOJI} Dune: Awakening Docker — Sentinel · ${parts.join(" · ")}`;
+  return `${SAND_EMOJI} Dune: Awakening Docker — Mentat · ${parts.join(" · ")}`;
 }

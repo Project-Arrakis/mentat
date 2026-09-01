@@ -83,7 +83,7 @@ function renderPage(title, bodyHtml) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${esc(title)} — ACP Steam Link</title>
+  <title>${esc(title)} — Mentat Steam Link</title>
   <style>${PAGE_STYLE}</style>
 </head>
 <body>

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { resolveCompatEnv } from "./compatEnv.js";
 
 const DEFAULT_PATHS = Object.freeze({
   health: "/api/integrations/discord/health",
@@ -135,21 +136,32 @@ export function loadConfig(env = process.env) {
   const legacyAllowedRoleIds = parseCsv(env.DISCORD_ALLOWED_ROLE_IDS);
   const observerRoleIds = mergeRoleIds(parseCsv(env.DISCORD_OBSERVER_ROLE_IDS), legacyAllowedRoleIds);
   const adminRoleIds = parseCsv(env.DISCORD_ADMIN_ROLE_IDS);
-  const multiTenant = parseBoolean(env.ACP_MULTI_TENANT, false);
+  const multiTenant = parseBoolean(resolveCompatEnv(env, "MULTI_TENANT"), false);
   const config = {
     multiTenant,
+    // NOTE: ACP_DB_PATH is deliberately NOT yet resolved through
+    // resolveCompatEnv()/MENTAT_DB_PATH. Unlike the other aliased vars, this
+    // one selects which physical SQLite file gets opened -- and
+    // better-sqlite3 silently creates an empty file at whatever path it's
+    // given (no fileMustExist check anywhere in this codebase). An operator
+    // who set only MENTAT_DB_PATH today, before the acp.db -> mentat.db
+    // migration exists, would get a silently-created empty database and
+    // their real data would sit orphaned, unnoticed, at the old path. Adding
+    // MENTAT_DB_PATH/SENTINEL_DB_PATH support for this specific variable is
+    // intentionally deferred to land together with that migration (a
+    // Layer 2 audit finding on this same Phase 4 pass, not an oversight).
     dbPath: env.ACP_DB_PATH || "data/acp.db",
-    baseUrl: optionalEnv(env, "ACP_BASE_URL") || "http://localhost:3100",
-    setupPort: parsePositiveInteger(env.ACP_SETUP_PORT, 3100),
+    baseUrl: resolveCompatEnv(env, "BASE_URL", { urlShaped: true }) || "http://localhost:3100",
+    setupPort: parsePositiveInteger(resolveCompatEnv(env, "SETUP_PORT"), 3100),
     // Links posted in the daily digest (scheduler.js) -- previously
     // hardcoded real operator-specific URLs directly in source, which
     // meant every deployment of this bot would post the maintainer's own
     // URLs regardless of who was actually running it. Now optional and
     // omitted from the digest entirely when unset, rather than defaulting
     // to a placeholder that looks like a real, dead link.
-    consoleDashboardUrl: optionalEnv(env, "ACP_CONSOLE_DASHBOARD_URL"),
-    grafanaDashboardUrl: optionalEnv(env, "ACP_GRAFANA_DASHBOARD_URL"),
-    oauthRedirectUri: optionalEnv(env, "ACP_OAUTH_REDIRECT_URI"),
+    consoleDashboardUrl: resolveCompatEnv(env, "CONSOLE_DASHBOARD_URL", { urlShaped: true }),
+    grafanaDashboardUrl: resolveCompatEnv(env, "GRAFANA_DASHBOARD_URL", { urlShaped: true }),
+    oauthRedirectUri: resolveCompatEnv(env, "OAUTH_REDIRECT_URI", { urlShaped: true }),
     // steamLink: the /dune player link Steam-connections feature's own
     // small Express app (src/steamLinkServer.js), started unconditionally
     // regardless of multiTenant -- see docs/steam-link-architecture.md's Single-Tenant
@@ -164,8 +176,8 @@ export function loadConfig(env = process.env) {
         readOptionalSecretFile(env, "DISCORD_CLIENT_SECRET_FILE") ||
         multiTenant
       ),
-      port: parsePositiveInteger(env.ACP_STEAM_LINK_PORT, 3101),
-      baseUrl: optionalEnv(env, "ACP_STEAM_LINK_BASE_URL") || optionalEnv(env, "ACP_BASE_URL") || "http://localhost:3101"
+      port: parsePositiveInteger(resolveCompatEnv(env, "STEAM_LINK_PORT"), 3101),
+      baseUrl: resolveCompatEnv(env, "STEAM_LINK_BASE_URL", { urlShaped: true }) || resolveCompatEnv(env, "BASE_URL", { urlShaped: true }) || "http://localhost:3101"
     },
     discord: {
       token: readSecret(env, "DISCORD_BOT_TOKEN", "DISCORD_BOT_TOKEN_FILE"),
