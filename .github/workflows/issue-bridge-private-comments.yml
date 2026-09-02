@@ -46,8 +46,8 @@ jobs:
           app-id: ${{ secrets.ACP_ISSUE_BRIDGE_APP_ID }}
           private-key: ${{ secrets.ACP_ISSUE_BRIDGE_PRIVATE_KEY }}
           repositories: |
-            arrakis-control-panel
-            acp-discordbot
+            mentat
+            mentat-adjutant
           # Explicit narrowing (belt-and-suspenders on top of the App's own
           # least-privilege grant, section 5/85): errors loudly if the App's
           # installation ever has more or less than this, instead of silently
