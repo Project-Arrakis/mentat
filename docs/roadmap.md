@@ -202,7 +202,7 @@ Only add commands backed by safe upstream adapter responses.
 - `/dune player inventory <search>` — Search items in inventory
 - `/dune player storage` — View storage containers (owned or guild)
 - `/dune player find` — Search items in storage
-- `/dune player faction <name>` — Set faction for themed embeds
+- `/dune player faction` — Show your real, in-game faction (read-only, auto-detected from `dune.player_faction` — see `dune-awakening-selfhost-docker#696`)
 
 **Upstream PR:** [Red-Blink/dune-awakening-selfhost-docker#91](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/91)
 — **merged 2026-07-20** (`47ca186`, shipped in `v1.3.61`; all of PR #91's

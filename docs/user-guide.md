@@ -73,7 +73,7 @@ Select one, then choose a command from within that group.
 | `/dune player disable <character>` | Disable a linked character in this guild |
 | `/dune player default <character>` | Set your default character for this guild |
 | `/dune player unlink <character>` | Unlink a character from your Discord |
-| `/dune player faction <name>` | Set your faction for themed embeds (atreides, harkonnen, fremen) |
+| `/dune player faction` | Show your real, in-game faction (read-only, auto-detected) |
 | `/dune player whoami` | Show your linked character info |
 
 **Character Linking Flow:**
@@ -207,14 +207,13 @@ Run this command to see your linked character:
 
 This shows your character name, whether you're currently online, and other details.
 
-### Step 4: Set Your Faction (Optional)
+### Step 4: Check Your Faction (Optional)
 
-You can set your faction to get themed embed colors and quotes:
+`/dune player faction` shows your real, in-game faction, auto-detected from
+your linked character — it's read-only, there's nothing to set:
 
 ```
-/dune player faction atreides
-/dune player faction harkonnen
-/dune player faction fremen
+/dune player faction
 ```
 
 ### Step 5: Use Player Commands

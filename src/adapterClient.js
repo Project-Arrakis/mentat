@@ -296,7 +296,10 @@ export class AdapterClient {
   playerLinkVerify(actor, code, guildId) { return this.request("players-link-verify", actor, { code }, guildId); }
   playerUnlink(actor, guildId) { return this.request("players-unlink", actor, undefined, guildId); }
   whoami(actor, guildId) { return this.request("players-me", actor, undefined, guildId); }
-  playerFaction(actor, faction, guildId) { return this.request("players-faction", actor, { faction }, guildId); }
+  // Read-only, auto-detected -- Core's real route never accepts or stores
+  // a caller-supplied faction value (dune-awakening-selfhost-docker#696),
+  // so there is deliberately no faction argument here.
+  playerFaction(actor, guildId) { return this.request("players-faction", actor, undefined, guildId); }
   playerInventory(actor, guildId) { return this.request("players-inventory", actor, undefined, guildId); }
   playerInventorySearch(actor, query, guildId) { return this.request("players-inventory-search", actor, { query }, guildId); }
   playerStorage(actor, scope, guildId) { return this.request("players-storage", actor, { scope }, guildId); }

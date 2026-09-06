@@ -259,7 +259,7 @@ Once linked, players can use:
 - `/dune player verify <code>` — Complete linking with verification code (whisper path only)
 - `/dune player unlink` — Remove character link
 - `/dune player whoami` — Show linked character info
-- `/dune player faction <name>` — Set faction for themed embeds (atreides, harkonnen, fremen)
+- `/dune player faction` — Show your real, in-game faction (read-only, auto-detected — `dune-awakening-selfhost-docker#696`)
 - `/dune player inventory` — View character inventory
 - `/dune player inventory <search>` — Search items in inventory
 - `/dune player storage` — View storage containers (owned scope)
@@ -282,6 +282,22 @@ but as of this correction none of those functions are called anywhere in
 `src/commands.js` or `src/index.js` — all `player:*` commands route through
 `adapterClient` (HTTP calls to Core) instead. That bot-side table appears to
 be unused/dead schema, not a second source of truth.
+
+**Correction (found while remediating the `/dune player faction` stale-
+description finding above):** the SAME dead-code pattern exists for a
+second, unrelated feature — `src/database.js`'s `guild_settings.faction`
+column and its `setGuildFaction()`/`getGuildFaction()` functions (a
+per-guild cosmetic theme used by `statusCard.js` for themed status cards,
+entirely distinct from a player's own in-game faction). `getGuildFaction()`
+is called and does render themed cards; `setGuildFaction()` is defined but
+never called anywhere in the codebase — there is currently no command that
+can actually set this value, so every guild's theme is permanently stuck at
+the empty-string default. `/dune player faction`'s old description ("Set
+your faction for themed embeds") appears to have described this feature's
+INTENT, but its actual handler never called `setGuildFaction()` — it called
+`adapterClient.playerFaction()` (a real, different, per-player Core route)
+the whole time. Tracked separately, not fixed as part of this correction:
+see `mentat#251`.
 
 | Capability | Required Role | Commands |
 |-----------|---------------|----------|
