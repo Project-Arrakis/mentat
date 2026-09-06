@@ -1,13 +1,20 @@
 # Install
 
-This bot is a user-owned Discord companion for Dune Awakening Self-Host Docker.
-There is no shared hosted bot. Each operator creates their own Discord
-application, keeps their own tokens, and connects only to their own WebUI
-Discord adapter.
+This is a Discord companion bot for Dune Awakening Self-Host Docker,
+branded **Mentat** (the bot speaks as **Sahir Venn**; previously Sentinel,
+before that Arrakis Control Panel / ACP). **There is a real, maintainer-
+operated shared hosted instance** most operators should use instead of
+self-hosting — see [README.md](README.md) and
+[docs/admin-guide.md](docs/admin-guide.md) for the hosted-bot setup flow.
+This file (`INSTALL.md`) documents the **self-hosted/DIY path**: creating
+your own Discord application, keeping your own tokens, and connecting only
+to your own WebUI Discord adapter — for operators who explicitly want
+their own instance rather than the hosted one.
 
 The bot is read-only by default. Write commands exist but are disabled by
-default. In multi-tenant mode, the bot can serve multiple Discord servers from
-a single hosted instance.
+default. In multi-tenant mode, a single self-hosted instance can serve
+multiple Discord servers (this is exactly the mode the project's own
+hosted instance runs in).
 
 ## Prerequisites
 
@@ -93,19 +100,24 @@ After setup, follow `docs/operator-validation.md` to record local adapter smoke,
 test-guild command registration, runtime command smoke, and Docker healthcheck
 evidence before promoting a release candidate or wider deployment.
 
-## R740 Self-Hosted Deployment (planned target, not yet executed for this project's own instance)
+## R740 Self-Hosted Deployment (superseded — historical, do not follow for this project's own instance)
 
 For operators using the Dell PowerEdge R740 hypervisor
 ([r740-dune-deployment-kit](https://github.com/yacketrj/r740-dune-deployment-kit)):
 
-**Status note (2026-08-13):** this section documents the intended setup
-once a bot instance is migrated onto an R740's `dune-prod` VM. This
-project's own live bot instance has NOT yet been migrated — it remains
-self-hosted on its original VPS as of this writing (see
-`compliance/runbooks/backup-recovery.md` for the current hosting
-architecture). The steps below are still accurate as a setup guide for
-when that migration is executed, or for any other operator running their
-own R740-based deployment.
+**Status note (corrected 2026-09-06):** this section previously described
+co-locating the bot on the R740's `dune-prod` game-server VM as a "planned
+target, not yet executed." That plan was explicitly **rejected** — this
+project's own live bot instance instead moved to a dedicated,
+Services-VLAN VM (`192.168.22.10`, isolated from the game-server VMs) on
+2026-08-17, per `compliance/runbooks/backup-recovery.md`'s own correction.
+The steps below are left as historical record of the plan that was
+considered and dropped; they do not describe this project's real,
+current deployment (see `compliance/runbooks/backup-recovery.md` and
+`systemd/acp-bot.service` for that). They may still be a starting point
+for another operator who genuinely wants to co-locate their own instance
+on an R740's game-server VM, but note the security/isolation tradeoff
+that led this project to choose a separate VM instead.
 
 The bot runs alongside the game server stack on the **dune-prod VM**
 (VMID 101, IP 192.168.20.10). It calls the console API over localhost
@@ -145,7 +157,7 @@ setup portal endpoints. Add to `/etc/cloudflared/config.yml`:
 
 ```yaml
 ingress:
-  - hostname: acp-setup.darkdante.org
+  - hostname: mentat-link.darkdante.org
     service: http://localhost:3100
   - hostname: CONSOLE_TUNNEL_HOSTNAME    # your own tunnel hostname
     service: http://localhost:8088
@@ -166,7 +178,7 @@ cp ~/arrakis-control-panel/scripts/deploy-post-receive.sh hooks/post-receive
 chmod +x hooks/post-receive
 
 # On the dev machine:
-git remote add deploy ssh://dune@192.168.20.10/home/dune/acp-deploy.git
+git remote add deploy ssh://bot@192.168.22.10/home/bot/acp-deploy.git
 git push deploy main:deploy
 ```
 
