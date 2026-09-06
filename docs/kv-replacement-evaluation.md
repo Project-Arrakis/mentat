@@ -94,9 +94,11 @@ So a KV replacement does not actually need a database at all. It needs:
 1. A read-only endpoint on the bot host that returns the current
    aggregate (the push job's payload builder already produces it), and
 2. The existing Cloudflare Tunnel / setup-portal route already
-   forwarding `acp-setup.darkdante.org` (port 3100) to that host --
-   which already exists for the setup portal, i.e. the public HTTPS
-   path to the reader is already in place.
+   forwarding `mentat-backend.darkdante.org` (port 3100, internal-only
+   as of the 2026-09-06 domain consolidation) to that host -- which
+   already exists for the setup portal, i.e. the public HTTPS path to
+   the reader is already in place (reached via `mentat-link.darkdante.org`'s
+   own reverse-proxy Pages Function).
 
 The acp-landing Pages Function's reader then changes from
 `env.ACP_STATS.get(...)` to a fetch of that endpoint (same JSON

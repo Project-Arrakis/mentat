@@ -1,8 +1,8 @@
 {
   "root": "./docs",
-  "title": "Arrakis Control Panel — Discord Bot for Dune: Awakening",
-  "description": "Complete documentation for the ACP Discord bot that connects your Dune: Awakening server to Discord.",
-  "author": "Arrakis Control Panel Team",
+  "title": "Mentat — Discord Bot for Dune: Awakening",
+  "description": "Complete documentation for Mentat (Sahir Venn), the Discord bot that connects your Dune: Awakening server to Discord.",
+  "author": "Project Arrakis",
   "language": "en",
   "gitbook": ">=3.0.0",
   "structure": {
@@ -11,10 +11,10 @@
   },
   "links": {
     "sidebar": {
-      "GitHub Repository": "https://github.com/yacketrj/arrakis-control-panel",
+      "GitHub Repository": "https://github.com/Project-Arrakis/mentat",
       "Discord Server": "https://discord.gg/your-discord",
-      "Report an Issue": "https://github.com/yacketrj/arrakis-control-panel/issues",
-      "Contributing": "https://github.com/yacketrj/arrakis-control-panel/blob/main/CONTRIBUTING.md"
+      "Report an Issue": "https://github.com/Project-Arrakis/mentat/issues",
+      "Contributing": "https://github.com/Project-Arrakis/mentat/blob/main/CONTRIBUTING.md"
     }
   },
   "plugins": [
@@ -26,7 +26,7 @@
   ],
   "pluginsConfig": {
     "github": {
-      "url": "https://github.com/yacketrj/arrakis-control-panel"
+      "url": "https://github.com/Project-Arrakis/mentat"
     },
     "scripts": {
       "files": ["./_ga.js"]
