@@ -7,9 +7,9 @@ const SETUP_URL = resolveCompatEnv(process.env, "SETUP_URL", { urlShaped: true }
 
 function setupMessageFor(guild, setupLink) {
   return [
-    `🏜️ **Welcome to Mentat!**`,
+    `🏜️ **I am Sahir Venn, your Mentat.**`,
     ``,
-    `I've been added to **${guild.name}**. To get started, you need to connect this server to Mentat.`,
+    `I've been added to **${guild.name}**. To get started, you need to connect this server to Mentat, and I'll begin my work.`,
     ``,
     `**Setup steps** (a few minutes; a bit longer the first time, since it includes a one-time console configuration):`,
     `1. Click the setup link below and sign in with Discord`,
@@ -26,9 +26,9 @@ function setupMessageFor(guild, setupLink) {
 function ownerNoticeFor(guild, inviter) {
   const inviterLabel = inviter.tag || inviter.username || inviter.id;
   return [
-    `🏜️ **Mentat was added to ${guild.name}**`,
+    `🏜️ **Sahir Venn was added to ${guild.name}**`,
     ``,
-    `**${inviterLabel}** added the Mentat bot to your server and has been sent the setup instructions.`,
+    `**${inviterLabel}** added Sahir Venn, your Mentat, to your server and has been sent the setup instructions.`,
     ``,
     `You don't need to do anything unless setup isn't completed -- if it looks stuck, you (as server owner) can also run \`/dune core setup\` for the setup link.`
   ].join("\n");
@@ -46,7 +46,7 @@ function ownerNoticeFor(guild, inviter) {
 // both.
 function fallbackNoticeFor(guild, setupLink) {
   return [
-    `🏜️ **Welcome to Mentat!**`,
+    `🏜️ **I am Sahir Venn, your Mentat.**`,
     ``,
     `I've been added to **${guild.name}**. If you're the one who just invited me, here's how to get started:`,
     ``,

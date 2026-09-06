@@ -62,7 +62,7 @@ export function duneEmbed({ title, color = "spice", description, fields = [], ti
   // #217/C2: the footer carries the brand only. setTimestamp() below
   // already renders the time localized to each viewer — the old text
   // time duplicated it in the SERVER's locale/timezone, not theirs.
-  const footerText = "🏜️ Dune: Awakening Docker — Mentat";
+  const footerText = "🏜️ Sahir Venn — Mentat of Dune: Awakening Docker";
 
   const embed = new EmbedBuilder()
     .setTitle(title)
@@ -89,7 +89,7 @@ export function duneEmbed({ title, color = "spice", description, fields = [], ti
   }
 
   if (showQuote) {
-    embed.addFields({ name: "\u200b", value: `*"${randomQuote(faction)}"*`, inline: false });
+    embed.addFields({ name: "\u200b", value: `*"${randomQuote(faction)}"*\n\u2014 Sahir Venn`, inline: false });
   }
 
   return embed;
