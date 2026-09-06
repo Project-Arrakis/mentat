@@ -8,12 +8,14 @@ group in this bot beyond its current disabled-by-default scaffold until
 upstream publishes and approves a write-capable adapter contract.
 
 The current upstream Discord adapter baseline is
-`Red-Blink/dune-awakening-selfhost-docker@b4f8fe4c5a36e2ac2f81deb4c9fddde087c77d06`
-(tag `v1.3.87`), reviewed on August 16, 2026. Its health payload advertises
-`writesEnabled: false` for the operator write routes; player linking is the
-one real write path, on Core's dedicated player-link adapter routes. No
-upstream release-candidate tag newer than `v1.3.87` was observed during the
-August 16, 2026 compatibility review.
+`Red-Blink/dune-awakening-selfhost-docker@b53765c2070c12d7ebb4adc8103f26c42745fa7c`
+(latest published release tag `v1.4.8`), re-verified on September 6, 2026 --
+unchanged from the 2026-08-16 baseline for this RFC's purposes: no
+write-capable route (`write-execute`/`write-preview`) exists upstream at
+either point. Its health payload advertises `writesEnabled: false` for the
+operator write routes; player linking is the one real write path, on Core's
+dedicated player-link adapter routes. No upstream release-candidate tag newer
+than `v1.4.8` was observed during the September 6, 2026 compatibility review.
 
 ## Maintainer Brief
 
