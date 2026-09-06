@@ -345,7 +345,12 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
         username: session.username,
         guildId: session.guildId,
         channelId: session.channelId,
-        roleIds: session.roleIds
+        roleIds: session.roleIds,
+        // Issue #240 code-review finding: without this, a real guild
+        // owner with zero roles configured is seen as "public" tier by
+        // Core through this OAuth round-trip path, unlike a live slash
+        // command (actorFromInteraction already carries it).
+        guildOwnerId: session.guildOwnerId
       };
       linkResult = await adapterClient.linkAccountViaSteam(
         actor, session.playerControllerId, steamId64List, session.guildId
@@ -462,7 +467,12 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
         username: session.username,
         guildId: session.guildId,
         channelId: session.channelId,
-        roleIds: session.roleIds
+        roleIds: session.roleIds,
+        // Issue #240 code-review finding: without this, a real guild
+        // owner with zero roles configured is seen as "public" tier by
+        // Core through this OAuth round-trip path, unlike a live slash
+        // command (actorFromInteraction already carries it).
+        guildOwnerId: session.guildOwnerId
       };
       await adapterClient.playerLink(actor, session.characterName, session.guildId);
     } catch (err) {

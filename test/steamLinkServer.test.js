@@ -209,18 +209,23 @@ test("GET /steam-link/callback shows an 'Already Linked' page, not the generic '
   });
 });
 
-test("GET /steam-link/callback's actor object sent to Core includes username/channelId/roleIds, not just userId/guildId (regression, real bug found 2026-07-26)", async () => {
+test("GET /steam-link/callback's actor object sent to Core includes username/channelId/roleIds/guildOwnerId, not just userId/guildId (regression, real bug found 2026-07-26; guildOwnerId added issue #240)", async () => {
   // Core's normalizeDiscordActor() hard-requires username and channelId
   // on EVERY actor object -- an actor built with only userId/guildId
   // (this file's shape before this fix) always failed with a real 400
   // "actor.username is required" error on every genuine link-steam
   // attempt in production. This test asserts the full actor shape is
   // forwarded, so this specific regression can't silently reappear.
+  // guildOwnerId (issue #240): without it, a real guild owner with zero
+  // roles configured is seen as "public" tier by Core through this OAuth
+  // round-trip path specifically -- unlike a live slash command, which
+  // already carries it -- and rejected by requireSelfScopedCapability.
   const session = createSteamLinkSession(baseSessionArgs({
     discordUserId: "user-1",
     username: "RealDiscordUsername",
     channelId: "real-channel-id",
-    roleIds: ["real-role-id"]
+    roleIds: ["real-role-id"],
+    guildOwnerId: "owner-1"
   }));
   let receivedActor = null;
   await withServer(async (baseUrl) => {
@@ -232,6 +237,7 @@ test("GET /steam-link/callback's actor object sent to Core includes username/cha
     assert.equal(receivedActor.guildId, "guild-1");
     assert.equal(receivedActor.channelId, "real-channel-id");
     assert.deepEqual(receivedActor.roleIds, ["real-role-id"]);
+    assert.equal(receivedActor.guildOwnerId, "owner-1");
   }, {
     adapterClient: makeMockAdapterClient({
       async linkAccountViaSteam(actor) {
