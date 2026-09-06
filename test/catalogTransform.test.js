@@ -72,7 +72,12 @@ test("flattenSubcommand: flattens a real single-route v2 subcommand", () => {
   assert.equal(flat.route, "/api/integrations/discord/health");
   assert.equal(flat.method, "GET");
   assert.ok(Array.isArray(flat.params));
-  assert.ok(Array.isArray(flat.routes), "original routes[] must be preserved for downstream consumers");
+  // issue #208: the flattened output no longer preserves the input
+  // routes[] a second time -- confirmed no real consumer ever read it
+  // (commands.js's own per-route selector dispatch for player:inventory/
+  // storage/find is separate, hand-written logic against live request
+  // params, not this artifact).
+  assert.equal(flat.routes, undefined);
 });
 
 test("flattenSubcommand: flattens a real multi-route v2 subcommand (player:inventory)", () => {
@@ -91,9 +96,9 @@ test("flattenSubcommand: flattens a real multi-route v2 subcommand (player:inven
   // the -search route has `search` -- must still surface `search`.
   assert.equal(flat.params.length, 1);
   assert.equal(flat.params[0].name, "search");
-  // Full route detail preserved for any consumer needing per-route
-  // dispatch (commands.js's existing hand-written selector logic).
-  assert.equal(flat.routes.length, 2);
+  // issue #208: no longer preserved -- see the health-subcommand test's
+  // own comment above for why.
+  assert.equal(flat.routes, undefined);
 });
 
 test("flattenSubcommand: sets requiresWritesEnabled=true if ANY route requires it", () => {

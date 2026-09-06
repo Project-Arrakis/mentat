@@ -105,13 +105,27 @@ export function flattenSubcommand(sc) {
     method: primary.method,
     params: [...paramsByName.values()],
     routeEnforcesCapability: primary.routeEnforcesCapability !== false,
-    requiresWritesEnabled: sc.routes.some((r) => r.requiresWritesEnabled === true),
-    // Full per-route detail, preserved for any consumer that needs it
-    // (multi-route selector dispatch, diagnostics, etc.) -- NOT used by
-    // validateRegistry()/Discord registration, which only look at the
-    // flattened fields above.
-    routes: sc.routes
+    requiresWritesEnabled: sc.routes.some((r) => r.requiresWritesEnabled === true)
+    // issue #208: this used to also preserve the full input routes[]
+    // array as a `routes` field ("for any consumer that needs it,
+    // multi-route selector dispatch, diagnostics, etc."), doubling the
+    // committed artifact's size by repeating every flat field a second
+    // time nested inside it. No such consumer ever existed --
+    // commands.js's actual per-route selector dispatch for player:
+    // inventory/storage/find is its own hand-written logic against live
+    // request params, and never reads this artifact's `.routes` at all
+    // (confirmed by direct grep across src/ and scripts/). Dropped.
   };
+}
+
+/**
+ * Total leaf-subcommand count across a registry's groups. One
+ * implementation (issue #208 -- this exact one-line reduce was
+ * previously duplicated across registryLoader.js, commands.js,
+ * generate-command-registry.js, and validate-command-registry.js).
+ */
+export function countSubcommands(registry) {
+  return (registry?.groups || []).reduce((sum, g) => sum + (g.subcommands?.length || 0), 0);
 }
 
 /**
