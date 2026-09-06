@@ -66,15 +66,6 @@ export function dbActorTier(roleIds, roles) {
   return best;
 }
 
-// Convenience: resolve an actor's tier straight from the DB for a given
-// guild. Returns null when the guild has no configured roles matching the
-// actor, or when db/guildId are absent (callers that need env-only
-// behavior should not call this — see writes.js's canWrite()).
-export function resolveDbActorTier(roleIds, db, guildId) {
-  if (!db || !guildId) return null;
-  return dbActorTier(roleIds, getGuildRoles(db, guildId));
-}
-
 // true when actorId is the real Discord guild owner. This is the ONLY path
 // that may ever produce the "owner" tier — see resolveActorAuthTier below.
 // Mirrors Core's tier1-upstream design (rfc-console-auth.md sec 2.1.1:
@@ -112,10 +103,20 @@ export function resolveActorAuthTier({ actorId, guildOwnerId, roleIds, roles }) 
 // DB/guild lookup here doesn't eliminate every call site (each still has
 // its own single-tenant branch that never reaches this function at all),
 // but it removes the one part that was actually copy-pasted three times.
-export function multiTenantActorTier(interaction, db, guildId, roleIds) {
+//
+// Takes actorId/guildOwnerId as already-resolved values, not a raw
+// `interaction`, on purpose: a second code-review finding showed that
+// deriving guildOwnerId from a bare `interaction.guild?.ownerId` here (or
+// anywhere) misses the real, reachable case where interaction.guild is
+// null/uncached (a gateway reconnect or guild-unavailable window) but
+// interaction.guildId is still populated — every caller already resolves
+// guildOwnerId once, with that fallback, via commands.js's/writes.js's own
+// resolveGuildOwnerId(interaction); this function must not silently
+// re-derive a weaker value that bypasses it.
+export function multiTenantActorTier(actorId, guildOwnerId, db, guildId, roleIds) {
   return resolveActorAuthTier({
-    actorId: interaction?.user?.id,
-    guildOwnerId: interaction?.guild?.ownerId,
+    actorId,
+    guildOwnerId,
     roleIds,
     roles: getGuildRoles(db, guildId)
   });

@@ -13,6 +13,7 @@ import {
   upsertGuild,
   getGuild,
   addGuildRole,
+  getGuildRoles,
   updateGuildSettings,
   getStatsSnapshot
 } from "./database.js";
@@ -34,19 +35,32 @@ const DISCORD_USER_URL = "https://discord.com/api/v10/users/@me";
 // two different tiers. Owner is deliberately excluded from this check: it
 // has no role concept at all anymore, so it can never conflict with
 // anything. Returns the first conflict found (role ID + both tier names)
-// or null when the three mappings are conflict-free.
-export function findRoleTierConflict({ adminRoleId, moderatorRoleId, observerRoleId }) {
+// or null when the combined mapping is conflict-free.
+//
+// `existingRoles` (the shape database.js's getGuildRoles() returns) is
+// checked ALONGSIDE the current submission's 3 fields, not just against
+// each other -- a code-review finding caught that /setup/register's own
+// addGuildRole() calls are purely additive (INSERT OR IGNORE, never clears
+// a guild's prior mappings), so a first registration with adminRoleId=X
+// followed by a later, unrelated re-registration with moderatorRoleId=X
+// would previously pass this check (nothing in THAT request conflicted
+// with itself) while silently creating exactly the one-role-two-tiers
+// violation this function exists to prevent.
+export function findRoleTierConflict({ adminRoleId, moderatorRoleId, observerRoleId, existingRoles = [] }) {
   const mapped = [
     ["admin", adminRoleId],
     ["moderator", moderatorRoleId],
-    ["observer", observerRoleId]
+    ["observer", observerRoleId],
+    ...existingRoles
+      .filter((row) => row.role_type !== "owner")
+      .map((row) => [row.role_type, row.role_id])
   ].filter(([, roleId]) => roleId);
 
   for (let i = 0; i < mapped.length; i++) {
     for (let j = i + 1; j < mapped.length; j++) {
       const [tierA, roleIdA] = mapped[i];
       const [tierB, roleIdB] = mapped[j];
-      if (String(roleIdA) === String(roleIdB)) {
+      if (tierA !== tierB && String(roleIdA) === String(roleIdB)) {
         return { roleId: roleIdA, tierA, tierB };
       }
     }
@@ -373,7 +387,7 @@ export function createSetupServer(config) {
       // design -- a single Discord role may never be mapped to two
       // different tiers. Reject the whole submission and name the
       // conflicting role, rather than silently letting one mapping win.
-      const roleConflict = findRoleTierConflict({ adminRoleId, moderatorRoleId, observerRoleId });
+      const roleConflict = findRoleTierConflict({ adminRoleId, moderatorRoleId, observerRoleId, existingRoles: getGuildRoles(db, guildId) });
       if (roleConflict) {
         return errorPage(res, 400, "Role Configuration Conflict",
           `Discord role ${roleConflict.roleId} is mapped to both ${roleConflict.tierA} and ${roleConflict.tierB}. Each Discord role may only be mapped to one tier — separation of duties, matching the Dune Docker console. Use your browser's Back button and map each role to a single tier.`);

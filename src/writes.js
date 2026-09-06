@@ -47,6 +47,21 @@ export function writeRoleIds(env = process.env) {
 //   - single-tenant: the existing DISCORD_WRITE_ADMIN_ROLE_IDS env var
 //     (DISCORD_WRITE_OWNER_ROLE_IDS folds into the same admin-equivalent
 //     set, not owner -- see the const's comment above).
+// resolveGuildOwnerId: local copy of commands.js's function of the same
+// name (can't import it here -- commands.js already imports FROM this
+// file, so the reverse would be a circular dependency; mirrors this file's
+// existing local extractRoleIds() precedent for the same reason). Prefers
+// the live, already-cached interaction.guild.ownerId, but falls back to
+// the bot's client-wide guild cache via guildId when interaction.guild is
+// null/uncached -- a real, reachable gap during a gateway reconnect or a
+// guild-unavailable window (issue #238 code-review finding).
+function resolveGuildOwnerId(interaction) {
+  if (interaction?.guild?.ownerId) return interaction.guild.ownerId;
+  const guildId = interaction?.guildId;
+  if (!guildId) return undefined;
+  return interaction?.client?.guilds?.cache?.get(guildId)?.ownerId;
+}
+
 export function canWrite(interaction, config, requiredTier = null, db = null, guildId = null) {
   if (!writesEnabled(config)) return false;
 
@@ -56,7 +71,7 @@ export function canWrite(interaction, config, requiredTier = null, db = null, gu
   // denied the real owner whenever member.roles was falsy/missing, directly
   // contradicting this function's own "never by a role" guarantee.
   const threshold = requiredTier || "admin";
-  if (isGuildOwner(interaction?.user?.id, interaction?.guild?.ownerId)) {
+  if (isGuildOwner(interaction?.user?.id, resolveGuildOwnerId(interaction))) {
     return tierAtLeast("owner", threshold);
   }
 
@@ -64,7 +79,7 @@ export function canWrite(interaction, config, requiredTier = null, db = null, gu
   const roleIds = extractRoleIds(interaction);
 
   if (config.multiTenant && db && guildId) {
-    return tierAtLeast(multiTenantActorTier(interaction, db, guildId, roleIds), threshold);
+    return tierAtLeast(multiTenantActorTier(interaction?.user?.id, resolveGuildOwnerId(interaction), db, guildId, roleIds), threshold);
   }
 
   const writeRoles = writeRoleIds();
