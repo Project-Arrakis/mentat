@@ -28,6 +28,7 @@
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { countSubcommands } from '../src/catalogTransform.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..');
@@ -67,7 +68,7 @@ try {
     throw new Error('Registry missing groups array');
   }
 
-  const totalSubcommands = registry.groups.reduce((sum, g) => sum + (g.subcommands?.length || 0), 0);
+  const totalSubcommands = countSubcommands(registry);
   console.log(`      ✓ Registry valid: ${registry.groups.length} groups, ${totalSubcommands} subcommands`);
   console.log(`      ✓ Generated: ${registry.generatedAt}`);
   console.log(`      ✓ Generator version: ${registry.generatorVersion}`);

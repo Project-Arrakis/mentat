@@ -49,7 +49,7 @@ import https from 'node:https';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
-import { transformCatalogToRegistry, applyCommandOverrides } from '../src/catalogTransform.js';
+import { transformCatalogToRegistry, applyCommandOverrides, countSubcommands } from '../src/catalogTransform.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..');
@@ -275,7 +275,7 @@ async function main() {
 
     console.log('[3/4] Applying bot-side overrides...');
     const registry = applyOverrides(catalog, overrides);
-    const totalSubcommands = registry.groups.reduce((sum, g) => sum + g.subcommands.length, 0);
+    const totalSubcommands = countSubcommands(registry);
     console.log(`      ✓ Applied overrides: ${overrides.exclude?.length || 0} excluded, ${Object.keys(overrides.rename || {}).length} renamed`);
     console.log(`      ✓ Final registry: ${registry.groups.length} groups, ${totalSubcommands} subcommands`);
 

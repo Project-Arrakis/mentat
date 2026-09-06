@@ -29,7 +29,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { logInfo, logError } from "./logger.js";
-import { transformCatalogToRegistry, applyCommandOverrides } from "./catalogTransform.js";
+import { transformCatalogToRegistry, applyCommandOverrides, countSubcommands } from "./catalogTransform.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..");
@@ -38,13 +38,6 @@ const repoRoot = join(__dirname, "..");
 // (committed artifact); never by a per-guild fetch (issue #192).
 let cachedRegistry = null;
 let registryLoadTime = null;
-
-/**
- * Count leaf commands in a registry.
- */
-function countCommands(registry) {
-  return registry?.groups?.reduce((sum, g) => sum + (g.subcommands?.length || 0), 0) || 0;
-}
 
 /**
  * Validate registry structure before use
@@ -157,7 +150,7 @@ export function loadRegistryAtStartup() {
 
     logInfo("registry.loaded_at_startup", {
       groups: cachedRegistry.groups?.length || 0,
-      commands: countCommands(cachedRegistry),
+      commands: countSubcommands(cachedRegistry),
       version: cachedRegistry.version,
       timestamp: registryLoadTime.toISOString()
     });
@@ -248,7 +241,7 @@ export function getRegistryMetadata() {
     loadTime: registryLoadTime,
     version: cachedRegistry?.version,
     groups: cachedRegistry?.groups?.length || 0,
-    commandCount: countCommands(cachedRegistry)
+    commandCount: countSubcommands(cachedRegistry)
   };
 }
 
