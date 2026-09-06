@@ -35,8 +35,8 @@ were both rejected).
 | Bot process | `acp-bot.service` on VM "acp-bot" (VMID 103, `192.168.22.10`), user `bot` |
 | Working directory | `/home/bot/arrakis-control-panel` |
 | Console API | `http://192.168.20.10:8088` (dune-prod) and `http://192.168.21.10:9088` (dune-dev) -- multi-tenant, reaches both over the Services VLAN's firewall-permitted path, not localhost |
-| Setup portal (3100) | Via the `acp-console` Cloudflare Tunnel (relocated to the Proxmox host, see below) → `mentat-link.darkdante.org` |
-| Steam-link (3101, path `/auth/steam`) | Same tunnel, path-scoped rule |
+| Setup portal (3100) | Via the `acp-console` Cloudflare Tunnel (relocated to the Proxmox host, see below) → internal-only `mentat-backend.darkdante.org`, reverse-proxied to the public `mentat-link.darkdante.org` (a Cloudflare Pages custom domain, not Tunnel-routed directly) by that site's own Pages Functions |
+| Steam-link (3101, path `/steam-link`) | Same tunnel, path-scoped rule on `mentat-backend.darkdante.org` |
 | SQLite DB | `/home/bot/arrakis-control-panel/data/acp.db` |
 | **VM specs** | VMID 103, 2 vCPU / 4 GB RAM / 20 GB disk, Services VLAN 22 |
 
@@ -49,15 +49,20 @@ hypervisor (`Services-Zone -> Mgmt-Zone: Block`).
 
 **The Cloudflare Tunnel does NOT run on the bot VM.** Unlike the
 previous OCI setup (which ran `cloudflared-acp.service` directly on the
-bot host), `mentat-link.darkdante.org`'s ingress now routes through the
-`acp-console` tunnel already running on the **Proxmox host itself**
-(`192.168.68.127`), which forwards to the bot VM's ports 3100/3101 over
-the LAN. Restarting `cloudflared` on the Proxmox host takes down
-`mentat-link.darkdante.org` alongside the game-server admin console
+bot host), the internal-only `mentat-backend.darkdante.org`'s ingress
+routes through the `acp-console` tunnel already running on the
+**Proxmox host itself** (`192.168.68.127`), which forwards to the bot
+VM's ports 3100/3101 over the LAN. `mentat-link.darkdante.org` itself
+is a Cloudflare Pages custom domain (not on this Tunnel at all) --
+its own reverse-proxy Pages Functions call `mentat-backend.darkdante.org`
+server-side, so the bot VM is never reached directly by a public
+request. Restarting `cloudflared` on the Proxmox host takes down
+`mentat-backend.darkdante.org` (and therefore the setup/Steam-link
+portal reached through it) alongside the game-server admin console
 hostnames sharing the same tunnel -- see the meta-repo README's Live
-Systems section (not committed here; that hostname is intentionally
-kept non-public, unlike `mentat-link.darkdante.org`) for the full,
-current ingress list.
+Systems section (not committed here; `mentat-backend.darkdante.org` is
+intentionally kept non-public, unlike `mentat-link.darkdante.org`) for
+the full, current ingress list.
 
 ## Hosting Architecture (PREVIOUS — OCI, drained but not decommissioned)
 
@@ -165,12 +170,13 @@ npx wrangler pages deploy dist --project-name=acp-landing --branch=main
 
 The live stats payload is stored in the bot's local SQLite `stats_snapshot`
 table and served through the existing Cloudflare Tunnel at
-`mentat-link.darkdante.org/api/live-stats`. No Cloudflare KV dependency
-exists.
+`mentat-backend.darkdante.org/api/live-stats` (internal-only; the public
+`mentat-link.darkdante.org` site reaches it via its own reverse-proxy
+Pages Function). No Cloudflare KV dependency exists.
 
 **Scenario**: Stats corrupted.
 1. Restart bot to repopulate stats
-2. Verify `GET https://mentat-link.darkdante.org/api/live-stats` returns valid JSON
+2. Verify `GET https://mentat-backend.darkdante.org/api/live-stats` returns valid JSON
 
 ### Cloudflare Tunnel Recovery
 
@@ -187,13 +193,17 @@ on real routing). See the meta-repo README's Live Systems section for
 the full current ingress list and how to verify it via
 `journalctl -u cloudflared` on the Proxmox host.
 
-**Live ingress rules for this service** (as of 2026-08-17):
+**Live ingress rules for this service** (updated 2026-09-06 for the
+domain-consolidation cutover -- `mentat-link.darkdante.org` moved off
+this Tunnel entirely and onto Cloudflare Pages; the internal-only
+`mentat-backend.darkdante.org` took over these two rules, with the
+Steam-link path corrected to match the bot's real route):
 ```yaml
 ingress:
-  - hostname: mentat-link.darkdante.org
+  - hostname: mentat-backend.darkdante.org
     service: http://192.168.22.10:3100
-  - hostname: mentat-link.darkdante.org
-    path: ^/auth/steam
+  - hostname: mentat-backend.darkdante.org
+    path: ^/steam-link
     service: http://192.168.22.10:3101
   - hostname: CONSOLE_TUNNEL_HOSTNAME
     service: http://192.168.20.10:8088
