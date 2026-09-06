@@ -78,14 +78,14 @@ just a Bearer token to `GitHubClient`.
 
 1. Create a clearly labeled throwaway issue in the public repo:
    ```
-   gh issue create --repo yacketrj/acp-discordbot \
+   gh issue create --repo Project-Arrakis/mentat-adjutant \
      --title "[BRIDGE TEST] <short description>" \
      --body "Throwaway issue used to validate the ACP Issue Bridge. Safe to ignore/delete."
    ```
 2. Run the relevant orchestration script directly with a real token in
    place of the Actions-minted one:
    ```
-   GITHUB_REPOSITORY=yacketrj/acp-discordbot \
+   GITHUB_REPOSITORY=Project-Arrakis/mentat-adjutant \
    ACP_BRIDGE_TOKEN=$(gh auth token) \
    ACP_BRIDGE_BOT_LOGIN=<n/a until the App exists> \
    ACP_BRIDGE_EVENT_JSON=<captured event payload> \
@@ -94,7 +94,7 @@ just a Bearer token to `GitHubClient`.
 3. Verify a correlated private mirror was created with the expected
    title, labels, and metadata:
    ```
-   gh issue view <private-issue-number> --repo yacketrj/arrakis-control-panel --json title,labels,body
+   gh issue view <private-issue-number> --repo Project-Arrakis/mentat --json title,labels,body
    ```
 4. Clean up both issues afterward — close (and, since the operator
    account has admin rights, delete via the GraphQL `deleteIssue`

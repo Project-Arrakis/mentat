@@ -215,15 +215,17 @@ Controls player inventory, storage, and character linking features.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DUNE_DISCORD_ADAPTER_ENABLED` | *(inherited from console)* | Must be `true` on the console side for player features to work |
-| `ACP_STEAM_LINK_PORT` | `3101` | Port the Steam-link OAuth callback server binds on the current deploy host |
-| `ACP_STEAM_LINK_BASE_URL` | `ACP_BASE_URL` or `http://localhost:3101` | Public base URL used in OAuth `redirect_uri`; must match Discord's registered redirect and be reachable by players' browsers |
+| `ACP_STEAM_LINK_PORT` | `3101` | Port the Steam-link OAuth callback server binds on the current deploy host. Canonical name `MENTAT_STEAM_LINK_PORT`; `SENTINEL_STEAM_LINK_PORT`/`ACP_STEAM_LINK_PORT` are deprecated but still accepted — see [env-var-compatibility.md](env-var-compatibility.md). |
+| `ACP_STEAM_LINK_BASE_URL` | `ACP_BASE_URL` or `http://localhost:3101` | Public base URL used in OAuth `redirect_uri`; must match Discord's registered redirect and be reachable by players' browsers. Canonical name `MENTAT_STEAM_LINK_BASE_URL`; `SENTINEL_STEAM_LINK_BASE_URL`/`ACP_STEAM_LINK_BASE_URL` are deprecated but still accepted. |
 
 **Note:** The Steam-link callback server is always started (it is cheap to
 run idle and its `/health` route is useful), but the "Link via Steam"
 button is only offered when a Discord OAuth client secret is configured
 (`DISCORD_CLIENT_SECRET` in multi-tenant mode). Self-hosted operators
-reaching the Steam-link flow over the internet must expose `ACP_STEAM_LINK_PORT`
-and set `ACP_STEAM_LINK_BASE_URL` to a public URL Discord will redirect to.
+reaching the Steam-link flow over the internet must expose
+`MENTAT_STEAM_LINK_PORT` (or the deprecated `ACP_STEAM_LINK_PORT`)
+and set `MENTAT_STEAM_LINK_BASE_URL` (or the deprecated
+`ACP_STEAM_LINK_BASE_URL`) to a public URL Discord will redirect to.
 
 **Note:** Player features require no additional bot configuration. They work
 automatically once the bot is connected to a console with the Discord adapter
@@ -354,15 +356,20 @@ Prevents command spam.
 
 ## Multi-Tenant Configuration (v1.6+)
 
-When `ACP_MULTI_TENANT=true`, the bot runs as a centralized service serving multiple Discord servers. Each guild connects to its own Dune console, with configuration stored in a local SQLite database.
+When `ACP_MULTI_TENANT=true` (or its canonical name `MENTAT_MULTI_TENANT=true`), the bot runs as a centralized service serving multiple Discord servers. Each guild connects to its own Dune console, with configuration stored in a local SQLite database.
+
+Four of the five settings below accept the canonical/legacy prefix scheme
+(`MENTAT_*` canonical, `SENTINEL_*`/`ACP_*` deprecated but still accepted —
+see [env-var-compatibility.md](env-var-compatibility.md)); `ACP_DB_PATH`
+is the one exception, deliberately not yet resolved through that scheme.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ACP_MULTI_TENANT` | `false` | Enable multi-tenant mode |
-| `ACP_DB_PATH` | `data/acp.db` | Path to SQLite database file |
-| `ACP_BASE_URL` | `http://localhost:3100` | Base URL for the setup web portal |
-| `ACP_SETUP_PORT` | `3100` | Port for the setup web portal |
-| `ACP_OAUTH_REDIRECT_URI` | *(auto)* | Discord OAuth2 callback URL |
+| `ACP_MULTI_TENANT` | `false` | Enable multi-tenant mode. Canonical: `MENTAT_MULTI_TENANT`. |
+| `ACP_DB_PATH` | `data/acp.db` | Path to SQLite database file. **No canonical `MENTAT_*` alias exists for this one** — only `ACP_DB_PATH` is recognized. |
+| `ACP_BASE_URL` | `http://localhost:3100` | Base URL for the setup web portal. Canonical: `MENTAT_BASE_URL`. |
+| `ACP_SETUP_PORT` | `3100` | Port for the setup web portal. Canonical: `MENTAT_SETUP_PORT`. |
+| `ACP_OAUTH_REDIRECT_URI` | *(auto)* | Discord OAuth2 callback URL. Canonical: `MENTAT_OAUTH_REDIRECT_URI`. |
 | `DISCORD_CLIENT_SECRET` | *(required)* | Discord OAuth2 client secret (from Developer Portal → OAuth2) |
 
 In multi-tenant mode:

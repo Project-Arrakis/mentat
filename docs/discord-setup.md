@@ -1,12 +1,23 @@
 # Discord Setup — Creating Your Bot Application
 
+> **Self-hosted/DIY path only (corrected 2026-09-06).** Most server owners
+> should use the **hosted** Mentat bot instead — see
+> [README.md](../README.md) and the [Admin Guide](admin-guide.md), which
+> require no Discord application of your own. This guide is only for
+> operators running their **own** self-hosted instance (see
+> [Installation Guide](installation-guide.md)) who need to create their own
+> Discord bot application from scratch, matching the same
+> hosted-vs-self-hosted distinction the Admin Guide already draws for its
+> audience.
+
 This guide walks you through creating a Discord bot application and inviting it
 to your server. No coding experience is required.
 
 ## Overview
 
-Each Dune server should have its own Discord bot. This keeps your tokens and
-server data private — no shared public bots. The setup takes about 15 minutes.
+Each self-hosted Dune server instance should have its own Discord bot. This
+keeps your tokens and server data private — no shared public bots. The
+setup takes about 15 minutes.
 
 **What you'll need:**
 - A Discord server where you have "Manage Server" permission

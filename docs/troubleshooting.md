@@ -155,7 +155,7 @@ Then only use guild-scoped registration going forward.
 
 **How to fix:**
 1. Verify the token in `DUNE_DISCORD_ADAPTER_TOKEN` matches the file
-   referenced in `DUNE_BOT_API_TOKEN_FILE` on the console side
+   referenced in `DUNE_DISCORD_ADAPTER_TOKEN_FILE` on the console side
 2. Check for trailing whitespace or newlines in token files:
    ```bash
    cat -A /path/to/token-file
@@ -310,7 +310,7 @@ git commit --no-verify
 1. Check the [FAQ](faq.md) for common questions
 2. See the [Admin Guide](admin-guide.md) for setup instructions
 3. Review the [Configuration Reference](configuration.md) for all settings
-4. Open an issue at [github.com/yacketrj/Arrakis-Control-Panel](https://github.com/yacketrj/Arrakis-Control-Panel/issues)
+4. Open an issue at [github.com/Project-Arrakis/mentat](https://github.com/Project-Arrakis/mentat/issues)
 
 ## Sources
 

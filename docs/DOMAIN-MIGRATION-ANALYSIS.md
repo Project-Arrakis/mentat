@@ -1,5 +1,18 @@
 # Domain Migration Analysis: Moving to app.dunedocker.app
 
+> **Status: Superseded / Historical (corrected 2026-09-06).** The
+> `app.dunedocker.app` unified-domain migration analyzed below never
+> happened. The real domain consolidation that did happen landed a
+> different way: the landing site is now served at
+> `mentat-link.darkdante.org` (a Cloudflare Pages custom domain), and the
+> bot's own setup/OAuth/Steam-link portal is reached through that same
+> site's reverse-proxy Pages Functions, fronting an internal-only Tunnel
+> hostname (`mentat-backend.darkdante.org`) never advertised to users. See
+> `mentat-link`'s own `README.md`/`docs/env-var-compatibility.md` for the
+> current, real architecture. This document is kept only as a historical
+> record of an alternative approach that was considered and not pursued —
+> do not use the URLs or code paths below as current.
+
 **Scenario:** Both landing page (acp.darkdante.org) and setup portal (acp-setup.darkdante.org) move to a unified domain at app.dunedocker.app
 
 **Scope:** What changes needed in arrakis-control-panel code

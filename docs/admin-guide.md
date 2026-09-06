@@ -56,7 +56,7 @@ normal until a console is connected.
 The rest of the connection happens in the web setup portal — **not** in
 this repo:
 
-1. Open **<https://acp-setup.darkdante.org/setup>** in your browser
+1. Open **<https://mentat-link.darkdante.org/setup>** in your browser
 2. **Sign in with Discord** (identify + guilds scope only — no messages, roles, or private data)
 3. **Select your server** from the dropdown
 4. **Enter your Console URL** — must be publicly reachable from the internet (a public IP/domain, or a Cloudflare Tunnel URL for a home PC)

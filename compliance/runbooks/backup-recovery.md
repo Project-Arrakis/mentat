@@ -24,7 +24,7 @@ decommissioned -- see the Hosting Architecture section below.
 
 ## Hosting Architecture (CURRENT — dedicated Proxmox VM)
 
-The ACP bot runs on a dedicated Proxmox VM, isolated from both
+The Mentat bot (Sahir Venn) runs on a dedicated Proxmox VM, isolated from both
 game-server VMs and the hypervisor itself (see
 `r740-dune-deployment-kit#93` for the full placement decision and why
 co-locating with `dune-prod` or running directly on the Proxmox host
@@ -35,7 +35,7 @@ were both rejected).
 | Bot process | `acp-bot.service` on VM "acp-bot" (VMID 103, `192.168.22.10`), user `bot` |
 | Working directory | `/home/bot/arrakis-control-panel` |
 | Console API | `http://192.168.20.10:8088` (dune-prod) and `http://192.168.21.10:9088` (dune-dev) -- multi-tenant, reaches both over the Services VLAN's firewall-permitted path, not localhost |
-| Setup portal (3100) | Via the `acp-console` Cloudflare Tunnel (relocated to the Proxmox host, see below) → `acp-setup.darkdante.org` |
+| Setup portal (3100) | Via the `acp-console` Cloudflare Tunnel (relocated to the Proxmox host, see below) → `mentat-link.darkdante.org` |
 | Steam-link (3101, path `/auth/steam`) | Same tunnel, path-scoped rule |
 | SQLite DB | `/home/bot/arrakis-control-panel/data/acp.db` |
 | **VM specs** | VMID 103, 2 vCPU / 4 GB RAM / 20 GB disk, Services VLAN 22 |
@@ -49,14 +49,14 @@ hypervisor (`Services-Zone -> Mgmt-Zone: Block`).
 
 **The Cloudflare Tunnel does NOT run on the bot VM.** Unlike the
 previous OCI setup (which ran `cloudflared-acp.service` directly on the
-bot host), `acp-setup.darkdante.org`'s ingress now routes through the
+bot host), `mentat-link.darkdante.org`'s ingress now routes through the
 `acp-console` tunnel already running on the **Proxmox host itself**
 (`192.168.68.127`), which forwards to the bot VM's ports 3100/3101 over
 the LAN. Restarting `cloudflared` on the Proxmox host takes down
-`acp-setup.darkdante.org` alongside the game-server admin console
+`mentat-link.darkdante.org` alongside the game-server admin console
 hostnames sharing the same tunnel -- see the meta-repo README's Live
 Systems section (not committed here; that hostname is intentionally
-kept non-public, unlike `acp-setup.darkdante.org`) for the full,
+kept non-public, unlike `mentat-link.darkdante.org`) for the full,
 current ingress list.
 
 ## Hosting Architecture (PREVIOUS — OCI, drained but not decommissioned)
@@ -165,12 +165,12 @@ npx wrangler pages deploy dist --project-name=acp-landing --branch=main
 
 The live stats payload is stored in the bot's local SQLite `stats_snapshot`
 table and served through the existing Cloudflare Tunnel at
-`acp-setup.darkdante.org/api/live-stats`. No Cloudflare KV dependency
+`mentat-link.darkdante.org/api/live-stats`. No Cloudflare KV dependency
 exists.
 
 **Scenario**: Stats corrupted.
 1. Restart bot to repopulate stats
-2. Verify `GET https://acp-setup.darkdante.org/api/live-stats` returns valid JSON
+2. Verify `GET https://mentat-link.darkdante.org/api/live-stats` returns valid JSON
 
 ### Cloudflare Tunnel Recovery
 
@@ -190,9 +190,9 @@ the full current ingress list and how to verify it via
 **Live ingress rules for this service** (as of 2026-08-17):
 ```yaml
 ingress:
-  - hostname: acp-setup.darkdante.org
+  - hostname: mentat-link.darkdante.org
     service: http://192.168.22.10:3100
-  - hostname: acp-setup.darkdante.org
+  - hostname: mentat-link.darkdante.org
     path: ^/auth/steam
     service: http://192.168.22.10:3101
   - hostname: CONSOLE_TUNNEL_HOSTNAME

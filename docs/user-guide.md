@@ -306,4 +306,4 @@ You don't need to do anything — these updates happen automatically.
 ## Sources
 
 - [Discord Slash Commands Guide](https://support.discord.com/hc/en-us/articles/1500000368501-Slash-Commands-FAQ)
-- [Dune Awakening Self-Host Discord Bot Repository](https://github.com/yacketrj/Arrakis-Control-Panel)
+- [Dune Awakening Self-Host Discord Bot Repository](https://github.com/Project-Arrakis/mentat)
