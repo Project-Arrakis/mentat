@@ -20,7 +20,7 @@ import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES } from "./adapterCli
 import { getIncidentHistory } from "./scheduler.js";
 import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
-import { multiTenantActorTier, isGuildOwner, tierAtLeast } from "./rbac.js";
+import { multiTenantActorTier, tierAtLeast, resolveGuildOwnerId, isInteractionGuildOwner } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
 
 // Group -> subcommand -> handler config
@@ -248,7 +248,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
   // purpose already includes helping a locked-out user -- exempt it from
   // the normal RBAC gate, matching #213/U8's "name the fix, don't
   // dead-end" precedent above.
-  if (key !== "admin:roles" && !isCommandAllowed(interaction, key, config, db, guildId)) {
+  if (!RBAC_EXEMPT_COMMANDS.has(key) && !isCommandAllowed(interaction, key, config, db, guildId)) {
     // #213/U8: name the fix, don't dead-end — the user's next step is a
     // role grant, and only a server admin can do it.
     await interaction.reply({
@@ -722,22 +722,40 @@ export function actorFromInteraction(interaction) {
     // (GatewayIntentBits.Guilds) in the common case -- no extra API call
     // needed -- but interaction.guild can be null during a reconnect/
     // guild-unavailable window even though interaction.guildId stays
-    // populated; this falls back to undefined in that window (Core/local
-    // RBAC then fall through to their normal role-based checks, not a
-    // crash). NOT part of actorSignature.js's HMAC-signed field set
-    // (deliberate, tracked deferral -- see dune-awakening-selfhost-docker#691's
-    // body): for any deployment WITHOUT DUNE_DISCORD_ACTOR_SECRET
-    // configured, trusted at the same level roleIds already is; for a
-    // deployment WITH it configured, Core strips this field server-side
-    // before use (a code-review finding on #691 -- an unsigned field would
-    // otherwise be a real self-escalation gap even inside an
-    // otherwise-validly-signed request), so signed deployments fall back
-    // to Core's role-based DISCORD_OWNER_ROLE_IDS mapping unchanged.
-    guildOwnerId: interaction.guild?.ownerId
+    // populated -- resolveGuildOwnerId() applies the same
+    // interaction.client.guilds.cache fallback used for the local
+    // authorization decision (isInteractionGuildOwner) during that window, so
+    // the actor payload sent to Core cannot disagree with what the bot just
+    // decided locally for the same request (a code-review finding: this
+    // previously read interaction.guild?.ownerId directly with no fallback,
+    // reintroducing the exact "bot and Core disagree on who is owner"
+    // problem issue #238/#240 exists to close, just narrowed to this one
+    // reconnect window). NOT part of actorSignature.js's HMAC-signed field
+    // set (deliberate, tracked deferral -- see
+    // dune-awakening-selfhost-docker#691's body): for any deployment WITHOUT
+    // DUNE_DISCORD_ACTOR_SECRET configured, trusted at the same level
+    // roleIds already is; for a deployment WITH it configured, Core strips
+    // this field server-side before use (a code-review finding on #691 -- an
+    // unsigned field would otherwise be a real self-escalation gap even
+    // inside an otherwise-validly-signed request), so signed deployments
+    // fall back to Core's role-based DISCORD_OWNER_ROLE_IDS mapping
+    // unchanged.
+    guildOwnerId: resolveGuildOwnerId(interaction)
   };
 }
 
 // ── RBAC ──
+
+// RBAC_EXEMPT_COMMANDS: commands that bypass the normal isCommandAllowed
+// gate entirely, always available regardless of RBAC mode/role config. A
+// code-review finding on issue #238 caught this exemption re-implemented as
+// two independent hardcoded string-literal checks (executeDuneCommand's
+// dispatch gate and helpPayload's available/locked classification) -- a
+// future exempt command added to only one of the two would be invokable but
+// still show as "locked" in help, or vice versa. Single shared source of
+// truth instead. Currently just `admin:roles` (issue #238: the roles viewer
+// must stay reachable for a locked-out user to see why, and what to fix).
+const RBAC_EXEMPT_COMMANDS = new Set(["admin:roles"]);
 export function isCommandAllowed(interaction, command, config, db = null, guildId = null) {
   // The real Discord guild owner always passes, in every mode -- owner is a
   // live Discord fact (interaction.guild.ownerId), never something an RBAC
@@ -775,42 +793,29 @@ export function extractRoleIds(interaction) {
   return [];
 }
 
-// resolveGuildOwnerId: single source of truth for "who does Discord say owns
-// this guild" from an interaction (issue #238 code-review finding). Prefers
-// the live, already-cached interaction.guild.ownerId, but falls back to the
-// bot's own client-wide guild cache (interaction.client.guilds.cache) via
-// guildId when interaction.guild is null/uncached -- a real, reachable gap
-// during a gateway reconnect or a guild-unavailable window, where
-// interaction.guildId is still populated but interaction.guild is not.
-export function resolveGuildOwnerId(interaction) {
-  if (interaction.guild?.ownerId) return interaction.guild.ownerId;
-  const guildId = interaction.guildId;
-  if (!guildId) return undefined;
-  return interaction.client?.guilds?.cache?.get(guildId)?.ownerId;
-}
-
-// isInteractionGuildOwner: every gating call site (isCommandAllowed,
-// isAdminActor in this file, canWrite in writes.js, executeDuneCommand's
-// zero-role gate) uses this ONE function rather than re-deriving
-// isGuildOwner(interaction.user?.id, interaction.guild?.ownerId) inline --
-// centralizing both the ownership check and the reconnect-window fallback
-// above, per issue #238's own code-review finding that duplicated copies of
-// this exact check had already drifted once (a role-shaped guard running
-// ahead of it in one of three copies).
-export function isInteractionGuildOwner(interaction) {
-  return isGuildOwner(interaction.user?.id, resolveGuildOwnerId(interaction));
-}
+// resolveGuildOwnerId/isInteractionGuildOwner: moved to rbac.js (issue
+// #238/#240 code-review finding) so writes.js can import the same functions
+// this file uses instead of keeping its own private duplicate -- re-exported
+// here (not re-defined) since several call sites in this file already
+// referred to them as commands.js-local names.
+export { resolveGuildOwnerId, isInteractionGuildOwner };
 
 // resolveOwnerLabel: the owner tier has no role concept (issue #238) -- it
-// is always the real Discord guild owner. Cache-only lookup (no live fetch),
-// matching resolveRoleLabel's cache-only approach; falls back to the bare
-// ID when the member cache doesn't have it (this bot only requests the
-// Guilds intent, not GuildMembers, so the cache is frequently sparse -- a
-// bare ID is still the honest, correct answer here, just less pretty).
-function resolveOwnerLabel(guild) {
-  const ownerId = guild?.ownerId;
+// is always the real Discord guild owner. Takes the interaction (not a bare
+// guild) so it can use resolveGuildOwnerId's interaction.client.guilds.cache
+// fallback during a reconnect/guild-unavailable window -- a code-review
+// finding caught this reading guild?.ownerId directly with no fallback,
+// meaning the owner label could show "(unknown)" even in a request where
+// isInteractionGuildOwner had just granted access via that same fallback.
+// Cache-only lookup for the display name (no live fetch), matching
+// resolveRoleLabel's cache-only approach; falls back to the bare ID when the
+// member cache doesn't have it (this bot only requests the Guilds intent,
+// not GuildMembers, so the cache is frequently sparse -- a bare ID is still
+// the honest, correct answer here, just less pretty).
+function resolveOwnerLabel(interaction) {
+  const ownerId = resolveGuildOwnerId(interaction);
   if (!ownerId) return "(unknown -- no guild context)";
-  const cachedTag = guild.members?.cache?.get(ownerId)?.user?.tag;
+  const cachedTag = interaction.guild?.members?.cache?.get(ownerId)?.user?.tag;
   return cachedTag ? `${cachedTag} (${ownerId})` : `Discord server owner (${ownerId})`;
 }
 
@@ -827,7 +832,7 @@ function resolveOwnerLabel(guild) {
 // #238) -- it's always shown separately, resolved live from guild ownership.
 function rolesConfigPayload(interaction, config, db = null, guildId = null) {
   const guild = interaction.guild;
-  const ownerLabel = resolveOwnerLabel(guild);
+  const ownerLabel = resolveOwnerLabel(interaction);
 
   if (config.multiTenant && db && guildId) {
     const roles = getGuildRoles(db, guildId);
@@ -1066,9 +1071,10 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     // isCommandAllowed() -- classify them with their real gate.
     if (cmd.name.startsWith("write:")) {
       if (canWrite(interaction, config, null, db, guildId)) available.push(cmd); else locked.push(cmd);
-    } else if (cmd.name === "admin:roles" || isCommandAllowed(interaction, cmd.name, config, db, guildId)) {
-      // admin:roles matches executeDuneCommand's own bypass above -- it
-      // must not show as "locked" in help when it's actually invokable.
+    } else if (RBAC_EXEMPT_COMMANDS.has(cmd.name) || isCommandAllowed(interaction, cmd.name, config, db, guildId)) {
+      // Shares RBAC_EXEMPT_COMMANDS with executeDuneCommand's own bypass
+      // above -- an exempt command must not show as "locked" in help when
+      // it's actually invokable.
       available.push(cmd);
     } else {
       locked.push(cmd);
