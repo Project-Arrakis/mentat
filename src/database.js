@@ -3,7 +3,7 @@ import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { encryptWithDEK, decryptWithDEK, activeKeyVersion } from "./secretsCrypto.js";
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -64,6 +64,26 @@ CREATE TABLE IF NOT EXISTS player_links (
   player_pawn_id TEXT NOT NULL DEFAULT '',
   linked_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(guild_id, discord_user_id)
+);
+
+-- guild_member_activity (schema v5, mentat#251/dune-awakening-selfhost-docker#699):
+-- records which Discord users have actually used the bot in which guild,
+-- upserted on every /dune command (executeDuneCommand()). Exists because
+-- this bot only holds the Guilds gateway intent, not the privileged
+-- GuildMembers intent -- guild.members.fetch() cannot return a real
+-- member list, and enabling that privileged intent (with its bot-
+-- verification implications) was rejected in favor of this low-privilege
+-- alternative. Used by guildFactionSync.js to source the member-ID list
+-- for Core's guilds/faction-summary aggregate, so the per-guild themed-
+-- embed faction (guild_settings.faction) can auto-derive from real
+-- membership. Naturally reflects active users, not silent lurkers --
+-- arguably more relevant for a "who's actually engaging with this bot"
+-- signal than raw (and unobtainable) guild membership would be anyway.
+CREATE TABLE IF NOT EXISTS guild_member_activity (
+  guild_id TEXT NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+  discord_user_id TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (guild_id, discord_user_id)
 );
 
 CREATE TABLE IF NOT EXISTS bot_stats (
@@ -176,10 +196,11 @@ export function createDatabase(dbPath = "./data/acp.db") {
   }
 
   if (currentVersion && currentVersion.version < SCHEMA_VERSION) {
-    // v3->v4 and v4 itself are purely additive (stats_snapshot,
-    // key_versions/secret_keys/secret_access_log all via CREATE TABLE IF
-    // NOT EXISTS in SCHEMA above) -- nothing to migrate, just record the
-    // version. Existing enc:v1: rows remain readable unchanged; they are
+    // v3->v4, v4->v5, and v5 itself are purely additive (stats_snapshot,
+    // key_versions/secret_keys/secret_access_log, guild_member_activity,
+    // all via CREATE TABLE IF NOT EXISTS in SCHEMA above) -- nothing to
+    // migrate, just record the version. Existing enc:v1: rows remain
+    // readable unchanged; they are
     // only ever upgraded to v2 (per-row DEK) on their next write, exactly
     // like the v0(plaintext)->v1 migration this same pattern already
     // established (see reencrypt-secrets.js for the equivalent bulk-
@@ -458,4 +479,36 @@ export function getGuildFaction(db, guildId) {
 
 export function setGuildFaction(db, guildId, faction) {
   db.prepare("UPDATE guild_settings SET faction = ? WHERE guild_id = ?").run(faction, guildId);
+}
+
+// guild_member_activity (schema v5) -- see the table's own comment in
+// SCHEMA above for why this exists instead of a real Discord member-list
+// fetch. Called from executeDuneCommand() on every /dune command, so it
+// stays best-effort and silent on failure (a broken activity log must
+// never break the command it's attached to).
+export function recordGuildMemberActivity(db, guildId, discordUserId) {
+  if (!guildId || !discordUserId) return;
+  try {
+    db.prepare(`
+      INSERT INTO guild_member_activity (guild_id, discord_user_id, last_seen_at)
+      VALUES (?, ?, datetime('now'))
+      ON CONFLICT(guild_id, discord_user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
+    `).run(guildId, discordUserId);
+  } catch { /* best-effort -- never break the command this is attached to */ }
+}
+
+// Capped well above DEFAULT_MAX_MEMBERS_PER_GUILD's in-game 32-member
+// guild cap (dune-awakening-selfhost-docker's own duneDb.js constant) --
+// this is a Discord community's bot-activity roster, not an in-game
+// guild roster, so it can legitimately be much larger.
+const MAX_GUILD_MEMBER_ACTIVITY_IDS = 1000;
+
+export function getGuildMemberActivityIds(db, guildId) {
+  const rows = db.prepare(`
+    SELECT discord_user_id FROM guild_member_activity
+    WHERE guild_id = ?
+    ORDER BY last_seen_at DESC
+    LIMIT ?
+  `).all(guildId, MAX_GUILD_MEMBER_ACTIVITY_IDS);
+  return rows.map((row) => row.discord_user_id);
 }

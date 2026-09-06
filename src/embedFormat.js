@@ -566,7 +566,7 @@ export function formatWhoamiEmbed(payload) {
 // (case-insensitive substring) against the three known houses for embed
 // coloring/quotes rather than assumed to equal one of duneEmbed's exact
 // faction keys.
-function factionKeyFromName(name) {
+export function factionKeyFromName(name) {
   const lower = String(name || "").toLowerCase();
   if (lower.includes("atreides")) return "atreides";
   if (lower.includes("harkonnen")) return "harkonnen";

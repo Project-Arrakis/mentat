@@ -106,6 +106,7 @@ const UPSTREAM_CONTRACT = Object.freeze({
   "guild-grants-enable": { method: "POST", path: "/api/integrations/discord/guild-character-grants/enable", fixture: "ops.json" },
   "guild-grants-disable": { method: "POST", path: "/api/integrations/discord/guild-character-grants/disable", fixture: "ops.json" },
   "guild-grants-default": { method: "POST", path: "/api/integrations/discord/guild-character-grants/default", fixture: "ops.json" },
+  "guild-faction-summary": { method: "POST", path: "/api/integrations/discord/guilds/faction-summary", fixture: "ops.json" },
   "player-inventory-v2": { method: "POST", path: "/api/integrations/discord/player/inventory", fixture: "ops.json" },
   // discord-catalog: Phase 3 (Command Discovery, #181) route used by
   // /dune admin sync-commands (registryLoader.js's

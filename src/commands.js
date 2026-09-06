@@ -18,7 +18,8 @@ import { writesEnabled, canWrite, writeRoleIds } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
-import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
+import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction, recordGuildMemberActivity } from "./database.js";
+import { syncGuildFactionTheme } from "./guildFactionSync.js";
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
 import { multiTenantActorTier, tierAtLeast, resolveGuildOwnerId, isInteractionGuildOwner } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
@@ -215,6 +216,16 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
   const subcommand = interaction.options.getSubcommand();
   const key = group ? `${group}:${subcommand}` : subcommand;
   const guildId = interaction.guildId;
+
+  // guild_member_activity (schema v5, mentat#251) -- see that table's own
+  // comment in database.js for why this exists (no privileged Discord
+  // intent for a real member list). Unconditional, before any RBAC/gate
+  // checks below, so activity is recorded even for a command that's
+  // ultimately denied -- the caller genuinely is a member using the bot
+  // in this guild either way.
+  if (db && guildId && interaction.user?.id) {
+    recordGuildMemberActivity(db, guildId, interaction.user.id);
+  }
 
   // #213/U4: an unconfigured multi-tenant guild used to be denied EVERY
   // command — including /dune core setup, the exact command the
@@ -444,6 +455,12 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       // Read-only, auto-detected -- see the subcommand definition's own
       // comment above for why there is no longer a "name" option to read.
       payload = await adapterClient.playerFaction(actor, guildId);
+      // Side effect, deliberately NOT awaited -- re-syncs this guild's
+      // cosmetic themed-embed faction (mentat#251) from real in-game
+      // guild membership. Fire-and-forget: syncGuildFactionTheme() is
+      // fully best-effort internally and must never delay or fail this
+      // command's own response.
+      if (db) syncGuildFactionTheme(db, adapterClient, actor, guildId).catch(() => {});
     } else if (key === "player:whoami") {
       payload = await adapterClient.whoami(actor, guildId);
     } else if (key === "player:characters") {

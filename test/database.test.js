@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { createDatabase, getGuild, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, saveStatsSnapshot, getStatsSnapshot } from "../src/database.js";
+import { createDatabase, getGuild, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, saveStatsSnapshot, getStatsSnapshot, recordGuildMemberActivity, getGuildMemberActivityIds, getGuildFaction, setGuildFaction } from "../src/database.js";
 import { _resetKeyCacheForTests, _resetKEKCacheForTests, decryptWithDEK } from "../src/secretsCrypto.js";
 
 const VALID_KEY_HEX = "c".repeat(64);
@@ -144,7 +144,10 @@ test("schema v4: key_versions, secret_keys, and secret_access_log tables exist o
   assert.ok(tableNames.includes("key_versions"));
   assert.ok(tableNames.includes("secret_keys"));
   assert.ok(tableNames.includes("secret_access_log"));
-  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 4);
+  // 5, not 4 -- schema v5 added guild_member_activity (mentat#251); this
+  // test's own name still says "v4" since it's specifically about the
+  // v4-era KEK/DEK tables, which are unaffected and still present.
+  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 5);
 });
 
 test("real age/KEK: upsertGuild/getGuild round-trip using a real KEK produces v2 ciphertext and a secret_keys row", { skip: !ageAvailable() && "age binary not installed" }, () => {
@@ -294,4 +297,47 @@ test("real age/KEK: two guilds' adapter_token rows use independent DEKs (comprom
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// guild_member_activity (schema v5, mentat#251) -- real in-memory SQLite,
+// not a hand-mocked query interceptor, since better-sqlite3 supports
+// ":memory:" directly and this table's FK/upsert behavior is worth
+// exercising for real.
+test("recordGuildMemberActivity upserts, and getGuildMemberActivityIds returns the recorded ids for that guild only", () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "g1", guildName: "Guild One", consoleUrl: "https://one.test", adapterToken: "t1", status: "active" });
+  upsertGuild(db, { guildId: "g2", guildName: "Guild Two", consoleUrl: "https://two.test", adapterToken: "t2", status: "active" });
+
+  recordGuildMemberActivity(db, "g1", "user-1");
+  recordGuildMemberActivity(db, "g1", "user-2");
+  recordGuildMemberActivity(db, "g2", "user-3");
+
+  assert.deepEqual(getGuildMemberActivityIds(db, "g1").sort(), ["user-1", "user-2"]);
+  assert.deepEqual(getGuildMemberActivityIds(db, "g2"), ["user-3"]);
+});
+
+test("recordGuildMemberActivity is a real upsert -- calling it again for the same (guild, user) does not create a duplicate row", () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "g1", guildName: "Guild One", consoleUrl: "https://one.test", adapterToken: "t1", status: "active" });
+
+  recordGuildMemberActivity(db, "g1", "user-1");
+  recordGuildMemberActivity(db, "g1", "user-1");
+  recordGuildMemberActivity(db, "g1", "user-1");
+
+  const count = db.prepare("SELECT COUNT(*) AS c FROM guild_member_activity WHERE guild_id = ? AND discord_user_id = ?").get("g1", "user-1");
+  assert.equal(count.c, 1);
+});
+
+test("recordGuildMemberActivity is a silent no-op for a guild that was never registered (FK violation swallowed, never throws)", () => {
+  const db = createDatabase(":memory:");
+  assert.doesNotThrow(() => recordGuildMemberActivity(db, "never-registered-guild", "user-1"));
+  assert.deepEqual(getGuildMemberActivityIds(db, "never-registered-guild"), []);
+});
+
+test("recordGuildMemberActivity silently no-ops on a missing guildId or discordUserId, rather than recording a garbage row", () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "g1", guildName: "Guild One", consoleUrl: "https://one.test", adapterToken: "t1", status: "active" });
+  recordGuildMemberActivity(db, "", "user-1");
+  recordGuildMemberActivity(db, "g1", "");
+  assert.deepEqual(getGuildMemberActivityIds(db, "g1"), []);
 });

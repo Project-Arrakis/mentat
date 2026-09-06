@@ -267,7 +267,8 @@ test("every known route is classified into exactly one of the four route tables 
     "ops-location", "ops-soc", "ops-prometheus", "ops-dashboard",
     "player-links-start", "player-links-verify", "player-links",
     "player-links-unlink", "guild-grants", "guild-grants-enable",
-    "guild-grants-disable", "guild-grants-default", "player-inventory-v2",
+    "guild-grants-disable", "guild-grants-default", "guild-faction-summary",
+    "player-inventory-v2",
     "players-accounts-link-steam", "players-link-verify",
     "players-accounts-list", "players-accounts-unlink"
   ];
