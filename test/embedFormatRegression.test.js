@@ -303,20 +303,23 @@ test("formatLogsEmbed: a log line containing a triple-backtick cannot close the 
 });
 
 // ── brand rename pin (Arrakis Control Panel/ACP -> Sentinel -> Dune:
-// Awakening Docker — Mentat). Regression guard so neither old name can
-// ever silently creep back into a footer or embed. ──
+// Awakening Docker — Mentat -> Sahir Venn, Mentat of Dune: Awakening
+// Docker). Regression guard so neither old name can ever silently
+// creep back into a footer or embed. ──
 
-test("brand: duneEmbed footer and enricher footer both say Mentat, never an old name", async () => {
+test("brand: duneEmbed footer and enricher footer both say Sahir Venn/Mentat, never an old name", async () => {
   const { enrichEmbed } = await import("../src/output/enricher.js");
   const { EmbedBuilder } = await import("discord.js");
 
   const embed = duneEmbed({ title: "x", description: "y" });
-  assert.match(embed.data.footer.text, /Dune: Awakening Docker — Mentat/);
+  assert.match(embed.data.footer.text, /Sahir Venn/);
+  assert.match(embed.data.footer.text, /Mentat/);
   assert.doesNotMatch(embed.data.footer.text, /Arrakis Control Panel/);
   assert.doesNotMatch(embed.data.footer.text, /\bSentinel\b/);
 
   const bare = enrichEmbed(new EmbedBuilder().setTitle("x"));
-  assert.match(bare.data.footer.text, /Dune: Awakening Docker — Mentat/);
+  assert.match(bare.data.footer.text, /Sahir Venn/);
+  assert.match(bare.data.footer.text, /Mentat/);
   assert.doesNotMatch(bare.data.footer.text, /Arrakis Control Panel/);
   assert.doesNotMatch(bare.data.footer.text, /\bSentinel\b/);
 });

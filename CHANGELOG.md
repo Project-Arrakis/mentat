@@ -6,6 +6,19 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
+### Added
+- **Sahir Venn — the bot's named persona.** "Mentat" remains the
+  role/category (Dune-lore usage: "a Mentat"); Sahir Venn is introduced
+  as the specific one serving Dune: Awakening Docker. Embed footers and
+  the status-card caption now read "Sahir Venn — Mentat of Dune:
+  Awakening Docker"; the onboarding welcome DM and owner notice
+  introduce Sahir Venn by name; flavor-text quotes shown in embeds
+  (`src/quotes.js` via `duneEmbed()`) are now signed "— Sahir Venn".
+  Deliberately unchanged: the `/dune core help` embed title and the
+  synthetic system-actor username used in scheduler/stats/notification
+  audit-log attribution — these are functional/reference labels, not
+  persona-voiced moments.
+
 ### Changed
 - **RBAC: owner-tier access is now derived exclusively from real Discord
   guild ownership, never a role — aligned with `dune-awakening-selfhost-docker`'s
