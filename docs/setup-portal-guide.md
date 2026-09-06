@@ -20,7 +20,7 @@ You need:
 Open this URL in your browser:
 
 ```
-https://acp-setup.darkdante.org/setup
+https://mentat-link.darkdante.org/setup
 ```
 
 You will see a dark-themed page with a **"Sign In with Discord"** button.
@@ -116,7 +116,7 @@ If you haven't set up the adapter yet, or want a fresh token:
 5. Edit your console's `.env` file and add (or update) these lines:
    ```bash
    DUNE_DISCORD_ADAPTER_ENABLED=true
-   DUNE_BOT_API_TOKEN_FILE=/repo/runtime/secrets/discord-adapter-token.txt
+   DUNE_DISCORD_ADAPTER_TOKEN_FILE=/repo/runtime/secrets/discord-adapter-token.txt
    ```
 6. Create the token file with the value you copied from the portal:
    ```bash
@@ -134,32 +134,40 @@ If you haven't set up the adapter yet, or want a fresh token:
 
 ## Step 6: Configure Roles (Optional)
 
-Below the token field are two optional fields for role-based access control.
-You can skip these and fill them in later.
+Below the token field are three optional fields for role-based access
+control, matching the bot's three assignable tiers (a fourth, Owner, is
+never assigned here — it's derived automatically from real Discord guild
+ownership). You can skip these and fill them in later.
 
-### Admin Role ID
+### Admin Role
 
 Members with this Discord role can use **admin commands**
-(`/dune admin doctor`, `/dune admin config`, etc.)
+(`/dune admin doctor`, `/dune admin roles`, etc.)
 
-**How to get a Role ID:**
+### Moderator Role
+
+Members with this Discord role can use **moderator-level commands**
+(such as `/dune admin broadcast`).
+
+### Player Role
+
+Members with this role (labeled "Player Role" in the form; stored
+internally as the `observer` tier) can use **read-only commands**
+(`/dune server health`, `/dune server status`, etc.) — this is the role
+you'll want most members to have.
+
+**How to get a Role ID (for any of the three fields above):**
 
 1. Open Discord **User Settings** (gear icon near your username)
 2. Go to **Advanced** → Toggle **Developer Mode** ON
 3. Go to your server → Right-click the role in the role list
    (or go to Server Settings → Roles)
 4. Click **Copy Role ID**
-5. Paste the ID into the **Admin Role ID** field
-
-### Observer Role ID
-
-Members with this role can use **read-only commands**
-(`/dune health`, `/dune status`, `/dune server status`, etc.)
-
-Follow the same steps as above to get the Role ID.
+5. Paste the ID into the matching field
 
 **Tip:** If you only configure one role, members with that role can use
-all commands. Configure both for proper separation of permissions.
+only the commands for that tier. Configure all three for proper
+separation of permissions.
 
 ---
 
