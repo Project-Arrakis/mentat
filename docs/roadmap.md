@@ -112,7 +112,8 @@ Small pull requests:
 Progress:
 
 - Endpoint paths, methods, and payload shapes are confirmed against upstream
-  release `v1.3.87`.
+  release `v1.4.8` (re-verified 2026-09-06; unchanged since the 2026-08-16
+  baseline).
 - Health, status, readiness, and services fixtures are covered by unit tests.
 - Configured route overrides are covered by compatibility tests.
 - A local token-protected adapter mock serves the fixtures on loopback for smoke
@@ -121,20 +122,21 @@ Progress:
   Every route key in `config.js`'s path table is classified in exactly one
   set -- pinned by `test/adapterClient.test.js` so an unclassified route is a
   test failure. (Corrected 2026-08-16, `arrakis-control-panel#172`: a routine
-  compat pin refresh to `v1.3.87` found the 2026-08-06 figures below
+  compat pin refresh to that baseline found the 2026-08-06 figures below
   contained a real false claim -- `players-accounts-list`,
   `players-accounts-unlink`, and `players-accounts-link-steam` had never
   existed in any tagged upstream release, despite being counted as LIVE and
-  "verified" -- plus a real regression (`ops-dashboard`: LIVE at the prior
-  baseline, 404s at `v1.3.87`) and a safe-direction correction (`backups`,
-  `announcements`, `maintenance`: PLANNED/MISSING at the prior baseline, now
-  genuinely LIVE at `v1.3.87`). See `docs/adapter-contract.md` for the current,
+  "verified" -- plus a real regression (`ops-dashboard`: LIVE at the
+  2026-08-06 baseline, 404s as of the 2026-08-16 baseline) and a
+  safe-direction correction (`backups`, `announcements`, `maintenance`:
+  PLANNED/MISSING at the 2026-08-06 baseline, now genuinely LIVE as of the
+  2026-08-16 baseline). See `docs/adapter-contract.md` for the current,
   corrected route table. Previously corrected 2026-08-06: previously reported
   LIVE 19 / PLANNED 5 / UNMERGED 10 / MISSING 2, which was stale in all four
   directions; that audit found fourteen route keys with no classification at
   all, including nine player routes the bot calls daily. See
-  `docs/ro-roadmap-state-2026-08-06.md`, which itself now carries a
-  2026-08-16 correction notice at its top.)
+  `docs/ro-roadmap-state-2026-08-06.md`, which itself now carries 2026-08-16
+  and 2026-09-06 correction notices at its top.)
 
 Complexity: low to medium. **Status: Complete.**
 
@@ -171,8 +173,10 @@ Only add commands backed by safe upstream adapter responses.
 - `/dune ops soc` — OPS bridge health
 - `/dune ops prometheus` — Container CPU, memory, and uptime
 - `/dune ops dashboard` — Combined summary. **Regressed to a graceful error as
-  of upstream `v1.3.87`** (was live through the prior baseline; upstream's
-  routes.js dispatch table now omits it -- see `arrakis-control-panel#172`). The
+  of the 2026-08-16 upstream baseline** (was live through the 2026-08-06
+  baseline; upstream's routes.js dispatch table now omits it -- see
+  `arrakis-control-panel#172`; still absent as of the 2026-09-06
+  re-verification, `v1.4.8`). The
   subcommand remains registered and surfaces a clear "not available on this
   Core installation" message rather than a raw 404.
 - `/dune admin doctor` — Full system diagnostic
@@ -202,7 +206,8 @@ Only add commands backed by safe upstream adapter responses.
 
 **Upstream PR:** [Red-Blink/dune-awakening-selfhost-docker#91](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/91)
 — **merged 2026-07-20** (`47ca186`, shipped in `v1.3.61`; all of PR #91's
-player routes remain live through the current baseline `v1.3.87`). The
+player routes remain live through the current baseline, re-verified against
+`v1.4.8` as of 2026-09-06). The
 player-feature rows below are therefore live end-to-end, not pending
 upstream. This does not include the Steam multi-account linking flow's
 `players/accounts/*` routes, which are separate from PR #91 and never
@@ -248,28 +253,47 @@ Required release path:
 5. Promote to `vMAJOR.MINOR.PATCH` only after local gates, GitHub CI/security
    gates, and any planned operator smoke testing pass.
 
-Current release state:
+Current release state (issue #178, re-verified 2026-09-06):
 
-- Latest bot stable release: `v0.1.1`
+- Latest bot stable release: `v0.1.1` (2026-06-28) -- still the only
+  release ever promoted out of pre-release; unchanged since the prior
+  entry, not a new gap.
 - Latest release candidate validated: `v1.0.0-rc.2` (note: `package.json`'s
   current version has since advanced past this -- see
   `docs/release-evidence/` for which RC has full committed validation
   evidence; refreshing this pin for later RCs is a separate, tracked task,
-  not part of the `#172` upstream compat pin refresh)
+  not part of the `#172` upstream compat pin refresh). **This is still
+  accurate, not stale** -- confirmed unchanged as of 2026-09-06:
+  `docs/release-evidence/` still only has `v1.0.0-rc.1.md`/`v1.0.0-rc.2.md`.
+- **The real gap issue #178 was actually about**: `package.json` and
+  GitHub Releases have moved on to `v1.0.0-rc.5` (published 2026-08-11,
+  marked "Latest") with **zero committed release-evidence docs for rc.3,
+  rc.4, or rc.5** -- three real releases shipped with no durable evidence
+  artifact at all, not just an unrefreshed pin. Per this project's own
+  evidence-first discipline (a release needs a durable evidence artifact,
+  not just a tag), this should be backfilled or explicitly accepted as a
+  known gap before any further RC ships.
 - Next stable target: `v1.0.0` after the promotion checklist in
-  `docs/v1.0.0-promotion-checklist.md` is satisfied
-- Latest upstream stable baseline: `v1.3.87`
-- Latest upstream release verified:
-  `b4f8fe4c5a36e2ac2f81deb4c9fddde087c77d06` ("Release v1.3.87", 2026-08-14)
-- Latest upstream release candidate observed: none newer than `v1.3.87`
+  `docs/v1.0.0-promotion-checklist.md` is satisfied (that checklist
+  itself is still rc.1-era per this doc's earlier RO-roadmap audit --
+  needs its own refresh, tracked separately).
+- Latest upstream stable baseline: `v1.4.8`
+  (`b53765c2070c12d7ebb4adc8103f26c42745fa7c`, "Release v1.4.8", 2026-09-03;
+  see `docs/adapter-contract.md`'s 2026-09-06 entry -- re-verified, route
+  classification unchanged since the 2026-08-16 baseline).
+- Latest upstream release candidate observed: none newer than `v1.4.8`.
 - Upstream player-inventory PR #91: **merged 2026-07-20**, live since `v1.3.61`
-- Test suite (verified directly against real `npm test` output, 2026-08-17,
-  see #177): 491 core + 73 harness + 5 bats tests, 4 skipped total (2 core +
-  2 harness). "0 skipped" was accurate at an earlier snapshot but is no
-  longer current -- do not treat "skipped" as necessarily a regression
-  without checking which tests and why; not independently re-audited in
-  this pass.
-- All pre-commit hooks pass without `--no-verify`
+  (unchanged, not re-checked this pass).
+- Test suite (verified directly against real `npm test` output, 2026-09-06):
+  611 (all-others) + 73 (harness) + 242 (issue-bridge) = 926 tests, 922
+  pass, 0 fail, 4 skipped (2 in all-others, 2 in harness). The prior
+  "491 core + 73 harness + 5 bats" breakdown (2026-08-17) used different
+  category names than the test runner's current output buckets
+  (all-others/harness/bats/issue-bridge) -- not a like-for-like
+  comparison, so this entry reports the runner's actual current bucket
+  names/counts rather than force-mapping onto the old ones.
+- All pre-commit hooks pass without `--no-verify` (not independently
+  re-verified this pass; carried forward from the prior entry).
 
 Security requirements:
 

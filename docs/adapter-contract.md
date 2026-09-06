@@ -5,25 +5,45 @@
 The bot follows the Discord adapter in
 [Red-Blink/dune-awakening-selfhost-docker](https://github.com/Red-Blink/dune-awakening-selfhost-docker).
 
-Evidence checked on August 16, 2026 (re-verified; previous evidence August 6, 2026):
+Evidence checked on September 6, 2026 (re-verified; previous evidence August 16, 2026):
 
 | Source | Value |
 | --- | --- |
 | Upstream reference clone | Clean local clone of upstream `main`, kept outside this repository. Recommended sibling path: `../dune-awakening-selfhost-docker-upstream-main` |
-| Upstream commit | `b4f8fe4c5a36e2ac2f81deb4c9fddde087c77d06` |
+| Upstream commit | `741f54577007c3f1435131d22c5b25fb31bb1a97` |
 | Upstream file | `console/api/src/integrations/discord/adapter.js` and `routes.js` |
-| Latest published upstream release | `v1.3.87` |
-| Latest upstream release candidate observed | None newer than `v1.3.87` |
+| Latest published upstream release | `v1.4.8` (`b53765c2070c12d7ebb4adc8103f26c42745fa7c`, 2026-09-03) |
+| Latest upstream release candidate observed | None newer than `v1.4.8` |
 
-The adapter contract is included in upstream release `v1.3.87` (commit
-`b4f8fe4c5a36e2ac2f81deb4c9fddde087c77d06`, 2026-08-14). The Discord adapter
+**2026-09-06 re-verification result: no route-classification changes.** Direct
+diff of `DISCORD_ADAPTER_ROUTES`, the `opsRoutes` dispatch table, and every
+route handler in `routes.js` between the 2026-08-16 baseline and current
+upstream (`v1.4.8`, ~1,139 commits of drift) found the entire
+Discord-adapter route surface unchanged: no new route constants, no
+route added to or removed from the 7-entry `opsRoutes` table (still exactly
+activity/combat/resources/economy/inventory/soc/prometheus -- no
+`OPS_LOCATION`/`OPS_DASHBOARD`), and the `players/accounts/*`,
+`player-links-start`, `guild-grants/*`, and `player-inventory-v2` families
+are still entirely absent upstream (confirmed via `git grep`; the
+`multiAccountLinkProvider.js` file backing the former still doesn't exist
+upstream at all). `src/adapterClient.js`'s `LIVE_ROUTES`/`PLANNED_ROUTES`/
+`UNMERGED_ROUTES`/`MISSING_ROUTES` classification from the 2026-08-16 audit
+remains accurate as-is -- this refresh only advances the pin/evidence date,
+it does not change any route's classification. Also checked: upstream's
+command-catalog `CATALOG_VERSION` is still `2`, matching
+`src/catalogTransform.js`'s already-shipped v2 handling (fixed 2026-08-20)
+-- no drift there either.
+
+The adapter contract was included in the upstream release reviewed on
+2026-08-16 (see that date's own evidence, since superseded above by the
+2026-09-06 re-verification). The Discord adapter
 moved from `console/api/src/services/discordAdapter.js` to
 `console/api/src/integrations/discord/` in earlier upstream releases; the
 route family grew from the four read-only routes to the full live set
 documented in `src/adapterClient.js`'s `LIVE_ROUTES` (player linking, player
 inventory/storage/find, guild storage/find, OPS providers). Route-by-route
 provenance was re-verified against every upstream release tagged between the
-prior baseline (reviewed 2026-08-06) and `v1.3.87` -- see
+2026-08-06 baseline and the 2026-08-16 baseline -- see
 `arrakis-control-panel#172` for the full audit. **This refresh found and
 corrected a real, previously-undetected false claim**: the prior "verified
 2026-08-06" evidence for `players-accounts-list`, `players-accounts-unlink`,
@@ -35,21 +55,21 @@ upstream commit (`eac9c18`, 2026-08-10) alongside a
 import, server crashed on boot), then fully reverted the next day
 (`d102557`, 2026-08-11), before ever reaching a tag. All three are now
 correctly classified `MISSING_ROUTES`. The same refresh also found a real
-regression: `ops-dashboard` was genuinely live at the prior baseline but
+regression: `ops-dashboard` was genuinely live at the 2026-08-06 baseline but
 upstream's replacement `opsRoutes` dispatch table (added by `eac9c18` and
-kept after the revert) omits it, so it now 404s at `v1.3.87` (moved
-`LIVE_ROUTES` -> `MISSING_ROUTES`). `ops-location` was already correctly
-classified as a stub at the prior baseline but the same dispatch-table
+kept after the revert) omits it, so it now 404s as of the 2026-08-16 baseline
+(moved `LIVE_ROUTES` -> `MISSING_ROUTES`). `ops-location` was already correctly
+classified as a stub at the 2026-08-06 baseline but the same dispatch-table
 omission means it now hard-404s instead of returning a `{ status: "planned"
 }` stub (kept in `PLANNED_ROUTES` since the intent is unchanged, but callers
 must not assume "planned" means "safe 200" -- see the route's own comment in
 `src/adapterClient.js`). Conversely, `backups`, `announcements`, and
-`maintenance` were classified `PLANNED`/`MISSING` at the prior baseline but
-now have real, working handlers at `v1.3.87` (moved to `LIVE_ROUTES`) --
-this is safe-direction drift (the bot previously under-promised), corrected
-in the same pass. The health payload no longer advertises `readOnly: true`;
-player linking is a write path on Core's dedicated player-link routes (see
-`src/commands.js`'s `aboutPayload`).
+`maintenance` were classified `PLANNED`/`MISSING` at the 2026-08-06 baseline
+but now have real, working handlers as of the 2026-08-16 baseline (moved to
+`LIVE_ROUTES`) -- this is safe-direction drift (the bot previously
+under-promised), corrected in the same pass. The health payload no longer
+advertises `readOnly: true`; player linking is a write path on Core's
+dedicated player-link routes (see `src/commands.js`'s `aboutPayload`).
 
 Future write-capable behavior is not part of this read-only contract. A draft
 upstream proposal for separate, disabled-by-default write adapter routes lives
@@ -89,7 +109,7 @@ include tokens, message content, or broader Discord profile data.
 The bot implements bot commands and `AdapterClient` methods for routes beyond
 the verified core set above. These have config paths/methods in `src/config.js`
 and a client method in `src/adapterClient.js`, and their upstream provenance
-was re-verified against tag `v1.3.87` on 2026-08-16 (see
+was re-verified against the 2026-08-16 upstream baseline (see
 `arrakis-control-panel#172`, plus the full-set pin in
 `test/adapterClient.test.js`).
 `src/adapterClient.js` tracks per-route status honestly via `LIVE_ROUTES`,
@@ -102,11 +122,12 @@ until it is re-checked against upstream `main` and this document is updated.
 
 The `maintenance` route (`server:maintenance` bot command) is a case in point
 for why this table needs recurring re-verification, not one-time evidence: at
-the prior baseline it genuinely 404'd (Core declared the route constant but
-never registered it in `DISCORD_LIVE_ADAPTER_ROUTES`), so it was classified
-`MISSING_ROUTES`. Re-verified at `v1.3.87` (2026-08-16, `#172`): upstream now
-has a real handler (runs `dune readiness` and returns real output), so it is
-now classified `LIVE_ROUTES`. `formatMaintenanceEmbed()` still treats any
+the 2026-08-06 baseline it genuinely 404'd (Core declared the route constant
+but never registered it in `DISCORD_LIVE_ADAPTER_ROUTES`), so it was
+classified `MISSING_ROUTES`. Re-verified as of the 2026-08-16 baseline
+(`#172`): upstream now has a real handler (runs `dune readiness` and returns
+real output), so it is now classified `LIVE_ROUTES` -- still confirmed live
+as of the 2026-09-06 re-verification above. `formatMaintenanceEmbed()` still treats any
 response without `ok: true` as an explicit **Unknown** state rather than a
 healthy "no maintenance scheduled" state, so a future regression on this
 route would still degrade safely instead of showing false-positive health.

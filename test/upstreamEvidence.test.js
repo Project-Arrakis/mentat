@@ -2,23 +2,24 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-// Baseline advanced to upstream v1.3.87 (release commit
-// b4f8fe4c5a36e2ac2f81deb4c9fddde087c77d06, released 2026-08-14) on
-// 2026-08-16. The 2026-08-16 upstream compat pin refresh (#172)
-// re-verified every Discord adapter route this bot calls against every
-// tagged upstream release from v1.3.79 through v1.3.87 (see
-// docs/adapter-contract.md and the full-set pin in
-// test/adapterClient.test.js) -- that re-verification is the
-// compatibility review this evidence records; it is NOT an unimplemented
-// claim. This refresh also found and corrected two real drift issues the
-// prior v1.3.79 evidence had missed: a false LIVE claim for the
+// Baseline advanced to upstream v1.4.8 (release commit
+// b53765c2070c12d7ebb4adc8103f26c42745fa7c, released 2026-09-03) on
+// 2026-09-06. This re-verification (issue #178) directly diffed
+// DISCORD_ADAPTER_ROUTES, the opsRoutes dispatch table, and every route
+// handler in routes.js between the prior (v1.3.87) baseline and current
+// upstream (~1,139 commits of drift) and found the entire Discord-adapter
+// route surface UNCHANGED -- see docs/adapter-contract.md's 2026-09-06
+// entry for the full diff-based re-verification. It is NOT a
+// route-classification change, only an evidence/pin refresh. The prior
+// v1.3.87 evidence (2026-08-16) itself corrected two real drift issues
+// the original v1.3.79 evidence had missed: a false LIVE claim for the
 // players/accounts/* routes (never existed in any tagged release) and a
-// real regression (ops-dashboard: live at v1.3.79, 404s at v1.3.87). See
-// #172 for the full audit.
+// real regression (ops-dashboard: live at v1.3.79, 404s at v1.3.87,
+// still absent at v1.4.8). See #172 for that full audit.
 const currentEvidence = Object.freeze({
-  commit: "b4f8fe4c5a36e2ac2f81deb4c9fddde087c77d06",
-  tag: "v1.3.87",
-  date: "August 16, 2026"
+  commit: "b53765c2070c12d7ebb4adc8103f26c42745fa7c",
+  tag: "v1.4.8",
+  date: "September 6, 2026"
 });
 
 const livingEvidenceDocs = Object.freeze([
@@ -41,7 +42,9 @@ const supersededEvidenceTerms = Object.freeze([
   "v1.3.60",
   "d41f1270",
   "ac8f086",
-  "v1.3.79"
+  "v1.3.79",
+  "b4f8fe4c5a36e2ac2f81deb4c9fddde087c77d06",
+  "v1.3.87"
 ]);
 
 test("living upstream evidence docs name the current baseline", async () => {

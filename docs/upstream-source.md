@@ -36,16 +36,19 @@ Only use this clean clone for compatibility review. Do not make feature changes
 in it.
 
 Current evidence for this roadmap slice was checked against upstream
-`Red-Blink/dune-awakening-selfhost-docker@b4f8fe4c5a36e2ac2f81deb4c9fddde087c77d06`
-(tag `v1.3.87`) on August 16, 2026. Route-by-route provenance for the bot's
-adapter client was re-verified against every tagged release between the
-prior baseline and `v1.3.87`; see `docs/adapter-contract.md` and
-`arrakis-control-panel#172` for the full audit (which found and corrected
-two real drift issues the prior evidence had missed), and the full-set pin
-in `test/adapterClient.test.js`. `docs/ro-roadmap-state-2026-08-06.md` is the
-prior evidence snapshot; it carries an explicit correction notice at its top
-rather than being rewritten, per this document's own no-silent-rewrite
-practice.
+`Red-Blink/dune-awakening-selfhost-docker@b53765c2070c12d7ebb4adc8103f26c42745fa7c`
+(latest published release tag `v1.4.8`) on September 6, 2026. Route-by-route
+provenance for the bot's adapter client was re-verified directly against this
+current baseline (see `docs/adapter-contract.md`'s 2026-09-06 entry for the
+full diff-based re-verification: no route-classification changes found across
+~1,139 commits of upstream drift since the prior, 2026-08-16 baseline). The
+2026-08-16 evidence itself corrected two real drift issues the original
+2026-08-06 evidence had missed -- see `arrakis-control-panel#172` for that
+full audit, and the full-set pin in `test/adapterClient.test.js`.
+`docs/ro-roadmap-state-2026-08-06.md` is the original evidence snapshot; it
+carries explicit correction notices at its top (both 2026-08-16 and
+2026-09-06) rather than being rewritten, per this document's own
+no-silent-rewrite practice.
 
 The standalone local reference clone used for this review followed the
 recommended sibling path:
@@ -54,7 +57,7 @@ recommended sibling path:
 ../dune-awakening-selfhost-docker-upstream-main
 ```
 
-No upstream release-candidate tag newer than `v1.3.87` was observed during this
+No upstream release-candidate tag newer than `v1.4.8` was observed during this
 review. Older release-candidate tags remain historical evidence, but the stable
 compatibility baseline is the latest published release.
 

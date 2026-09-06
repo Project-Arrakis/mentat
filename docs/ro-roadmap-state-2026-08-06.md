@@ -1,5 +1,19 @@
 # RO Roadmap State — 2026-08-06 Evidence Review
 
+> **Re-verified 2026-09-06 against real current upstream `v1.4.8` (see
+> `docs/adapter-contract.md`'s own dated entry) -- the LIVE (28)/PLANNED
+> (8)/UNMERGED (7)/MISSING (6) route classification below and in
+> `src/adapterClient.js` is CONFIRMED STILL ACCURATE.** ~1,139 commits of
+> upstream drift since the `v1.3.87` baseline this document was last
+> checked against, and NONE of them changed the Discord adapter's route
+> surface -- no route added/removed, no dispatch-table change, no
+> `players/accounts/*`/`player-links-start`/`guild-grants/*` family
+> resurrected. Route counts/classifications in this document remain the
+> current source of truth; only the upstream evidence date/pin advanced.
+> Follow-up #1 below (`/dune server maintenance`) is already stale as
+> written -- see its own inline correction -- and remains the one real,
+> still-open item from this whole document.
+>
 > **SUPERSEDED, in part, 2026-08-16 (see `arrakis-control-panel#172`).** This
 > document's "LIVE (28)" list below includes `players-accounts-list`,
 > `players-accounts-unlink`, and `players-accounts-link-steam` with the claim
@@ -169,8 +183,16 @@ test failure).
 
 ## Follow-ups (tracked separately)
 
-1. Either implement or deliberately disable `/dune server maintenance`
-   (route 404s upstream).
+1. **Correction (2026-09-06): this item is stale.** `/dune server
+   maintenance` no longer 404s -- it was reclassified `LIVE_ROUTES` in the
+   2026-08-16 refresh above (real handler confirmed at `v1.3.87`, still
+   confirmed live at `v1.4.8`). What's still genuinely open: implement or
+   deliberately disable `/dune server maintenance` was never actually the
+   real gap here; the real, still-open item is that no one has since
+   re-verified whether the LIVE `maintenance` route's *behavior* (not its
+   mere existence) matches what the bot's command expects end-to-end --
+   worth a live E2E check, not a route-existence check, next time this is
+   picked up.
 2. Consider removing the dead `player-links*` config path/method entries from
    `src/config.js` (now that they are classified MISSING, the config
    entries could be cleaned up; note nothing calls them).
