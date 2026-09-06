@@ -218,7 +218,7 @@ For issues:
 1. Check bot logs: `sudo tail -50 /home/bot/arrakis-control-panel/logs/bot.log`
 2. Check systemd status: `sudo systemctl status acp-bot.service`
 3. Restart if needed: `sudo systemctl restart acp-bot.service`
-4. File issue: https://github.com/yacketrj/arrakis-control-panel/issues
+4. File issue: https://github.com/Project-Arrakis/mentat/issues
 
 ---
 

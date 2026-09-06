@@ -1,11 +1,11 @@
 {
   "name": "ACP Issue Bridge",
-  "url": "https://github.com/yacketrj/arrakis-control-panel",
+  "url": "https://github.com/Project-Arrakis/mentat",
   "hook_attributes": {
-    "url": "https://github.com/yacketrj",
+    "url": "https://github.com/Project-Arrakis",
     "active": false
   },
-  "redirect_url": "https://github.com/yacketrj/arrakis-control-panel",
+  "redirect_url": "https://github.com/Project-Arrakis/mentat",
   "public": false,
   "default_permissions": {
     "metadata": "read",

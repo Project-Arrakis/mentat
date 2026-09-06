@@ -150,7 +150,7 @@
 
 ## Quick Links
 
-- **[GitHub Repository](https://github.com/yacketrj/arrakis-control-panel)**
-- **[Report an Issue](https://github.com/yacketrj/arrakis-control-panel/issues)**
+- **[GitHub Repository](https://github.com/Project-Arrakis/mentat)**
+- **[Report an Issue](https://github.com/Project-Arrakis/mentat/issues)**
 - **[Code of Conduct](../CODE_OF_CONDUCT.md)**
 - **[Contributing](../CONTRIBUTING.md)**
