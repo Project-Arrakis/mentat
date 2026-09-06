@@ -683,7 +683,16 @@ export function actorFromInteraction(interaction) {
     username: interaction.user?.username || interaction.user?.displayName || "unknown",
     guildId: interaction.guildId,
     channelId: interaction.channelId,
-    roleIds: extractRoleIds(interaction)
+    roleIds: extractRoleIds(interaction),
+    // Issue #240 (companion to dune-awakening-selfhost-docker#691): lets
+    // Core's discordActorTier() also recognize real Discord guild ownership,
+    // matching this bot's own rbac.js isGuildOwner(). This bot already has
+    // guild.ownerId live via its gateway connection (GatewayIntentBits.Guilds)
+    // -- no extra API call needed. NOT part of actorSignature.js's HMAC-
+    // signed field set (deliberate, tracked deferral -- see that issue's
+    // body): trusted at the same level roleIds already is today for any
+    // deployment without DUNE_DISCORD_ACTOR_SECRET configured.
+    guildOwnerId: interaction.guild?.ownerId
   };
 }
 

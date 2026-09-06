@@ -241,7 +241,7 @@ test("executeDuneCommand handles server:summary through the status route", async
   await executeDuneCommand(interaction, client, {
     discord: { defaultEphemeral: false, rbac: { mode: "restricted", commandRoleIds: { "server:summary": ["role-a"] } } }
   });
-  assert.deepEqual(seenActor, { userId: "u1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"] });
+  assert.deepEqual(seenActor, { userId: "u1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], guildOwnerId: undefined });
   assert.ok(edited?.embeds?.[0]?.data?.title, "summary embed has title");
 });
 
@@ -306,14 +306,25 @@ test("executeDuneCommand routes player:find scope=guild to guildFind, not player
   assert.equal(seenQuery, "spice");
 });
 
-test("actorFromInteraction emits minimal Discord context", () => {
+test("actorFromInteraction emits minimal Discord context, including guildOwnerId (issue #240)", () => {
+  const actor = actorFromInteraction({
+    user: { id: "user-1" },
+    guild: { ownerId: "owner-1" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    member: { roles: ["role-1"] }
+  });
+  assert.deepEqual(actor, { userId: "user-1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-1"], guildOwnerId: "owner-1" });
+});
+
+test("actorFromInteraction: guildOwnerId is undefined when interaction.guild is absent (older/degraded interaction shape)", () => {
   const actor = actorFromInteraction({
     user: { id: "user-1" },
     guildId: "guild-1",
     channelId: "channel-1",
     member: { roles: ["role-1"] }
   });
-  assert.deepEqual(actor, { userId: "user-1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-1"] });
+  assert.equal(actor.guildOwnerId, undefined);
 });
 
 test("aboutPayload exposes safe metadata without secrets", () => {
