@@ -13,6 +13,7 @@ import {
   upsertGuild,
   getGuild,
   addGuildRole,
+  removeGuildRole,
   getGuildRoles,
   updateGuildSettings,
   getStatsSnapshot
@@ -32,10 +33,10 @@ const DISCORD_USER_URL = "https://discord.com/api/v10/users/@me";
 
 // findRoleTierConflict: separation of duties (issue #238, matching Core's
 // tier1-upstream design) -- a single Discord role ID may never be mapped to
-// two different tiers. Owner is deliberately excluded from this check: it
-// has no role concept at all anymore, so it can never conflict with
-// anything. Returns the first conflict found (role ID + both tier names)
-// or null when the combined mapping is conflict-free.
+// two different tiers *at once*. Owner is deliberately excluded from this
+// check: it has no role concept at all anymore, so it can never conflict
+// with anything. Returns the first conflict found (role ID + both tier
+// names) or null when the combined mapping is conflict-free.
 //
 // `existingRoles` (the shape database.js's getGuildRoles() returns) is
 // checked ALONGSIDE the current submission's 3 fields, not just against
@@ -46,15 +47,34 @@ const DISCORD_USER_URL = "https://discord.com/api/v10/users/@me";
 // would previously pass this check (nothing in THAT request conflicted
 // with itself) while silently creating exactly the one-role-two-tiers
 // violation this function exists to prevent.
+//
+// Existing rows whose role_id is ALSO present in the current submission are
+// excluded from that comparison, not treated as a conflict -- a second
+// code-review finding caught the first fix above as an overcorrection: an
+// operator resubmitting an already-mapped role under a *new* tier (e.g.
+// promoting a role from moderator to admin) is a deliberate reassignment,
+// not two simultaneous tiers for the same role, and /setup/register's own
+// register handler removes the role's old-tier row before re-adding it
+// under the new one (see the reassignment block there) -- so by the time
+// this combined mapping is actually persisted, no real conflict exists.
+// Without this exclusion, an operator could never change a role's tier
+// through /setup at all: every resubmission would be rejected as
+// conflicting with its own prior mapping, with no removeGuildRole route in
+// this file to work around it.
 export function findRoleTierConflict({ adminRoleId, moderatorRoleId, observerRoleId, existingRoles = [] }) {
-  const mapped = [
+  const submitted = [
     ["admin", adminRoleId],
     ["moderator", moderatorRoleId],
-    ["observer", observerRoleId],
-    ...existingRoles
-      .filter((row) => row.role_type !== "owner")
-      .map((row) => [row.role_type, row.role_id])
+    ["observer", observerRoleId]
   ].filter(([, roleId]) => roleId);
+  const submittedRoleIds = new Set(submitted.map(([, roleId]) => String(roleId)));
+
+  const mapped = [
+    ...submitted,
+    ...existingRoles
+      .filter((row) => row.role_type !== "owner" && !submittedRoleIds.has(String(row.role_id)))
+      .map((row) => [row.role_type, row.role_id])
+  ];
 
   for (let i = 0; i < mapped.length; i++) {
     for (let j = i + 1; j < mapped.length; j++) {
@@ -411,9 +431,31 @@ export function createSetupServer(config) {
       // an install that used the old, now-removed Owner Role field is left
       // untouched in the DB (no destructive migration) but is inert for
       // authorization -- see rbac.js's resolveActorAuthTier.
-      if (moderatorRoleId) addGuildRole(db, guildId, "moderator", moderatorRoleId);
-      if (adminRoleId) addGuildRole(db, guildId, "admin", adminRoleId);
-      if (observerRoleId) addGuildRole(db, guildId, "observer", observerRoleId);
+      //
+      // Reassignment (code-review finding): addGuildRole() is purely
+      // additive (INSERT OR IGNORE) and this form never pre-populates a
+      // guild's existing mappings, so a role being resubmitted under a new
+      // tier here must have its OLD tier's row removed first -- otherwise
+      // it would end up mapped to both tiers at once (exactly what
+      // findRoleTierConflict exists to prevent, and would in fact be
+      // rejected on the operator's NEXT /setup submission even though this
+      // one is what created the violation). findRoleTierConflict above has
+      // already confirmed the new combined mapping is conflict-free once
+      // this reassignment happens, so this can run unconditionally for
+      // every submitted role ID.
+      const submittedRoles = [
+        ["moderator", moderatorRoleId],
+        ["admin", adminRoleId],
+        ["observer", observerRoleId]
+      ].filter(([, roleId]) => roleId);
+      for (const [tier, roleId] of submittedRoles) {
+        for (const otherTier of ["moderator", "admin", "observer"]) {
+          if (otherTier !== tier) removeGuildRole(db, guildId, otherTier, roleId);
+        }
+      }
+      for (const [tier, roleId] of submittedRoles) {
+        addGuildRole(db, guildId, tier, roleId);
+      }
 
       updateGuildSettings(db, guildId, {
         rbac_mode: "restricted",

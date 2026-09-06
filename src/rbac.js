@@ -79,6 +79,37 @@ export function isGuildOwner(actorId, guildOwnerId) {
   return actorId != null && guildOwnerId != null && String(actorId) === String(guildOwnerId);
 }
 
+// resolveGuildOwnerId: single source of truth for "who does Discord say owns
+// this guild" from an interaction (issue #238 code-review finding). Prefers
+// the live, already-cached interaction.guild.ownerId, but falls back to the
+// bot's own client-wide guild cache (interaction.client.guilds.cache) via
+// guildId when interaction.guild is null/uncached -- a real, reachable gap
+// during a gateway reconnect or a guild-unavailable window, where
+// interaction.guildId is still populated but interaction.guild is not.
+// Lives here, not commands.js, so writes.js can import it directly instead
+// of keeping its own private duplicate (a second code-review finding on
+// issue #238/#240 -- commands.js already imports FROM writes.js, so writes.js
+// importing a commands.js-owned copy back would be circular; this module is
+// the one place both already import from).
+export function resolveGuildOwnerId(interaction) {
+  if (interaction?.guild?.ownerId) return interaction.guild.ownerId;
+  const guildId = interaction?.guildId;
+  if (!guildId) return undefined;
+  return interaction?.client?.guilds?.cache?.get(guildId)?.ownerId;
+}
+
+// isInteractionGuildOwner: every gating call site (isCommandAllowed,
+// isAdminActor in commands.js, canWrite in writes.js, executeDuneCommand's
+// zero-role gate) uses this ONE function rather than re-deriving
+// isGuildOwner(interaction.user?.id, interaction.guild?.ownerId) inline --
+// centralizing both the ownership check and the reconnect-window fallback
+// above, per issue #238's own code-review finding that duplicated copies of
+// this exact check had already drifted once (a role-shaped guard running
+// ahead of it in one of three copies).
+export function isInteractionGuildOwner(interaction) {
+  return isGuildOwner(interaction?.user?.id, resolveGuildOwnerId(interaction));
+}
+
 // The actual authorization-facing tier resolver — every RBAC/write call site
 // should use this, not dbActorTier directly, so "owner" can never be reached
 // via a role mapping. `roles` may still contain legacy role_type="owner"

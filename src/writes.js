@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { tierAtLeast, multiTenantActorTier, isGuildOwner } from "./rbac.js";
+import { tierAtLeast, multiTenantActorTier, isInteractionGuildOwner, resolveGuildOwnerId } from "./rbac.js";
 
 const WRITES_ENABLED_ENV = "DUNE_DISCORD_WRITES_ENABLED";
 const WRITE_ADMIN_ROLE_ENV = "DISCORD_WRITE_ADMIN_ROLE_IDS";
@@ -47,21 +47,12 @@ export function writeRoleIds(env = process.env) {
 //   - single-tenant: the existing DISCORD_WRITE_ADMIN_ROLE_IDS env var
 //     (DISCORD_WRITE_OWNER_ROLE_IDS folds into the same admin-equivalent
 //     set, not owner -- see the const's comment above).
-// resolveGuildOwnerId: local copy of commands.js's function of the same
-// name (can't import it here -- commands.js already imports FROM this
-// file, so the reverse would be a circular dependency; mirrors this file's
-// existing local extractRoleIds() precedent for the same reason). Prefers
-// the live, already-cached interaction.guild.ownerId, but falls back to
-// the bot's client-wide guild cache via guildId when interaction.guild is
-// null/uncached -- a real, reachable gap during a gateway reconnect or a
-// guild-unavailable window (issue #238 code-review finding).
-function resolveGuildOwnerId(interaction) {
-  if (interaction?.guild?.ownerId) return interaction.guild.ownerId;
-  const guildId = interaction?.guildId;
-  if (!guildId) return undefined;
-  return interaction?.client?.guilds?.cache?.get(guildId)?.ownerId;
-}
-
+// resolveGuildOwnerId/isInteractionGuildOwner now live in rbac.js (issue
+// #238/#240 code-review finding) -- this file used to keep its own private
+// duplicate of resolveGuildOwnerId because commands.js already imports FROM
+// this file (a reverse import would have been circular), but rbac.js is a
+// module both files already import from, so it's the one shared home for
+// this logic instead of two independently-maintainable copies.
 export function canWrite(interaction, config, requiredTier = null, db = null, guildId = null) {
   if (!writesEnabled(config)) return false;
 
@@ -71,7 +62,7 @@ export function canWrite(interaction, config, requiredTier = null, db = null, gu
   // denied the real owner whenever member.roles was falsy/missing, directly
   // contradicting this function's own "never by a role" guarantee.
   const threshold = requiredTier || "admin";
-  if (isGuildOwner(interaction?.user?.id, resolveGuildOwnerId(interaction))) {
+  if (isInteractionGuildOwner(interaction)) {
     return tierAtLeast("owner", threshold);
   }
 

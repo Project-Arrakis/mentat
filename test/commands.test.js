@@ -346,7 +346,7 @@ test("actorFromInteraction emits minimal Discord context, including guildOwnerId
   assert.deepEqual(actor, { userId: "user-1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-1"], guildOwnerId: "owner-1" });
 });
 
-test("actorFromInteraction: guildOwnerId is undefined when interaction.guild is absent (older/degraded interaction shape)", () => {
+test("actorFromInteraction: guildOwnerId is undefined when interaction.guild is absent and no client-cache fallback is available", () => {
   const actor = actorFromInteraction({
     user: { id: "user-1" },
     guildId: "guild-1",
@@ -354,6 +354,17 @@ test("actorFromInteraction: guildOwnerId is undefined when interaction.guild is 
     member: { roles: ["role-1"] }
   });
   assert.equal(actor.guildOwnerId, undefined);
+});
+
+test("actorFromInteraction: guildOwnerId falls back to interaction.client.guilds.cache when interaction.guild is absent (code-review finding, issue #240) -- matches isInteractionGuildOwner's own fallback so the actor payload sent to Core cannot disagree with a local authorization decision made during the same gateway-reconnect window", () => {
+  const actor = actorFromInteraction({
+    user: { id: "user-1" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    member: { roles: ["role-1"] },
+    client: { guilds: { cache: new Map([["guild-1", { ownerId: "owner-1" }]]) } }
+  });
+  assert.equal(actor.guildOwnerId, "owner-1");
 });
 
 test("aboutPayload exposes safe metadata without secrets", () => {
@@ -445,6 +456,35 @@ test("admin:broadcast is blocked by RBAC when user has no role", async () => {
   });
   assert.equal(handled, true);
   assert.equal(immediateReply?.content?.includes("not authorized"), true, "RBAC blocks unauthorized broadcast");
+});
+
+test("admin:roles owner label uses the same interaction.client.guilds.cache fallback as the authorization decision (code-review finding, issue #238)", async () => {
+  // interaction.guild is deliberately null (a gateway reconnect/guild-
+  // unavailable window) while interaction.guildId and the client-wide cache
+  // still carry the real owner -- isInteractionGuildOwner grants access via
+  // that same cache fallback, and the displayed owner label must agree
+  // instead of showing "(unknown -- no guild context)" for a request that
+  // just succeeded because the code already knew who the owner was.
+  const interaction = mockInteraction("admin", "roles", {
+    user: { id: "owner-1" },
+    roles: []
+  });
+  interaction.guild = null;
+  interaction.client = { guilds: { cache: new Map([["guild-1", { ownerId: "owner-1" }]]) } };
+  let edited;
+  interaction.editReply = async (r) => { edited = r; };
+
+  const handled = await executeDuneCommand(interaction, {}, {
+    adapter: { baseUrl: "http://console-api:3000", timeoutMs: 8000 },
+    discord: { defaultEphemeral: true, rbac: { mode: "restricted", observerRoleIds: [], adminRoleIds: [] } }
+  });
+  assert.equal(handled, true);
+  const ownerField = edited?.embeds?.[0]?.data?.fields?.find((f) => f.name.includes("Owner"));
+  assert.ok(ownerField, "roles embed should include an Owner field");
+  assert.ok(
+    ownerField.value.includes("owner-1"),
+    `owner label should resolve owner-1 via the cache fallback, got: ${ownerField.value}`
+  );
 });
 
 test("infra commands are RBAC-gated through fallback observer/admin", async () => {

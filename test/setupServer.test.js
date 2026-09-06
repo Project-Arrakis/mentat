@@ -271,6 +271,117 @@ test("POST /setup/register rejects a role mapped to two tiers (separation of dut
   }
 });
 
+test("POST /setup/register lets an operator reassign an already-mapped role to a new tier", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createDatabase, getGuildRoles } = await import("../src/database.js");
+
+  const dir = mkdtempSync(join(tmpdir(), "acp-setup-reassign-"));
+  const dbPath = join(dir, "setup.db");
+  const app = createSetupServer({ dbPath, discordClientId: "client-id", baseUrl: "http://localhost:3100" });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    // Code-review finding: a role originally mapped to "moderator" must be
+    // promotable to "admin" through a later /setup submission, not
+    // permanently rejected as a conflict against its own prior mapping.
+    const first = await fetch(`${base}/setup/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guildId: "g-reassign",
+        consoleUrl: "https://console.test",
+        adapterToken: "mock-token",
+        moderatorRoleId: "role-x"
+      }),
+      redirect: "manual"
+    });
+    assert.equal(first.status, 302);
+
+    const second = await fetch(`${base}/setup/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guildId: "g-reassign",
+        consoleUrl: "https://console.test",
+        adapterToken: "mock-token",
+        adminRoleId: "role-x"
+      }),
+      redirect: "manual"
+    });
+    assert.equal(second.status, 302, "reassigning role-x from moderator to admin must succeed, not 400 as a conflict");
+
+    const db = createDatabase(dbPath);
+    const roles = getGuildRoles(db, "g-reassign");
+    db.close();
+    const byType = Object.fromEntries(roles.map((r) => [r.role_type, r.role_id]));
+    assert.deepEqual(byType, { admin: "role-x" }, "role-x's stale moderator row must be removed, not left alongside the new admin row");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(`${dbPath}-wal`, { force: true });
+    rmSync(`${dbPath}-shm`, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /setup/register still rejects a genuine conflict against an unrelated pre-existing role", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const dir = mkdtempSync(join(tmpdir(), "acp-setup-real-conflict-"));
+  const dbPath = join(dir, "setup.db");
+  const app = createSetupServer({ dbPath, discordClientId: "client-id", baseUrl: "http://localhost:3100" });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    // role-a is mapped to "observer" and left alone by the second
+    // submission -- a later request must still be rejected if it tries to
+    // ALSO give role-a the "admin" tier, since that request never mentions
+    // reassigning role-a away from observer.
+    const first = await fetch(`${base}/setup/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guildId: "g-real-conflict",
+        consoleUrl: "https://console.test",
+        adapterToken: "mock-token",
+        observerRoleId: "role-a"
+      }),
+      redirect: "manual"
+    });
+    assert.equal(first.status, 302);
+
+    const second = await fetch(`${base}/setup/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guildId: "g-real-conflict",
+        consoleUrl: "https://console.test",
+        adapterToken: "mock-token",
+        observerRoleId: "role-a",
+        adminRoleId: "role-a"
+      }),
+      redirect: "manual"
+    });
+    assert.equal(second.status, 400, "role-a cannot be both observer and admin in the same submission");
+    const body = await second.text();
+    assert.ok(body.includes("role-a"), "error page should name the conflicting role ID");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(`${dbPath}-wal`, { force: true });
+    rmSync(`${dbPath}-shm`, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // ─── POST /api/alerts/relay authentication (issue #167) ───────────────────
 // This route previously had zero authentication -- anyone who discovered
 // the URL could inject arbitrary-looking Alertmanager payloads and have
