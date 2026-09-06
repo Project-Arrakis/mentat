@@ -7,6 +7,38 @@ change notes under `docs/changes/`.
 ## Unreleased
 
 ### Changed
+- **RBAC: owner-tier access is now derived exclusively from real Discord
+  guild ownership, never a role — aligned with `dune-awakening-selfhost-docker`'s
+  tier1-upstream console design (issue #238).** Previously an operator could
+  map any Discord role to the "owner" tier during `/setup`, with no tie to
+  who actually owns the server — a real divergence from Core's design
+  (`rfc-console-auth.md` sec2.1.1: owner "never from a role"), risking the
+  bot allowing an action Core would deny (or vice versa) for the same
+  Discord member.
+  - The "Owner Role" setup-form field is removed. Owner-tier access
+    (`canWrite(requiredTier="owner")`, admin-gate bypass, command
+    authorization) now always belongs to whoever Discord itself reports as
+    the guild's owner (`interaction.guild.ownerId`), checked live on every
+    command — no configuration needed, and it can never be reassigned.
+  - **Backward compatible, no schema change**: an existing guild's stored
+    `role_type='owner'` row in `guild_roles` (from before this change) is
+    left in the database untouched but is now inert for authorization; the
+    `/dune core roles` display surfaces a one-time notice when this is
+    detected so operators aren't left wondering why it stopped working.
+  - **Lockout risk removed, not just parity**: the previous "must map at
+    least an Admin or Owner role, or nobody can administer the bot" setup
+    validation is gone — it's now structurally impossible to lock out the
+    real server owner, since they always have owner-tier access regardless
+    of role configuration.
+  - **Separation of duties enforced**: `/setup/register` now rejects (and
+    names) a submission that maps the same Discord role to two different
+    tiers (admin/moderator/observer), matching Core's own SoD behavior on
+    its Settings panel.
+  - `DISCORD_WRITE_OWNER_ROLE_IDS` (single-tenant env-var deployments) no
+    longer grants owner-tier access — it's folded into the admin-equivalent
+    set instead (matching `isAdminActor()`'s existing back-compat
+    behavior), so an existing deployment doesn't lose admin-level access,
+    but can no longer reach owner-tier write actions via that env var.
 - **Rebrand: Sentinel → Mentat (Phase 4 of the Project Arrakis rename).**
   Application branding (embed footers, onboarding DMs, setup-portal pages,
   `/api/version`, `/health`, the status-card image caption, `package.json`)

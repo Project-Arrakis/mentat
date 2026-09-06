@@ -20,7 +20,7 @@ import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES } from "./adapterCli
 import { getIncidentHistory } from "./scheduler.js";
 import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
-import { dbActorTier, tierAtLeast } from "./rbac.js";
+import { resolveActorAuthTier, isGuildOwner, tierAtLeast } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
 
 // Group -> subcommand -> handler config
@@ -689,17 +689,26 @@ export function actorFromInteraction(interaction) {
 
 // ── RBAC ──
 export function isCommandAllowed(interaction, command, config, db = null, guildId = null) {
+  // The real Discord guild owner always passes, in every mode -- owner is a
+  // live Discord fact (interaction.guild.ownerId), never something an RBAC
+  // mode/role config can deny (see rbac.js's isGuildOwner / issue #238).
+  if (isGuildOwner(interaction.user?.id, interaction.guild?.ownerId)) return true;
+
   if (config.multiTenant && db && guildId) {
     const settings = getGuildSettings(db, guildId);
     const mode = settings?.rbac_mode || "restricted";
     if (mode === "open") return true;
     // Multi-tenant gating is tier-based: any configured guild_roles row the
     // actor holds lets them through (restricted mode = "must hold a
-    // configured role"). All four tiers are honored here -- owner and
-    // moderator rows previously existed in the DB schema but were never
-    // checked, so a guild that configured either got constant
-    // "not authorized" denials (unified-RBAC Phase 1 fix).
-    return dbActorTier(extractRoleIds(interaction), getGuildRoles(db, guildId)) != null;
+    // configured role"). Moderator/admin/observer rows are honored here;
+    // legacy "owner" rows are deliberately excluded -- owner is decided
+    // above, by real guild ownership, never by a role (issue #238).
+    return resolveActorAuthTier({
+      actorId: interaction.user?.id,
+      guildOwnerId: interaction.guild?.ownerId,
+      roleIds: extractRoleIds(interaction),
+      roles: getGuildRoles(db, guildId)
+    }) != null;
   }
 
   const rbac = config.discord.rbac;
@@ -721,53 +730,93 @@ export function extractRoleIds(interaction) {
   return [];
 }
 
-// rolesConfigPayload: shows the currently configured admin/observer roles
-// for this guild, resolved to "RoleName (RoleID)" using the live Discord
-// role cache (interaction.guild.roles.cache) -- added 2026-07-26 after a
-// real incident where stale role IDs in guild_roles silently caused every
-// non-open-mode command to reject a legitimate admin, with no way to spot
-// the mismatch from a bare numeric ID. Covers both multiTenant (DB-backed
-// guild_roles table) and single-tenant (config.discord.rbac env vars)
-// configuration paths, since isCommandAllowed()/isAdminActor() branch on
-// the same two paths for the actual authorization decision.
+// resolveOwnerLabel: the owner tier has no role concept (issue #238) -- it
+// is always the real Discord guild owner. Cache-only lookup (no live fetch),
+// matching resolveRoleLabel's cache-only approach; falls back to the bare
+// ID when the member cache doesn't have it (this bot only requests the
+// Guilds intent, not GuildMembers, so the cache is frequently sparse -- a
+// bare ID is still the honest, correct answer here, just less pretty).
+function resolveOwnerLabel(guild) {
+  const ownerId = guild?.ownerId;
+  if (!ownerId) return "(unknown -- no guild context)";
+  const cachedTag = guild.members?.cache?.get(ownerId)?.user?.tag;
+  return cachedTag ? `${cachedTag} (${ownerId})` : `Discord server owner (${ownerId})`;
+}
+
+// rolesConfigPayload: shows the currently configured admin/moderator/observer
+// role mappings for this guild, resolved to "RoleName (RoleID)" using the
+// live Discord role cache (interaction.guild.roles.cache) -- added
+// 2026-07-26 after a real incident where stale role IDs in guild_roles
+// silently caused every non-open-mode command to reject a legitimate admin,
+// with no way to spot the mismatch from a bare numeric ID. Covers both
+// multiTenant (DB-backed guild_roles table) and single-tenant
+// (config.discord.rbac env vars) configuration paths, since
+// isCommandAllowed()/isAdminActor() branch on the same two paths for the
+// actual authorization decision. owner is never a role mapping (issue
+// #238) -- it's always shown separately, resolved live from guild ownership.
 function rolesConfigPayload(interaction, config, db = null, guildId = null) {
   const guild = interaction.guild;
+  const owner = { role: "owner", label: resolveOwnerLabel(guild) };
+
   if (config.multiTenant && db && guildId) {
     const roles = getGuildRoles(db, guildId);
     const settings = getGuildSettings(db, guildId);
-    const resolved = resolveRoleLabels(guild, roles);
+    const legacyOwnerRows = roles.filter((r) => r.role_type === "owner");
+    const resolved = resolveRoleLabels(guild, roles.filter((r) => r.role_type !== "owner"));
     return {
       ok: true,
       source: "database (multi-tenant)",
       rbacMode: settings?.rbac_mode || "restricted",
+      owner: owner.label,
       roles: resolved.length
         ? resolved.map((r) => `${r.roleType}: ${r.label}`)
-        : ["(no roles configured -- only allowedUserIds or open mode can authorize commands)"]
+        : ["(no admin/moderator/player roles configured -- only allowedUserIds, open mode, or the real guild owner can authorize commands)"],
+      ...(legacyOwnerRows.length
+        ? { notice: "This guild has a legacy 'Owner Role' mapping from before issue #238 -- it no longer grants owner-tier access. Only the real Discord server owner (shown above) does." }
+        : {})
     };
   }
 
   const rbac = config.discord.rbac;
   const adminLabels = (rbac.adminRoleIds || []).map((id) => resolveRoleLabel(guild, id));
   const observerLabels = (rbac.observerRoleIds || []).map((id) => resolveRoleLabel(guild, id));
+  const legacyOwnerRoleIds = parseCsv(process.env.DISCORD_WRITE_OWNER_ROLE_IDS);
   return {
     ok: true,
     source: "environment variables (single-tenant)",
     rbacMode: rbac.mode,
+    owner: owner.label,
     admin: adminLabels.length ? adminLabels : ["(none configured)"],
     observer: observerLabels.length ? observerLabels : ["(none configured)"],
-    allowedUserIds: rbac.allowedUserIds?.length ? rbac.allowedUserIds : ["(none configured)"]
+    allowedUserIds: rbac.allowedUserIds?.length ? rbac.allowedUserIds : ["(none configured)"],
+    ...(legacyOwnerRoleIds.length
+      ? { notice: "DISCORD_WRITE_OWNER_ROLE_IDS is set but no longer grants owner-tier access (issue #238) -- only the real Discord server owner does. Those role IDs are still folded into the admin-tier check." }
+      : {})
   };
 }
 
 // ── Helpers ──
 export function isAdminActor(interaction, config, db = null, guildId = null) {
+  // Real guild owner always passes (never via a role -- issue #238).
+  if (isGuildOwner(interaction.user?.id, interaction.guild?.ownerId)) return true;
+
   if (config.multiTenant && db && guildId) {
-    // Admin gate = admin tier or above. Owner passes (owner > admin);
-    // moderator does not (it is below admin on the unified ladder).
-    return tierAtLeast(dbActorTier(extractRoleIds(interaction), getGuildRoles(db, guildId)), "admin");
+    // Admin gate = admin tier or above. Moderator does not pass (it is
+    // below admin on the unified ladder). Owner is already handled above.
+    const tier = resolveActorAuthTier({
+      actorId: interaction.user?.id,
+      guildOwnerId: interaction.guild?.ownerId,
+      roleIds: extractRoleIds(interaction),
+      roles: getGuildRoles(db, guildId)
+    });
+    return tierAtLeast(tier, "admin");
   }
 
   const roleIds = extractRoleIds(interaction);
+  // DISCORD_WRITE_OWNER_ROLE_IDS is intentionally still folded in here as an
+  // ADMIN-equivalent set (not owner-equivalent) for single-tenant back-compat
+  // -- see writes.js's writeRoleIds() header comment for why the env var
+  // itself is deprecated for granting owner-tier access specifically.
   const adminRoles = new Set([
     ...parseCsv(process.env.DISCORD_ADMIN_ROLE_IDS),
     ...parseCsv(process.env.DISCORD_WRITE_ADMIN_ROLE_IDS),

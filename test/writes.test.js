@@ -55,31 +55,58 @@ test("canWrite allows admin role when writes enabled", () => {
   }
 });
 
-test("canWrite allows owner role when writes enabled", () => {
+// Issue #238: DISCORD_WRITE_OWNER_ROLE_IDS is deprecated for granting
+// owner-tier access -- it's folded into the ADMIN-equivalent set instead
+// (matching isAdminActor()'s existing back-compat behavior in
+// commands.js), so a role in this list reaches admin-tier, never owner.
+test("canWrite folds DISCORD_WRITE_OWNER_ROLE_IDS into admin-tier (not owner-tier) for back-compat", () => {
   const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
   const oldOwnerIds = process.env.DISCORD_WRITE_OWNER_ROLE_IDS;
   process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
   process.env.DISCORD_WRITE_OWNER_ROLE_IDS = "write-owner-role";
   try {
     const interaction = { member: { roles: { cache: new Map([["write-owner-role", {}]]) } } };
-    assert.equal(canWrite(interaction, { discord: { writes: { enabled: true } } }), true);
+    const config = { discord: { writes: { enabled: true } } };
+    assert.equal(canWrite(interaction, config), true, "reaches the default admin-or-above threshold");
+    assert.equal(canWrite(interaction, config, "admin"), true);
+    assert.equal(canWrite(interaction, config, "owner"), false, "no longer reaches owner-tier -- only real guild ownership does");
   } finally {
     process.env.DUNE_DISCORD_WRITES_ENABLED = oldEnabled;
     process.env.DISCORD_WRITE_OWNER_ROLE_IDS = oldOwnerIds;
   }
 });
 
+test("canWrite grants owner-tier to the real Discord guild owner, regardless of any role or env config", () => {
+  const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
+  process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
+  try {
+    const interaction = {
+      user: { id: "real-owner" },
+      guild: { ownerId: "real-owner" },
+      member: { roles: { cache: new Map() } }
+    };
+    const config = { discord: { writes: { enabled: true } } };
+    assert.equal(canWrite(interaction, config, "owner"), true);
+    assert.equal(canWrite(interaction, config, "admin"), true, "owner outranks admin");
+  } finally {
+    process.env.DUNE_DISCORD_WRITES_ENABLED = oldEnabled;
+  }
+});
+
 test("canWrite enforces tier separation when requiredTier is given", () => {
   const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
   const oldAdminIds = process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
-  const oldOwnerIds = process.env.DISCORD_WRITE_OWNER_ROLE_IDS;
   process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
   process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = "write-admin-role";
-  process.env.DISCORD_WRITE_OWNER_ROLE_IDS = "write-owner-role";
   try {
     const config = { discord: { writes: { enabled: true } } };
     const adminInteraction = { member: { roles: { cache: new Map([["write-admin-role", {}]]) } } };
-    const ownerInteraction = { member: { roles: { cache: new Map([["write-owner-role", {}]]) } } };
+    // Issue #238: owner-tier is real Discord guild ownership, never a role.
+    const ownerInteraction = {
+      user: { id: "real-owner" },
+      guild: { ownerId: "real-owner" },
+      member: { roles: { cache: new Map() } }
+    };
 
     // Admin cannot reach owner-tier actions.
     assert.equal(canWrite(adminInteraction, config, "owner"), false);
@@ -91,7 +118,6 @@ test("canWrite enforces tier separation when requiredTier is given", () => {
   } finally {
     process.env.DUNE_DISCORD_WRITES_ENABLED = oldEnabled;
     process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = oldAdminIds;
-    process.env.DISCORD_WRITE_OWNER_ROLE_IDS = oldOwnerIds;
   }
 });
 
@@ -154,10 +180,22 @@ test("canWrite (multi-tenant) lets a guild_roles admin reach admin-tier actions 
   assert.equal(canWrite(actor, mtDbConfig, "owner", db, "guild-9"), false, "admin must not reach owner-tier");
 });
 
-test("canWrite (multi-tenant) lets a guild_roles owner role reach owner-tier actions", () => {
+// Issue #238: a legacy guild_roles "owner" row (from before the
+// unification) is inert -- it must not reach owner-tier, or any tier.
+test("canWrite (multi-tenant) ignores a legacy guild_roles owner row", () => {
   const db = mtDb([{ type: "owner", id: "owner-role" }]);
   const actor = mtActor(["owner-role"]);
-  assert.equal(canWrite(actor, mtDbConfig, null, db, "guild-9"), true);
+  assert.equal(canWrite(actor, mtDbConfig, null, db, "guild-9"), false);
+  assert.equal(canWrite(actor, mtDbConfig, "owner", db, "guild-9"), false);
+});
+
+test("canWrite (multi-tenant) grants owner-tier to the real Discord guild owner regardless of guild_roles", () => {
+  const db = mtDb([{ type: "admin", id: "admin-role" }]);
+  const actor = {
+    user: { id: "real-owner" },
+    guild: { ownerId: "real-owner" },
+    member: { roles: { cache: new Map() } }
+  };
   assert.equal(canWrite(actor, mtDbConfig, "owner", db, "guild-9"), true);
   assert.equal(canWrite(actor, mtDbConfig, "admin", db, "guild-9"), true, "owner is above admin");
 });

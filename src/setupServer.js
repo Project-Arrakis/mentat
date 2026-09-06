@@ -29,6 +29,31 @@ const DISCORD_OAUTH_URL = "https://discord.com/api/v10/oauth2/authorize";
 const DISCORD_TOKEN_URL = "https://discord.com/api/v10/oauth2/token";
 const DISCORD_USER_URL = "https://discord.com/api/v10/users/@me";
 
+// findRoleTierConflict: separation of duties (issue #238, matching Core's
+// tier1-upstream design) -- a single Discord role ID may never be mapped to
+// two different tiers. Owner is deliberately excluded from this check: it
+// has no role concept at all anymore, so it can never conflict with
+// anything. Returns the first conflict found (role ID + both tier names)
+// or null when the three mappings are conflict-free.
+export function findRoleTierConflict({ adminRoleId, moderatorRoleId, observerRoleId }) {
+  const mapped = [
+    ["admin", adminRoleId],
+    ["moderator", moderatorRoleId],
+    ["observer", observerRoleId]
+  ].filter(([, roleId]) => roleId);
+
+  for (let i = 0; i < mapped.length; i++) {
+    for (let j = i + 1; j < mapped.length; j++) {
+      const [tierA, roleIdA] = mapped[i];
+      const [tierB, roleIdB] = mapped[j];
+      if (String(roleIdA) === String(roleIdB)) {
+        return { roleId: roleIdA, tierA, tierB };
+      }
+    }
+  }
+  return null;
+}
+
 // Issue #167 fix: POST /api/alerts/relay had zero authentication --
 // anyone who discovered the URL could inject arbitrary-looking
 // Alertmanager firing/resolved payloads and have them relayed to the
@@ -289,15 +314,16 @@ export function createSetupServer(config) {
 
           <section class="panel">
             <h2>Step 3: Role Configuration</h2>
-            <div class="field">
-              <label for="ownerRoleId">Owner Role <em>(optional)</em></label>
-              <input type="text" name="ownerRoleId" id="ownerRoleId" placeholder="Discord role ID">
-              <div class="hint">Members can use owner-tier actions (backups, restarts, updates) when writes are enabled</div>
+            <div class="hint" style="margin-bottom:12px;">
+              There is no "Owner Role" to map — owner-tier access (backups, restarts, updates when
+              writes are enabled) always belongs to whoever actually owns this Discord server, the
+              same way it works in the Dune Docker console. You (or any future server owner) can
+              never be locked out, even with no roles configured below.
             </div>
             <div class="field">
-              <label for="adminRoleId">Admin Role <em>(required)</em></label>
-              <input type="text" name="adminRoleId" id="adminRoleId" placeholder="Discord role ID" required>
-              <div class="hint">Members can use admin commands. Required — without an Admin (or Owner) role mapping, nobody can administer the bot after setup</div>
+              <label for="adminRoleId">Admin Role <em>(optional)</em></label>
+              <input type="text" name="adminRoleId" id="adminRoleId" placeholder="Discord role ID">
+              <div class="hint">Members can use admin commands</div>
             </div>
             <div class="field">
               <label for="moderatorRoleId">Moderator Role <em>(optional)</em></label>
@@ -307,8 +333,9 @@ export function createSetupServer(config) {
             <div class="field">
               <label for="observerRoleId">Player Role <em>(recommended)</em></label>
               <input type="text" name="observerRoleId" id="observerRoleId" placeholder="Discord role ID">
-              <div class="hint">Members can use read-only commands. Without it, only members holding one of the roles above can use the bot at all</div>
+              <div class="hint">Members can use read-only commands. Without it, only members holding one of the roles above (or the real server owner) can use the bot at all</div>
             </div>
+            <div class="hint">Each Discord role may only be mapped to one of these tiers — separation of duties, matching the console.</div>
           </section>
 
           <div class="btn--text-center" style="margin-top:8px;">
@@ -327,7 +354,7 @@ export function createSetupServer(config) {
 
   app.post("/setup/register", async (req, res) => {
     try {
-      const { discordUserId, guildId, consoleUrl, adapterToken, ownerRoleId, adminRoleId, moderatorRoleId, observerRoleId } = req.body;
+      const { discordUserId, guildId, consoleUrl, adapterToken, adminRoleId, moderatorRoleId, observerRoleId } = req.body;
 
       // #214/U7: this endpoint serves a browser form POST — errors must
       // render a styled page with a way back, not a bare JSON body.
@@ -336,13 +363,20 @@ export function createSetupServer(config) {
           "Server, console URL, and adapter token are all required. Use your browser's Back button to return to the form — your entries are preserved.");
       }
 
-      // #213/U4: a setup with no role mappings completed "successfully"
-      // and then locked every member (including the person who set it
-      // up) out of every command with no hint why. Require at least an
-      // Admin or Owner mapping so someone can always administer the bot.
-      if (!adminRoleId && !ownerRoleId) {
-        return errorPage(res, 400, "Role Configuration Required",
-          "Map at least an Admin or Owner Discord role. In restricted mode (the default), members without a mapped role cannot use any command — with no Admin or Owner mapping, nobody could administer the bot after setup. Use your browser's Back button to return to the form and set a role ID.");
+      // #213/U4's original lockout scenario ("no Admin or Owner mapping ->
+      // nobody could administer the bot") is now structurally impossible:
+      // owner-tier access always belongs to the real Discord guild owner
+      // (issue #238), never a role mapping, so no admin/moderator/observer
+      // role is required here at all.
+
+      // Issue #238: separation of duties, matching Core's tier1-upstream
+      // design -- a single Discord role may never be mapped to two
+      // different tiers. Reject the whole submission and name the
+      // conflicting role, rather than silently letting one mapping win.
+      const roleConflict = findRoleTierConflict({ adminRoleId, moderatorRoleId, observerRoleId });
+      if (roleConflict) {
+        return errorPage(res, 400, "Role Configuration Conflict",
+          `Discord role ${roleConflict.roleId} is mapped to both ${roleConflict.tierA} and ${roleConflict.tierB}. Each Discord role may only be mapped to one tier — separation of duties, matching the Dune Docker console. Use your browser's Back button and map each role to a single tier.`);
       }
 
       // Issue #195: resolve the real guild name server-side (the form's
@@ -358,7 +392,11 @@ export function createSetupServer(config) {
         status: "active"
       });
 
-      if (ownerRoleId) addGuildRole(db, guildId, "owner", ownerRoleId);
+      // Owner is deliberately never written here -- see the SoD/lockout
+      // comments above (issue #238). A pre-existing legacy "owner" row from
+      // an install that used the old, now-removed Owner Role field is left
+      // untouched in the DB (no destructive migration) but is inert for
+      // authorization -- see rbac.js's resolveActorAuthTier.
       if (moderatorRoleId) addGuildRole(db, guildId, "moderator", moderatorRoleId);
       if (adminRoleId) addGuildRole(db, guildId, "admin", adminRoleId);
       if (observerRoleId) addGuildRole(db, guildId, "observer", observerRoleId);

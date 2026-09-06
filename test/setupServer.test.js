@@ -130,22 +130,24 @@ test("GET /api/live-stats serves the stored snapshot from the same DB file", asy
   }
 });
 
-// ─── Unified 4-tier role enrollment (Phase 1) ─────────────────────────────
-// The wizard previously only accepted admin + observer role IDs. Owner and
-// moderator tiers now have optional fields, and every role row must land
-// in guild_roles with the correct role_type (owner > admin > moderator >
-// player/observer ordering enforced upstream, but persistence must be
-// exact or the tier resolver can fail closed on a working deployment).
+// ─── Unified role enrollment, owner via guild ownership (issue #238) ──────
+// Owner has no role concept at all -- it is always the real Discord guild
+// owner (rbac.js's isGuildOwner), matching Core's tier1-upstream design.
+// The wizard exposes admin/moderator/observer role fields only, and every
+// role row must land in guild_roles with the correct role_type (persistence
+// must be exact or the tier resolver can fail closed on a working
+// deployment).
 
-test("setup wizard source exposes the Owner and Moderator and Player role fields", async () => {
+test("setup wizard source exposes Moderator and Player role fields but no Owner Role field", async () => {
   const { readFile } = await import("node:fs/promises");
   const src = await readFile(new URL("../src/setupServer.js", import.meta.url), "utf8");
-  assert.ok(src.includes('name="ownerRoleId"'), "should render the owner role field");
+  assert.ok(!src.includes('name="ownerRoleId"'), "owner has no role concept -- should NOT render an owner role field");
+  assert.ok(src.includes('name="adminRoleId"'), "should render the admin role field");
   assert.ok(src.includes('name="moderatorRoleId"'), "should render the moderator role field");
   assert.ok(src.includes('name="observerRoleId"'), "should render the player/observer role field");
 });
 
-test("POST /setup/register persists all four tier role rows", async () => {
+test("POST /setup/register persists admin/moderator/observer role rows, never an owner row", async () => {
   const { mkdtempSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -169,7 +171,6 @@ test("POST /setup/register persists all four tier role rows", async () => {
       guildId: "g-role-tiers",
       consoleUrl: "https://console.test",
       adapterToken: "mock-token",
-      ownerRoleId: "owner-role",
       adminRoleId: "admin-role",
       moderatorRoleId: "mod-role",
       observerRoleId: "player-role"
@@ -192,11 +193,76 @@ test("POST /setup/register persists all four tier role rows", async () => {
     db.close();
     const byType = Object.fromEntries(roles.map((r) => [r.role_type, r.role_id]));
     assert.deepEqual(byType, {
-      owner: "owner-role",
       admin: "admin-role",
       moderator: "mod-role",
       observer: "player-role"
     });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(`${dbPath}-wal`, { force: true });
+    rmSync(`${dbPath}-shm`, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /setup/register succeeds with zero role mappings -- the real guild owner can never be locked out", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const dir = mkdtempSync(join(tmpdir(), "acp-setup-no-roles-"));
+  const dbPath = join(dir, "setup.db");
+  const app = createSetupServer({ dbPath, discordClientId: "client-id", baseUrl: "http://localhost:3100" });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const res = await fetch(`${base}/setup/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ guildId: "g-no-roles", consoleUrl: "https://console.test", adapterToken: "mock-token" }),
+      redirect: "manual"
+    });
+    assert.equal(res.status, 302, "no role mapping is required any more -- owner-tier access always exists via real guild ownership");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(`${dbPath}-wal`, { force: true });
+    rmSync(`${dbPath}-shm`, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /setup/register rejects a role mapped to two tiers (separation of duties)", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const dir = mkdtempSync(join(tmpdir(), "acp-setup-sod-"));
+  const dbPath = join(dir, "setup.db");
+  const app = createSetupServer({ dbPath, discordClientId: "client-id", baseUrl: "http://localhost:3100" });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const res = await fetch(`${base}/setup/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guildId: "g-sod",
+        consoleUrl: "https://console.test",
+        adapterToken: "mock-token",
+        adminRoleId: "same-role",
+        moderatorRoleId: "same-role"
+      }),
+      redirect: "manual"
+    });
+    assert.equal(res.status, 400);
+    const body = await res.text();
+    assert.ok(body.includes("same-role"), "error page should name the conflicting role ID");
   } finally {
     await new Promise((resolve) => server.close(resolve));
     rmSync(`${dbPath}-wal`, { force: true });

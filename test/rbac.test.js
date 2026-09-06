@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { tierAtLeast, dbActorTier, ROLE_TYPE_LABELS, TIER_RANK } from "../src/rbac.js";
+import { tierAtLeast, dbActorTier, isGuildOwner, resolveActorAuthTier, ROLE_TYPE_LABELS, TIER_RANK } from "../src/rbac.js";
 
 test("TIER_RANK orders player-as-observer < moderator < admin < owner", () => {
   assert.deepEqual(TIER_RANK, { observer: 0, moderator: 1, admin: 2, owner: 3 });
@@ -56,4 +56,47 @@ test("dbActorTier ignores unknown role_type values (future-proof fail-closed)", 
   ];
   assert.equal(dbActorTier(["x"], roles), null);
   assert.equal(dbActorTier(["admin-role"], roles), "admin");
+});
+
+// ── issue #238: owner is derived exclusively from real Discord guild
+// ownership, matching Core's tier1-upstream design (rfc-console-auth.md
+// sec 2.1.1: owner "never from a role"). ──
+
+test("isGuildOwner compares actor and guild owner ids as strings, fails closed on missing input", () => {
+  assert.equal(isGuildOwner("123", "123"), true);
+  assert.equal(isGuildOwner(123, "123"), true, "tolerates a numeric actor id");
+  assert.equal(isGuildOwner("123", "456"), false);
+  assert.equal(isGuildOwner(null, "123"), false);
+  assert.equal(isGuildOwner("123", null), false);
+  assert.equal(isGuildOwner(undefined, undefined), false);
+});
+
+test("resolveActorAuthTier grants owner to the real guild owner even with zero configured roles", () => {
+  assert.equal(
+    resolveActorAuthTier({ actorId: "real-owner", guildOwnerId: "real-owner", roleIds: [], roles: [] }),
+    "owner"
+  );
+});
+
+test("resolveActorAuthTier never grants owner via a role mapping, even a role_type='owner' row the actor holds", () => {
+  const roles = [{ role_type: "owner", role_id: "owner-role" }, { role_type: "admin", role_id: "admin-role" }];
+  assert.equal(
+    resolveActorAuthTier({ actorId: "not-the-owner", guildOwnerId: "real-owner", roleIds: ["owner-role"], roles }),
+    null,
+    "a legacy owner-role row must be inert -- holding it grants nothing, not even a lower tier"
+  );
+  assert.equal(
+    resolveActorAuthTier({ actorId: "not-the-owner", guildOwnerId: "real-owner", roleIds: ["admin-role"], roles }),
+    "admin",
+    "non-owner role tiers are unaffected"
+  );
+});
+
+test("resolveActorAuthTier: real guild ownership outranks and short-circuits any role mapping", () => {
+  const roles = [{ role_type: "observer", role_id: "player-role" }];
+  assert.equal(
+    resolveActorAuthTier({ actorId: "real-owner", guildOwnerId: "real-owner", roleIds: ["player-role"], roles }),
+    "owner",
+    "guild ownership wins even when the actor also holds a lower-tier role"
+  );
 });

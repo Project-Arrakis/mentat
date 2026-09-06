@@ -60,9 +60,10 @@ test("handleWriteCommand requires write roles when writes are enabled", ...);
 test("handleWriteCommand returns confirmation for valid write admin", ...);
 test("handleWriteCommand registers a button-based pending confirmation", ...);
 test("handleWriteCommand rejects unknown write subcommand", ...);
-test("all write commands return pending-upstream status for a write-owner user", ...);
+test("all write commands return pending-upstream status for the real guild owner", ...);
 test("write-admin role cannot reach owner-tier commands (tier separation)", ...);
-test("write-owner role can reach both admin-tier and owner-tier commands", ...);
+test("the real guild owner can reach both admin-tier and owner-tier commands", ...);
+test("DISCORD_WRITE_OWNER_ROLE_IDS role reaches admin-tier commands but not owner-tier ones (deprecated for owner)", ...);
 test("write commands never call adapter — pure read-only scaffold", ...);
 ```
 
