@@ -7,6 +7,42 @@ change notes under `docs/changes/`.
 ## Unreleased
 
 ### Fixed
+- **Full documentation remediation before go-live** (issue #260). A
+  dedicated tech-writer-style documentation review plus a `/code-review
+  high` pass found a large amount of stale, fictional, or contradictory
+  content accumulated across the Sentinel→Mentat rebrands and several
+  infra migrations. Fixed: `README.md`'s command table (previously
+  missing the entire `player` and `logs` groups) rebuilt from the real
+  `src/commands.js` registry, plus its stale branding/clone-URL/version;
+  `docs/quick-start-guide.md`'s "Available Commands" section (previously
+  entirely fictional bare commands like `/status`/`/link-steam`) rewritten
+  to real `/dune <group> <subcommand>` examples, and its false Discord
+  "Browse Available Bots" discoverability claim removed;
+  `docs/installation-guide.md`'s env vars, systemd, and Docker sections
+  rewritten to match reality (pointed at this repo's own real
+  `systemd/acp-bot.service`/`docker-compose.example.yml` instead of
+  divergent hand-written copies; noted plainly that no published
+  container image exists); `INSTALL.md`'s "no shared hosted bot" claim,
+  which directly contradicted the real hosted-bot model documented
+  elsewhere, corrected, and its R740 co-location section marked
+  superseded/historical (that plan was rejected in favor of a dedicated
+  Services-VLAN VM); `docs/discord-setup.md` given a self-hosted/DIY
+  clarifying banner matching `docs/admin-guide.md`'s existing pattern;
+  `.env.example`/`docs/configuration.md` given the previously-undocumented
+  `MENTAT_*`/`SENTINEL_*`/`ACP_*` canonical/legacy env var scheme and the
+  Steam-link port/base-URL settings; 7 `docs/issue-bridge/*` files' stale
+  `yacketrj/*` slugs fixed to `Project-Arrakis/*`;
+  `docs/DOMAIN-MIGRATION-ANALYSIS.md` marked superseded/historical;
+  `docs/setup-portal-guide.md` and `docs/troubleshooting.md` both had the
+  same real, blocking wrong env var name
+  (`DUNE_BOT_API_TOKEN_FILE` → `DUNE_DISCORD_ADAPTER_TOKEN_FILE`), fixed
+  in both places, and `setup-portal-guide.md`'s role-field count corrected
+  (2 documented vs. the real 3: Admin/Moderator/Player); stale
+  `acp-setup.darkdante.org` hostname references fixed across
+  `docs/admin-guide.md`, `compliance/runbooks/backup-recovery.md` (which
+  also had its one "ACP bot" phrasing corrected to Mentat/Sahir Venn), and
+  the files above; stale GitHub issue links fixed in
+  `docs/troubleshooting.md`/`docs/user-guide.md`.
 - **`/dune core about` no longer reports the bot's name as `arrakis-control-panel`.** `aboutPayload()`'s hardcoded `bot.name` field was missed by the Phase 4 Mentat rebrand (which only covered embed footers, onboarding DMs, setup-portal pages, `/api/version`/`/health`, the status-card caption, and `package.json` — not this specific API-response field). Corrected to `mentat`, matching `package.json`'s own `name`. Also fixes the Steam-link health endpoint's `service` field (`acp-steam-link` → `mentat-steam-link`, matching the sibling setup server's own `mentat-setup` naming). Found by a dedicated documentation review pass, not a targeted search — the test asserting the old value (`test/discord-bot-test-harness.js`) had itself hardcoded the stale name as its own expectation, so this had zero test-driven pressure to fix until now.
 - **#196 (registry/command-tree divergence) and #208 (registry-loader cleanup) resolved.** Direct re-verification found #196's own four-part remediation (curated `getCommandRegistry()` serves the public `GET /api/commands` contract; `registryLoader.js`'s module comment re-scopes `commands-registry.json` as an internal Core-catalog artifact, not a full command reference; `syncCommandsPayload`'s false "bot will use updated commands" claim already removed; the committed artifact already regenerated via the fixed envelope/v2 transform) was already shipped in the 2026-08-20 remediation batch — the issue was simply never closed. The 29-subcommand-vs-56-real-command count this issue's title describes is not itself a defect under that corrected scope (the registry deliberately only covers Core-routed commands); closed with that evidence rather than chasing a 1:1 count match. #208's remaining 2 of 5 sub-findings (3 were already fixed alongside #196) are genuinely fixed here: the one-line "sum subcommands across groups" reduce, previously duplicated across `registryLoader.js`/`commands.js`/`scripts/generate-command-registry.js`/`scripts/validate-command-registry.js`, is now `catalogTransform.js`'s single exported `countSubcommands()`; the committed registry no longer doubles its size storing each subcommand's already-redundant `routes[]` array (confirmed via full-codebase grep that nothing ever read it) — `src/commands-registry.json` roughly halved in size as a direct result.
 - **`/dune player faction` no longer claims to "set your faction."** Core's real `players-faction` route (`dune-awakening-selfhost-docker#696`) is read-only, auto-detected from the caller's real `dune.player_faction` — it never accepted the old `name` option's value even before this fix, since the route didn't exist at all until then. Removed the now-meaningless option, corrected the description everywhere this repo hand-maintains it, and added a dedicated `formatFactionEmbed()`.
