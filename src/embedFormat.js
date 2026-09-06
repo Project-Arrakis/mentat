@@ -1,5 +1,5 @@
 import { EmbedBuilder } from "discord.js";
-import { ARRAKIS_TERMS, FACTION_QUOTES, randomQuote } from "./quotes.js";
+import { ARRAKIS_TERMS, FACTION_QUOTES, randomQuote, randomComputationOpener } from "./quotes.js";
 
 // Atreides: Green & Gold — Nobility, Honor, Nature
 // Harkonnen: Red & Black — Ruthlessness, Ambition, Power
@@ -144,7 +144,7 @@ export function formatStatusEmbed(payload, subcommand) {
   return duneEmbed({
     title: "🌍 Server Status",
     color: overall === "READY" ? "success" : overall === "ISSUE" ? "warning" : "error",
-    description: `### ${overall === "READY" ? "🟢 READY" : overall === "ISSUE" ? "🟡 ISSUE" : "🔴 DOWN"}${r.title ? ` — *${r.title}*` : ""}`,
+    description: `*${randomComputationOpener()}*\n### ${overall === "READY" ? "🟢 READY" : overall === "ISSUE" ? "🟡 ISSUE" : "🔴 DOWN"}${r.title ? ` — *${r.title}*` : ""}`,
     fields: [
       { name: "🌎 Region", value: fmt(r.region), inline: true },
       { name: "🎮 Mode", value: fmt(r.mode), inline: true },
@@ -171,7 +171,7 @@ export function formatStatusDetailEmbed(payload) {
     return duneEmbed({
       title: "🔬 Detailed Status",
       color: (r.overall || "").includes("READY") ? "success" : "warning",
-      description: `### ${r.overall === "READY" ? "🟢 READY" : "🟡 ISSUES"}${r.title ? ` — *${r.title}*` : ""}`,
+      description: `*${randomComputationOpener()}*\n### ${r.overall === "READY" ? "🟢 READY" : "🟡 ISSUES"}${r.title ? ` — *${r.title}*` : ""}`,
       fields: fields.slice(0, 25),
     });
   }
@@ -182,7 +182,7 @@ export function formatStatusDetailEmbed(payload) {
   return duneEmbed({
     title: "🔬 Detailed Status",
     color: isReady ? "success" : "warning",
-    description: isReady ? "🟢 **Server is running**" : "🟡 Issues detected",
+    description: `*${randomComputationOpener()}*\n${isReady ? "🟢 **Server is running**" : "🟡 Issues detected"}`,
     fields: [
       { name: "Overall", value: fmt(r.overall), inline: true },
       { name: "Maps", value: maps.map(m => `${m.state === "READY" ? "🟢" : "🔴"} ${m.name}`).join("\n") || "— None —", inline: false },
@@ -247,8 +247,8 @@ export function formatPopulationEmbed(population) {
     title: "👥 Server Population",
     color: hasData ? "success" : "warning",
     description: hasData
-      ? `### **${online}** / **${total ?? "?"}** players online`
-      : "🟡 **Population data unavailable** — the console did not return player counts.",
+      ? `*${randomComputationOpener()}*\n### **${online}** / **${total ?? "?"}** players online`
+      : `*${randomComputationOpener()}*\n🟡 **Population data unavailable** — the console did not return player counts.`,
     fields: [
       { name: "🔒 Aggregate", value: fmtBool(population?.aggregate), inline: true },
       // "Visible" is honest without reading like a breach report the way
@@ -368,7 +368,7 @@ export function formatDoctorEmbed(doctor) {
   return duneEmbed({
     title: "🏥 System Diagnostic",
     color: doctor?.ok ? "success" : "warning",
-    description: doctor?.ok ? "🟢 **All systems nominal**" : "⚠️ **Issues detected**",
+    description: `*${randomComputationOpener()}*\n${doctor?.ok ? "🟢 **All systems nominal**" : "⚠️ **Issues detected**"}`,
     fields
   });
 }

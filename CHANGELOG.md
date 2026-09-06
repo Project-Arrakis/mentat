@@ -7,6 +7,18 @@ change notes under `docs/changes/`.
 ## Unreleased
 
 ### Added
+- **Mentat voice pass**: `src/quotes.js`'s flavor-text pool now mixes
+  genuine Frank Herbert Dune-novel lines about Mentats/logic (verified
+  against the books, not the 1984 film's "It is by will alone..." mantra,
+  which is a film-only invention and deliberately not used) with original
+  lines written in the same computational voice. New
+  `randomComputationOpener()` adds a short computation-style line above
+  the status header in `formatStatusEmbed`, `formatStatusDetailEmbed`,
+  `formatPopulationEmbed`, and `formatDoctorEmbed` — e.g. "*First-level
+  analysis complete.*" above a server status report. New
+  `test/quotes.test.js` covers both functions directly (previously
+  `quotes.js` had no dedicated test file, only indirect coverage via
+  embed-format regression tests).
 - **Sahir Venn — the bot's named persona.** "Mentat" remains the
   role/category (Dune-lore usage: "a Mentat"); Sahir Venn is introduced
   as the specific one serving Dune: Awakening Docker. Embed footers and
