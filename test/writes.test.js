@@ -93,6 +93,25 @@ test("canWrite grants owner-tier to the real Discord guild owner, regardless of 
   }
 });
 
+// Regression test for a real ordering bug a code review caught: an earlier
+// revision checked `interaction.member.roles` for presence BEFORE checking
+// real guild ownership, so the actual owner was denied whenever
+// member.roles was falsy/missing (a partial member payload) -- exactly
+// contradicting "owner-tier access is decided by real Discord guild
+// ownership ... never by a role". This interaction deliberately omits
+// member.roles entirely.
+test("canWrite grants owner-tier to the real guild owner even when interaction.member.roles is missing", () => {
+  const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
+  process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
+  try {
+    const interaction = { user: { id: "real-owner" }, guild: { ownerId: "real-owner" }, member: {} };
+    const config = { discord: { writes: { enabled: true } } };
+    assert.equal(canWrite(interaction, config, "owner"), true, "guild ownership must be checked before any role-shaped guard");
+  } finally {
+    process.env.DUNE_DISCORD_WRITES_ENABLED = oldEnabled;
+  }
+});
+
 test("canWrite enforces tier separation when requiredTier is given", () => {
   const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
   const oldAdminIds = process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;

@@ -93,10 +93,30 @@ export function isGuildOwner(actorId, guildOwnerId) {
 // via a role mapping. `roles` may still contain legacy role_type="owner"
 // rows (pre-unification installs that used the old, now-removed "Owner
 // Role" setup field) — those rows are deliberately excluded from the
-// role-tier fallback below; they're inert, not deleted (see database.js's
-// getStaleOwnerRoleRows, kept only for a one-time operator-facing notice).
+// role-tier fallback below; they're inert, not deleted. The one-time
+// operator-facing notice about a stale row lives inline in commands.js's
+// rolesConfigPayload() (a plain `.filter(r => r.role_type === "owner")`),
+// not as a named export here.
 export function resolveActorAuthTier({ actorId, guildOwnerId, roleIds, roles }) {
   if (isGuildOwner(actorId, guildOwnerId)) return "owner";
   const nonOwnerRoles = (roles || []).filter((row) => row.role_type !== "owner");
   return dbActorTier(roleIds, nonOwnerRoles);
+}
+
+// Multi-tenant convenience wrapper: every multi-tenant call site
+// (isCommandAllowed/isAdminActor in commands.js, canWrite in writes.js) was
+// hand-building the same { actorId, guildOwnerId, roleIds, roles } object
+// for resolveActorAuthTier — a code review flagged that duplication as the
+// root cause of a real ordering bug (canWrite checking a role-shaped guard
+// before guild ownership in one of the three copies). Centralizing the
+// DB/guild lookup here doesn't eliminate every call site (each still has
+// its own single-tenant branch that never reaches this function at all),
+// but it removes the one part that was actually copy-pasted three times.
+export function multiTenantActorTier(interaction, db, guildId, roleIds) {
+  return resolveActorAuthTier({
+    actorId: interaction?.user?.id,
+    guildOwnerId: interaction?.guild?.ownerId,
+    roleIds,
+    roles: getGuildRoles(db, guildId)
+  });
 }

@@ -20,7 +20,7 @@ import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES } from "./adapterCli
 import { getIncidentHistory } from "./scheduler.js";
 import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
-import { resolveActorAuthTier, isGuildOwner, tierAtLeast } from "./rbac.js";
+import { multiTenantActorTier, isGuildOwner, tierAtLeast } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
 
 // Group -> subcommand -> handler config
@@ -703,12 +703,7 @@ export function isCommandAllowed(interaction, command, config, db = null, guildI
     // configured role"). Moderator/admin/observer rows are honored here;
     // legacy "owner" rows are deliberately excluded -- owner is decided
     // above, by real guild ownership, never by a role (issue #238).
-    return resolveActorAuthTier({
-      actorId: interaction.user?.id,
-      guildOwnerId: interaction.guild?.ownerId,
-      roleIds: extractRoleIds(interaction),
-      roles: getGuildRoles(db, guildId)
-    }) != null;
+    return multiTenantActorTier(interaction, db, guildId, extractRoleIds(interaction)) != null;
   }
 
   const rbac = config.discord.rbac;
@@ -756,7 +751,7 @@ function resolveOwnerLabel(guild) {
 // #238) -- it's always shown separately, resolved live from guild ownership.
 function rolesConfigPayload(interaction, config, db = null, guildId = null) {
   const guild = interaction.guild;
-  const owner = { role: "owner", label: resolveOwnerLabel(guild) };
+  const ownerLabel = resolveOwnerLabel(guild);
 
   if (config.multiTenant && db && guildId) {
     const roles = getGuildRoles(db, guildId);
@@ -767,7 +762,7 @@ function rolesConfigPayload(interaction, config, db = null, guildId = null) {
       ok: true,
       source: "database (multi-tenant)",
       rbacMode: settings?.rbac_mode || "restricted",
-      owner: owner.label,
+      owner: ownerLabel,
       roles: resolved.length
         ? resolved.map((r) => `${r.roleType}: ${r.label}`)
         : ["(no admin/moderator/player roles configured -- only allowedUserIds, open mode, or the real guild owner can authorize commands)"],
@@ -785,7 +780,7 @@ function rolesConfigPayload(interaction, config, db = null, guildId = null) {
     ok: true,
     source: "environment variables (single-tenant)",
     rbacMode: rbac.mode,
-    owner: owner.label,
+    owner: ownerLabel,
     admin: adminLabels.length ? adminLabels : ["(none configured)"],
     observer: observerLabels.length ? observerLabels : ["(none configured)"],
     allowedUserIds: rbac.allowedUserIds?.length ? rbac.allowedUserIds : ["(none configured)"],
@@ -803,12 +798,7 @@ export function isAdminActor(interaction, config, db = null, guildId = null) {
   if (config.multiTenant && db && guildId) {
     // Admin gate = admin tier or above. Moderator does not pass (it is
     // below admin on the unified ladder). Owner is already handled above.
-    const tier = resolveActorAuthTier({
-      actorId: interaction.user?.id,
-      guildOwnerId: interaction.guild?.ownerId,
-      roleIds: extractRoleIds(interaction),
-      roles: getGuildRoles(db, guildId)
-    });
+    const tier = multiTenantActorTier(interaction, db, guildId, extractRoleIds(interaction));
     return tierAtLeast(tier, "admin");
   }
 

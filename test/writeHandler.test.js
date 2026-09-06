@@ -214,7 +214,8 @@ test("write-admin role cannot reach owner-tier commands (tier separation)", asyn
       const config = mockConfig(true);
       const result = await handleWriteCommand({ subcommand: cmd.name, interaction, adapterClient: {}, config });
       assert.equal(result.ok, false, `write-admin must not reach owner-tier ${cmd.name}`);
-      assert.ok(result.error.includes("write-owner"), `${cmd.name} error should mention write-owner role`);
+      assert.ok(result.error.includes("real owner"), `${cmd.name} error should point at the real Discord guild owner, not a role (issue #238)`);
+      assert.ok(!result.error.includes("write-owner"), `${cmd.name} error must not reference a nonexistent "write-owner role" (issue #238)`);
     }
 
     for (const cmd of adminTierCommands) {

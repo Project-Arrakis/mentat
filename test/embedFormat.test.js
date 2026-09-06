@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed } from "../src/embedFormat.js";
+import { formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatRolesEmbed } from "../src/embedFormat.js";
 
 // ─── Real bug, found via a live user report (2026-07-26/27) ────────────────
 //
@@ -141,4 +141,37 @@ test("formatLinkEmbed shows the failure embed for a rejected link (a different c
   const embed = formatLinkEmbed(payload).toJSON();
   assert.equal(embed.title, "🔗 Link Failed");
   assert.ok(embed.description.includes("Paul"));
+});
+
+// Issue #238: rolesConfigPayload() (commands.js) now always/conditionally
+// returns `owner` and `notice` fields that formatRolesEmbed previously
+// silently dropped -- a real bug a code review caught (the CHANGELOG's
+// promised "one-time notice" never actually rendered).
+test("formatRolesEmbed shows the real owner's label as its own field, always, even with no configured roles", () => {
+  const payload = { ok: true, source: "database (multi-tenant)", rbacMode: "restricted", owner: "Discord server owner (999)", roles: ["(no admin/moderator/player roles configured)"] };
+  const embed = formatRolesEmbed(payload).toJSON();
+  const ownerField = embed.fields.find((f) => f.name.includes("Owner"));
+  assert.ok(ownerField, "should render a dedicated owner field");
+  assert.ok(ownerField.value.includes("999"), "should show the real owner's label");
+});
+
+test("formatRolesEmbed surfaces a legacy owner-role notice when rolesConfigPayload sets one", () => {
+  const payload = {
+    ok: true,
+    source: "database (multi-tenant)",
+    rbacMode: "restricted",
+    owner: "Discord server owner (999)",
+    roles: ["admin: Mods (admin-role)"],
+    notice: "This guild has a legacy 'Owner Role' mapping from before issue #238 -- it no longer grants owner-tier access. Only the real Discord server owner (shown above) does."
+  };
+  const embed = formatRolesEmbed(payload).toJSON();
+  const noticeField = embed.fields.find((f) => f.name.includes("Notice"));
+  assert.ok(noticeField, "should render the deprecation notice as its own field");
+  assert.ok(noticeField.value.includes("issue #238"));
+});
+
+test("formatRolesEmbed omits the notice field when rolesConfigPayload has nothing to warn about", () => {
+  const payload = { ok: true, source: "database (multi-tenant)", rbacMode: "restricted", owner: "Discord server owner (999)", roles: ["admin: Mods (admin-role)"] };
+  const embed = formatRolesEmbed(payload).toJSON();
+  assert.ok(!embed.fields.some((f) => f.name.includes("Notice")), "no notice field should appear when payload.notice is absent");
 });

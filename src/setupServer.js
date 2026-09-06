@@ -411,6 +411,17 @@ export function createSetupServer(config) {
       // enough for correlation.
       logInfo("setup.guild_configured", { guildId, guildName });
 
+      // #213/U4's original hard "must map Admin or Owner" validation is
+      // gone (issue #238 removed the lockout it guarded against -- the real
+      // owner always has access now), but a zero-role setup is still worth
+      // a visible, non-blocking signal: defense-in-depth in case a future
+      // regression in guild-ownership resolution ever ships alongside a
+      // guild with no role mappings as a fallback. This does not gate
+      // registration.
+      if (!moderatorRoleId && !adminRoleId && !observerRoleId) {
+        logInfo("setup.zero_roles_configured", { guildId });
+      }
+
       // Issue #198: redirect with the guild id ONLY — the success page
       // looks the stored name up from the DB, so no attacker-chosen (or
       // double-decoded) display text ever rides the query string.

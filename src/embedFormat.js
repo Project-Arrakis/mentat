@@ -1278,6 +1278,10 @@ export function formatServicesSummaryEmbed(payload) {
 // the observer tier is labeled "Player" on every display surface (#217).
 export function formatRolesEmbed(payload) {
   const fields = [];
+  // Issue #238: owner has no role concept -- it's rendered separately from
+  // the role-mapped tiers below, always (never conditionally), since it's
+  // never absent the way a configured role can be.
+  if (payload?.owner) fields.push({ name: "👑 Owner (real Discord server owner)", value: payload.owner, inline: false });
   if (Array.isArray(payload?.roles)) {
     fields.push({
       name: "🎭 Configured Roles",
@@ -1298,6 +1302,9 @@ export function formatRolesEmbed(payload) {
   }
   if (payload?.rbacMode) fields.push({ name: "⚙️ RBAC Mode", value: `\`${payload.rbacMode}\``, inline: true });
   if (payload?.source) fields.push({ name: "📦 Source", value: payload.source, inline: true });
+  // Issue #238: surfaces a legacy owner-role mapping's now-inert status --
+  // see rolesConfigPayload() in commands.js for when this is set.
+  if (payload?.notice) fields.push({ name: "⚠️ Notice", value: payload.notice, inline: false });
   return duneEmbed({
     title: "👥 Role Configuration",
     color: "spice",
