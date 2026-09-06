@@ -1,4 +1,4 @@
-# Dune: Awakening Docker — Sentinel
+# Dune: Awakening Docker — Mentat
 
 > *"A beginning is a very delicate time."*
 
@@ -7,7 +7,10 @@ economies — all pulsing to the rhythm of the deep desert. But you cannot stand
 at the console every hour. You need eyes that never close. You need a watcher
 that speaks the old tongue and warns your tribe when the sand shifts.
 
-**Sentinel** is that watcher.
+**Sahir Venn** is that watcher — a Mentat, trained to hold your server's data
+in mind and report it plainly. (This project was previously branded
+Sentinel, and before that Arrakis Control Panel / ACP — "Mentat" is the
+product name, "Sahir Venn" is the bot's own voice.)
 
 Standing the watch every stronghold needs, this bot hammers the data streams
 of your server and brings them to Discord — status cards, population counts,
@@ -43,12 +46,12 @@ without leaving Discord.
 
 ### For Server Owners (Full Setup)
 
-Sentinel is a **single, hosted bot** — you don't create a Discord application,
+Mentat is a **single, hosted bot** — you don't create a Discord application,
 run a process, or register commands. You invite the existing bot and
 connect your console through a web setup portal:
 
 1. [Invite the bot to your server](https://discord.com/oauth2/authorize?client_id=1516816812006969494&scope=bot%20applications.commands&permissions=128) — add the existing hosted bot to your Discord
-2. [Complete the setup portal](docs/setup-portal-guide.md) — at <https://acp-setup.darkdante.org/setup>, sign in with Discord and connect your console URL and adapter token
+2. [Complete the setup portal](docs/setup-portal-guide.md) — at <https://mentat-link.darkdante.org/setup>, sign in with Discord and connect your console URL and adapter token
 3. [Set up roles](docs/admin-guide.md#set-up-roles-and-configure-access) — control who can use which commands
 
 **Estimated time:** about 10 minutes for first-time setup; no code, Docker,
@@ -68,14 +71,13 @@ If the bot is already in your Discord server:
 ### For Maintainers (Running Your Own Instance)
 
 The hosted bot is the supported path for server owners. If you are
-operating Sentinel yourself (the way the live bot currently runs, self-hosted
-on its own VPS — see `compliance/runbooks/backup-recovery.md` for the
-current hosting architecture and a planned, not-yet-executed future
-migration to shared hardware):
+operating Mentat yourself (the live bot itself runs on a dedicated VM — see
+`compliance/runbooks/backup-recovery.md` for the current hosting
+architecture):
 
 ```bash
-git clone https://github.com/yacketrj/arrakis-control-panel.git
-cd arrakis-control-panel
+git clone https://github.com/Project-Arrakis/mentat.git
+cd mentat
 cp .env.example .env   # fill in your settings
 npm ci --omit=dev
 npm run register       # register slash commands with Discord
@@ -95,10 +97,12 @@ Type `/dune` in Discord and select a group:
 | Group | What It Does | Commands |
 |-------|-------------|----------|
 | `core` | Bot information and help | `about` `ping` `help` `setup` |
-| `server` | Game server health checks | `health` `status` `summary` `readiness` `readiness-detail` `services` `services-detail` |
-| `data` | Game world data and player features | `population` `backups` `maps` `maintenance` `link` `unlink` `faction` `whoami` `inventory` `storage` `find` |
-| `ops` | Detailed operational stats | `activity` `combat` `resources` `economy` `inventory` `location` `soc` `prometheus` `dashboard` |
-| `admin` | Administration tools | `doctor` `cooldowns` `latency` `events` `broadcast` |
+| `server` | Game server health checks | `health` `status` `summary` `readiness` `readiness-detail` `services` `services-detail` `maintenance` |
+| `data` | Game world population, backups, and maps | `population` `backups` `maps` |
+| `player` | Your character: linking, inventory, storage, account | `link` `verify` `characters` `enable` `disable` `default` `unlink` `faction` `whoami` `inventory` `storage` `find` |
+| `logs` | Game service logs | `dune-cache` `dune-generated` `dune-server` `dune-steam` `dune-work` `orchestrator` `redblink-dune-docker-console` |
+| `ops` | Detailed operational stats (OPS addon) | `activity` `combat` `resources` `economy` `armory` `location` `soc` `prometheus` `dashboard` `announcements` `alerts` |
+| `admin` | Administration tools | `doctor` `sync-commands` `cooldowns` `latency` `events` `roles` `broadcast` |
 | `infra` | Server infrastructure | `version` `servers` `ports` `db` |
 | `write` | Write operations (disabled by default) | `maintenance-note` `maintenance-window` `alert-channel` `alert-threshold` `digest-schedule` `post-schedule` `add-channel` `remove-channel` `backup` `restart` `update` `cache` |
 
@@ -117,10 +121,10 @@ Type `/dune` in Discord and select a group:
 - [Setup Portal Guide](docs/setup-portal-guide.md) — connect your server to the hosted bot (the primary path)
 - [Admin Guide](docs/admin-guide.md) — roles, console adapter, and operator configuration
 - [Configuration Reference](docs/configuration.md) — every setting explained
-- [Discord Setup](docs/discord-setup.md) — invite and OAuth details
 
-### For Maintainers
+### For Maintainers (Running Your Own Instance)
 - [Installation Guide](docs/installation-guide.md) — Docker and Node.js deployment (running your own instance)
+- [Discord Setup](docs/discord-setup.md) — self-hosted/DIY path: creating your own Discord application (not needed for the hosted bot)
 - [Backup & Recovery Runbook](compliance/runbooks/backup-recovery.md) — live deploy model and recovery
 
 ### For Developers
@@ -161,11 +165,11 @@ The latest readiness security review is recorded at [docs/security-review-2026-0
 | **R2.x** | Low-risk admin writes (maintenance, notifications) | Planned |
 | **R3.0.0** | Operational writes (backup, restart, update) | Planned |
 | **R4.0.0+** | High-risk operations (player moderation, restore) | Planned |
-| **Multi-Tenant** | Per-guild console routing, OAuth2 portal (`ACP_MULTI_TENANT` mode) | Shipped (2026-08-07) |
+| **Multi-Tenant** | Per-guild console routing, OAuth2 portal (`MENTAT_MULTI_TENANT` mode, legacy `ACP_MULTI_TENANT` still accepted) | Shipped (2026-08-07) |
 
 See [Full Release Roadmap](docs/full-release-roadmap.md) for details.
 The detailed R1.x to R2.x cadence and entry criteria live in [docs/r1-r2-release-roadmap.md](docs/r1-r2-release-roadmap.md).
-Current release: **v1.0.0-rc.3** (2026-08-08). Promotion is gated by the [v1.0.0 Promotion Checklist](docs/v1.0.0-promotion-checklist.md).
+Current release: **v1.0.0-rc.5**. Promotion is gated by the [v1.0.0 Promotion Checklist](docs/v1.0.0-promotion-checklist.md).
 
 ---
 
