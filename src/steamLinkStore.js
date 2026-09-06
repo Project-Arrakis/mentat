@@ -32,7 +32,7 @@ const sessions = new Map();
 // Matches setupServer.js's existing randomBytes(16).toString("hex")
 // state-generation pattern exactly (128 bits, not a predictable value).
 export function createSteamLinkSession({
-  discordUserId, username, guildId, channelId, roleIds, interactionToken, commandInteractionId,
+  discordUserId, username, guildId, channelId, roleIds, guildOwnerId, interactionToken, commandInteractionId,
   playerControllerId, characterName, ttlMs = DEFAULT_TTL_MS
 } = {}) {
   if (!discordUserId) throw new Error("discordUserId is required to create a Steam-link session.");
@@ -61,6 +61,12 @@ export function createSteamLinkSession({
     guildId: guildId ? String(guildId) : null,
     channelId: channelId ? String(channelId) : null,
     roleIds: Array.isArray(roleIds) ? roleIds.map(String) : [],
+    // Issue #240 code-review finding: without this, a real guild owner with
+    // zero roles configured is seen as "public" tier by Core through this
+    // OAuth round-trip specifically (unlike a live slash command, which
+    // already carries this via actorFromInteraction) and rejected by
+    // requireSelfScopedCapability.
+    guildOwnerId: guildOwnerId ? String(guildOwnerId) : null,
     interactionToken: interactionToken || null,
     commandInteractionId: commandInteractionId || null,
     // The single character this session is scoped to (Security Review

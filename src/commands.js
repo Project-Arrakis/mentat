@@ -358,6 +358,15 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
           guildId,
           channelId: callerActor.channelId,
           roleIds: callerActor.roleIds,
+          // Issue #240 code-review finding: without this, a real guild
+          // owner with zero roles configured would be seen as "public"
+          // tier by Core through this OAuth round-trip path specifically
+          // (unlike a live slash command, which already carries
+          // guildOwnerId via actorFromInteraction) and rejected by
+          // requireSelfScopedCapability -- the exact same person, same
+          // guild, inconsistent outcome depending only on which path they
+          // used to link.
+          guildOwnerId: callerActor.guildOwnerId,
           interactionToken: interaction.token,
           commandInteractionId: interaction.id,
           playerControllerId: result.playerControllerId,
@@ -685,13 +694,25 @@ export function actorFromInteraction(interaction) {
     channelId: interaction.channelId,
     roleIds: extractRoleIds(interaction),
     // Issue #240 (companion to dune-awakening-selfhost-docker#691): lets
-    // Core's discordActorTier() also recognize real Discord guild ownership,
-    // matching this bot's own rbac.js isGuildOwner(). This bot already has
-    // guild.ownerId live via its gateway connection (GatewayIntentBits.Guilds)
-    // -- no extra API call needed. NOT part of actorSignature.js's HMAC-
-    // signed field set (deliberate, tracked deferral -- see that issue's
-    // body): trusted at the same level roleIds already is today for any
-    // deployment without DUNE_DISCORD_ACTOR_SECRET configured.
+    // Core's discordActorTier() also recognize real Discord guild ownership
+    // -- the same concept issue #238/PR #239 (a separate, still-open PR as
+    // of this comment; not yet true of this bot's own rbac.js on this
+    // branch/main) teaches this bot's OWN local RBAC to use. This bot
+    // already has guild.ownerId live via its gateway connection
+    // (GatewayIntentBits.Guilds) in the common case -- no extra API call
+    // needed -- but interaction.guild can be null during a reconnect/
+    // guild-unavailable window even though interaction.guildId stays
+    // populated; this falls back to undefined in that window (Core/local
+    // RBAC then fall through to their normal role-based checks, not a
+    // crash). NOT part of actorSignature.js's HMAC-signed field set
+    // (deliberate, tracked deferral -- see dune-awakening-selfhost-docker#691's
+    // body): for any deployment WITHOUT DUNE_DISCORD_ACTOR_SECRET
+    // configured, trusted at the same level roleIds already is; for a
+    // deployment WITH it configured, Core strips this field server-side
+    // before use (a code-review finding on #691 -- an unsigned field would
+    // otherwise be a real self-escalation gap even inside an
+    // otherwise-validly-signed request), so signed deployments fall back
+    // to Core's role-based DISCORD_OWNER_ROLE_IDS mapping unchanged.
     guildOwnerId: interaction.guild?.ownerId
   };
 }

@@ -65,6 +65,21 @@ test("createSteamLinkSession stores username, channelId, and roleIds", () => {
   assert.deepEqual(session.roleIds, ["role-a", "role-b"]);
 });
 
+// Issue #240 code-review finding: without this, a real guild owner with
+// zero roles configured would be seen as "public" tier by Core through
+// this OAuth round-trip path specifically, unlike a live slash command
+// (which already carries guildOwnerId via actorFromInteraction) --
+// rejected by requireSelfScopedCapability with no recourse.
+test("createSteamLinkSession stores guildOwnerId", () => {
+  const session = createSteamLinkSession(baseSessionArgs({ guildOwnerId: "owner-42" }));
+  assert.equal(session.guildOwnerId, "owner-42");
+});
+
+test("createSteamLinkSession defaults guildOwnerId to null when omitted", () => {
+  const session = createSteamLinkSession(baseSessionArgs({ guildOwnerId: undefined }));
+  assert.equal(session.guildOwnerId, null);
+});
+
 test("createSteamLinkSession defaults username to 'unknown' and roleIds to an empty array when omitted", () => {
   const session = createSteamLinkSession(baseSessionArgs({ username: undefined, roleIds: undefined }));
   assert.equal(session.username, "unknown");
