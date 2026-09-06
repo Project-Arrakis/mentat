@@ -14,13 +14,13 @@ import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbe
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
-import { writesEnabled, canWrite } from "./writes.js";
+import { writesEnabled, canWrite, writeRoleIds } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
 import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
-import { dbActorTier, tierAtLeast } from "./rbac.js";
+import { multiTenantActorTier, isGuildOwner, tierAtLeast } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
 
 // Group -> subcommand -> handler config
@@ -214,7 +214,14 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
   // command — including /dune core setup, the exact command the
   // onboarding DM names as the recovery path. Reply with the working
   // path instead of a dead end.
-  if (config.multiTenant && db && guildId) {
+  //
+  // Issue #238 code-review finding: this gate used to fire before
+  // isCommandAllowed (and its isGuildOwner check) ever ran, so the real
+  // guild owner was STILL locked out of a zero-role guild despite the
+  // CHANGELOG's claim that this is "structurally impossible" -- the real
+  // owner must bypass this gate too, exactly like isCommandAllowed does.
+  if (config.multiTenant && db && guildId
+    && !isInteractionGuildOwner(interaction)) {
     const settings = getGuildSettings(db, guildId);
     const mode = settings?.rbac_mode || "restricted";
     if (mode !== "open" && getGuildRoles(db, guildId).length === 0) {
@@ -231,7 +238,17 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     }
   }
 
-  if (!isCommandAllowed(interaction, key, config, db, guildId)) {
+  // Issue #238 code-review finding: a guild whose ONLY configured role
+  // mapping is a legacy, pre-#238 "owner" row (now inert -- see rbac.js's
+  // resolveActorAuthTier) resolves that holder's tier to null, same as
+  // someone with no role at all -- they'd be denied by isCommandAllowed
+  // below before ever reaching the roles viewer, the one command meant to
+  // show them the "why did this stop working" notice. `admin:roles` is
+  // read-only, non-sensitive (role ID mappings, not secrets), and its own
+  // purpose already includes helping a locked-out user -- exempt it from
+  // the normal RBAC gate, matching #213/U8's "name the fix, don't
+  // dead-end" precedent above.
+  if (key !== "admin:roles" && !isCommandAllowed(interaction, key, config, db, guildId)) {
     // #213/U8: name the fix, don't dead-end — the user's next step is a
     // role grant, and only a server admin can do it.
     await interaction.reply({
@@ -503,7 +520,10 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Incident log requires admin or owner role.");
       payload = getIncidentHistory();
     } else if (key === "admin:roles") {
-      if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Role viewer requires admin or owner role.");
+      // Issue #238 code-review finding: intentionally NOT admin-gated (see
+      // the matching bypass on isCommandAllowed above) -- a locked-out
+      // legacy-owner-role holder must be able to see the notice explaining
+      // why, and this payload carries only role ID mappings, not secrets.
       payload = rolesConfigPayload(interaction, config, db, guildId);
     } else if (key === "admin:broadcast") {
       const msg = interaction.options.getString("message");
@@ -689,17 +709,21 @@ export function actorFromInteraction(interaction) {
 
 // ── RBAC ──
 export function isCommandAllowed(interaction, command, config, db = null, guildId = null) {
+  // The real Discord guild owner always passes, in every mode -- owner is a
+  // live Discord fact (interaction.guild.ownerId), never something an RBAC
+  // mode/role config can deny (see rbac.js's isGuildOwner / issue #238).
+  if (isInteractionGuildOwner(interaction)) return true;
+
   if (config.multiTenant && db && guildId) {
     const settings = getGuildSettings(db, guildId);
     const mode = settings?.rbac_mode || "restricted";
     if (mode === "open") return true;
     // Multi-tenant gating is tier-based: any configured guild_roles row the
     // actor holds lets them through (restricted mode = "must hold a
-    // configured role"). All four tiers are honored here -- owner and
-    // moderator rows previously existed in the DB schema but were never
-    // checked, so a guild that configured either got constant
-    // "not authorized" denials (unified-RBAC Phase 1 fix).
-    return dbActorTier(extractRoleIds(interaction), getGuildRoles(db, guildId)) != null;
+    // configured role"). Moderator/admin/observer rows are honored here;
+    // legacy "owner" rows are deliberately excluded -- owner is decided
+    // above, by real guild ownership, never by a role (issue #238).
+    return multiTenantActorTier(interaction.user?.id, resolveGuildOwnerId(interaction), db, guildId, extractRoleIds(interaction)) != null;
   }
 
   const rbac = config.discord.rbac;
@@ -721,53 +745,117 @@ export function extractRoleIds(interaction) {
   return [];
 }
 
-// rolesConfigPayload: shows the currently configured admin/observer roles
-// for this guild, resolved to "RoleName (RoleID)" using the live Discord
-// role cache (interaction.guild.roles.cache) -- added 2026-07-26 after a
-// real incident where stale role IDs in guild_roles silently caused every
-// non-open-mode command to reject a legitimate admin, with no way to spot
-// the mismatch from a bare numeric ID. Covers both multiTenant (DB-backed
-// guild_roles table) and single-tenant (config.discord.rbac env vars)
-// configuration paths, since isCommandAllowed()/isAdminActor() branch on
-// the same two paths for the actual authorization decision.
+// resolveGuildOwnerId: single source of truth for "who does Discord say owns
+// this guild" from an interaction (issue #238 code-review finding). Prefers
+// the live, already-cached interaction.guild.ownerId, but falls back to the
+// bot's own client-wide guild cache (interaction.client.guilds.cache) via
+// guildId when interaction.guild is null/uncached -- a real, reachable gap
+// during a gateway reconnect or a guild-unavailable window, where
+// interaction.guildId is still populated but interaction.guild is not.
+export function resolveGuildOwnerId(interaction) {
+  if (interaction.guild?.ownerId) return interaction.guild.ownerId;
+  const guildId = interaction.guildId;
+  if (!guildId) return undefined;
+  return interaction.client?.guilds?.cache?.get(guildId)?.ownerId;
+}
+
+// isInteractionGuildOwner: every gating call site (isCommandAllowed,
+// isAdminActor in this file, canWrite in writes.js, executeDuneCommand's
+// zero-role gate) uses this ONE function rather than re-deriving
+// isGuildOwner(interaction.user?.id, interaction.guild?.ownerId) inline --
+// centralizing both the ownership check and the reconnect-window fallback
+// above, per issue #238's own code-review finding that duplicated copies of
+// this exact check had already drifted once (a role-shaped guard running
+// ahead of it in one of three copies).
+export function isInteractionGuildOwner(interaction) {
+  return isGuildOwner(interaction.user?.id, resolveGuildOwnerId(interaction));
+}
+
+// resolveOwnerLabel: the owner tier has no role concept (issue #238) -- it
+// is always the real Discord guild owner. Cache-only lookup (no live fetch),
+// matching resolveRoleLabel's cache-only approach; falls back to the bare
+// ID when the member cache doesn't have it (this bot only requests the
+// Guilds intent, not GuildMembers, so the cache is frequently sparse -- a
+// bare ID is still the honest, correct answer here, just less pretty).
+function resolveOwnerLabel(guild) {
+  const ownerId = guild?.ownerId;
+  if (!ownerId) return "(unknown -- no guild context)";
+  const cachedTag = guild.members?.cache?.get(ownerId)?.user?.tag;
+  return cachedTag ? `${cachedTag} (${ownerId})` : `Discord server owner (${ownerId})`;
+}
+
+// rolesConfigPayload: shows the currently configured admin/moderator/observer
+// role mappings for this guild, resolved to "RoleName (RoleID)" using the
+// live Discord role cache (interaction.guild.roles.cache) -- added
+// 2026-07-26 after a real incident where stale role IDs in guild_roles
+// silently caused every non-open-mode command to reject a legitimate admin,
+// with no way to spot the mismatch from a bare numeric ID. Covers both
+// multiTenant (DB-backed guild_roles table) and single-tenant
+// (config.discord.rbac env vars) configuration paths, since
+// isCommandAllowed()/isAdminActor() branch on the same two paths for the
+// actual authorization decision. owner is never a role mapping (issue
+// #238) -- it's always shown separately, resolved live from guild ownership.
 function rolesConfigPayload(interaction, config, db = null, guildId = null) {
   const guild = interaction.guild;
+  const ownerLabel = resolveOwnerLabel(guild);
+
   if (config.multiTenant && db && guildId) {
     const roles = getGuildRoles(db, guildId);
     const settings = getGuildSettings(db, guildId);
-    const resolved = resolveRoleLabels(guild, roles);
+    const legacyOwnerRows = roles.filter((r) => r.role_type === "owner");
+    const resolved = resolveRoleLabels(guild, roles.filter((r) => r.role_type !== "owner"));
     return {
       ok: true,
       source: "database (multi-tenant)",
       rbacMode: settings?.rbac_mode || "restricted",
+      owner: ownerLabel,
       roles: resolved.length
         ? resolved.map((r) => `${r.roleType}: ${r.label}`)
-        : ["(no roles configured -- only allowedUserIds or open mode can authorize commands)"]
+        : ["(no admin/moderator/player roles configured -- only allowedUserIds, open mode, or the real guild owner can authorize commands)"],
+      ...(legacyOwnerRows.length
+        ? { notice: "This guild has a legacy 'Owner Role' mapping from before issue #238 -- it no longer grants owner-tier access. Only the real Discord server owner (shown above) does." }
+        : {})
     };
   }
 
   const rbac = config.discord.rbac;
   const adminLabels = (rbac.adminRoleIds || []).map((id) => resolveRoleLabel(guild, id));
   const observerLabels = (rbac.observerRoleIds || []).map((id) => resolveRoleLabel(guild, id));
+  // Reuses writes.js's own parse of this env var (issue #238 code-review
+  // finding: this used to be re-parsed independently here, risking silent
+  // drift from writes.js's actual admin-equivalent role set).
+  const legacyOwnerRoleIds = writeRoleIds().owner;
   return {
     ok: true,
     source: "environment variables (single-tenant)",
     rbacMode: rbac.mode,
+    owner: ownerLabel,
     admin: adminLabels.length ? adminLabels : ["(none configured)"],
     observer: observerLabels.length ? observerLabels : ["(none configured)"],
-    allowedUserIds: rbac.allowedUserIds?.length ? rbac.allowedUserIds : ["(none configured)"]
+    allowedUserIds: rbac.allowedUserIds?.length ? rbac.allowedUserIds : ["(none configured)"],
+    ...(legacyOwnerRoleIds.length
+      ? { notice: "DISCORD_WRITE_OWNER_ROLE_IDS is set but no longer grants owner-tier access (issue #238) -- only the real Discord server owner does. Those role IDs are still folded into the admin-tier check." }
+      : {})
   };
 }
 
 // ── Helpers ──
 export function isAdminActor(interaction, config, db = null, guildId = null) {
+  // Real guild owner always passes (never via a role -- issue #238).
+  if (isInteractionGuildOwner(interaction)) return true;
+
   if (config.multiTenant && db && guildId) {
-    // Admin gate = admin tier or above. Owner passes (owner > admin);
-    // moderator does not (it is below admin on the unified ladder).
-    return tierAtLeast(dbActorTier(extractRoleIds(interaction), getGuildRoles(db, guildId)), "admin");
+    // Admin gate = admin tier or above. Moderator does not pass (it is
+    // below admin on the unified ladder). Owner is already handled above.
+    const tier = multiTenantActorTier(interaction.user?.id, resolveGuildOwnerId(interaction), db, guildId, extractRoleIds(interaction));
+    return tierAtLeast(tier, "admin");
   }
 
   const roleIds = extractRoleIds(interaction);
+  // DISCORD_WRITE_OWNER_ROLE_IDS is intentionally still folded in here as an
+  // ADMIN-equivalent set (not owner-equivalent) for single-tenant back-compat
+  // -- see writes.js's writeRoleIds() header comment for why the env var
+  // itself is deprecated for granting owner-tier access specifically.
   const adminRoles = new Set([
     ...parseCsv(process.env.DISCORD_ADMIN_ROLE_IDS),
     ...parseCsv(process.env.DISCORD_WRITE_ADMIN_ROLE_IDS),
@@ -948,7 +1036,9 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     // isCommandAllowed() -- classify them with their real gate.
     if (cmd.name.startsWith("write:")) {
       if (canWrite(interaction, config, null, db, guildId)) available.push(cmd); else locked.push(cmd);
-    } else if (isCommandAllowed(interaction, cmd.name, config, db, guildId)) {
+    } else if (cmd.name === "admin:roles" || isCommandAllowed(interaction, cmd.name, config, db, guildId)) {
+      // admin:roles matches executeDuneCommand's own bypass above -- it
+      // must not show as "locked" in help when it's actually invokable.
       available.push(cmd);
     } else {
       locked.push(cmd);

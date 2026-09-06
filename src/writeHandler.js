@@ -54,15 +54,18 @@ export async function handleWriteCommand({ subcommand, interaction, adapterClien
   const def = WRITE_COMMANDS.find(c => c.name === subcommand);
   if (!def) return { ok: false, error: `Unknown write command: ${subcommand}` };
 
-  // Enforces tier separation: write-admin roles cannot reach owner-tier
+  // Enforces tier separation: admin-tier access cannot reach owner-tier
   // actions (restart-service, trigger-update, create-backup, clear-cache).
+  // Issue #238: owner-tier access has no role at all any more -- only the
+  // real Discord guild owner has it -- so this message must not point
+  // anyone at a role to configure for the owner case.
   if (!canWrite(interaction, config, def.tier, db, guildId)) {
     const requiresOwner = def.tier === "owner";
     return {
       ok: false,
       error: requiresOwner
-        ? "Not authorized for write operations. This action requires the write-owner role."
-        : "Not authorized for write operations. Requires write-admin or write-owner role."
+        ? "Not authorized for write operations. This action requires owner-tier access, which belongs only to this Discord server's real owner."
+        : "Not authorized for write operations. Requires admin-tier access (a mapped Admin role, or the real Discord server owner)."
     };
   }
 

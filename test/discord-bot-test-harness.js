@@ -440,16 +440,20 @@ describe('Command Execution', () => {
     assert.ok(text.includes('Unknown Role (observer-role-id)'), 'Should flag the configured-but-nonexistent observer role');
   });
 
-  test('admin:roles is rejected for a non-admin actor', async () => {
+  test('admin:roles is available to a non-admin actor (issue #238)', async () => {
+    // Deliberately NOT admin-gated any more: a guild whose only configured
+    // role mapping is a legacy, pre-#238 "owner" row (now inert) resolves
+    // that holder's tier to null, same as an actor with no role at all --
+    // they'd be denied by isCommandAllowed before ever reaching this
+    // command if it stayed gated, locking them out of the one command
+    // meant to show them the "why did this stop working" notice. It
+    // carries only role ID mappings, not secrets, so it's safe to open up.
     const { adapterClient, config } = getTestContext();
     const interaction = createMockInteraction({ command: 'admin:roles', roles: ['observer-role-id'] });
     await executeDuneCommand(interaction, adapterClient, config);
 
-    // isCommandAllowed() rejects with the shared generic message, not a
-    // per-command "requires admin" string -- verified against the real
-    // reply text (src/commands.js's executeDuneCommand() catch-all reject
-    // path), not assumed.
-    assert.ok(interaction._reply?.content?.includes('not authorized'), 'Should reject non-admin actor with a role-requirement message');
+    assert.ok(!interaction._reply?.content?.includes('not authorized'), 'A non-admin actor must not be rejected from the roles viewer');
+    assert.ok(interaction._editReply, 'Should have replied with the roles payload, not a rejection');
   });
 
   test('infra:version shows version info', async () => {

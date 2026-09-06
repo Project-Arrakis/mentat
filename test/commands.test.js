@@ -171,10 +171,30 @@ function multiTenantDb({ owner = [], admin = [], moderator = [], observer = [], 
 
 const MT_CONFIG = { multiTenant: true, discord: { rbac: {} } };
 
-test("isCommandAllowed (multi-tenant) allows owner-then-moderator roles in restricted mode", () => {
-  const db = multiTenantDb({ owner: ["owner-role"], moderator: ["mod-role"] });
-  assert.equal(isCommandAllowed({ member: { roles: ["owner-role"] } }, "core:about", MT_CONFIG, db, "guild-1"), true);
+test("isCommandAllowed (multi-tenant) allows moderator role in restricted mode", () => {
+  const db = multiTenantDb({ moderator: ["mod-role"] });
   assert.equal(isCommandAllowed({ member: { roles: ["mod-role"] } }, "core:about", MT_CONFIG, db, "guild-1"), true);
+});
+
+// Issue #238: owner has no role concept any more -- a legacy guild_roles
+// "owner" row (from before the unification) is inert for authorization.
+// Only real Discord guild ownership grants the owner tier, matching Core's
+// tier1-upstream design.
+test("isCommandAllowed (multi-tenant) ignores a legacy owner-role row; real guild ownership always passes instead", () => {
+  const db = multiTenantDb({ owner: ["owner-role"] });
+  assert.equal(
+    isCommandAllowed({ member: { roles: ["owner-role"] } }, "core:about", MT_CONFIG, db, "guild-1"),
+    false,
+    "a role mapped to the legacy owner tier must no longer authorize anything by itself"
+  );
+  assert.equal(
+    isCommandAllowed(
+      { user: { id: "real-owner" }, guild: { ownerId: "real-owner" }, member: { roles: [] } },
+      "core:about", MT_CONFIG, db, "guild-1"
+    ),
+    true,
+    "the real Discord guild owner passes even with zero configured roles"
+  );
 });
 
 test("isCommandAllowed (multi-tenant) rejects users with no configured role", () => {
@@ -188,7 +208,7 @@ test("isCommandAllowed (multi-tenant) respects open mode", () => {
   assert.equal(isCommandAllowed({ member: { roles: [] } }, "core:about", MT_CONFIG, db, "guild-1"), true);
 });
 
-test("isAdminActor (multi-tenant) requires admin tier or above -- owner passes, moderator does not", () => {
+test("isAdminActor (multi-tenant) requires admin tier or above -- real guild owner passes, a legacy owner-role row and moderator do not", () => {
   const db = multiTenantDb({
     owner: ["owner-role"],
     admin: ["admin-role"],
@@ -196,7 +216,16 @@ test("isAdminActor (multi-tenant) requires admin tier or above -- owner passes, 
     observer: ["player-role"]
   });
   assert.equal(isAdminActor({ member: { roles: ["admin-role"] } }, MT_CONFIG, db, "guild-1"), true);
-  assert.equal(isAdminActor({ member: { roles: ["owner-role"] } }, MT_CONFIG, db, "guild-1"), true, "owner is above admin and must pass admin gates");
+  assert.equal(
+    isAdminActor({ member: { roles: ["owner-role"] } }, MT_CONFIG, db, "guild-1"),
+    false,
+    "issue #238: a legacy owner-role mapping no longer grants any tier, including admin"
+  );
+  assert.equal(
+    isAdminActor({ user: { id: "real-owner" }, guild: { ownerId: "real-owner" }, member: { roles: [] } }, MT_CONFIG, db, "guild-1"),
+    true,
+    "the real Discord guild owner always passes the admin gate, with zero roles configured"
+  );
   assert.equal(isAdminActor({ member: { roles: ["mod-role"] } }, MT_CONFIG, db, "guild-1"), false, "moderator is below admin and must not pass admin gates");
   assert.equal(isAdminActor({ member: { roles: ["player-role"] } }, MT_CONFIG, db, "guild-1"), false, "player must not pass admin gates");
   assert.equal(isAdminActor({ member: { roles: ["unconfigured"] } }, MT_CONFIG, db, "guild-1"), false);

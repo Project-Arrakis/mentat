@@ -5,13 +5,20 @@ import { getPendingConfirmation, resetPendingConfirmations } from "../src/writeC
 
 beforeEach(() => resetPendingConfirmations());
 
-function mockInteraction(userId = "user-1", roleIds = []) {
+function mockInteraction(userId = "user-1", roleIds = [], { guildOwnerId = null } = {}) {
   return {
     user: { id: userId, username: "test-user" },
+    guild: { ownerId: guildOwnerId },
     guildId: "guild-1",
     channelId: "channel-1",
     member: { roles: { cache: new Map(roleIds.map(r => [r, {}])) } }
   };
+}
+
+// Issue #238: owner-tier access is real Discord guild ownership, never a
+// role -- this mock represents the actual guild owner, with zero roles.
+function mockOwnerInteraction(userId = "real-owner") {
+  return mockInteraction(userId, [], { guildOwnerId: userId });
 }
 
 function mockConfig(writesEnabled = false, adminRoleIds = [], ownerRoleIds = []) {
@@ -163,17 +170,18 @@ test("WRITE_COMMANDS have required fields", () => {
   }
 });
 
-test("all write commands return pending-upstream status for a write-owner user", async () => {
-  // Uses a write-owner role (rather than write-admin) specifically because
-  // owner outranks admin: this test verifies every command's scaffold works,
-  // not tier enforcement, which is covered separately below.
+test("all write commands return pending-upstream status for the real guild owner", async () => {
+  // Uses the real guild owner (rather than write-admin) specifically
+  // because owner outranks admin: this test verifies every command's
+  // scaffold works, not tier enforcement, which is covered separately
+  // below. Issue #238: owner-tier access is real Discord guild ownership,
+  // never a role (DISCORD_WRITE_OWNER_ROLE_IDS no longer reaches it -- see
+  // "write-admin/write-owner-role-env" tests below for that deprecation).
   const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
-  const oldOwnerIds = process.env.DISCORD_WRITE_OWNER_ROLE_IDS;
   process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
-  process.env.DISCORD_WRITE_OWNER_ROLE_IDS = "write-owner-role";
   try {
     for (const cmd of WRITE_COMMANDS) {
-      const interaction = mockInteraction("user-1", ["write-owner-role"]);
+      const interaction = mockOwnerInteraction();
       const config = mockConfig(true);
       const result = await handleWriteCommand({
         subcommand: cmd.name,
@@ -187,7 +195,6 @@ test("all write commands return pending-upstream status for a write-owner user",
     }
   } finally {
     process.env.DUNE_DISCORD_WRITES_ENABLED = oldEnabled;
-    process.env.DISCORD_WRITE_OWNER_ROLE_IDS = oldOwnerIds;
   }
 });
 
@@ -207,7 +214,8 @@ test("write-admin role cannot reach owner-tier commands (tier separation)", asyn
       const config = mockConfig(true);
       const result = await handleWriteCommand({ subcommand: cmd.name, interaction, adapterClient: {}, config });
       assert.equal(result.ok, false, `write-admin must not reach owner-tier ${cmd.name}`);
-      assert.ok(result.error.includes("write-owner"), `${cmd.name} error should mention write-owner role`);
+      assert.ok(result.error.includes("real owner"), `${cmd.name} error should point at the real Discord guild owner, not a role (issue #238)`);
+      assert.ok(!result.error.includes("write-owner"), `${cmd.name} error must not reference a nonexistent "write-owner role" (issue #238)`);
     }
 
     for (const cmd of adminTierCommands) {
@@ -222,17 +230,44 @@ test("write-admin role cannot reach owner-tier commands (tier separation)", asyn
   }
 });
 
-test("write-owner role can reach both admin-tier and owner-tier commands", async () => {
+test("the real guild owner can reach both admin-tier and owner-tier commands", async () => {
+  const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
+  process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
+  try {
+    for (const cmd of WRITE_COMMANDS) {
+      const interaction = mockOwnerInteraction();
+      const config = mockConfig(true);
+      const result = await handleWriteCommand({ subcommand: cmd.name, interaction, adapterClient: {}, config });
+      assert.equal(result.ok, true, `the real guild owner should reach ${cmd.tier}-tier ${cmd.name}`);
+    }
+  } finally {
+    process.env.DUNE_DISCORD_WRITES_ENABLED = oldEnabled;
+  }
+});
+
+// Issue #238: DISCORD_WRITE_OWNER_ROLE_IDS is deprecated for granting
+// owner-tier access -- a non-owner holding this role reaches admin-tier
+// commands only (it's folded into the admin-equivalent set, matching
+// isAdminActor()'s existing back-compat behavior), never owner-tier ones.
+test("DISCORD_WRITE_OWNER_ROLE_IDS role reaches admin-tier commands but not owner-tier ones (deprecated for owner)", async () => {
   const oldEnabled = process.env.DUNE_DISCORD_WRITES_ENABLED;
   const oldOwnerIds = process.env.DISCORD_WRITE_OWNER_ROLE_IDS;
   process.env.DUNE_DISCORD_WRITES_ENABLED = "true";
   process.env.DISCORD_WRITE_OWNER_ROLE_IDS = "write-owner-role";
   try {
-    for (const cmd of WRITE_COMMANDS) {
+    const ownerTierCommands = WRITE_COMMANDS.filter((c) => c.tier === "owner");
+    const adminTierCommands = WRITE_COMMANDS.filter((c) => c.tier === "admin");
+    for (const cmd of ownerTierCommands) {
       const interaction = mockInteraction("user-1", ["write-owner-role"]);
       const config = mockConfig(true);
       const result = await handleWriteCommand({ subcommand: cmd.name, interaction, adapterClient: {}, config });
-      assert.equal(result.ok, true, `write-owner should reach ${cmd.tier}-tier ${cmd.name}`);
+      assert.equal(result.ok, false, `a non-owner holding the legacy write-owner-role must not reach owner-tier ${cmd.name}`);
+    }
+    for (const cmd of adminTierCommands) {
+      const interaction = mockInteraction("user-1", ["write-owner-role"]);
+      const config = mockConfig(true);
+      const result = await handleWriteCommand({ subcommand: cmd.name, interaction, adapterClient: {}, config });
+      assert.equal(result.ok, true, `write-owner-role should still reach admin-tier ${cmd.name} (folded into admin-equivalent)`);
     }
   } finally {
     process.env.DUNE_DISCORD_WRITES_ENABLED = oldEnabled;

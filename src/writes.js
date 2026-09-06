@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { tierAtLeast, dbActorTier } from "./rbac.js";
-import { getGuildRoles } from "./database.js";
+import { tierAtLeast, multiTenantActorTier, isGuildOwner } from "./rbac.js";
 
 const WRITES_ENABLED_ENV = "DUNE_DISCORD_WRITES_ENABLED";
 const WRITE_ADMIN_ROLE_ENV = "DISCORD_WRITE_ADMIN_ROLE_IDS";
+// Deprecated for granting owner-tier access (issue #238) -- owner is now
+// derived exclusively from real Discord guild ownership, matching Core's
+// tier1-upstream design. Still parsed (see writeRoleIds()) so canWrite() can
+// fold it into the ADMIN-equivalent set for single-tenant back-compat,
+// exactly like isAdminActor() already does in commands.js -- never used to
+// reach the "owner" tier itself anymore.
 const WRITE_OWNER_ROLE_ENV = "DISCORD_WRITE_OWNER_ROLE_IDS";
 
 export function writesEnabled(config) {
@@ -15,6 +20,9 @@ export function writesEnabled(config) {
 export function writeRoleIds(env = process.env) {
   return {
     admin: parseCsv(env[WRITE_ADMIN_ROLE_ENV]),
+    // Kept as "owner" key for back-compat with existing callers/tests that
+    // read this shape, but see the WRITE_OWNER_ROLE_ENV comment above --
+    // canWrite() no longer treats membership in this list as owner-tier.
     owner: parseCsv(env[WRITE_OWNER_ROLE_ENV])
   };
 }
@@ -25,28 +33,58 @@ export function writeRoleIds(env = process.env) {
 // "admin"-tier actions, never "owner"-tier ones. Without requiredTier, any
 // admin-tier (or above) role passes (legacy/union behavior).
 //
-// Authorization source follows the deployment mode:
+// Owner-tier access is ALWAYS decided by real Discord guild ownership
+// (rbac.js's isGuildOwner), in every mode, never by a role -- matching
+// Core's tier1-upstream design (issue #238). This runs before the
+// multiTenant/single-tenant branch below because it's a live Discord fact,
+// not per-guild or per-deployment config.
+//
+// Authorization source for admin/moderator/observer follows the deployment
+// mode:
 //   - multiTenant (db + guildId provided): the actor's tier is resolved
-//     from that guild's guild_roles rows (all four tiers honored; a
-//     guild_roles "owner" row can reach owner-tier actions, previously
-//     impossible because canWrite only read process env vars).
-//   - single-tenant: the existing DISCORD_WRITE_ADMIN_ROLE_IDS /
-//     DISCORD_WRITE_OWNER_ROLE_IDS env vars, unchanged.
+//     from that guild's guild_roles rows (legacy "owner" rows are ignored --
+//     see rbac.js's multiTenantActorTier/resolveActorAuthTier).
+//   - single-tenant: the existing DISCORD_WRITE_ADMIN_ROLE_IDS env var
+//     (DISCORD_WRITE_OWNER_ROLE_IDS folds into the same admin-equivalent
+//     set, not owner -- see the const's comment above).
+// resolveGuildOwnerId: local copy of commands.js's function of the same
+// name (can't import it here -- commands.js already imports FROM this
+// file, so the reverse would be a circular dependency; mirrors this file's
+// existing local extractRoleIds() precedent for the same reason). Prefers
+// the live, already-cached interaction.guild.ownerId, but falls back to
+// the bot's client-wide guild cache via guildId when interaction.guild is
+// null/uncached -- a real, reachable gap during a gateway reconnect or a
+// guild-unavailable window (issue #238 code-review finding).
+function resolveGuildOwnerId(interaction) {
+  if (interaction?.guild?.ownerId) return interaction.guild.ownerId;
+  const guildId = interaction?.guildId;
+  if (!guildId) return undefined;
+  return interaction?.client?.guilds?.cache?.get(guildId)?.ownerId;
+}
+
 export function canWrite(interaction, config, requiredTier = null, db = null, guildId = null) {
   if (!writesEnabled(config)) return false;
-  if (!interaction?.member?.roles) return false;
 
-  const roleIds = extractRoleIds(interaction);
+  // Real guild ownership must be checked before ANY role-shaped guard below
+  // (including the member.roles presence check) -- a code review caught
+  // this running AFTER that guard in an earlier revision, which would have
+  // denied the real owner whenever member.roles was falsy/missing, directly
+  // contradicting this function's own "never by a role" guarantee.
   const threshold = requiredTier || "admin";
+  if (isGuildOwner(interaction?.user?.id, resolveGuildOwnerId(interaction))) {
+    return tierAtLeast("owner", threshold);
+  }
+
+  if (!interaction?.member?.roles) return false;
+  const roleIds = extractRoleIds(interaction);
 
   if (config.multiTenant && db && guildId) {
-    return tierAtLeast(dbActorTier(roleIds, getGuildRoles(db, guildId)), threshold);
+    return tierAtLeast(multiTenantActorTier(interaction?.user?.id, resolveGuildOwnerId(interaction), db, guildId, roleIds), threshold);
   }
 
   const writeRoles = writeRoleIds();
-  const isOwner = roleIds.some((r) => writeRoles.owner.includes(r));
-  const isAdmin = roleIds.some((r) => writeRoles.admin.includes(r));
-  const actorTier = isOwner ? "owner" : isAdmin ? "admin" : null;
+  const isAdmin = roleIds.some((r) => writeRoles.admin.includes(r) || writeRoles.owner.includes(r));
+  const actorTier = isAdmin ? "admin" : null;
 
   return tierAtLeast(actorTier, threshold);
 }
