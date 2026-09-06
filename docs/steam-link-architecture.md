@@ -29,15 +29,20 @@ comments) so nothing in the Steam path is falsely marked unmerged anymore
 -- it is correctly marked `MISSING_ROUTES` as of the 2026-08-16 correction.
 
 **End-to-end user-facing flow: still not reachable, for a second,
-independent reason.** The bot-side OAuth callback server
+independent reason (historical -- the tunnel gap described below was
+fixed 2026-09-06 as part of the domain-consolidation work, see the
+`mentat-backend.darkdante.org` ingress rules in
+`compliance/runbooks/backup-recovery.md`; the upstream-route gap
+described in this section's own top correction is unaffected and may
+still apply).** The bot-side OAuth callback server
 (`src/steamLinkServer.js`, port 3101) is up and healthy, but the Cloudflare
-Tunnel ingress only exposes the admin console's tunnel hostname and
-`acp-setup.darkdante.org`; port 3101 is not routed, so a real user clicking
-"Link via Steam" still gets a tunnel 404 before ever reaching the
+Tunnel ingress only exposed the admin console's tunnel hostname and
+`acp-setup.darkdante.org`; port 3101 was not routed, so a real user clicking
+"Link via Steam" got a tunnel 404 before ever reaching the
 (currently non-functional against real upstream) callback logic. That
-tunnel gap is tracked in issue #86 (and blocked on the same Cloudflare
-account access as issue #83). Fixing the tunnel gap alone would not make
-this flow work end-to-end until upstream actually ships a tagged
+tunnel gap was tracked in issue #86 (and blocked on the same Cloudflare
+account access as issue #83) -- now resolved. Fixing the tunnel gap alone
+does not make this flow work end-to-end until upstream actually ships a tagged
 `players/accounts/link-steam` route -- both gaps must close.
 
 ## Overview

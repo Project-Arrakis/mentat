@@ -7,6 +7,7 @@ change notes under `docs/changes/`.
 ## Unreleased
 
 ### Fixed
+- **Architecture/hostname regressions and GitHub App account contradiction missed by #261** (issue #262). A follow-up `/code-review high` pass against #261 found real gaps it left in place: `compliance/runbooks/backup-recovery.md` and `INSTALL.md`'s Cloudflare Tunnel ingress examples still pointed the direct-to-VM route at `mentat-link.darkdante.org`, which is now a Cloudflare Pages custom domain, not a Tunnel target — corrected to the real internal-only `mentat-backend.darkdante.org` hostname, and the Steam-link path corrected from the old `/auth/steam` to the real `/steam-link`. `docs/issue-bridge/github-app.md` instructed creating the GitHub App under the personal `yacketrj` account with "Only on this account" scope, then installing it on the `Project-Arrakis` org's repos — a personal-account-scoped App cannot be installed elsewhere; fixed to consistently target the org throughout. `.env.example`'s `LIVE STATS` comment block still referenced `acp-setup.darkdante.org`/"the acp-landing site", both renamed everywhere else in the same file by #261. `docs/steam-link-architecture.md` flagged an already-fixed Steam-link Tunnel routing gap as still open — added a correction note.
 - **Full documentation remediation before go-live** (issue #260). A
   dedicated tech-writer-style documentation review plus a `/code-review
   high` pass found a large amount of stale, fictional, or contradictory

@@ -20,8 +20,12 @@ available through:
    which still requires an interactive browser redirect through
    `github.com` while authenticated as the account that will own the App.
 
-Both require a human with an authenticated browser session for the
-`yacketrj` account. An automated coding session has no browser and no way
+Both require a human with an authenticated browser session for an
+account with admin access to the `Project-Arrakis` organization (the
+App must be owned by the org, not a personal account — it's installed
+on org-owned repos, and a personal-account App restricted to "only
+this account" cannot be installed elsewhere). An automated coding
+session has no browser and no way
 to complete an interactive OAuth-style redirect, so **this step must be
 performed by the operator**, once, before the bridge can mint installation
 tokens.
@@ -40,8 +44,9 @@ rather than working around it with something more privileged.
 
 ## Option A — manual creation (recommended, ~2 minutes)
 
-1. Go to <https://github.com/settings/apps/new> while logged in as
-   `yacketrj`.
+1. Go to <https://github.com/organizations/Project-Arrakis/settings/apps/new>
+   while logged in with admin access to the `Project-Arrakis` organization
+   (not the personal `yacketrj` account — see the note above).
 2. Fill in:
    - **GitHub App name:** `ACP Issue Bridge`
    - **Homepage URL:** `https://github.com/Project-Arrakis/mentat`
@@ -61,7 +66,8 @@ rather than working around it with something more privileged.
      - **Discussions**: leave at **No access** until/unless Discussions
        automation (spec section 54) is actually implemented — do not
        pre-grant it "just in case."
-   - **Where can this GitHub App be installed?** "Only on this account."
+   - **Where can this GitHub App be installed?** "Only on this account" is
+     fine here since the account IS the `Project-Arrakis` org itself.
 3. Click **Create GitHub App**.
 4. On the new App's settings page:
    - Note the **App ID** — this becomes the `ACP_ISSUE_BRIDGE_APP_ID`
@@ -70,8 +76,8 @@ rather than working around it with something more privileged.
      downloads a `.pem` file once — this becomes the
      `ACP_ISSUE_BRIDGE_PRIVATE_KEY` secret (paste the full PEM contents,
      including the `-----BEGIN/END-----` lines).
-5. Click **Install App** (left sidebar) → install on the `yacketrj`
-   account → **Only select repositories** → choose exactly:
+5. Click **Install App** (left sidebar) → install on the `Project-Arrakis`
+   organization → **Only select repositories** → choose exactly:
    - `Project-Arrakis/mentat-adjutant`
    - `Project-Arrakis/mentat`
 
@@ -84,7 +90,9 @@ A ready-to-use manifest is checked in at
 set above pre-filled. Per GitHub's documented flow, submit it as a
 same-origin POST to `https://github.com/settings/apps/new` (organization
 accounts use `https://github.com/organizations/<org>/settings/apps/new`
-instead) in a `manifest` form field, while authenticated as `yacketrj` —
+instead — the `Project-Arrakis` org URL applies here, per the note
+above) in a `manifest` form field, while authenticated with admin
+access to that org —
 GitHub's own manifest-flow docs describe this as a minimal HTML form with
 one hidden input; save one locally and open it in an authenticated
 browser tab. This still requires the same interactive browser session as

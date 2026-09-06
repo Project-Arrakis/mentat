@@ -157,12 +157,22 @@ setup portal endpoints. Add to `/etc/cloudflared/config.yml`:
 
 ```yaml
 ingress:
-  - hostname: mentat-link.darkdante.org
+  - hostname: YOUR_INTERNAL_SETUP_HOSTNAME    # keep this off any public DNS/marketing site
     service: http://localhost:3100
   - hostname: CONSOLE_TUNNEL_HOSTNAME    # your own tunnel hostname
     service: http://localhost:8088
   - service: http_status:404
 ```
+
+In this project's own hosted deployment, the setup portal's public
+face is `mentat-link.darkdante.org` — but that hostname is a Cloudflare
+Pages custom domain, not a direct Tunnel ingress rule; the Tunnel
+instead routes an internal-only hostname (`mentat-backend.darkdante.org`,
+never advertised to users) that the Pages site reverse-proxies to
+server-side. Don't copy `mentat-link.darkdante.org` verbatim into your
+own Tunnel config unless you're also building an equivalent reverse
+proxy in front of it — a bare Tunnel rule like the example above works
+fine too, it just exposes the setup portal's hostname directly.
 
 Restart the tunnel: `sudo systemctl restart cloudflared`
 
