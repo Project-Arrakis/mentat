@@ -106,7 +106,7 @@ test("GET /health reports the service and enabled flag", async () => {
     const res = await fetch(`${baseUrl}/health`);
     const body = await res.json();
     assert.equal(res.status, 200);
-    assert.equal(body.service, "acp-steam-link");
+    assert.equal(body.service, "mentat-steam-link");
     assert.equal(body.enabled, true);
   });
 });

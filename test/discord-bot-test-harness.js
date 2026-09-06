@@ -236,7 +236,7 @@ describe('Command Execution', () => {
     assert.ok(result, 'Command should succeed');
     assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
     const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
-    assert.ok(embed.fields?.some(f => f.name.includes('Bot') && f.value.includes('arrakis-control-panel')), 'Should have bot name');
+    assert.ok(embed.fields?.some(f => f.name.includes('Bot') && f.value.includes('mentat')), 'Should have bot name');
     // PR #70 (af63ca4) updated this expectation to 'Yes' without updating
     // aboutPayload()'s actual readOnly value to match -- V2
     // character-linking commands (link/verify/unlink/faction/enable/
