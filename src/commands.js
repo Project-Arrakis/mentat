@@ -957,7 +957,7 @@ export function aboutPayload(config) {
   // the bot has not been strictly read-only since V2 player linking shipped.
   // writesEnabled reflects only the separate operator write-command group
   // (src/writeHandler.js), which stays disabled unless explicitly configured.
-  return { ok: true, bot: { name: "arrakis-control-panel", version: pkgVersion, readOnly: false, writesEnabled: writesEnabled(config) }, adapter: { origin: new URL(config.adapter.baseUrl).origin, timeoutMs: config.adapter.timeoutMs }, discord: { rbacMode: config.discord.rbac.mode, defaultEphemeral: config.discord.defaultEphemeral }, boundary: { dockerSocket: false, databaseDirect: false, gameFiles: false, shellCommands: false } };
+  return { ok: true, bot: { name: "mentat", version: pkgVersion, readOnly: false, writesEnabled: writesEnabled(config) }, adapter: { origin: new URL(config.adapter.baseUrl).origin, timeoutMs: config.adapter.timeoutMs }, discord: { rbacMode: config.discord.rbac.mode, defaultEphemeral: config.discord.defaultEphemeral }, boundary: { dockerSocket: false, databaseDirect: false, gameFiles: false, shellCommands: false } };
 }
 
 // #215/A7: missing counts stay null (not the truthy string "unknown",

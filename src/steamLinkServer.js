@@ -495,7 +495,7 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
   }
 
   app.get("/health", (req, res) => {
-    res.json({ ok: true, service: "acp-steam-link", enabled: config.steamLink.enabled });
+    res.json({ ok: true, service: "mentat-steam-link", enabled: config.steamLink.enabled });
   });
 
   return app;
