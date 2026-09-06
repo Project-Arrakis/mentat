@@ -10,7 +10,7 @@ import { formatError, formatPayload, redactSecrets } from "./format.js";
 import { logInfo, logError } from "./logger.js";
 import { resolveCompatEnv } from "./compatEnv.js";
 import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegistryMetadata } from "./registryLoader.js";
-import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed , formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed } from "./embedFormat.js";
+import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
@@ -92,9 +92,15 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
         .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
       .addSubcommand((c) => c.setName("unlink").setDescription("Unlink a character from your Discord.")
         .addStringOption((o) => o.setName("character").setDescription("Player controller ID from /dune player characters (omit to unlink your single-link character)")))
-      .addSubcommand((c) => c.setName("faction").setDescription("Set your faction for themed embeds.")
-        .addStringOption((o) => o.setName("name").setDescription("atreides, harkonnen, or fremen").setRequired(true)
-          .addChoices({ name: "Atreides", value: "atreides" }, { name: "Harkonnen", value: "harkonnen" }, { name: "Fremen", value: "fremen" })))
+      // Read-only, auto-detected from your real in-game faction (Core's
+      // players-faction route, dune-awakening-selfhost-docker#696) -- there
+      // is deliberately no argument here. This used to be a settable
+      // "atreides"/"harkonnen"/"fremen" choice with no route on Core to
+      // back it at all (the option was silently discarded); Core's real
+      // route reports your actual faction and never accepts a caller-
+      // supplied value, so the option was removed rather than left to
+      // silently do nothing.
+      .addSubcommand((c) => c.setName("faction").setDescription("Show your real, in-game faction."))
       .addSubcommand((c) => c.setName("whoami").setDescription("Show your linked game character info."))
       .addSubcommand((c) => c.setName("inventory").setDescription("View your personal inventory.")
         .addStringOption((o) => o.setName("search").setDescription("Filter by item name (optional)")))
@@ -435,8 +441,9 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
         payload = await adapterClient.playerUnlink(actor, guildId);
       }
     } else if (key === "player:faction") {
-      const faction = interaction.options.getString("name");
-      payload = await adapterClient.playerFaction(actor, faction, guildId);
+      // Read-only, auto-detected -- see the subcommand definition's own
+      // comment above for why there is no longer a "name" option to read.
+      payload = await adapterClient.playerFaction(actor, guildId);
     } else if (key === "player:whoami") {
       payload = await adapterClient.whoami(actor, guildId);
     } else if (key === "player:characters") {
@@ -628,6 +635,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatUnlinkEmbed(payload);
     } else if (subcommand === "whoami") {
       embed = formatWhoamiEmbed(payload);
+    } else if (subcommand === "faction") {
+      embed = formatFactionEmbed(payload);
     } else if (subcommand === "inventory") {
       embed = formatInventoryEmbed(payload);
     } else if (subcommand === "storage") {
@@ -1012,7 +1021,7 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "player:disable", desc: "Disable a character in this guild.", role: "player" },
     { name: "player:default", desc: "Set your default character for this guild.", role: "player" },
     { name: "player:unlink", desc: "Unlink a character from your Discord.", role: "player" },
-    { name: "player:faction", desc: "Set your faction for themed embeds.", role: "player" },
+    { name: "player:faction", desc: "Show your real, in-game faction.", role: "player" },
     { name: "player:whoami", desc: "Show your linked game character info.", role: "player" },
     { name: "player:inventory", desc: "View your personal inventory.", role: "player" },
     { name: "player:storage", desc: "View your storage containers grouped by map.", role: "player" },
@@ -1250,7 +1259,7 @@ export function getCommandRegistry() {
         { name: "disable <id>", desc: "Disable a character in this guild", role: "player" },
         { name: "default <id>", desc: "Set your default character for this guild", role: "player" },
         { name: "unlink <id>", desc: "Unlink a character from your Discord", role: "player" },
-        { name: "faction <name>", desc: "Set your faction for themed embeds", role: "player" },
+        { name: "faction", desc: "Show your real, in-game faction (read-only)", role: "player" },
         { name: "whoami", desc: "Show your linked game character info", role: "player" },
         { name: "inventory", desc: "View your personal inventory", role: "player" },
         { name: "storage", desc: "View your storage containers grouped by map", role: "player" },

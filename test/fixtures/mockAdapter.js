@@ -50,7 +50,9 @@ export function createMockAdapter(options = {}) {
     // undetected until a live user hit it.
     playerAccountsList: { ok: true, accounts: [{ playerControllerId: '1', characterName: 'Sihaya', isDefault: true, onlineStatus: 'Offline' }], count: 1 },
     playerAccountsUnlink: { ok: true, message: 'Unlinked.' },
-    playerFaction: { ok: true, faction: 'atreides' },
+    // Real Core response shape (players-faction route,
+    // dune-awakening-selfhost-docker#696) -- read-only, auto-detected.
+    playerFaction: { ok: true, linked: true, hasFaction: true, characterName: 'TestCharacter', factionId: '1', factionName: 'House Atreides' },
     whoami: { ok: true, result: { character: 'TestCharacter' } },
     playerInventory: { ok: true, result: { items: [] } },
     playerFind: { ok: true, result: { items: [] } },
@@ -294,10 +296,10 @@ export function createMockAdapter(options = {}) {
       return { ...mockData.playerAccountsUnlink, playerControllerId };
     },
 
-    async playerFaction(actor, faction) {
+    async playerFaction(actor) {
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       if (error) throw new Error(error);
-      return { ...mockData.playerFaction, faction };
+      return { ...mockData.playerFaction };
     },
 
     async whoami(actor) {

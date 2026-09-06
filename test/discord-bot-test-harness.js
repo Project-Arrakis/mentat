@@ -684,12 +684,11 @@ describe('Command Execution', () => {
 // ============================================================================
 
 describe('Faction Theming', () => {
-  test('player:faction sets player faction', async () => {
+  test('player:faction shows the caller\'s real, auto-detected faction (read-only, no argument)', async () => {
     const { adapterClient, config } = getTestContext();
     const interaction = createMockInteraction({
       command: 'player:faction',
-      roles: ['observer-role-id'],
-      options: { name: 'atreides' }
+      roles: ['observer-role-id']
     });
 
     const result = await executeDuneCommand(interaction, adapterClient, config);

@@ -557,6 +557,44 @@ export function formatWhoamiEmbed(payload) {
   });
 }
 
+// Read-only, auto-detected from the caller's real dune.player_faction row
+// (Core's players-faction route, dune-awakening-selfhost-docker#696) --
+// this used to be a settable "atreides"/"harkonnen"/"fremen" choice with
+// no backing route on Core at all, so the choice silently did nothing.
+// The real faction name comes from the game's own dune.factions table, an
+// arbitrary string this bot doesn't control -- matched loosely
+// (case-insensitive substring) against the three known houses for embed
+// coloring/quotes rather than assumed to equal one of duneEmbed's exact
+// faction keys.
+function factionKeyFromName(name) {
+  const lower = String(name || "").toLowerCase();
+  if (lower.includes("atreides")) return "atreides";
+  if (lower.includes("harkonnen")) return "harkonnen";
+  if (lower.includes("fremen")) return "fremen";
+  return undefined;
+}
+
+export function formatFactionEmbed(payload) {
+  if (!payload?.linked) {
+    return duneEmbed({
+      title: "🏜️ Faction",
+      color: "warning",
+      description: "You are not linked to a game character.\nUse `/dune player link <name>` to link."
+    });
+  }
+  if (!payload?.hasFaction) {
+    return duneEmbed({
+      title: "🏜️ Faction",
+      description: `${fmt(payload?.characterName)} hasn't joined a faction yet.`
+    });
+  }
+  return duneEmbed({
+    title: "🏜️ Faction",
+    faction: factionKeyFromName(payload?.factionName),
+    description: `${fmt(payload?.characterName)} belongs to ${fmt(payload?.factionName)}.`
+  });
+}
+
 // ── Cooldowns ──
 export function formatCooldownsEmbed(stats) {
   const entries = stats?.entries || [];
