@@ -283,21 +283,31 @@ but as of this correction none of those functions are called anywhere in
 `adapterClient` (HTTP calls to Core) instead. That bot-side table appears to
 be unused/dead schema, not a second source of truth.
 
-**Correction (found while remediating the `/dune player faction` stale-
-description finding above):** the SAME dead-code pattern exists for a
+**Resolved (mentat#251):** the SAME dead-code pattern used to exist for a
 second, unrelated feature — `src/database.js`'s `guild_settings.faction`
 column and its `setGuildFaction()`/`getGuildFaction()` functions (a
 per-guild cosmetic theme used by `statusCard.js` for themed status cards,
-entirely distinct from a player's own in-game faction). `getGuildFaction()`
-is called and does render themed cards; `setGuildFaction()` is defined but
-never called anywhere in the codebase — there is currently no command that
-can actually set this value, so every guild's theme is permanently stuck at
-the empty-string default. `/dune player faction`'s old description ("Set
-your faction for themed embeds") appears to have described this feature's
-INTENT, but its actual handler never called `setGuildFaction()` — it called
-`adapterClient.playerFaction()` (a real, different, per-player Core route)
-the whole time. Tracked separately, not fixed as part of this correction:
-see `mentat#251`.
+entirely distinct from a player's own personal in-game faction).
+`getGuildFaction()` was always called and did render themed cards;
+`setGuildFaction()` was defined but never called anywhere, so every
+guild's theme was permanently stuck at the empty-string default.
+`/dune player faction`'s old description ("Set your faction for themed
+embeds") appears to have described this feature's INTENT, but its actual
+handler never called `setGuildFaction()` — it called
+`adapterClient.playerFaction()` (a real, different, per-player Core
+route) the whole time.
+
+Now wired up, as an automatic sync rather than a manual setter: every
+`/dune player faction` call triggers `guildFactionSync.js`'s
+`syncGuildFactionTheme()`, which tallies each bot-active Discord member's
+real IN-GAME GUILD's faction (`dune-awakening-selfhost-docker#699`'s
+`guilds/faction-summary` route — a genuinely different game concept from
+an individual's own personal faction; see that route's own comment) and
+calls `setGuildFaction()` with the majority result. Member list comes
+from a new local `guild_member_activity` table (schema v5, updated on
+every `/dune` command), not a real Discord member fetch — this bot only
+holds the `Guilds` gateway intent, not the privileged `GuildMembers`
+intent a real member-list fetch would require.
 
 | Capability | Required Role | Commands |
 |-----------|---------------|----------|

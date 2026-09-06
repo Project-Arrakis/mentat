@@ -144,10 +144,16 @@ export const PLANNED_ROUTES = new Set([
 // player-links-start (see above), the guild-character-grants/* family,
 // and player-inventory-v2 (Core only has the plural, non-versioned
 // players/inventory).
+//
+// guild-faction-summary: same status -- real, live on
+// Project-Arrakis/dune-awakening-selfhost-docker's fork main
+// (dune-awakening-selfhost-docker#699/#700), not yet submitted upstream
+// to Red-Blink at all.
 export const UNMERGED_ROUTES = new Set([
   "players-faction",
   "player-links-start",
   "guild-grants", "guild-grants-enable", "guild-grants-disable", "guild-grants-default",
+  "guild-faction-summary",
   "player-inventory-v2"
 ]);
 
@@ -340,6 +346,12 @@ export class AdapterClient {
   guildGrantsEnable(actor, characterLinkId, guildId) { return this.request("guild-grants-enable", actor, { characterLinkId }, guildId); }
   guildGrantsDisable(actor, characterLinkId, guildId) { return this.request("guild-grants-disable", actor, { characterLinkId }, guildId); }
   guildGrantsDefault(actor, characterLinkId, guildId) { return this.request("guild-grants-default", actor, { characterLinkId }, guildId); }
+  // Real-faction tally across many Discord users at once (issue: guild
+  // faction theme auto-sync) -- discordUserIds is THIS bot's own
+  // determination of guild membership (Core has no concept of Discord
+  // guilds at all). Returns aggregate counts only, never a per-user
+  // mapping.
+  guildFactionSummary(actor, discordUserIds, guildId) { return this.request("guild-faction-summary", actor, { discordUserIds }, guildId); }
   playerInventoryV2(actor, characterHandle, guildId) { return this.request("player-inventory-v2", actor, { characterHandle }, guildId); }
 
   // Steam-connections-based verification for the ALREADY-NAMED character
