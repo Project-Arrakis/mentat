@@ -10,7 +10,7 @@ constants through source code"). Both are bootstrapped for real via
 missing, never edits an existing label's color/description since a
 maintainer may have deliberately customized it).
 
-## Public taxonomy (`yacketrj/acp-discordbot`)
+## Public taxonomy (`Project-Arrakis/mentat-adjutant`)
 
 - **Type:** `type:bug` `type:feature` `type:documentation` `type:support`
   `type:compatibility` `type:performance`
@@ -23,7 +23,7 @@ maintainer may have deliberately customized it).
   `area:documentation` `area:authentication` `area:permissions`
   `area:observability` `area:webui` `area:api`
 
-## Private taxonomy (`yacketrj/arrakis-control-panel`)
+## Private taxonomy (`Project-Arrakis/mentat`)
 
 - **Source:** `source:public` `source:internal`
 - **Visibility:** `visibility:internal` `visibility:security-sensitive`

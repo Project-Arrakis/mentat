@@ -20,7 +20,7 @@ don't overlap:
 ```
 schema_version: 1
 sync_id: ACP-PUBLIC-52
-public_repository: yacketrj/acp-discordbot
+public_repository: Project-Arrakis/mentat-adjutant
 public_issue: 52
 created_from_event: issues.opened:<workflow-run-id>
 ```
@@ -36,7 +36,7 @@ SEC-011).
 schema_version: 1
 direction: public-to-private
 sync_id: ACP-PUBLIC-52
-source_repository: yacketrj/acp-discordbot
+source_repository: Project-Arrakis/mentat-adjutant
 source_issue: 52
 source_comment: 23891827
 ```
@@ -48,7 +48,7 @@ schema_version: 1
 origin: bridge
 kind: public | resolution | public-status:<state> | internal-ack
 sync_id: ACP-PUBLIC-52
-private_repository: yacketrj/arrakis-control-panel
+private_repository: Project-Arrakis/mentat
 private_issue: 300
 private_comment: <optional>
 source_comment: <the private comment id that triggered this — used for idempotency>

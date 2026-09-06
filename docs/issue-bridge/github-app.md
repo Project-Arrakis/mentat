@@ -44,7 +44,7 @@ rather than working around it with something more privileged.
    `yacketrj`.
 2. Fill in:
    - **GitHub App name:** `ACP Issue Bridge`
-   - **Homepage URL:** `https://github.com/yacketrj/arrakis-control-panel`
+   - **Homepage URL:** `https://github.com/Project-Arrakis/mentat`
    - **Webhook:** uncheck **Active** — this App is not a webhook receiver;
      GitHub Actions' own `issues`/`issue_comment` triggers deliver events
      natively to each repo's workflows. The App exists solely to mint
@@ -72,8 +72,8 @@ rather than working around it with something more privileged.
      including the `-----BEGIN/END-----` lines).
 5. Click **Install App** (left sidebar) → install on the `yacketrj`
    account → **Only select repositories** → choose exactly:
-   - `yacketrj/acp-discordbot`
-   - `yacketrj/arrakis-control-panel`
+   - `Project-Arrakis/mentat-adjutant`
+   - `Project-Arrakis/mentat`
 
    Do not select "All repositories."
 
@@ -95,7 +95,7 @@ than retyped by hand.
 ## Required secrets (both repositories)
 
 Set these as encrypted repository secrets on **both**
-`yacketrj/acp-discordbot` and `yacketrj/arrakis-control-panel` (Settings →
+`Project-Arrakis/mentat-adjutant` and `Project-Arrakis/mentat` (Settings →
 Secrets and variables → Actions → New repository secret):
 
 | Secret | Value |
@@ -109,7 +109,7 @@ never add a `- run: echo ...` step that would print them — see
 
 ## Verification checklist (run once, after setup)
 
-- [ ] `gh api /repos/yacketrj/arrakis-control-panel/installation` (as an
+- [ ] `gh api /repos/Project-Arrakis/mentat/installation` (as an
       org/repo admin) shows the ACP Issue Bridge installation with
       exactly `metadata: read` and `issues: write`.
 - [ ] The installation's repository list is exactly the two repositories
@@ -121,7 +121,7 @@ never add a `- run: echo ...` step that would print them — see
       `issue-bridge-public-created.yml` creates a correlated private
       mirror (see `docs/issue-bridge/testing.md` "Safe live smoke test"
       for a scripted, cleanup-included version of this check).
-- [ ] Confirm `GET /repos/yacketrj/arrakis-control-panel/collaborators/<a
+- [ ] Confirm `GET /repos/Project-Arrakis/mentat/collaborators/<a
       test maintainer's username>/permission` succeeds using the App's
       minted token. **Known residual uncertainty:** GitHub's
       documentation for this endpoint does not explicitly enumerate the

@@ -58,7 +58,7 @@ change for a one-off case.
 failed because the public repo hasn't published a checksum yet.
 
 1. Confirm both repos' `.github/acp-issue-bridge.yml` are actually
-   identical: `diff <(gh api repos/yacketrj/acp-discordbot/contents/.github/acp-issue-bridge.yml --jq '.content' | base64 -d) <(gh api repos/yacketrj/arrakis-control-panel/contents/.github/acp-issue-bridge.yml --jq '.content' | base64 -d)`
+   identical: `diff <(gh api repos/Project-Arrakis/mentat-adjutant/contents/.github/acp-issue-bridge.yml --jq '.content' | base64 -d) <(gh api repos/Project-Arrakis/mentat/contents/.github/acp-issue-bridge.yml --jq '.content' | base64 -d)`
 2. If they differ, decide which is correct, copy it to the other repo,
    commit, and push — this triggers `issue-bridge-maintenance.yml`'s
    `push` trigger on the config file path automatically.
@@ -75,7 +75,7 @@ maintenance workflow (`workflow_dispatch`) to recreate it.
 ## An actor with the right Discord/GitHub role still gets "unauthorized"
 
 Authorization here is a **GitHub repository role** (`write`/`maintain`/
-`admin` on `yacketrj/arrakis-control-panel`), not a Discord role — the
+`admin` on `Project-Arrakis/mentat`), not a Discord role — the
 two are unrelated permission systems. Grant the actor the appropriate
 GitHub collaborator role on the private repository, not a Discord role.
 
