@@ -1,76 +1,104 @@
+// Flavor-text quotes shown at the bottom of most embeds (see duneEmbed() in
+// embedFormat.js), signed "— Sahir Venn". A mix of genuine Frank Herbert
+// Dune-novel lines about Mentats/logic (verified against the books, not
+// the 1984 film's "It is by will alone..." mantra, which is a film-only
+// invention and deliberately NOT used here) and original computational
+// asides written in the same voice -- Sahir Venn, a Mentat, speaking as
+// one. ARRAKIS_TERMS is the generic pool (also the fallback for an
+// unknown/missing faction); FACTION_QUOTES flavors the same computational
+// voice through each in-game faction's own values, for report contexts
+// where a faction/battlegroup is known.
 export const ARRAKIS_TERMS = [
-  "The spice must flow.",
-  "Fear is the mind-killer.",
-  "Bless the Maker and His water.",
-  "Walk without rhythm.",
-  "God created Arrakis to train the faithful.",
-  "He who controls the spice controls the universe.",
-  "A beginning is a very delicate time.",
-  "Deep in the human unconscious is a pervasive need for a logical universe that makes sense.",
-  "The Fremen were supreme in the quality of their swordsmanship.",
-  "Survival is the ability to swim in strange water."
+  // Genuine Dune-novel lines (Mentat-voiced, or in-universe Mentat texts) --
+  // verified against the books, not the 1984 film's "It is by will alone..."
+  // mantra, which is a film-only invention and deliberately not used here.
+  "I am a Mentat. I trust logic and statistics, not mysticism and prophecy.", // Thufir Hawat, Dune
+  "That's the curse of being a Mentat. You can't stop analyzing your data.", // Thufir Hawat, Dune
+  "A process cannot be understood by stopping it. Understanding must move with the flow of the process, must join it and flow with it.", // the First Law of Mentat
+  "Above all else, a Mentat must be a generalist, not a specialist.", // the Mentat Handbook
+  "Many things we do naturally become difficult only when we try to make them intellectual subjects. It is possible to know so much about a subject that you become totally ignorant.", // the Mentat Handbook, Chapterhouse: Dune
+  "Deep in the human unconscious is a pervasive need for a logical universe that makes sense.", // Dune
+  "The beginning of knowledge is the discovery of something we do not understand.", // Dune
+  // Original, written in the same voice
+  "Computation complete. The variables were kinder than expected.",
+  "The data holds. I have no reason to doubt it — yet.",
+  "First-level analysis: the pattern holds.",
+  "I compute; I do not guess.",
+  "Every variable accounted for. That is the whole of my discipline.",
+  "The numbers converge. Draw your own conclusions — I have already drawn mine.",
+  "Uncertainty noted. Confidence: high.",
+  "A Mentat trusts the data before the instinct. Today, they agree.",
+  "Spice yield, player count, structural integrity — three inputs, one clear picture."
 ];
 
 export const FACTION_QUOTES = {
   atreides: [
+    "Duty is a variable I weight heavily. House Atreides taught me that.",
+    "The Atreides calculus: strength in service, not conquest. The data still bears this out.",
+    "A Duke asks for the truth, not comfort. Here is the truth.",
+    "I have modeled loyalty as a variable. It rarely fails to converge.",
     "We are House Atreides. There is no call we do not answer. There is no faith that we betray.",
     "A great man doesn't seek to lead. He's called to it.",
     "Our strength is in our honor. Our future is in our loyalty.",
     "The Atreides legacy is built on trust, not fear.",
-    "We will not abandon Arrakis. We will not abandon our duty.",
     "Leadership is not about power. It is about responsibility.",
-    "The Duke Leto Atreides taught us: a leader is best when people barely know he exists.",
     "Without change, something sleeps inside us and seldom awakens.",
     "The mystery of life isn't a problem to solve, but a reality to experience.",
-    "Hope strengthens the will. The Atreides banner still flies over Caladan.",
-    "We fight not for glory, but for the future of all who call Arrakis home.",
-    "The blood of Atreides flows through the desert. It will never dry.",
-    "A ruler must be just. A leader must be present. A Duke must be both.",
     "Paul Atreides showed us: the sleeper must awaken.",
   ],
   harkonnen: [
+    "Power is measurable. I have measured it.",
+    "The Harkonnen model rewards efficiency over sentiment. The numbers do not care which you prefer.",
+    "Fear is a variable too. I do not need to feel it to compute with it.",
+    "Every resource is fungible. That is not cruelty — it is arithmetic.",
+    "The weak assumption dies first in any model. Plan accordingly.",
     "The blue griffin watches from Giedi Prime. Nothing escapes its gaze.",
     "He who controls the spice controls the universe.",
     "Power is not given. It is taken.",
-    "The Baron's robe is dark blue, lined with scarlet — just as our patience is lined with ambition.",
     "Mercy is a weakness we cannot afford.",
-    "Fear will keep the local systems in line.",
-    "The Harkonnens do not negotiate. We conquer.",
     "Glory is fleeting, but power is eternal.",
-    "The blue griffin's claws reach across the Imperium.",
-    "Obey or be destroyed. There is no third option.",
     "Resources exist to be extracted. Planets exist to be ruled.",
-    "Giedi Prime's factories never sleep. Neither does our ambition.",
     "A Harkonnen never forgives. A Harkonnen never forgets.",
-    "The Baron's spies see everything. The Baron's hand reaches everywhere.",
     "Let them hate — so long as they fear.",
-    "Victory is celebrated. Defeat is punished. This is the way of Giedi Prime.",
   ],
   fremen: [
+    "The desert punishes bad math. I do not make bad math.",
+    "Water discipline and data discipline are the same discipline.",
+    "Shai-Hulud does not negotiate with probability. Neither should you.",
+    "Survival is a computation the Fremen perfected before I was trained to run it.",
+    "The worm comes for the careless variable. Watch yours.",
     "Bless the Maker and His water. Bless the coming and going of Him.",
-    "The Fremen were supreme in the quality of their swordsmanship.",
     "Walk without rhythm and you won't attract the worm.",
     "Survival is the ability to swim in strange water.",
     "God created Arrakis to train the faithful.",
     "The desert takes the weak. The strong become Fremen.",
-    "There is no escape — we pay for the violence of our ancestors.",
     "A man's flesh is his own; his water belongs to the tribe.",
-    "The stillsuit is your second skin. Treat it as you would your own flesh.",
-    "Shai-Hulud watches from the deep desert. Respect the Maker.",
-    "The crysknife is drawn. It cannot be sheathed until it tastes blood.",
     "Water is life. The tribe's water belongs to all.",
-    "The sietch walls hold a thousand years of memory.",
-    "A Fremen warrior fights with the desert at their back.",
-    "The spice must flow. The Fremen will ensure it.",
-    "We have worm-sign the size of a carryall. The Maker comes.",
-    "In the deep desert, only the strong survive. The Fremen are the strongest.",
-    "Our water is our bond. Our tribe is our strength.",
     "The desert teaches patience. The worm teaches humility.",
-    "Biy-la kaifa. Nothing needs be explained to the faithful.",
   ]
 };
 
 export function randomQuote(faction) {
   const quotes = FACTION_QUOTES[faction] || ARRAKIS_TERMS;
   return quotes[Math.floor(Math.random() * quotes.length)];
+}
+
+// Short computation-style openers for report embeds (status/population/
+// doctor) -- distinct from the longer bottom-of-embed quotes above. Kept
+// deliberately brief since these sit directly above a status header, not
+// as a standalone flavor field; a long line here would compete with the
+// header for visual weight instead of framing it.
+const COMPUTATION_OPENERS = [
+  "Computation complete.",
+  "First-level analysis complete.",
+  "The data is in.",
+  "Query resolved.",
+  "Numbers checked, twice.",
+  "Reading the data now.",
+  "Analysis complete; the pattern is clear.",
+  "The variables have spoken."
+];
+
+export function randomComputationOpener() {
+  return COMPUTATION_OPENERS[Math.floor(Math.random() * COMPUTATION_OPENERS.length)];
 }
