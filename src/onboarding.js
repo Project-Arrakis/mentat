@@ -13,11 +13,42 @@ const SETUP_URL = resolveCompatEnv(process.env, "SETUP_URL", { urlShaped: true }
 // out of voice with each other the way separately-hand-maintained copy
 // tends to (the exact bug class this project's own doc-remediation work
 // keeps finding elsewhere).
+// Discord message content has a hard 2000-character limit (a real, since-
+// fixed production bug: this template exceeded it and DiscordAPIError[50035]
+// silently killed the entire DM -- see the git history for this file).
+// Guild names can be up to 100 characters; truncating here keeps the
+// template's real-world length safely under the limit regardless of how
+// long a given guild's name is, rather than relying on the static text
+// alone staying short enough forever as this copy evolves.
+function clampGuildName(name, maxLength = 40) {
+  const raw = String(name || "");
+  return raw.length > maxLength ? `${raw.slice(0, maxLength - 1)}…` : raw;
+}
+
+// Hard backstop, independent of clampGuildName above: Discord's real limit
+// is 2000 characters, and a variable-length setup link (a configurable
+// SETUP_URL, not just the guild name) can also push a message over it.
+// Rather than re-tuning magic numbers by hand every time this copy changes
+// (exactly how the original 2122-character version shipped and silently
+// broke every onboarding DM), every message this module builds is clamped
+// here, unconditionally, before being returned to a caller.
+function clampMessageContent(text, maxLength = 1900) {
+  if (text.length <= maxLength) return text;
+  const cutoff = text.slice(0, maxLength - 1);
+  // Cut at the last newline before the limit, not mid-line, so a truncated
+  // message still reads as complete sentences/list items rather than a
+  // word chopped in half.
+  const lastNewline = cutoff.lastIndexOf("\n");
+  const clean = lastNewline > maxLength * 0.7 ? cutoff.slice(0, lastNewline) : cutoff;
+  return `${clean}\n\n*(truncated -- run \`/dune core setup\` for the full message)*`;
+}
+
 function proclamationHeader(guild, acceptanceLine) {
+  const guildName = clampGuildName(guild.name);
   return [
     `◈ **PROCLAMATION OF THE MENTAT** ◈`,
     ``,
-    `> **To the retainers, operators, and sworn servants of ${guild.name}:**`,
+    `> **To the retainers, operators, and sworn servants of ${guildName}:**`,
     ``,
     acceptanceLine,
     ``,
@@ -27,15 +58,13 @@ function proclamationHeader(guild, acceptanceLine) {
     ``,
     `The machines beneath your holdings speak constantly—in readiness, population, maps, backups, resources, infrastructure, failures, and the small deviations that precede disorder.`,
     ``,
-    `Most hear noise.`,
-    ``,
     `**A Mentat hears pattern.**`,
     ``,
     `---`,
     ``,
     `## 🜂 **THE MENTAT IS NOW IN SERVICE**`,
     ``,
-    `At launch, I serve as the **read-only Discord intelligence and observability interface for Dune: Awakening Docker**.`,
+    `At launch, I serve as your **read-only intelligence and observability interface**.`,
     ``,
     `⚙️ Server health, status, and readiness`,
     `👥 Population and selected player information`,
@@ -58,22 +87,17 @@ function proclamationSetupSteps(setupLink) {
     ``,
     `## 🔗 **COMPLETE THE BINDING**`,
     ``,
-    `I have entered your House, but I am not yet bound to it.`,
-    ``,
     `**To establish the link** (a few minutes; a bit longer the first time, since it includes a one-time console configuration):`,
     `1. Click the setup link below and sign in with Discord`,
-    `2. Enable the Discord adapter in your console's \`.env\`, create the adapter token file, and recreate the console container (the portal shows the exact commands)`,
+    `2. Enable the Discord adapter on your console (the portal shows the exact \`.env\`/token/restart commands)`,
     `3. Enter your console URL and adapter token`,
     `4. Map Discord roles to the four tiers (Player, Moderator, Admin, Owner)`,
     ``,
     `🔗 **Setup Link:** ${setupLink}`,
     ``,
-    `**Establish the link. Let calculation precede action.**`,
-    ``,
     `Once bound, commands like \`/dune server status\` and \`/dune player inventory\` will answer immediately.`,
     ``,
     `> *The spice must flow.*`,
-    `> *The servers must endure.*`,
     ``,
     `— **Sahir Venn**`,
     `*Mentat to the Great House of Dune: Awakening Docker*`
@@ -81,10 +105,10 @@ function proclamationSetupSteps(setupLink) {
 }
 
 function setupMessageFor(guild, setupLink) {
-  return [
+  return clampMessageContent([
     ...proclamationHeader(guild, `You have accepted the counsel of a Mentat.`),
     ...proclamationSetupSteps(setupLink)
-  ].join("\n");
+  ].join("\n"));
 }
 
 function ownerNoticeFor(guild, inviter) {
@@ -114,12 +138,12 @@ function ownerNoticeFor(guild, inviter) {
 // should make sense whether the reader is the owner, the inviter, or
 // both.
 function fallbackNoticeFor(guild, setupLink) {
-  return [
+  return clampMessageContent([
     ...proclamationHeader(guild, `If you're the one who just invited me, you have accepted the counsel of a Mentat.`),
     ...proclamationSetupSteps(setupLink),
     ``,
-    `(You're getting this as the server owner. If someone else invited me, ask them to run \`/dune core setup\` for their own copy of this link.)`
-  ].join("\n");
+    `(Someone else? Run \`/dune core setup\` for your own copy of this link.)`
+  ].join("\n"));
 }
 
 // findInviter: looks up the guild's BOT_ADD audit log entry to identify
