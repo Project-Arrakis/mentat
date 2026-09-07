@@ -1,9 +1,10 @@
 import Database from "better-sqlite3";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { timingSafeEqual } from "node:crypto";
 import { encryptWithDEK, decryptWithDEK, activeKeyVersion } from "./secretsCrypto.js";
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -20,7 +21,22 @@ CREATE TABLE IF NOT EXISTS guilds (
   adapter_token TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'pending',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  -- stats_push_secret (schema v6, mentat#276): deliberately nullable with
+  -- NO default, unlike adapter_token/access_token above -- NULL means
+  -- "this operator has not opted into live-stats sharing," and the
+  -- inbound push route's auth check treats NULL/empty identically as
+  -- "not configured." A NOT NULL DEFAULT '' column (this table's usual
+  -- convention) would blur that distinction. See the v5->v6 migration
+  -- below for why a fresh CREATE TABLE here is not sufficient on its own
+  -- for existing installs.
+  stats_push_secret TEXT,
+  -- Minimal audit trail of the consent decision itself (Layer 1 GRC
+  -- finding #15) -- set on opt-in/opt-out, NOT touched on every push, so
+  -- these are genuinely "when did this operator make this choice," not a
+  -- last-activity timestamp.
+  stats_sharing_opted_in_at TEXT,
+  stats_sharing_opted_out_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS guild_roles (
@@ -165,6 +181,26 @@ CREATE TABLE IF NOT EXISTS secret_access_log (
 
 CREATE INDEX IF NOT EXISTS idx_secret_access_log_row ON secret_access_log(table_name, row_key, column_name);
 CREATE INDEX IF NOT EXISTS idx_secret_access_log_created ON secret_access_log(created_at);
+
+-- guild_stats_snapshot (schema v6, mentat#276): last-write-wins cache of
+-- one opted-in guild's most recently pushed aggregate stats (players
+-- online, spice fields, sietch count), replacing statsPusher.js's broken
+-- synthetic-actor pull of Core's admin-tier ops:activity/ops:resources
+-- routes. Not a history/log -- one row per guild, overwritten on every
+-- push. ON DELETE CASCADE matches every other guild-scoped table in this
+-- schema (guild_roles, guild_settings, player_links,
+-- guild_member_activity). A brand-new table, so (unlike guilds' new
+-- columns above) CREATE TABLE IF NOT EXISTS alone is correct here for
+-- both fresh installs and upgrades -- no ALTER TABLE migration needed.
+CREATE TABLE IF NOT EXISTS guild_stats_snapshot (
+  guild_id TEXT PRIMARY KEY REFERENCES guilds(guild_id) ON DELETE CASCADE,
+  players_online INTEGER NOT NULL,
+  spice_fields INTEGER NOT NULL,
+  sietches INTEGER NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_guild_stats_snapshot_updated_at ON guild_stats_snapshot(updated_at);
 `;
 
 function ensureDataDir(dbPath) {
@@ -195,16 +231,45 @@ export function createDatabase(dbPath = "./data/acp.db") {
     }
   }
 
+  // v5->v6 (mentat#276): stats_push_secret / stats_sharing_opted_in_at /
+  // stats_sharing_opted_out_at are new columns on the pre-existing guilds
+  // table -- unlike v3/v4/v5's purely additive new *tables* below,
+  // SCHEMA's own CREATE TABLE IF NOT EXISTS is a no-op for any operator
+  // upgrading from an earlier version (it only fires on first creation),
+  // so without this explicit ALTER TABLE step the columns would silently
+  // never reach an existing install and the first
+  // `SELECT stats_push_secret FROM guilds` would throw
+  // "no such column" (Layer 1 DBA/Architect/Cloud-Security audit finding
+  // #11). Follows the same guarded-ALTER-TABLE pattern as the v1->v2
+  // migration above. guild_stats_snapshot itself is a brand-new table and
+  // needs no migration here -- SCHEMA's CREATE TABLE IF NOT EXISTS
+  // already handles it correctly for both fresh and upgraded installs.
+  if (currentVersion && currentVersion.version < 6) {
+    for (const ddl of [
+      "ALTER TABLE guilds ADD COLUMN stats_push_secret TEXT",
+      "ALTER TABLE guilds ADD COLUMN stats_sharing_opted_in_at TEXT",
+      "ALTER TABLE guilds ADD COLUMN stats_sharing_opted_out_at TEXT",
+    ]) {
+      try {
+        db.prepare(ddl).run();
+      } catch {
+        // Column may already exist (fresh install via SCHEMA's own
+        // CREATE TABLE, or a previous migration attempt).
+      }
+    }
+  }
+
   if (currentVersion && currentVersion.version < SCHEMA_VERSION) {
-    // v3->v4, v4->v5, and v5 itself are purely additive (stats_snapshot,
-    // key_versions/secret_keys/secret_access_log, guild_member_activity,
-    // all via CREATE TABLE IF NOT EXISTS in SCHEMA above) -- nothing to
-    // migrate, just record the version. Existing enc:v1: rows remain
-    // readable unchanged; they are
-    // only ever upgraded to v2 (per-row DEK) on their next write, exactly
-    // like the v0(plaintext)->v1 migration this same pattern already
-    // established (see reencrypt-secrets.js for the equivalent bulk-
-    // upgrade tool for that earlier transition).
+    // v3->v4, v4->v5 are purely additive (stats_snapshot, key_versions/
+    // secret_keys/secret_access_log, guild_member_activity, all via
+    // CREATE TABLE IF NOT EXISTS in SCHEMA above); v5->v6's real work
+    // (the guilds ALTER TABLE migration) happens in the block above, not
+    // here -- this block just records the version once every step up to
+    // SCHEMA_VERSION has run. Existing enc:v1: rows remain readable
+    // unchanged; they are only ever upgraded to v2 (per-row DEK) on their
+    // next write, exactly like the v0(plaintext)->v1 migration this same
+    // pattern already established (see reencrypt-secrets.js for the
+    // equivalent bulk-upgrade tool for that earlier transition).
     db.prepare("UPDATE schema_version SET version = ?").run(SCHEMA_VERSION);
   }
 
@@ -470,6 +535,185 @@ export function getStatsSnapshot(db) {
   } catch {
     return null;
   }
+}
+
+// ── Cross-console live-stats push (schema v6, mentat#276) ──────────────
+//
+// Replaces statsPusher.js's broken pull of Core's admin-tier ops:activity/
+// ops:resources routes (a synthetic actor with no real Discord identity
+// can never legitimately pass that authorization check) with an opt-in
+// push model: each operator's own Core instance pushes its own aggregate
+// stats to POST /api/stats/push, authenticated by a per-guild secret only
+// that operator's console holds. See mentat#276's Layer 1 Eight-Hats
+// design audit for the full rationale behind every choice below.
+
+const STATS_PUSH_DECOY_PLACEHOLDER_PREFIX = "stats-push-decoy-";
+
+function constantTimeStringsEqual(a, b) {
+  const aBuf = Buffer.from(String(a ?? ""), "utf8");
+  const bBuf = Buffer.from(String(b ?? ""), "utf8");
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
+
+// A single, process-lifetime decoy ciphertext (never persisted to the
+// database, never tied to any real guild_id) used to give the "no real
+// secret to check" branch of verifyGuildStatsPushSecret() the same
+// decrypt-then-compare cost as the "real secret, wrong value" branch --
+// closing the timing side-channel the Layer 1 Security Architect audit
+// flagged (finding #2). Lazily generated on first use rather than at
+// module load so importing this module never has a KEK-dependent side
+// effect.
+let _statsPushDecoy;
+function statsPushDecoySecret() {
+  if (_statsPushDecoy === undefined) {
+    _statsPushDecoy = encryptWithDEK(`${STATS_PUSH_DECOY_PLACEHOLDER_PREFIX}${Date.now()}-${Math.random()}`);
+  }
+  return _statsPushDecoy;
+}
+
+// verifyGuildStatsPushSecret: constant-shape, constant-cost auth check for
+// POST /api/stats/push. Deliberately does NOT short-circuit on "no such
+// guild," "guild exists but never opted in," or "decrypt failed" -- every
+// one of those and a genuinely wrong secret all pay the identical
+// lookup+decrypt+compare cost and return the identical `false`, so none
+// of them are distinguishable to a caller by response shape or timing
+// (Layer 1 Security Architect / QA audit findings #1/#2).
+export function verifyGuildStatsPushSecret(db, guildId, providedSecret) {
+  const row = db.prepare("SELECT stats_push_secret FROM guilds WHERE guild_id = ?").get(guildId);
+
+  if (row && row.stats_push_secret) {
+    let plaintext = null;
+    try {
+      plaintext = decryptColumn(db, "guilds", guildId, "stats_push_secret", row.stats_push_secret);
+    } catch {
+      // decrypt_failed is already logged by decryptColumn(); fall through
+      // to the uniform-cost decoy comparison below rather than returning
+      // early, so a decrypt failure isn't itself distinguishable.
+    }
+    if (plaintext !== null) {
+      return constantTimeStringsEqual(providedSecret, plaintext);
+    }
+  }
+
+  const { ciphertext, wrappedDEK } = statsPushDecoySecret();
+  let decoyPlaintext = "";
+  try {
+    decoyPlaintext = decryptWithDEK(ciphertext, wrappedDEK);
+  } catch {
+    // Should never happen against our own freshly-generated decoy.
+  }
+  constantTimeStringsEqual(providedSecret, decoyPlaintext);
+  return false;
+}
+
+// setGuildStatsSharingSecret: records an operator's opt-in. Called from
+// the setup portal once the operator pastes back the secret their own
+// Core instance generated (see docs/design -- secret generation is
+// server-side, on Core, mirroring publicDirectory.js's
+// getOrCreateIdentity(), NOT browser-generated; Layer 1 audit finding #5
+// found the originally-proposed browser-generated pattern doesn't exist
+// in this codebase and was already tried and removed, mentat#194).
+export function setGuildStatsSharingSecret(db, guildId, secretPlaintext) {
+  const encrypted = encryptColumn(db, "guilds", guildId, "stats_push_secret", secretPlaintext);
+  db.prepare(`
+    UPDATE guilds SET
+      stats_push_secret = ?,
+      stats_sharing_opted_in_at = datetime('now'),
+      stats_sharing_opted_out_at = NULL
+    WHERE guild_id = ?
+  `).run(encrypted, guildId);
+}
+
+// clearGuildStatsSharingSecret: records an operator's revocation. Deletes
+// the guild's guild_stats_snapshot row in the same transaction, rather
+// than relying on the staleness window alone to stop it being read --
+// Layer 1 GRC/DBA audit findings #14/#26 both flagged that a
+// revoke-just-stops-display (not delete) semantic leaves an operator with
+// no basis to believe their last-known data was actually erased.
+export function clearGuildStatsSharingSecret(db, guildId) {
+  const tx = db.transaction(() => {
+    db.prepare(`
+      UPDATE guilds SET
+        stats_push_secret = NULL,
+        stats_sharing_opted_out_at = datetime('now')
+      WHERE guild_id = ?
+    `).run(guildId);
+    db.prepare("DELETE FROM guild_stats_snapshot WHERE guild_id = ?").run(guildId);
+  });
+  tx();
+}
+
+export function getGuildStatsSharingStatus(db, guildId) {
+  const row = db.prepare(
+    "SELECT stats_push_secret, stats_sharing_opted_in_at, stats_sharing_opted_out_at FROM guilds WHERE guild_id = ?"
+  ).get(guildId);
+  if (!row) return { enabled: false, optedInAt: null, optedOutAt: null };
+  return {
+    enabled: Boolean(row.stats_push_secret),
+    optedInAt: row.stats_sharing_opted_in_at || null,
+    optedOutAt: row.stats_sharing_opted_out_at || null,
+  };
+}
+
+// Rejects any value the payload-validation layer wouldn't trust anyway --
+// mirrors statsPusher.js's own isValidNumber(), plus explicit bounds
+// (Layer 1 Security Architect audit finding #4): a compromised or
+// buggy operator console must not be able to write a negative or
+// absurdly large value into the shared public aggregate.
+const MAX_PLAUSIBLE_STAT_VALUE = 10000;
+
+export function isValidStatsPushValue(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_PLAUSIBLE_STAT_VALUE;
+}
+
+// upsertGuildStatsSnapshot: writes one guild's most recent push. updated_at
+// is always stamped by this process's own clock (datetime('now')), never
+// taken from the pushed payload -- a client-supplied timestamp would let
+// a Core host with clock skew make stale data look perpetually fresh (or
+// vice versa), defeating the staleness window entirely (Layer 1 Architect
+// audit finding #10). Returns false (and writes nothing) if any field
+// fails validation, leaving the previous snapshot value in place rather
+// than overwriting it with garbage.
+export function upsertGuildStatsSnapshot(db, guildId, { playersOnline, spiceFields, sietches }) {
+  if (![playersOnline, spiceFields, sietches].every(isValidStatsPushValue)) {
+    return false;
+  }
+  db.prepare(`
+    INSERT INTO guild_stats_snapshot (guild_id, players_online, spice_fields, sietches, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(guild_id) DO UPDATE SET
+      players_online = excluded.players_online,
+      spice_fields = excluded.spice_fields,
+      sietches = excluded.sietches,
+      updated_at = excluded.updated_at
+  `).run(guildId, playersOnline, spiceFields, sietches);
+  return true;
+}
+
+// Matches the existing 20-minute staleness concept from
+// yacketrj/acp-landing:docs/kv-stats-schema.md.
+const STATS_SNAPSHOT_STALENESS_MINUTES = 20;
+
+// getActiveGuildStatsAggregate: sums players_online/spice_fields/sietches
+// across every opted-in guild whose snapshot is still fresh AND whose
+// guild is currently 'active' -- the explicit status filter is Layer 1
+// Architect audit finding #6: without it, a guild the bot was removed
+// from (status: 'suspended') would keep contributing to the public
+// aggregate indefinitely, since its own Core console has no way to know
+// it was removed and would keep pushing regardless.
+export function getActiveGuildStatsAggregate(db) {
+  return db.prepare(`
+    SELECT
+      COALESCE(SUM(s.players_online), 0) AS players_online,
+      COALESCE(SUM(s.spice_fields), 0) AS spice_fields,
+      COALESCE(SUM(s.sietches), 0) AS sietches,
+      COUNT(*) AS contributing_guilds
+    FROM guild_stats_snapshot s
+    INNER JOIN guilds g ON g.guild_id = s.guild_id
+    WHERE g.status = 'active'
+      AND s.updated_at > datetime('now', '-' || ? || ' minutes')
+  `).get(STATS_SNAPSHOT_STALENESS_MINUTES);
 }
 
 export function getGuildFaction(db, guildId) {

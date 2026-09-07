@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildStatsPayload, shouldAlertOnFailure, ALERT_AFTER_CONSECUTIVE_FAILURES } from "../src/statsPusher.js";
+import { buildStatsPayload, shouldAlertOnFailure, ALERT_AFTER_CONSECUTIVE_FAILURES, pushStats } from "../src/statsPusher.js";
+import { createDatabase, upsertGuild, setGuildStatsSharingSecret, upsertGuildStatsSnapshot, getStatsSnapshot } from "../src/database.js";
 
 // Validates that buildStatsPayload() produces a shape acp-landing's
 // reader (yacketrj/acp-landing:functions/api/stats.js) would actually
@@ -140,4 +141,38 @@ test("shouldAlertOnFailure fires exactly at the configured threshold, not before
 
 test("shouldAlertOnFailure never fires for zero (no failures yet)", () => {
   assert.equal(shouldAlertOnFailure(0), false);
+});
+
+// ─── pushStats: guild_stats_snapshot wiring (mentat#276) ─────────────────
+// The core aggregation logic (fresh/stale/absent/suspended-guild
+// handling) is unit-tested directly against getActiveGuildStatsAggregate
+// in test/database.test.js. These tests cover the one remaining seam:
+// that pushStats() actually reads that aggregate and merges it into the
+// snapshot it saves, without needing a live Discord client or adapter.
+const fakeClient = { guilds: { cache: { size: 1 } } };
+
+test("pushStats includes players_online/spice_fields/sietches from guild_stats_snapshot, even with no adapterClient configured", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "g1", guildName: "G1", consoleUrl: "https://g1.test", adapterToken: "t", status: "active" });
+  setGuildStatsSharingSecret(db, "g1", "secret");
+  upsertGuildStatsSnapshot(db, "g1", { playersOnline: 7, spiceFields: 2, sietches: 1 });
+
+  const ok = await pushStats(fakeClient, db, null, {});
+  assert.equal(ok, true);
+
+  const snapshot = getStatsSnapshot(db);
+  assert.equal(snapshot.players_online, 7);
+  assert.equal(snapshot.spice_fields, 2);
+  assert.equal(snapshot.sietches, 1);
+});
+
+test("pushStats reports players_online/spice_fields as absent (not a fabricated zero) when no guild has opted in", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "g1", guildName: "G1", consoleUrl: "https://g1.test", adapterToken: "t", status: "active" });
+
+  await pushStats(fakeClient, db, null, {});
+
+  const snapshot = getStatsSnapshot(db);
+  assert.equal("players_online" in snapshot, false);
+  assert.equal("spice_fields" in snapshot, false);
 });

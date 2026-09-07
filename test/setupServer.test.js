@@ -574,3 +574,186 @@ test("POST /api/alerts/relay still validates the payload shape after a successfu
     })
   );
 });
+
+// ─── POST /api/stats/push (mentat#276) ───────────────────────────────────
+// Each opted-in operator's own Core console pushes its aggregate stats
+// here. Unlike /api/alerts/relay above, this route is fail-closed from
+// day one (no unauthenticated-request-allowed fallback) and scoped
+// per-guild rather than one global token — see the Layer 1 Eight-Hats
+// design audit (mentat#276 issue comment) for the full rationale.
+
+async function withStatsPushApp(fn) {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createDatabase, upsertGuild, setGuildStatsSharingSecret } = await import("../src/database.js");
+  const { resetStatsPushRateLimiterForTests } = await import("../src/statsPushRateLimit.js");
+
+  resetStatsPushRateLimiterForTests();
+
+  const dir = mkdtempSync(join(tmpdir(), "acp-stats-push-"));
+  const dbPath = join(dir, "acp.db");
+
+  // Pre-populate via a separate writer connection, exactly like the
+  // /api/live-stats file-backed-DB tests above — the server opens its
+  // own connection to the same file.
+  const writerDb = createDatabase(dbPath);
+  upsertGuild(writerDb, { guildId: "opted-in-guild", guildName: "Opted In", consoleUrl: "https://opted.test", adapterToken: "t", status: "active" });
+  setGuildStatsSharingSecret(writerDb, "opted-in-guild", "the-real-push-secret");
+  upsertGuild(writerDb, { guildId: "never-opted-in-guild", guildName: "Never Opted In", consoleUrl: "https://never.test", adapterToken: "t", status: "active" });
+  writerDb.close();
+
+  const app = createSetupServer({ dbPath, discordClientId: "client-id", baseUrl: "http://localhost:3100" });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  try {
+    const { port } = server.address();
+    await fn(`http://127.0.0.1:${port}`, { dbPath, createDatabase: (await import("../src/database.js")).createDatabase });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    resetStatsPushRateLimiterForTests();
+    rmSync(`${dbPath}-wal`, { force: true });
+    rmSync(`${dbPath}-shm`, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const validStatsPushPayload = { guildId: "opted-in-guild", playersOnline: 10, spiceFields: 3, sietches: 2 };
+
+test("POST /api/stats/push accepts a correctly-authenticated push and it becomes readable via getActiveGuildStatsAggregate", async () => {
+  await withStatsPushApp(async (base, { dbPath, createDatabase }) => {
+    const res = await fetch(`${base}/api/stats/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer the-real-push-secret" },
+      body: JSON.stringify(validStatsPushPayload)
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(typeof body.nextPushSeconds, "number", "must hint a next-push interval, mirroring publicDirectory.js's nextHeartbeatSeconds (Layer 1 Network finding #20)");
+
+    const { getActiveGuildStatsAggregate } = await import("../src/database.js");
+    const readerDb = createDatabase(dbPath);
+    const aggregate = getActiveGuildStatsAggregate(readerDb);
+    assert.equal(aggregate.contributing_guilds, 1);
+    assert.equal(aggregate.players_online, 10);
+    readerDb.close();
+  });
+});
+
+// Layer 1 Security Architect / QA audit findings #1/#2: an unknown
+// guild_id, a known guild that never opted in, and a known guild with the
+// wrong secret must all be byte-for-byte indistinguishable to a caller.
+// This is the direct regression test for that requirement.
+test("POST /api/stats/push: unknown guild_id, never-opted-in guild, and wrong secret all produce byte-identical 401 responses", async () => {
+  await withStatsPushApp(async (base) => {
+    const cases = [
+      { guildId: "no-such-guild", secret: "irrelevant" },
+      { guildId: "never-opted-in-guild", secret: "irrelevant" },
+      { guildId: "opted-in-guild", secret: "wrong-secret" }
+    ];
+
+    const responses = [];
+    for (const { guildId, secret } of cases) {
+      const res = await fetch(`${base}/api/stats/push`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` },
+        body: JSON.stringify({ guildId, playersOnline: 1, spiceFields: 1, sietches: 1 })
+      });
+      assert.equal(res.status, 401);
+      responses.push(await res.json());
+    }
+
+    assert.deepEqual(responses[0], responses[1], "unknown guild vs. never-opted-in guild must return an identical body");
+    assert.deepEqual(responses[1], responses[2], "never-opted-in guild vs. wrong-secret must return an identical body");
+    assert.deepEqual(responses[0], { error: "unauthorized" });
+  });
+});
+
+test("POST /api/stats/push rejects a request with no Authorization header", async () => {
+  await withStatsPushApp(async (base) => {
+    const res = await fetch(`${base}/api/stats/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(validStatsPushPayload)
+    });
+    assert.equal(res.status, 401);
+  });
+});
+
+test("POST /api/stats/push rejects a non-numeric/negative/absurd payload without touching a previously-good snapshot", async () => {
+  const { resetStatsPushRateLimiterForTests } = await import("../src/statsPushRateLimit.js");
+  await withStatsPushApp(async (base, { dbPath, createDatabase }) => {
+    // This test sends two requests for the same guild — raise the
+    // per-guild limit so rate limiting (tested separately below) doesn't
+    // interfere with what this test is actually checking.
+    resetStatsPushRateLimiterForTests({ perGuildMax: 100, perGuildWindow: 60000 });
+    const good = await fetch(`${base}/api/stats/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer the-real-push-secret" },
+      body: JSON.stringify(validStatsPushPayload)
+    });
+    assert.equal(good.status, 200);
+
+    const bad = await fetch(`${base}/api/stats/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer the-real-push-secret" },
+      body: JSON.stringify({ guildId: "opted-in-guild", playersOnline: -1, spiceFields: 3, sietches: 2 })
+    });
+    assert.equal(bad.status, 400);
+
+    const { getActiveGuildStatsAggregate } = await import("../src/database.js");
+    const readerDb = createDatabase(dbPath);
+    const aggregate = getActiveGuildStatsAggregate(readerDb);
+    assert.equal(aggregate.players_online, 10, "the rejected push must not have overwritten the previously-good value");
+    readerDb.close();
+  });
+});
+
+test("POST /api/stats/push is rate-limited per guild_id, independent of a different guild's own limit", async () => {
+  const { resetStatsPushRateLimiterForTests } = await import("../src/statsPushRateLimit.js");
+  await withStatsPushApp(async (base) => {
+    resetStatsPushRateLimiterForTests({ perGuildMax: 2, perGuildWindow: 60000, perGuildBlock: 60000 });
+
+    const first = await fetch(`${base}/api/stats/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer the-real-push-secret" },
+      body: JSON.stringify(validStatsPushPayload)
+    });
+    assert.equal(first.status, 200);
+
+    const second = await fetch(`${base}/api/stats/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer the-real-push-secret" },
+      body: JSON.stringify(validStatsPushPayload)
+    });
+    assert.equal(second.status, 429, "a second push within the per-guild window must be rejected");
+    assert.ok(second.headers.get("retry-after"), "must include a Retry-After header");
+  });
+});
+
+test("POST /api/stats/push rate limiting is global-capped too, bounding a flood of fabricated guild_ids", async () => {
+  const { resetStatsPushRateLimiterForTests } = await import("../src/statsPushRateLimit.js");
+  await withStatsPushApp(async (base) => {
+    resetStatsPushRateLimiterForTests({ globalMax: 3, globalWindow: 60000, globalBlock: 60000, perGuildMax: 100, perGuildWindow: 60000 });
+
+    for (let i = 0; i < 2; i++) {
+      const res = await fetch(`${base}/api/stats/push`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer irrelevant" },
+        body: JSON.stringify({ guildId: `fabricated-${i}`, playersOnline: 1, spiceFields: 1, sietches: 1 })
+      });
+      assert.equal(res.status, 401, "these use fabricated/unknown guild ids, so still unauthorized -- but each pays the auth-check cost and counts against the global cap");
+    }
+
+    const third = await fetch(`${base}/api/stats/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer irrelevant" },
+      body: JSON.stringify({ guildId: "fabricated-yet-another", playersOnline: 1, spiceFields: 1, sietches: 1 })
+    });
+    assert.equal(third.status, 429, "a flood of distinct fabricated guild_ids must still be bounded by the global cap, not just the per-guild one");
+  });
+});
