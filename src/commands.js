@@ -13,7 +13,6 @@ import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegi
 import { countSubcommands } from "./catalogTransform.js";
 import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
-import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { writesEnabled, canWrite, writeRoleIds } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
@@ -312,12 +311,6 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = await adapterClient.health(actor, guildId);
     } else if (key === "server:status") {
       payload = await adapterClient.status(actor, diagnostic, guildId);
-      if (!diagnostic) {
-        const statusData = payload?.result || payload || {};
-        await sendStatusCard({ interaction, statusData: payload, title: statusData.title, adapterClient, guildId, db });
-        applyCooldown({ userId: interaction.user?.id, commandName: key, interaction, config });
-        return true;
-      }
     } else if (key === "server:summary") {
       payload = statusSummaryPayload(await adapterClient.status(actor, false, guildId));
     } else if (key === "server:readiness") {
