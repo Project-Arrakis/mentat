@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logInfo, logError } from "./logger.js";
+import { requireProxySecret } from "./proxyAuth.js";
 import {
   createDatabase,
   createOauthSession,
@@ -131,6 +132,7 @@ function tokenMatches(provided, expected) {
   return timingSafeEqual(providedBuf, expectedBuf);
 }
 
+
 // Issue #195 fix: the setup form's guild <select> submits only the guild
 // id, so the previously-trusted req.body.guildName was always undefined
 // and every completed setup persisted (and displayed) "Unknown". Resolve
@@ -191,6 +193,8 @@ export function createSetupServer(config) {
     }
     next();
   });
+
+  app.use(requireProxySecret({ exemptPaths: ["/api/alerts/relay"] }));
 
   const redirectUri = config.oauthRedirectUri || `${config.baseUrl}/oauth/callback`;
 
