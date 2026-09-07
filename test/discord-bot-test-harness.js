@@ -9,7 +9,6 @@
  * - Embed formatting verification
  * - Write command safety checks
  * - Faction theming validation
- * - Status card rendering tests
  * - Audit logging verification
  *
  * Usage: node test/discord-bot-test-harness.js [--verbose] [--filter <pattern>]
@@ -21,8 +20,6 @@ import { buildDuneCommand, executeDuneCommand, commandDefinitions } from '../src
 import { createMockAdapter } from '../test/fixtures/mockAdapter.js';
 import { createMockInteraction } from '../test/fixtures/mockInteraction.js';
 import { createMockConfig } from '../test/fixtures/mockConfig.js';
-import { sendStatusCard } from '../src/statusCard.js';
-import { generateStatusCard } from '../scripts/generate-status-card.js';
 import { duneEmbed } from '../src/embedFormat.js';
 import { resetCooldowns } from '../src/cooldown.js';
 import { debugPeekSteamLinkSession, resetSteamLinkStoreForTests } from '../src/steamLinkStore.js';
@@ -257,15 +254,20 @@ describe('Command Execution', () => {
     assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
   });
 
-  test('server:status returns server state', async () => {
+  // Migrated from a PNG status-card (issue #274) to a real Discord embed,
+  // matching every other command including server:summary (which already
+  // used formatStatusEmbed) -- the PNG card's background asset had the
+  // pre-Sentinel "ARAKIS CONTROL PANEL" branding baked into its pixels,
+  // a real, live, user-reported bug that a text-based rebrand sweep could
+  // never have caught since it's an image, not text.
+  test('server:status returns an embed, not a status-card file', async () => {
     const { adapterClient, config } = getTestContext();
     const interaction = createMockInteraction({ command: 'server:status', roles: ['observer-role-id'] });
     const result = await executeDuneCommand(interaction, adapterClient, config);
 
     assert.ok(result, 'Command should succeed');
-    assert.ok(interaction._editReply?.files?.[0] || interaction._editReply?.embeds?.[0], 'Should have status card or embed');
-    assert.equal(interaction._editReply.files[0].name, 'status-card.png', 'Should be PNG card');
-    assert.deepEqual(interaction._editReply.embeds || [], [], 'Should not have embeds');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have an embed');
+    assert.deepEqual(interaction._editReply.files || [], [], 'Should not have a status-card file');
   });
 
   test('data:population returns aggregate player count', async () => {
@@ -305,10 +307,13 @@ describe('Command Execution', () => {
   // red on `main` since that release shipped (confirmed: these were 11
   // of the 12 real failures behind issue #162's CI-red report). Updated
   // to assert the real, current behavior: an embed, not a status-card
-  // file. sendOpsCard() itself is still defined in statusCard.js but is
-  // now dead code -- no call site remains after this migration; tracked
-  // separately, not fixed here to keep this change scoped to the CI-red
-  // regression.
+  // file. sendOpsCard()/sendStatusCard() and their generateStatusCard()
+  // canvas renderer (src/statusCard.js, scripts/generate-status-card.js)
+  // were fully removed later (issue #274) once server:status -- the last
+  // real caller -- was also migrated to formatStatusEmbed(); their
+  // background asset (assets/status-bg.png) still had the pre-Sentinel
+  // "ARAKIS CONTROL PANEL" branding baked into the pixels, missed by
+  // every text-based rebrand sweep since it's an image, not text.
   test('ops:activity returns activity metrics', async () => {
     const { adapterClient, config } = getTestContext();
     const interaction = createMockInteraction({ command: 'ops:activity', roles: ['observer-role-id'] });
@@ -862,72 +867,6 @@ describe('Adapter Methods', () => {
   });
 });
 
-// ============================================================================
-// Test 5: Status Card Rendering
-// ============================================================================
-
-describe('Status Card Rendering', () => {
-  test('renders status card with server data', async () => {
-    const serverData = {
-      title: 'Test Server',
-      overall: 'ONLINE',
-      region: 'NA',
-      mode: 'public',
-      population: '5/10',
-      maps: [{ name: 'Survival_1', state: 'RUNNING' }],
-      services: 3,
-      latency: 50,
-      quote: 'The spice must flow.'
-    };
-
-    const canvas = await generateStatusCard(serverData);
-    assert.ok(canvas, 'Should return canvas object');
-
-    const buffer = canvas.toBuffer('image/png');
-    assert.ok(Buffer.isBuffer(buffer), 'Should convert to buffer');
-    assert.ok(buffer.length > 0, 'Buffer should not be empty');
-
-    // Check PNG signature
-    const pngSignature = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
-    assert.ok(buffer.slice(0, 8).equals(pngSignature), 'Should be valid PNG');
-  });
-
-  test('status card dimensions are 1200x640', async () => {
-    const serverData = {
-      title: 'Test',
-      overall: 'ONLINE',
-      population: '0/0'
-    };
-
-    const canvas = await generateStatusCard(serverData);
-    const buffer = canvas.toBuffer('image/png');
-
-    // PNG header contains dimensions at bytes 16-23
-    const width = buffer.readUInt32BE(16);
-    const height = buffer.readUInt32BE(20);
-
-    assert.strictEqual(width, 1200, 'Width should be 1200');
-    assert.strictEqual(height, 640, 'Height should be 640');
-  });
-
-  test('status card includes faction theming', async () => {
-    const serverData = {
-      title: 'Test',
-      overall: 'ONLINE',
-      population: '0/0',
-      quote: 'Test quote'
-    };
-
-    const atreidesCard = await generateStatusCard({ ...serverData, faction: 'atreides' });
-    const harkonnenCard = await generateStatusCard({ ...serverData, faction: 'harkonnen' });
-
-    const atreidesBuffer = atreidesCard.toBuffer('image/png');
-    const harkonnenBuffer = harkonnenCard.toBuffer('image/png');
-
-    // Cards should be different (different color schemes)
-    assert.ok(!atreidesBuffer.equals(harkonnenBuffer), 'Faction cards should differ');
-  });
-});
 
 // ============================================================================
 // Test 6: Write Command Safety
