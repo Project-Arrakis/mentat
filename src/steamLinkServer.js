@@ -49,6 +49,7 @@ import {
 } from "./steamLinkRateLimit.js";
 import { logError } from "./logger.js";
 import { MISSING_ROUTES } from "./adapterClient.js";
+import { requireProxySecret } from "./proxyAuth.js";
 
 const DISCORD_OAUTH_URL = "https://discord.com/api/v10/oauth2/authorize";
 const DISCORD_TOKEN_URL = "https://discord.com/api/v10/oauth2/token";
@@ -211,6 +212,13 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
   const app = express();
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  // mentat-link#121: only /steam-link/* is reachable through the
+  // mentat-link.darkdante.org proxy (see the Tunnel's path-scoped ingress
+  // rule for this port, 3101). /health is exempt -- it's polled directly on
+  // this port for internal liveness checks, never through the proxy, so it
+  // would never carry the header and gating it would just break monitoring.
+  app.use(requireProxySecret({ exemptPaths: ["/health"] }));
 
   const redirectUri = `${config.steamLink.baseUrl}/steam-link/callback`;
 
