@@ -27,7 +27,7 @@ issue history.
 Use this link to invite the hosted bot to your Discord server:
 
 ```
-https://discord.com/oauth2/authorize?client_id=1516816812006969494&scope=bot%20applications.commands&permissions=128
+https://discord.com/oauth2/authorize?client_id=1546203607807041697&scope=bot%20applications.commands&permissions=128
 ```
 
 The bot is invite-link only — it is not listed in Discord's "Browse

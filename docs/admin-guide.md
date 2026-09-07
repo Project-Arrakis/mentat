@@ -32,14 +32,14 @@ application, run a Node process, or register slash commands.
 Open this link in your browser:
 
 ```
-https://discord.com/oauth2/authorize?client_id=1516816812006969494&scope=bot%20applications.commands&permissions=128
+https://discord.com/oauth2/authorize?client_id=1546203607807041697&scope=bot%20applications.commands&permissions=128
 ```
 
 Select your server from the dropdown and click **Authorize**.
 
 | Setting | Value |
 |----------|-------|
-| Client ID | `1516816812006969494` (the hosted bot's application) |
+| Client ID | `1546203607807041697` (the hosted bot's application) |
 | Scopes | `bot` + `applications.commands` |
 | Permissions | `128` (View Audit Log — lets the bot identify who invited it, so setup DMs reach the right person; slash commands themselves don't need any extra permissions) |
 

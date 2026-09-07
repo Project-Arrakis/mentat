@@ -32,7 +32,7 @@ pull a prebuilt one.
 
 1. **Invite the bot:**
    ```
-   https://discord.com/oauth2/authorize?client_id=1516816812006969494&scope=bot%20applications.commands&permissions=128
+   https://discord.com/oauth2/authorize?client_id=1546203607807041697&scope=bot%20applications.commands&permissions=128
    ```
 
 2. **Open setup portal:**
