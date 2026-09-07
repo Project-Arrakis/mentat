@@ -5,13 +5,62 @@ import { resolveCompatEnv } from "./compatEnv.js";
 
 const SETUP_URL = resolveCompatEnv(process.env, "SETUP_URL", { urlShaped: true }) || resolveCompatEnv(process.env, "BASE_URL", { urlShaped: true }) || "http://localhost:3100";
 
-function setupMessageFor(guild, setupLink) {
+// PROCLAMATION_HEADER/PROCLAMATION_SETUP_STEPS/PROCLAMATION_FOOTER: shared
+// between setupMessageFor and fallbackNoticeFor, which differ only in their
+// opening line (whether the reader is confirmed as the one who invited
+// Sahir Venn, or merely presumed to be, per findInviter()'s own comment
+// below) -- kept as one source of truth so the two variants cannot drift
+// out of voice with each other the way separately-hand-maintained copy
+// tends to (the exact bug class this project's own doc-remediation work
+// keeps finding elsewhere).
+function proclamationHeader(guild, acceptanceLine) {
   return [
-    `🏜️ **I am Sahir Venn, your Mentat.**`,
+    `◈ **PROCLAMATION OF THE MENTAT** ◈`,
     ``,
-    `I've been added to **${guild.name}**. To get started, you need to connect this server to Mentat, and I'll begin my work.`,
+    `> **To the retainers, operators, and sworn servants of ${guild.name}:**`,
     ``,
-    `**Setup steps** (a few minutes; a bit longer the first time, since it includes a one-time console configuration):`,
+    acceptanceLine,
+    ``,
+    `🧠 **I am Sahir Venn, Mentat to this House.**`,
+    ``,
+    `**My service has begun.**`,
+    ``,
+    `The machines beneath your holdings speak constantly—in readiness, population, maps, backups, resources, infrastructure, failures, and the small deviations that precede disorder.`,
+    ``,
+    `Most hear noise.`,
+    ``,
+    `**A Mentat hears pattern.**`,
+    ``,
+    `---`,
+    ``,
+    `## 🜂 **THE MENTAT IS NOW IN SERVICE**`,
+    ``,
+    `At launch, I serve as the **read-only Discord intelligence and observability interface for Dune: Awakening Docker**.`,
+    ``,
+    `⚙️ Server health, status, and readiness`,
+    `👥 Population and selected player information`,
+    `🗺️ Maps, backups, maintenance, and world state`,
+    `📊 Operational and infrastructure telemetry`,
+    `⚠️ Degraded-service and anomaly detection`,
+    `📜 Scheduled reports, alerts, and announcements`,
+    ``,
+    `🔐 **My present authority is observation only.** Sahir Venn does not restart servers, modify game state, alter Docker services, execute shell commands, or write directly to the game database.`,
+    ``,
+    `> **No Mentat commands the House he serves.**`,
+    `> **He ensures that those who command do so with knowledge.**`,
+    ``,
+    `---`
+  ];
+}
+
+function proclamationSetupSteps(setupLink) {
+  return [
+    ``,
+    `## 🔗 **COMPLETE THE BINDING**`,
+    ``,
+    `I have entered your House, but I am not yet bound to it.`,
+    ``,
+    `**To establish the link** (a few minutes; a bit longer the first time, since it includes a one-time console configuration):`,
     `1. Click the setup link below and sign in with Discord`,
     `2. Enable the Discord adapter in your console's \`.env\`, create the adapter token file, and recreate the console container (the portal shows the exact commands)`,
     `3. Enter your console URL and adapter token`,
@@ -19,18 +68,38 @@ function setupMessageFor(guild, setupLink) {
     ``,
     `🔗 **Setup Link:** ${setupLink}`,
     ``,
-    `Once configured, commands like \`/dune server status\` and \`/dune player inventory\` will work immediately.`
+    `**Establish the link. Let calculation precede action.**`,
+    ``,
+    `Once bound, commands like \`/dune server status\` and \`/dune player inventory\` will answer immediately.`,
+    ``,
+    `> *The spice must flow.*`,
+    `> *The servers must endure.*`,
+    ``,
+    `— **Sahir Venn**`,
+    `*Mentat to the Great House of Dune: Awakening Docker*`
+  ];
+}
+
+function setupMessageFor(guild, setupLink) {
+  return [
+    ...proclamationHeader(guild, `You have accepted the counsel of a Mentat.`),
+    ...proclamationSetupSteps(setupLink)
   ].join("\n");
 }
 
 function ownerNoticeFor(guild, inviter) {
   const inviterLabel = inviter.tag || inviter.username || inviter.id;
   return [
-    `🏜️ **Sahir Venn was added to ${guild.name}**`,
+    `◈ **A MENTAT HAS ENTERED YOUR HOUSE** ◈`,
     ``,
-    `**${inviterLabel}** added Sahir Venn, your Mentat, to your server and has been sent the setup instructions.`,
+    `🧠 **Sahir Venn was added to ${guild.name}.**`,
     ``,
-    `You don't need to do anything unless setup isn't completed -- if it looks stuck, you (as server owner) can also run \`/dune core setup\` for the setup link.`
+    `**${inviterLabel}** added Sahir Venn to your service, and the setup instructions have been sent to them.`,
+    ``,
+    `You need do nothing further, unless the binding stalls — should it seem stuck, you may invoke \`/dune core setup\` yourself, as this House's Owner, to receive the setup link directly.`,
+    ``,
+    `— **Sahir Venn**`,
+    `*Mentat to the Great House of Dune: Awakening Docker*`
   ].join("\n");
 }
 
@@ -46,19 +115,8 @@ function ownerNoticeFor(guild, inviter) {
 // both.
 function fallbackNoticeFor(guild, setupLink) {
   return [
-    `🏜️ **I am Sahir Venn, your Mentat.**`,
-    ``,
-    `I've been added to **${guild.name}**. If you're the one who just invited me, here's how to get started:`,
-    ``,
-    `**Setup steps** (a few minutes; a bit longer the first time, since it includes a one-time console configuration):`,
-    `1. Click the setup link below and sign in with Discord`,
-    `2. Enable the Discord adapter in your console's \`.env\`, create the adapter token file, and recreate the console container (the portal shows the exact commands)`,
-    `3. Enter your console URL and adapter token`,
-    `4. Map Discord roles to the four tiers (Player, Moderator, Admin, Owner)`,
-    ``,
-    `🔗 **Setup Link:** ${setupLink}`,
-    ``,
-    `Once configured, commands like \`/dune server status\` and \`/dune player inventory\` will work immediately.`,
+    ...proclamationHeader(guild, `If you're the one who just invited me, you have accepted the counsel of a Mentat.`),
+    ...proclamationSetupSteps(setupLink),
     ``,
     `(You're getting this as the server owner. If someone else invited me, ask them to run \`/dune core setup\` for their own copy of this link.)`
   ].join("\n");
