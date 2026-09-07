@@ -226,3 +226,40 @@ test("documents a known limitation: a non-owner inviter gets nothing when the au
 
   assert.equal(owner.sentMessages.length, 1, "only the owner gets anything in this fallback case");
 });
+
+// Real, confirmed production bug (2026-09-07): the onboarding DM's content
+// exceeded Discord's hard 2000-character message limit, so Discord rejected
+// it outright with DiscordAPIError[50035] and the entire DM silently failed
+// to send -- a real guild got NO onboarding message at all. These tests
+// pin both the real-world length (a normal guild name) and the absolute
+// worst case (Discord's own 100-character guild-name maximum) so a future
+// copy edit can't silently regress past the limit again the same way.
+test("setup DM content stays under Discord's 2000-character message limit for a normal guild name", async () => {
+  const db = createDatabase(":memory:");
+  const owner = mockUser("owner-1", "OwnerUser");
+  const guild = mockGuild({ name: "DarkDante's Hangout", owner, auditEntries: [] });
+
+  await handleGuildCreate({}, guild, db, NO_DELAY);
+
+  assert.ok(owner.sentMessages[0].content.length < 2000, `content was ${owner.sentMessages[0].content.length} chars`);
+});
+
+test("setup DM content stays under Discord's 2000-character message limit even for the longest possible guild name (100 chars)", async () => {
+  const db = createDatabase(":memory:");
+  const owner = mockUser("owner-1", "OwnerUser");
+  const guild = mockGuild({ name: "X".repeat(100), owner, auditEntries: [] });
+
+  await handleGuildCreate({}, guild, db, NO_DELAY);
+
+  assert.ok(owner.sentMessages[0].content.length < 2000, `content was ${owner.sentMessages[0].content.length} chars`);
+});
+
+test("fallback notice content stays under Discord's 2000-character message limit even for the longest possible guild name (100 chars)", async () => {
+  const db = createDatabase(":memory:");
+  const owner = mockUser("owner-1", "OwnerUser");
+  const guild = mockGuild({ name: "X".repeat(100), owner, auditLogError: new Error("Missing Permissions") });
+
+  await handleGuildCreate({}, guild, db, NO_DELAY);
+
+  assert.ok(owner.sentMessages[0].content.length < 2000, `content was ${owner.sentMessages[0].content.length} chars`);
+});

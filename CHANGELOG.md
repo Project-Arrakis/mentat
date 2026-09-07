@@ -6,6 +6,9 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
+### Fixed
+- **Onboarding DM silently failed to send: content exceeded Discord's 2000-character limit** (issue #272). The "Proclamation of the Mentat" rewrite (#271) never checked its content length — real messages ran ~2120-2150 characters depending on guild name/setup-link length, and Discord rejected them outright (`DiscordAPIError[50035]`), silently failing the entire onboarding DM for real guilds. Found via a live operator report. Trimmed the shared content, added `clampGuildName()` (guild names can be up to 100 characters; truncated to 40 in the greeting), and added a hard backstop `clampMessageContent()` that truncates cleanly at the last newline before 1900 characters if the message ever exceeds it for any reason — verified the absolute worst case (100-char guild name + a long custom `SETUP_URL`) now produces 1959 characters instead of exceeding the limit. 3 new regression tests pin both real-world and worst-case lengths.
+
 ### Changed
 - **Onboarding DM copy rewritten in Sahir Venn's in-character Mentat voice** (issue #270). `setupMessageFor()`, `fallbackNoticeFor()`, and `ownerNoticeFor()` in `src/onboarding.js` now read as a formal "Proclamation of the Mentat" — framed as Sahir Venn's response to a guild accepting his offered service, not as an invitation itself. The two full-setup variants share a common header/footer (`proclamationHeader()`/`proclamationSetupSteps()`) so they can't drift out of voice with each other, differing only in their opening line (confirmed vs. presumed inviter). The real, functional setup steps and dynamic setup link are unchanged in substance — only reframed in voice.
 
