@@ -598,6 +598,38 @@ describe('Command Execution', () => {
     assert.ok(!description.includes('HTTP 404'), 'Must not leak the raw adapter HTTP error to the user');
   });
 
+  test('ops:location gives a clear, actionable error (not a raw 404) for a PLANNED-but-currently-unrouted Core route', async () => {
+    // ops-location is deliberately kept in PLANNED_ROUTES rather than
+    // MISSING_ROUTES (Core intends to ship it, it just isn't routed today
+    // -- see src/adapterClient.js's PLANNED_ROUTES comment for the full
+    // history), but before this fix PLANNED_ROUTES had no special-case
+    // error handling at all, so a real 404 fell through to the generic
+    // branch and surfaced as a raw "Adapter ops-location returned HTTP
+    // 404." message -- the exact confusing-operator-facing failure mode
+    // the MISSING_ROUTES branch already exists to prevent for a different
+    // classification. This pins the new PLANNED_ROUTES branch's message.
+    const { config } = getTestContext();
+    const trackingAdapter = createMockAdapter();
+    trackingAdapter.opsLocation = async () => {
+      const err = new Error('Adapter ops-location returned HTTP 404.');
+      err.route = 'ops-location';
+      err.status = 404;
+      throw err;
+    };
+
+    const interaction = createMockInteraction({
+      command: 'ops:location',
+      roles: ['observer-role-id']
+    });
+    const result = await executeDuneCommand(interaction, trackingAdapter, config);
+
+    assert.ok(result, 'Command should succeed without throwing');
+    const embed = interaction._editReply?.embeds?.[0]?.data || interaction._editReply?.embeds?.[0];
+    const description = embed?.description || '';
+    assert.ok(description.includes('planned for a future Core release'), 'Must give the planned-but-not-yet-routed message, not a raw 404');
+    assert.ok(!description.includes('HTTP 404'), 'Must not leak the raw adapter HTTP error to the user');
+  });
+
   test.skip('player:link offers the Steam-link button when hasSteam is true and steamLink is enabled', async () => {
     const { config } = getTestContext();
     config.steamLink = { enabled: true, baseUrl: 'https://acp-setup.darkdante.org' };

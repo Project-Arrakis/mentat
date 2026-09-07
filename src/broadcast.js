@@ -11,7 +11,17 @@ export function broadcastEnabled(config) {
 }
 
 export function canBroadcast(interaction, config, db = null, guildId = null) {
-  return canWrite(interaction, config, null, db, guildId);
+  // requiredTier is explicit "moderator" here, not the null/default-to-
+  // "admin" shorthand canWrite() otherwise falls back to -- both this
+  // command's own Discord description ("moderator+", see commands.js's
+  // SlashCommandBuilder) and its own error message below advertise
+  // moderator-or-above access. Before this fix, the null default silently
+  // required admin-or-owner tier instead, so a moderator got denied with
+  // an error message that itself claimed they should qualify -- a real,
+  // confirmed enforcement bug (found via a code review that traced the
+  // actual TIER_RANK comparison rather than trusting either piece of
+  // user-facing text at face value).
+  return canWrite(interaction, config, "moderator", db, guildId);
 }
 
 export function checkBroadcastCooldown(userId, cooldownMs = BROADCAST_COOLDOWN_MS) {
