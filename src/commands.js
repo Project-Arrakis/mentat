@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgVersion = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")).version;
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
-import { executeBroadcast, sendBroadcastToAdapter } from "./broadcast.js";
+import { executeBroadcast, sendBroadcastToAdapter, canBroadcast } from "./broadcast.js";
 import { formatError, formatPayload, redactSecrets } from "./format.js";
 import { logInfo, logError } from "./logger.js";
 import { resolveCompatEnv } from "./compatEnv.js";
@@ -17,7 +17,7 @@ import { sendStatusCard, sendOpsCard } from "./statusCard.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { writesEnabled, canWrite, writeRoleIds } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
-import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES } from "./adapterClient.js";
+import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES, PLANNED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
 import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction, recordGuildMemberActivity } from "./database.js";
 import { syncGuildFactionTheme } from "./guildFactionSync.js";
@@ -723,6 +723,21 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
         `dune-awakening-selfhost-docker this server's console is running. This is a known limitation, not a ` +
         `configuration problem with this bot. See arrakis-control-panel#172 for details.`
       ) });
+    } else if (error instanceof Error && PLANNED_ROUTES.has(error.route)) {
+      // A PLANNED route (Core intends to ship it, unlike a permanently
+      // MISSING one) can still 404 in the meantime if Core's real dispatch
+      // table doesn't route to it yet (see adapterClient.js's PLANNED_ROUTES
+      // comment for ops-location's specific history) -- without this
+      // branch, that 404 fell through to the generic else below and
+      // surfaced as a raw "Adapter ops-location returned HTTP 404."
+      // message, exactly the confusing-operator-facing failure mode the
+      // MISSING_ROUTES branch above already exists to prevent for a
+      // different classification.
+      const routeName = error.route.replace(/-/g, " ");
+      await sendError(interaction, { error: new Error(
+        `${routeName} is planned for a future Core release but is not yet implemented on this Core installation. ` +
+        `This is a known limitation, not a configuration problem with this bot.`
+      ) });
     } else {
       await sendError(interaction, { error: error.message || String(error) });
     }
@@ -1098,6 +1113,16 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     // isCommandAllowed() -- classify them with their real gate.
     if (cmd.name.startsWith("write:")) {
       if (canWrite(interaction, config, null, db, guildId)) available.push(cmd); else locked.push(cmd);
+    } else if (cmd.name === "admin:broadcast") {
+      // broadcast is also gated by canWrite() (via canBroadcast(), moderator
+      // tier), not the generic isCommandAllowed() default -- without this
+      // special case (found via a code review that traced the actual gate
+      // rather than trusting the array's cosmetic `role: "admin"` tag),
+      // this fell through to isCommandAllowed()'s lenient "any configured
+      // role" default, so a Player with no write access at all could see
+      // broadcast listed as "available" here and then be denied on actual
+      // use -- a real available/locked-vs-real-access mismatch.
+      if (canBroadcast(interaction, config, db, guildId)) available.push(cmd); else locked.push(cmd);
     } else if (RBAC_EXEMPT_COMMANDS.has(cmd.name) || isCommandAllowed(interaction, cmd.name, config, db, guildId)) {
       // Shares RBAC_EXEMPT_COMMANDS with executeDuneCommand's own bypass
       // above -- an exempt command must not show as "locked" in help when
@@ -1335,7 +1360,7 @@ export function getCommandRegistry() {
         { name: "latency", desc: "Adapter request latency history", role: "admin" },
         { name: "events", desc: "Recent server incidents and alerts", role: "admin" },
         { name: "roles", desc: "Show configured Discord role mappings", role: "admin" },
-        { name: "broadcast <msg>", desc: "Send a message to all in-game players", role: "admin" },
+        { name: "broadcast <msg>", desc: "Send a message to all in-game players", role: "moderator" },
         { name: "sync-commands", desc: "Check Core's command catalog for drift", role: "admin" }
       ]
     },
