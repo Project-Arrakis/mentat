@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildStatsPayload, shouldAlertOnFailure, ALERT_AFTER_CONSECUTIVE_FAILURES, pushStats } from "../src/statsPusher.js";
-import { createDatabase, upsertGuild, setGuildStatsSharingSecret, upsertGuildStatsSnapshot, getStatsSnapshot } from "../src/database.js";
+import { createDatabase, upsertGuild, setGuildStatsSharingSecret, upsertGuildStatsSnapshot, getStatsSnapshot, _resetEphemeralStateForTests } from "../src/database.js";
+
+// guild_stats_snapshot/stats_snapshot are module-level, in-memory, process-
+// wide state as of schema v7 -- reset before each test so one test's data
+// can't leak into another's assertions.
+test.beforeEach(() => {
+  _resetEphemeralStateForTests();
+});
 
 // Validates that buildStatsPayload() produces a shape acp-landing's
 // reader (yacketrj/acp-landing:functions/api/stats.js) would actually
@@ -155,7 +162,7 @@ test("pushStats includes players_online/spice_fields/sietches from guild_stats_s
   const db = createDatabase(":memory:");
   upsertGuild(db, { guildId: "g1", guildName: "G1", consoleUrl: "https://g1.test", adapterToken: "t", status: "active" });
   setGuildStatsSharingSecret(db, "g1", "secret");
-  upsertGuildStatsSnapshot(db, "g1", { playersOnline: 7, spiceFields: 2, sietches: 1 });
+  upsertGuildStatsSnapshot("g1", { playersOnline: 7, spiceFields: 2, sietches: 1 });
 
   const ok = await pushStats(fakeClient, db, null, {});
   assert.equal(ok, true);

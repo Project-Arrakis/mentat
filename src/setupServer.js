@@ -9,7 +9,6 @@ import {
   createOauthSession,
   getOauthSession,
   updateOauthSession,
-  deleteOauthSession,
   upsertGuild,
   getGuild,
   addGuildRole,
@@ -221,7 +220,7 @@ export function createSetupServer(config) {
     const { guildId } = req.query;
     const state = randomBytes(16).toString("hex");
 
-    createOauthSession(db, {
+    createOauthSession({
       state,
       discordUserId: "",
       discordUsername: "",
@@ -260,7 +259,7 @@ export function createSetupServer(config) {
 
     if (error) return errorPage(res, 400, "OAuth Error", `Discord returned an error: ${error}`);
 
-    const session = getOauthSession(db, state);
+    const session = getOauthSession(state);
     if (!session) return errorPage(res, 400, "Session Expired", "Invalid or expired session. Please start over.");
 
     try {
@@ -279,7 +278,7 @@ export function createSetupServer(config) {
       if (!tokenRes.ok) throw new Error("Token exchange failed");
 
       const tokenData = await tokenRes.json();
-      updateOauthSession(db, state, {
+      updateOauthSession(state, {
         accessToken: tokenData.access_token,
         expiresAt: new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
       });
@@ -596,7 +595,7 @@ export function createSetupServer(config) {
 
   app.get("/api/live-stats", (req, res) => {
     try {
-      const stats = getStatsSnapshot(db);
+      const stats = getStatsSnapshot();
       if (!stats) {
         return res.status(503).json({ error: "No stats collected yet" });
       }
@@ -649,7 +648,7 @@ export function createSetupServer(config) {
     }
 
     const { playersOnline, spiceFields, sietches } = req.body || {};
-    const accepted = upsertGuildStatsSnapshot(db, guildId, { playersOnline, spiceFields, sietches });
+    const accepted = upsertGuildStatsSnapshot(guildId, { playersOnline, spiceFields, sietches });
     if (!accepted) {
       // Non-numeric/negative/absurd field — rejected without touching the
       // previous snapshot value (Layer 1 Security Architect finding #4).

@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { encryptWithDEK, decryptWithDEK, activeKeyVersion } from "./secretsCrypto.js";
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -61,68 +61,8 @@ CREATE TABLE IF NOT EXISTS guild_settings (
   faction TEXT NOT NULL DEFAULT '' CHECK(faction IN ('', 'atreides', 'harkonnen', 'fremen'))
 );
 
-CREATE TABLE IF NOT EXISTS oauth_sessions (
-  state TEXT PRIMARY KEY,
-  discord_user_id TEXT NOT NULL,
-  discord_username TEXT NOT NULL DEFAULT '',
-  guild_id TEXT NOT NULL DEFAULT '',
-  access_token TEXT NOT NULL DEFAULT '',
-  expires_at TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS player_links (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  guild_id TEXT NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
-  discord_user_id TEXT NOT NULL,
-  character_name TEXT NOT NULL DEFAULT '',
-  player_controller_id TEXT NOT NULL DEFAULT '',
-  player_pawn_id TEXT NOT NULL DEFAULT '',
-  linked_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(guild_id, discord_user_id)
-);
-
--- guild_member_activity (schema v5, mentat#251/dune-awakening-selfhost-docker#699):
--- records which Discord users have actually used the bot in which guild,
--- upserted on every /dune command (executeDuneCommand()). Exists because
--- this bot only holds the Guilds gateway intent, not the privileged
--- GuildMembers intent -- guild.members.fetch() cannot return a real
--- member list, and enabling that privileged intent (with its bot-
--- verification implications) was rejected in favor of this low-privilege
--- alternative. Used by guildFactionSync.js to source the member-ID list
--- for Core's guilds/faction-summary aggregate, so the per-guild themed-
--- embed faction (guild_settings.faction) can auto-derive from real
--- membership. Naturally reflects active users, not silent lurkers --
--- arguably more relevant for a "who's actually engaging with this bot"
--- signal than raw (and unobtainable) guild membership would be anyway.
-CREATE TABLE IF NOT EXISTS guild_member_activity (
-  guild_id TEXT NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
-  discord_user_id TEXT NOT NULL,
-  last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (guild_id, discord_user_id)
-);
-
-CREATE TABLE IF NOT EXISTS bot_stats (
-  key TEXT PRIMARY KEY,
-  value INTEGER DEFAULT 0
-);
-
 CREATE INDEX IF NOT EXISTS idx_guild_roles_guild ON guild_roles(guild_id);
 CREATE INDEX IF NOT EXISTS idx_guild_roles_type ON guild_roles(guild_id, role_type);
-CREATE INDEX IF NOT EXISTS idx_player_links_guild_user ON player_links(guild_id, discord_user_id);
-
--- Local live-stats snapshot, replacing the Cloudflare KV
--- acp-stats-aggregate write (issue #83.2 / kv-replacement-evaluation).
--- Single row (id is pinned to 1); statsPusher.js upserts it on its push
--- interval and setupServer.js serves it as GET /api/live-stats behind
--- the existing free Cloudflare Tunnel (no KV involved). Schema change is
--- additive-only (CREATE TABLE IF NOT EXISTS); existing operators' DBs
--- gain this table on next start, no data migration required.
-CREATE TABLE IF NOT EXISTS stats_snapshot (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  payload TEXT NOT NULL,
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
 
 -- KEK/DEK hierarchy (schema v4, Phase 1 of the ecosystem-wide secrets
 -- management epic -- see docs/design/pki-cmk-secrets-l1-design-audit-2026-08-08.md,
@@ -146,12 +86,14 @@ CREATE TABLE IF NOT EXISTS key_versions (
 
 -- secret_keys: the wrapped (KEK-encrypted) DEK for one specific
 -- encrypted row/column, keyed by (table_name, row_key, column_name) so
--- one guild's adapter_token and one oauth_session's access_token each
--- get their own independent DEK -- compromising one wrapped DEK (or the
--- KEK used to unwrap it, absent the age identity) exposes only that one
--- row, not every secret in the database. row_key is stored as TEXT so
--- it can hold guilds.guild_id or oauth_sessions.state, both TEXT primary
--- keys, without a separate column per table.
+-- one guild's adapter_token and its stats_push_secret each get their own
+-- independent DEK -- compromising one wrapped DEK (or the KEK used to
+-- unwrap it, absent the age identity) exposes only that one row, not
+-- every secret in the database. row_key is stored as TEXT so it can hold
+-- guilds.guild_id without a separate column per table. (oauth_sessions'
+-- access_token was encrypted the same way until schema v7, when that
+-- table moved to in-memory-only storage -- see database hardening notes
+-- below the schema -- and stopped needing a DEK at all.)
 CREATE TABLE IF NOT EXISTS secret_keys (
   table_name TEXT NOT NULL,
   row_key TEXT NOT NULL,
@@ -181,27 +123,49 @@ CREATE TABLE IF NOT EXISTS secret_access_log (
 
 CREATE INDEX IF NOT EXISTS idx_secret_access_log_row ON secret_access_log(table_name, row_key, column_name);
 CREATE INDEX IF NOT EXISTS idx_secret_access_log_created ON secret_access_log(created_at);
-
--- guild_stats_snapshot (schema v6, mentat#276): last-write-wins cache of
--- one opted-in guild's most recently pushed aggregate stats (players
--- online, spice fields, sietch count), replacing statsPusher.js's broken
--- synthetic-actor pull of Core's admin-tier ops:activity/ops:resources
--- routes. Not a history/log -- one row per guild, overwritten on every
--- push. ON DELETE CASCADE matches every other guild-scoped table in this
--- schema (guild_roles, guild_settings, player_links,
--- guild_member_activity). A brand-new table, so (unlike guilds' new
--- columns above) CREATE TABLE IF NOT EXISTS alone is correct here for
--- both fresh installs and upgrades -- no ALTER TABLE migration needed.
-CREATE TABLE IF NOT EXISTS guild_stats_snapshot (
-  guild_id TEXT PRIMARY KEY REFERENCES guilds(guild_id) ON DELETE CASCADE,
-  players_online INTEGER NOT NULL,
-  spice_fields INTEGER NOT NULL,
-  sietches INTEGER NOT NULL,
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_guild_stats_snapshot_updated_at ON guild_stats_snapshot(updated_at);
 `;
+
+// ── Schema hardening (v7): what's NOT in the schema above, and why ──────
+//
+// Six tables that used to live here are gone as of v7 -- either deleted
+// entirely or moved to in-memory JS state (see "Ephemeral in-memory
+// state" below). None of this is data any operator needs to survive a
+// process restart to be correct.
+//
+//   player_links            Confirmed dead code (zero callers anywhere in
+//                            src/) -- see docs/multi-tenant-design.md.
+//                            Player-linking has always actually lived in
+//                            each operator's own Core Postgres
+//                            (console.discord_account_links), reached via
+//                            adapterClient.js. This table never needed to
+//                            exist on this side at all.
+//   guild_member_activity   Backed only guildFactionSync.js's cosmetic
+//                            auto-detected themed-embed color -- the one
+//                            table in this schema that read as "tracking
+//                            who talks to the bot," for the least
+//                            essential reason. Removed along with that
+//                            feature; guild_settings.faction is still
+//                            directly, manually settable.
+//   oauth_sessions          Only needs to survive minutes during one live
+//                            OAuth round-trip, never across a restart --
+//                            now an in-memory Map with a short TTL.
+//   bot_stats               A vanity command counter with no operational
+//                            purpose -- now an in-memory counter that
+//                            resets on restart, which is fine for a
+//                            vanity counter.
+//   stats_snapshot,         The public live-stats display cache. A
+//   guild_stats_snapshot    restart means a brief "recomputing" gap, not
+//                            lost data -- now in-memory Maps/values. The
+//                            credential and consent state this feature
+//                            depends on (guilds.stats_push_secret,
+//                            stats_sharing_opted_in_at/opted_out_at)
+//                            stays in SQLite, since THAT does need to
+//                            survive a restart to mean anything.
+//
+// What's left on disk: schema_version, guilds (routing + the one real
+// credential + the stats-sharing consent record), guild_roles,
+// guild_settings, and the KEK/DEK bookkeeping tables backing whatever
+// encrypted columns remain on guilds.
 
 function ensureDataDir(dbPath) {
   const dir = dirname(dbPath);
@@ -259,34 +223,57 @@ export function createDatabase(dbPath = "./data/acp.db") {
     }
   }
 
+  // v6->v7 (schema hardening): player_links, guild_member_activity,
+  // oauth_sessions, bot_stats, stats_snapshot, and guild_stats_snapshot
+  // are all removed from SCHEMA above (deleted outright, or moved to
+  // in-memory state -- see the "Schema hardening (v7)" comment there for
+  // why each one). DROP TABLE for an existing install that already
+  // created any of these; a no-op for a fresh v7 install that never did.
+  // Safe unconditionally: none of these tables is referenced BY any
+  // table that survives (guild_roles/guild_settings/guild_stats_snapshot
+  // reference OUT to guilds via FK, not the reverse), so dropping them
+  // cannot violate a foreign key on anything left behind.
+  if (currentVersion && currentVersion.version < 7) {
+    for (const table of ["player_links", "guild_member_activity", "oauth_sessions", "bot_stats", "stats_snapshot", "guild_stats_snapshot"]) {
+      try {
+        db.prepare(`DROP TABLE IF EXISTS ${table}`).run();
+      } catch {
+        // Best-effort -- a table that resists dropping is not worth
+        // failing startup over; it simply becomes unused, orphaned
+        // schema, same as it already was before this migration existed.
+      }
+    }
+  }
+
   if (currentVersion && currentVersion.version < SCHEMA_VERSION) {
     // v3->v4, v4->v5 are purely additive (stats_snapshot, key_versions/
     // secret_keys/secret_access_log, guild_member_activity, all via
-    // CREATE TABLE IF NOT EXISTS in SCHEMA above); v5->v6's real work
-    // (the guilds ALTER TABLE migration) happens in the block above, not
-    // here -- this block just records the version once every step up to
-    // SCHEMA_VERSION has run. Existing enc:v1: rows remain readable
-    // unchanged; they are only ever upgraded to v2 (per-row DEK) on their
-    // next write, exactly like the v0(plaintext)->v1 migration this same
-    // pattern already established (see reencrypt-secrets.js for the
-    // equivalent bulk-upgrade tool for that earlier transition).
+    // CREATE TABLE IF NOT EXISTS in SCHEMA above -- both later removed in
+    // v7, see above); v5->v6's real work (the guilds ALTER TABLE
+    // migration) and v6->v7's (the DROP TABLEs) happen in the blocks
+    // above, not here -- this block just records the version once every
+    // step up to SCHEMA_VERSION has run. Existing enc:v1: rows remain
+    // readable unchanged; they are only ever upgraded to v2 (per-row DEK)
+    // on their next write, exactly like the v0(plaintext)->v1 migration
+    // this same pattern already established (see reencrypt-secrets.js
+    // for the equivalent bulk-upgrade tool for that earlier transition).
     db.prepare("UPDATE schema_version SET version = ?").run(SCHEMA_VERSION);
   }
 
   return db;
 }
 
-// adapter_token is a credential (not player data): it authenticates this
-// bot process to a specific operator's Core adapter API. In
 // ── KEK/DEK per-row secret helpers (schema v4, issues #107/#108/#109) ──
 //
 // secret_keys holds the wrapped DEK for one (table, row, column) triple.
-// These helpers centralize that lookup/write so getGuild()/upsertGuild()/
-// getOauthSession()/updateOauthSession() below don't each reimplement the
-// same three-column primary key logic. Every call is a no-op (wrappedDEK
-// stays null, nothing is written) when no KEK is configured -- see
-// secretsCrypto.js's encryptWithDEK(), which itself falls back to v1
-// single-key encryption in that case.
+// These helpers centralize that lookup/write so getGuild()/upsertGuild()
+// below don't reimplement the same three-column primary key logic.
+// (oauth_sessions' access_token used this too before schema v7 moved that
+// table to in-memory storage -- see the "Schema hardening (v7)" comment
+// above the schema string.) Every call is a no-op (wrappedDEK stays null,
+// nothing is written) when no KEK is configured -- see secretsCrypto.js's
+// encryptWithDEK(), which itself falls back to v1 single-key encryption
+// in that case.
 function getWrappedDEK(db, tableName, rowKey, columnName) {
   const row = db.prepare(
     "SELECT wrapped_dek, key_version FROM secret_keys WHERE table_name = ? AND row_key = ? AND column_name = ?"
@@ -439,55 +426,69 @@ export function getGuildRoleIds(db, guildId, roleType) {
     .map(r => r.role_id);
 }
 
-export function createOauthSession(db, { state, discordUserId, discordUsername, guildId = "" }) {
-  db.prepare(`
-    INSERT INTO oauth_sessions (state, discord_user_id, discord_username, guild_id)
-    VALUES (?, ?, ?, ?)
-  `).run(state, discordUserId, discordUsername, guildId);
+// ── OAuth setup-wizard sessions (in-memory, schema v7) ──────────────────
+//
+// Only needs to survive minutes during one live OAuth round-trip, never
+// across a process restart -- an in-memory Map with a short TTL replaces
+// the old oauth_sessions table entirely (see the "Schema hardening (v7)"
+// comment above the schema string). access_token is no longer run
+// through encryptColumn()/decryptColumn(): it's never written to disk, so
+// the KEK/DEK threat model (a stolen database file or backup) doesn't
+// apply to it -- storing it as plain in-memory JS is not a regression
+// from "encrypted at rest," there is no "rest" for it to be at anymore.
+//
+// SESSION_MAX_AGE_MS bounds both how long an abandoned setup attempt
+// lingers in memory (swept lazily, on the next create/get call rather
+// than a background timer) and matches the realistic window a person
+// takes to read the config form and submit it.
+const SESSION_MAX_AGE_MS = 30 * 60 * 1000;
+
+let oauthSessions = new Map();
+
+function sweepExpiredOauthSessions() {
+  const cutoff = Date.now() - SESSION_MAX_AGE_MS;
+  for (const [state, session] of oauthSessions) {
+    if (session.createdAtMs < cutoff) oauthSessions.delete(state);
+  }
 }
 
-// access_token is a live Discord OAuth token captured during the setup
-// wizard flow. It is short-lived (expires_at is checked by callers) but
-// still a real bearer credential for that Discord user's account, so it
-// is encrypted at rest for the same reason adapter_token is -- see the
-// comment on getGuild()/upsertGuild() above.
-export function getOauthSession(db, state) {
-  const row = db.prepare("SELECT * FROM oauth_sessions WHERE state = ?").get(state);
-  if (!row) return row;
-  return { ...row, access_token: decryptColumn(db, "oauth_sessions", state, "access_token", row.access_token) };
+export function createOauthSession({ state, discordUserId, discordUsername, guildId = "" }) {
+  sweepExpiredOauthSessions();
+  oauthSessions.set(state, {
+    state,
+    discord_user_id: discordUserId,
+    discord_username: discordUsername,
+    guild_id: guildId,
+    access_token: "",
+    expires_at: "",
+    createdAtMs: Date.now()
+  });
 }
 
-export function updateOauthSession(db, state, { accessToken, expiresAt }) {
-  const encryptedToken = encryptColumn(db, "oauth_sessions", state, "access_token", accessToken);
-  db.prepare(`
-    UPDATE oauth_sessions SET access_token = ?, expires_at = ? WHERE state = ?
-  `).run(encryptedToken, expiresAt, state);
+// Callers that already treat "no session" as "Session Expired" (the
+// oauth callback route) get that exact behavior for free once a session
+// ages past SESSION_MAX_AGE_MS -- expired-but-present and never-existed
+// are handled identically, both as undefined.
+export function getOauthSession(state) {
+  const session = oauthSessions.get(state);
+  if (!session) return undefined;
+  if (session.createdAtMs < Date.now() - SESSION_MAX_AGE_MS) {
+    oauthSessions.delete(state);
+    return undefined;
+  }
+  const { createdAtMs, ...publicShape } = session;
+  return publicShape;
 }
 
-export function deleteOauthSession(db, state) {
-  db.prepare("DELETE FROM oauth_sessions WHERE state = ?").run(state);
+export function updateOauthSession(state, { accessToken, expiresAt }) {
+  const session = oauthSessions.get(state);
+  if (!session) return;
+  session.access_token = accessToken;
+  session.expires_at = expiresAt;
 }
 
-export function getPlayerLink(db, guildId, discordUserId) {
-  return db.prepare("SELECT * FROM player_links WHERE guild_id = ? AND discord_user_id = ?")
-    .get(guildId, discordUserId);
-}
-
-export function upsertPlayerLink(db, { guildId, discordUserId, characterName, playerControllerId, playerPawnId }) {
-  db.prepare(`
-    INSERT INTO player_links (guild_id, discord_user_id, character_name, player_controller_id, player_pawn_id)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(guild_id, discord_user_id) DO UPDATE SET
-      character_name = excluded.character_name,
-      player_controller_id = excluded.player_controller_id,
-      player_pawn_id = excluded.player_pawn_id,
-      linked_at = datetime('now')
-  `).run(guildId, discordUserId, characterName, playerControllerId, playerPawnId);
-}
-
-export function deletePlayerLink(db, guildId, discordUserId) {
-  db.prepare("DELETE FROM player_links WHERE guild_id = ? AND discord_user_id = ?")
-    .run(guildId, discordUserId);
+export function deleteOauthSession(state) {
+  oauthSessions.delete(state);
 }
 
 export function getAllGuilds(db) {
@@ -498,43 +499,32 @@ export function getActiveGuilds(db) {
   return db.prepare("SELECT * FROM guilds WHERE status = 'active'").all();
 }
 
-export function initBotStats(db) {
-  db.prepare("INSERT OR IGNORE INTO bot_stats (key, value) VALUES ('commands_total', 0)").run();
+// A vanity command counter with no operational purpose -- in-memory,
+// schema v7. Resets on restart, which is fine for a vanity counter.
+let commandCount = 0;
+
+export function incrementCommandCount() {
+  commandCount += 1;
 }
 
-export function incrementCommandCount(db) {
-  db.prepare("UPDATE bot_stats SET value = value + 1 WHERE key = 'commands_total'").run();
-}
-
-export function getCommandCount(db) {
-  const row = db.prepare("SELECT value FROM bot_stats WHERE key = 'commands_total'").get();
-  return row ? row.value : 0;
-}
-
-export function getBotStats(db) {
-  return db.prepare("SELECT key, value FROM bot_stats").all();
+export function getCommandCount() {
+  return commandCount;
 }
 
 // Local live-stats snapshot (replaces the Cloudflare KV
-// acp-stats-aggregate write). Single-row table, id pinned to 1.
+// acp-stats-aggregate write, and the on-disk stats_snapshot table before
+// it -- schema v7). In-memory only: a restart means a brief "no data
+// yet" gap until the next push interval repopulates it, not lost data.
 // statsPusher.js calls saveStatsSnapshot on its push interval;
 // setupServer.js serves the stored payload as GET /api/live-stats.
-export function saveStatsSnapshot(db, stats) {
-  const payload = JSON.stringify(stats);
-  db.prepare(
-    "INSERT INTO stats_snapshot (id, payload, updated_at) VALUES (1, ?, datetime('now')) " +
-    "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at"
-  ).run(payload);
+let statsSnapshotCache = null;
+
+export function saveStatsSnapshot(stats) {
+  statsSnapshotCache = stats;
 }
 
-export function getStatsSnapshot(db) {
-  const row = db.prepare("SELECT payload FROM stats_snapshot WHERE id = 1").get();
-  if (!row) return null;
-  try {
-    return JSON.parse(row.payload);
-  } catch {
-    return null;
-  }
+export function getStatsSnapshot() {
+  return statsSnapshotCache;
 }
 
 // ── Cross-console live-stats push (schema v6, mentat#276) ──────────────
@@ -626,22 +616,22 @@ export function setGuildStatsSharingSecret(db, guildId, secretPlaintext) {
 }
 
 // clearGuildStatsSharingSecret: records an operator's revocation. Deletes
-// the guild's guild_stats_snapshot row in the same transaction, rather
-// than relying on the staleness window alone to stop it being read --
-// Layer 1 GRC/DBA audit findings #14/#26 both flagged that a
-// revoke-just-stops-display (not delete) semantic leaves an operator with
-// no basis to believe their last-known data was actually erased.
+// the guild's in-memory snapshot entry too, rather than relying on the
+// staleness window alone to stop it being read -- Layer 1 GRC/DBA audit
+// findings #14/#26 both flagged that a revoke-just-stops-display (not
+// delete) semantic leaves an operator with no basis to believe their
+// last-known data was actually erased. The secret/consent update still
+// needs to be durable (SQLite); the snapshot delete is an in-memory Map
+// delete with no persistence concern, so the two no longer need a shared
+// transaction -- there's nothing left to keep atomic between them.
 export function clearGuildStatsSharingSecret(db, guildId) {
-  const tx = db.transaction(() => {
-    db.prepare(`
-      UPDATE guilds SET
-        stats_push_secret = NULL,
-        stats_sharing_opted_out_at = datetime('now')
-      WHERE guild_id = ?
-    `).run(guildId);
-    db.prepare("DELETE FROM guild_stats_snapshot WHERE guild_id = ?").run(guildId);
-  });
-  tx();
+  db.prepare(`
+    UPDATE guilds SET
+      stats_push_secret = NULL,
+      stats_sharing_opted_out_at = datetime('now')
+    WHERE guild_id = ?
+  `).run(guildId);
+  guildStatsSnapshots.delete(guildId);
 }
 
 export function getGuildStatsSharingStatus(db, guildId) {
@@ -667,33 +657,39 @@ export function isValidStatsPushValue(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_PLAUSIBLE_STAT_VALUE;
 }
 
-// upsertGuildStatsSnapshot: writes one guild's most recent push. updated_at
-// is always stamped by this process's own clock (datetime('now')), never
-// taken from the pushed payload -- a client-supplied timestamp would let
-// a Core host with clock skew make stale data look perpetually fresh (or
-// vice versa), defeating the staleness window entirely (Layer 1 Architect
-// audit finding #10). Returns false (and writes nothing) if any field
-// fails validation, leaving the previous snapshot value in place rather
-// than overwriting it with garbage.
-export function upsertGuildStatsSnapshot(db, guildId, { playersOnline, spiceFields, sietches }) {
+// guildStatsSnapshots: in-memory Map, guild_id -> { playersOnline,
+// spiceFields, sietches, updatedAtMs }. Replaces the on-disk
+// guild_stats_snapshot table (schema v7) -- same last-write-wins, one
+// entry per guild semantics, just never persisted. The credential and
+// consent state this feature depends on (guilds.stats_push_secret,
+// stats_sharing_opted_in_at/opted_out_at) stays in SQLite; only the
+// numeric values themselves moved to memory.
+let guildStatsSnapshots = new Map();
+
+// upsertGuildStatsSnapshot: writes one guild's most recent push.
+// updatedAtMs is always stamped by this process's own clock (Date.now()),
+// never taken from the pushed payload -- a client-supplied timestamp
+// would let a Core host with clock skew make stale data look perpetually
+// fresh (or vice versa), defeating the staleness window entirely (Layer 1
+// Architect audit finding #10). Returns false (and writes nothing) if any
+// field fails validation, leaving the previous snapshot value in place
+// rather than overwriting it with garbage.
+// nowMs is an optional override purely for test injection (backdating a
+// snapshot to exercise the staleness window in getActiveGuildStatsAggregate
+// without a real 20-minute wait) -- matches the same `now` dependency-
+// injection convention already used in steamLinkRateLimit.js/
+// statsPushRateLimit.js. Production callers never pass it.
+export function upsertGuildStatsSnapshot(guildId, { playersOnline, spiceFields, sietches }, { nowMs = Date.now() } = {}) {
   if (![playersOnline, spiceFields, sietches].every(isValidStatsPushValue)) {
     return false;
   }
-  db.prepare(`
-    INSERT INTO guild_stats_snapshot (guild_id, players_online, spice_fields, sietches, updated_at)
-    VALUES (?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(guild_id) DO UPDATE SET
-      players_online = excluded.players_online,
-      spice_fields = excluded.spice_fields,
-      sietches = excluded.sietches,
-      updated_at = excluded.updated_at
-  `).run(guildId, playersOnline, spiceFields, sietches);
+  guildStatsSnapshots.set(guildId, { playersOnline, spiceFields, sietches, updatedAtMs: nowMs });
   return true;
 }
 
 // Matches the existing 20-minute staleness concept from
 // yacketrj/acp-landing:docs/kv-stats-schema.md.
-const STATS_SNAPSHOT_STALENESS_MINUTES = 20;
+const STATS_SNAPSHOT_STALENESS_MS = 20 * 60 * 1000;
 
 // getActiveGuildStatsAggregate: sums players_online/spice_fields/sietches
 // across every opted-in guild whose snapshot is still fresh AND whose
@@ -701,19 +697,23 @@ const STATS_SNAPSHOT_STALENESS_MINUTES = 20;
 // Architect audit finding #6: without it, a guild the bot was removed
 // from (status: 'suspended') would keep contributing to the public
 // aggregate indefinitely, since its own Core console has no way to know
-// it was removed and would keep pushing regardless.
+// it was removed and would keep pushing regardless. Still takes `db`:
+// guild status is the one piece of this check that IS persisted (it
+// lives on the guilds table), so this is the one place the in-memory
+// snapshot Map and SQLite meet.
 export function getActiveGuildStatsAggregate(db) {
-  return db.prepare(`
-    SELECT
-      COALESCE(SUM(s.players_online), 0) AS players_online,
-      COALESCE(SUM(s.spice_fields), 0) AS spice_fields,
-      COALESCE(SUM(s.sietches), 0) AS sietches,
-      COUNT(*) AS contributing_guilds
-    FROM guild_stats_snapshot s
-    INNER JOIN guilds g ON g.guild_id = s.guild_id
-    WHERE g.status = 'active'
-      AND s.updated_at > datetime('now', '-' || ? || ' minutes')
-  `).get(STATS_SNAPSHOT_STALENESS_MINUTES);
+  const activeGuildIds = new Set(getActiveGuilds(db).map((g) => g.guild_id));
+  const cutoff = Date.now() - STATS_SNAPSHOT_STALENESS_MS;
+  let playersOnline = 0, spiceFields = 0, sietches = 0, contributingGuilds = 0;
+  for (const [guildId, snapshot] of guildStatsSnapshots) {
+    if (!activeGuildIds.has(guildId)) continue;
+    if (snapshot.updatedAtMs < cutoff) continue;
+    playersOnline += snapshot.playersOnline;
+    spiceFields += snapshot.spiceFields;
+    sietches += snapshot.sietches;
+    contributingGuilds += 1;
+  }
+  return { players_online: playersOnline, spice_fields: spiceFields, sietches, contributing_guilds: contributingGuilds };
 }
 
 export function getGuildFaction(db, guildId) {
@@ -725,34 +725,13 @@ export function setGuildFaction(db, guildId, faction) {
   db.prepare("UPDATE guild_settings SET faction = ? WHERE guild_id = ?").run(faction, guildId);
 }
 
-// guild_member_activity (schema v5) -- see the table's own comment in
-// SCHEMA above for why this exists instead of a real Discord member-list
-// fetch. Called from executeDuneCommand() on every /dune command, so it
-// stays best-effort and silent on failure (a broken activity log must
-// never break the command it's attached to).
-export function recordGuildMemberActivity(db, guildId, discordUserId) {
-  if (!guildId || !discordUserId) return;
-  try {
-    db.prepare(`
-      INSERT INTO guild_member_activity (guild_id, discord_user_id, last_seen_at)
-      VALUES (?, ?, datetime('now'))
-      ON CONFLICT(guild_id, discord_user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
-    `).run(guildId, discordUserId);
-  } catch { /* best-effort -- never break the command this is attached to */ }
-}
-
-// Capped well above DEFAULT_MAX_MEMBERS_PER_GUILD's in-game 32-member
-// guild cap (dune-awakening-selfhost-docker's own duneDb.js constant) --
-// this is a Discord community's bot-activity roster, not an in-game
-// guild roster, so it can legitimately be much larger.
-const MAX_GUILD_MEMBER_ACTIVITY_IDS = 1000;
-
-export function getGuildMemberActivityIds(db, guildId) {
-  const rows = db.prepare(`
-    SELECT discord_user_id FROM guild_member_activity
-    WHERE guild_id = ?
-    ORDER BY last_seen_at DESC
-    LIMIT ?
-  `).all(guildId, MAX_GUILD_MEMBER_ACTIVITY_IDS);
-  return rows.map((row) => row.discord_user_id);
+// Resets every piece of ephemeral, in-memory-only state introduced by the
+// schema v7 hardening pass (oauth sessions, the command counter, the
+// live-stats caches). Test-only -- production code has no reason to ever
+// clear these mid-process.
+export function _resetEphemeralStateForTests() {
+  oauthSessions = new Map();
+  commandCount = 0;
+  statsSnapshotCache = null;
+  guildStatsSnapshots = new Map();
 }

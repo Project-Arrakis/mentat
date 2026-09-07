@@ -212,7 +212,7 @@ export async function pushStats(client, db, adapterClient, { alertChannelId } = 
   try {
     const allGuilds = db ? getAllGuilds(db) : [];
     const activeGuilds = db ? getActiveGuilds(db) : [];
-    const commandsTotal = db ? getCommandCount(db) : 0;
+    const commandsTotal = db ? getCommandCount() : 0;
     const aggregates = adapterClient ? await fetchAggregate(adapterClient, activeGuilds) : {};
 
     // mentat#276: players_online/spice_fields/sietches come from
@@ -238,7 +238,7 @@ export async function pushStats(client, db, adapterClient, { alertChannelId } = 
       aggregates
     });
 
-    saveStatsSnapshot(db, stats);
+    saveStatsSnapshot(stats);
 
     consecutiveFailures = 0;
     logInfo("stats_pushed", {

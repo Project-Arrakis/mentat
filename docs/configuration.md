@@ -389,12 +389,24 @@ In multi-tenant mode:
 
 ### Database Schema
 
-The bot manages these tables:
-- `guilds` — Per-guild console URL, adapter token, status
-- `guild_roles` — Per-guild observer/admin role IDs
+**Corrected (schema v7 hardening pass):** this section previously listed
+`oauth_sessions` and `player_links` as tables the bot stores. Neither is
+true anymore, and `player_links` never actually held real data even
+before this correction — see database.js's own "Schema hardening (v7)"
+comment for the full rationale (`player_links` was dead code with zero
+callers; player-linking has always actually lived in each operator's
+own Core Postgres, reached via `adapterClient.js`). `oauth_sessions`,
+along with the command counter and the live-stats display caches, moved
+to in-memory-only JS state in the same pass -- none of it needs to
+survive a process restart to be correct.
+
+The bot's SQLite database (`data/acp.db`) now holds only:
+- `guilds` — Per-guild console URL, encrypted adapter token, status, and
+  (opt-in) live-stats-sharing secret/consent record
+- `guild_roles` — Per-guild observer/admin/moderator role IDs
 - `guild_settings` — Per-guild RBAC mode, cooldowns, schedule
-- `oauth_sessions` — OAuth2 state and tokens
-- `player_links` — Per-guild Discord-to-character mappings
+- `key_versions` / `secret_keys` / `secret_access_log` — KEK/DEK
+  bookkeeping for the encrypted columns on `guilds` above
 
 ---
 

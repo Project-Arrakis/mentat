@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createSetupServer } from "../src/setupServer.js";
+import { _resetEphemeralStateForTests } from "../src/database.js";
+
+// database.js's oauth-session/stats-snapshot/guild-stats-snapshot state is
+// module-level, in-memory, and process-wide as of schema v7 (see the
+// "Schema hardening (v7)" comment in database.js) -- every test in this
+// file shares it, so it must be reset before each test or an earlier
+// test's leftover state can silently leak into a later one even though
+// each test opens its own fresh, differently-named SQLite file.
+test.beforeEach(() => {
+  _resetEphemeralStateForTests();
+});
 
 // ─── Issue #91: the bare domain root previously fell through to
 // Express's default "Cannot GET /" error page. A real landing page now
@@ -95,7 +106,7 @@ test("GET /api/live-stats serves the stored snapshot from the same DB file", asy
   const { mkdtempSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  const { createDatabase, saveStatsSnapshot } = await import("../src/database.js");
+  const { saveStatsSnapshot } = await import("../src/database.js");
   const dir = mkdtempSync(join(tmpdir(), "acp-stats2-"));
   const dbPath = join(dir, "acp.db");
 
@@ -110,10 +121,11 @@ test("GET /api/live-stats serves the stored snapshot from the same DB file", asy
   const base = `http://127.0.0.1:${port}`;
 
   try {
-    // Simulate statsPusher writing the snapshot via its own DB handle
-    const writerDb = createDatabase(dbPath);
-    saveStatsSnapshot(writerDb, { players_online: 12, installations: 3, version: "1.0.0-rc.2" });
-    writerDb.close();
+    // saveStatsSnapshot is in-memory, process-wide state as of schema v7
+    // -- no separate DB handle needed to "simulate" statsPusher writing
+    // it, the same process-wide cache the server reads from is shared
+    // directly.
+    saveStatsSnapshot({ players_online: 12, installations: 3, version: "1.0.0-rc.2" });
 
     const res = await fetch(`${base}/api/live-stats`);
     assert.equal(res.status, 200);

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
-import { createDatabase, getGuild, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, saveStatsSnapshot, getStatsSnapshot, recordGuildMemberActivity, getGuildMemberActivityIds, getGuildFaction, setGuildFaction, verifyGuildStatsPushSecret, setGuildStatsSharingSecret, clearGuildStatsSharingSecret, getGuildStatsSharingStatus, upsertGuildStatsSnapshot, getActiveGuildStatsAggregate, isValidStatsPushValue } from "../src/database.js";
+import { createDatabase, getGuild, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, deleteOauthSession, saveStatsSnapshot, getStatsSnapshot, getGuildFaction, setGuildFaction, verifyGuildStatsPushSecret, setGuildStatsSharingSecret, clearGuildStatsSharingSecret, getGuildStatsSharingStatus, upsertGuildStatsSnapshot, getActiveGuildStatsAggregate, isValidStatsPushValue, _resetEphemeralStateForTests } from "../src/database.js";
 import { _resetKeyCacheForTests, _resetKEKCacheForTests, decryptWithDEK } from "../src/secretsCrypto.js";
 
 const VALID_KEY_HEX = "c".repeat(64);
@@ -14,6 +14,7 @@ const VALID_KEY_HEX = "c".repeat(64);
 test.beforeEach(() => {
   _resetKeyCacheForTests();
   _resetKEKCacheForTests();
+  _resetEphemeralStateForTests();
   delete process.env.ACP_SECRETS_KEY;
   delete process.env.ACP_SECRETS_KEY_FILE;
   delete process.env.ACP_AGE_IDENTITY_FILE;
@@ -85,27 +86,32 @@ test("getGuild returns undefined for a guild that does not exist, without throwi
   assert.equal(getGuild(db, "does-not-exist"), undefined);
 });
 
-test("oauth session access_token is encrypted at rest once a key is configured", () => {
-  process.env.ACP_SECRETS_KEY = VALID_KEY_HEX;
-  const db = createDatabase(":memory:");
-  createOauthSession(db, { state: "state1", discordUserId: "u1", discordUsername: "tester", guildId: "g1" });
-  updateOauthSession(db, "state1", { accessToken: "live-discord-oauth-token", expiresAt: "2030-01-01T00:00:00.000Z" });
+// oauth_sessions moved to in-memory-only storage in schema v7 (see the
+// "Schema hardening (v7)" comment in database.js) -- it's never written
+// to disk at all now, so there's no longer an "encrypted at rest" vs.
+// "plaintext" distinction to test; a stolen database file was the whole
+// threat model KEK/DEK existed to address, and this data is never in
+// that file in the first place.
+test("oauth session round-trips through create/update/get", () => {
+  createOauthSession({ state: "state1", discordUserId: "u1", discordUsername: "tester", guildId: "g1" });
+  updateOauthSession("state1", { accessToken: "live-discord-oauth-token", expiresAt: "2030-01-01T00:00:00.000Z" });
 
-  const rawRow = db.prepare("SELECT access_token FROM oauth_sessions WHERE state = ?").get("state1");
-  assert.equal(rawRow.access_token.includes("live-discord-oauth-token"), false);
-
-  const session = getOauthSession(db, "state1");
+  const session = getOauthSession("state1");
   assert.equal(session.access_token, "live-discord-oauth-token");
   assert.equal(session.expires_at, "2030-01-01T00:00:00.000Z");
+  assert.equal(session.discord_user_id, "u1");
+  assert.equal(session.guild_id, "g1");
 });
 
-test("oauth session round-trips without an encryption key configured", () => {
-  const db = createDatabase(":memory:");
-  createOauthSession(db, { state: "state1", discordUserId: "u1", discordUsername: "tester", guildId: "g1" });
-  updateOauthSession(db, "state1", { accessToken: "plain-oauth-token", expiresAt: "2030-01-01T00:00:00.000Z" });
+test("getOauthSession returns undefined for an unknown state, without throwing", () => {
+  assert.equal(getOauthSession("no-such-state"), undefined);
+});
 
-  const session = getOauthSession(db, "state1");
-  assert.equal(session.access_token, "plain-oauth-token");
+test("deleteOauthSession removes a session so it can no longer be read back", () => {
+  createOauthSession({ state: "state1", discordUserId: "u1", discordUsername: "tester", guildId: "g1" });
+  assert.ok(getOauthSession("state1"));
+  deleteOauthSession("state1");
+  assert.equal(getOauthSession("state1"), undefined);
 });
 
 test("a guild written before a key was configured still reads back correctly (legacy plaintext)", () => {
@@ -118,23 +124,21 @@ test("a guild written before a key was configured still reads back correctly (le
   assert.equal(guild.adapter_token, "legacy-plaintext-token");
 });
 
-// Stats snapshot table (KV replacement, issue #83.2): saveStatsSnapshot
-// must upsert the single pinned row and getStatsSnapshot must return the
-// exact parsed payload, including after a second save (overwrite, not
-// append), and must return null when nothing was ever stored.
+// Live-stats display cache (KV replacement, issue #83.2; in-memory as of
+// schema v7): saveStatsSnapshot must overwrite the single cached value
+// and getStatsSnapshot must return it exactly, including after a second
+// save (overwrite, not accumulate), and must return null when nothing
+// was ever stored.
 test("stats snapshot round-trips a payload and overwrites in place", () => {
-  const db = createDatabase(":memory:");
+  assert.equal(getStatsSnapshot(), null, "no snapshot stored yet -> null");
 
-  assert.equal(getStatsSnapshot(db), null, "no snapshot stored yet -> null");
-
-  saveStatsSnapshot(db, { players_online: 12, version: "1.0.0-rc.2" });
-  const first = getStatsSnapshot(db);
+  saveStatsSnapshot({ players_online: 12, version: "1.0.0-rc.2" });
+  const first = getStatsSnapshot();
   assert.deepEqual(first, { players_online: 12, version: "1.0.0-rc.2" });
 
-  saveStatsSnapshot(db, { players_online: 7, version: "1.0.0-rc.2" });
-  const second = getStatsSnapshot(db);
-  assert.equal(second.players_online, 7, "second save must overwrite, not append a row");
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM stats_snapshot").get().n, 1, "exactly one row must exist (id pinned to 1)");
+  saveStatsSnapshot({ players_online: 7, version: "1.0.0-rc.2" });
+  const second = getStatsSnapshot();
+  assert.equal(second.players_online, 7, "second save must overwrite, not accumulate");
 });
 
 // ── KEK/DEK per-row hierarchy (schema v4, issues #107/#108/#109) ──
@@ -145,11 +149,13 @@ test("schema v4: key_versions, secret_keys, and secret_access_log tables exist o
   assert.ok(tableNames.includes("key_versions"));
   assert.ok(tableNames.includes("secret_keys"));
   assert.ok(tableNames.includes("secret_access_log"));
-  // 6, not 4 -- schema v5 added guild_member_activity (mentat#251), v6
-  // added stats_push_secret/guild_stats_snapshot (mentat#276); this
-  // test's own name still says "v4" since it's specifically about the
-  // v4-era KEK/DEK tables, which are unaffected and still present.
-  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 6);
+  // 7, not 4 -- schema v5 added guild_member_activity (mentat#251, since
+  // removed in v7), v6 added stats_push_secret/guild_stats_snapshot
+  // (mentat#276), v7 hardened the schema (removed six tables entirely --
+  // see database.js's "Schema hardening (v7)" comment). This test's own
+  // name still says "v4" since it's specifically about the v4-era
+  // KEK/DEK tables, which are unaffected and still present.
+  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 7);
 });
 
 test("real age/KEK: upsertGuild/getGuild round-trip using a real KEK produces v2 ciphertext and a secret_keys row", { skip: !ageAvailable() && "age binary not installed" }, () => {
@@ -249,7 +255,11 @@ test("real age/KEK: a v1-encrypted row written before a KEK existed still decryp
   }
 });
 
-test("real age/KEK: oauth session access_token also uses the per-row DEK path when a KEK is configured", { skip: !ageAvailable() && "age binary not installed" }, () => {
+// oauth_sessions no longer touches secret_keys/KEK/DEK at all (schema
+// v7, in-memory storage) -- this is the direct regression test for that:
+// a real KEK configured for other purposes (guilds.adapter_token) must
+// not cause an oauth session to leave any trace in secret_keys.
+test("real age/KEK: an oauth session leaves no trace in secret_keys, even with a real KEK configured for other secrets", { skip: !ageAvailable() && "age binary not installed" }, () => {
   const dir = mkdtempSync(join(tmpdir(), "acp-db-kek-"));
   try {
     const { identityPath, kekPath } = makeRealKEKFixture(dir);
@@ -257,17 +267,14 @@ test("real age/KEK: oauth session access_token also uses the per-row DEK path wh
     process.env.ACP_KEK_FILE = kekPath;
 
     const db = createDatabase(":memory:");
-    createOauthSession(db, { state: "state1", discordUserId: "u1", discordUsername: "tester", guildId: "g1" });
-    updateOauthSession(db, "state1", { accessToken: "real-kek-oauth-token", expiresAt: "2030-01-01T00:00:00.000Z" });
+    createOauthSession({ state: "state1", discordUserId: "u1", discordUsername: "tester", guildId: "g1" });
+    updateOauthSession("state1", { accessToken: "real-oauth-token", expiresAt: "2030-01-01T00:00:00.000Z" });
 
-    const rawRow = db.prepare("SELECT access_token FROM oauth_sessions WHERE state = ?").get("state1");
-    assert.ok(rawRow.access_token.startsWith("enc:v2:"));
+    const session = getOauthSession("state1");
+    assert.equal(session.access_token, "real-oauth-token", "still round-trips correctly, just never touches SQLite");
 
-    const keyRow = db.prepare("SELECT * FROM secret_keys WHERE table_name = 'oauth_sessions' AND row_key = 'state1' AND column_name = 'access_token'").get();
-    assert.ok(keyRow);
-
-    const session = getOauthSession(db, "state1");
-    assert.equal(session.access_token, "real-kek-oauth-token");
+    const keyRow = db.prepare("SELECT * FROM secret_keys WHERE table_name = 'oauth_sessions'").get();
+    assert.equal(keyRow, undefined, "no secret_keys row should ever be written for oauth_sessions -- it's not a table anymore");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -301,49 +308,6 @@ test("real age/KEK: two guilds' adapter_token rows use independent DEKs (comprom
   }
 });
 
-// guild_member_activity (schema v5, mentat#251) -- real in-memory SQLite,
-// not a hand-mocked query interceptor, since better-sqlite3 supports
-// ":memory:" directly and this table's FK/upsert behavior is worth
-// exercising for real.
-test("recordGuildMemberActivity upserts, and getGuildMemberActivityIds returns the recorded ids for that guild only", () => {
-  const db = createDatabase(":memory:");
-  upsertGuild(db, { guildId: "g1", guildName: "Guild One", consoleUrl: "https://one.test", adapterToken: "t1", status: "active" });
-  upsertGuild(db, { guildId: "g2", guildName: "Guild Two", consoleUrl: "https://two.test", adapterToken: "t2", status: "active" });
-
-  recordGuildMemberActivity(db, "g1", "user-1");
-  recordGuildMemberActivity(db, "g1", "user-2");
-  recordGuildMemberActivity(db, "g2", "user-3");
-
-  assert.deepEqual(getGuildMemberActivityIds(db, "g1").sort(), ["user-1", "user-2"]);
-  assert.deepEqual(getGuildMemberActivityIds(db, "g2"), ["user-3"]);
-});
-
-test("recordGuildMemberActivity is a real upsert -- calling it again for the same (guild, user) does not create a duplicate row", () => {
-  const db = createDatabase(":memory:");
-  upsertGuild(db, { guildId: "g1", guildName: "Guild One", consoleUrl: "https://one.test", adapterToken: "t1", status: "active" });
-
-  recordGuildMemberActivity(db, "g1", "user-1");
-  recordGuildMemberActivity(db, "g1", "user-1");
-  recordGuildMemberActivity(db, "g1", "user-1");
-
-  const count = db.prepare("SELECT COUNT(*) AS c FROM guild_member_activity WHERE guild_id = ? AND discord_user_id = ?").get("g1", "user-1");
-  assert.equal(count.c, 1);
-});
-
-test("recordGuildMemberActivity is a silent no-op for a guild that was never registered (FK violation swallowed, never throws)", () => {
-  const db = createDatabase(":memory:");
-  assert.doesNotThrow(() => recordGuildMemberActivity(db, "never-registered-guild", "user-1"));
-  assert.deepEqual(getGuildMemberActivityIds(db, "never-registered-guild"), []);
-});
-
-test("recordGuildMemberActivity silently no-ops on a missing guildId or discordUserId, rather than recording a garbage row", () => {
-  const db = createDatabase(":memory:");
-  upsertGuild(db, { guildId: "g1", guildName: "Guild One", consoleUrl: "https://one.test", adapterToken: "t1", status: "active" });
-  recordGuildMemberActivity(db, "", "user-1");
-  recordGuildMemberActivity(db, "g1", "");
-  assert.deepEqual(getGuildMemberActivityIds(db, "g1"), []);
-});
-
 // ── Cross-console live-stats push (schema v6, mentat#276) ──────────────
 
 // This is the direct regression test for Layer 1 DBA/Architect/Cloud-
@@ -355,7 +319,7 @@ test("recordGuildMemberActivity silently no-ops on a missing guildId or discordU
 // on-disk database matching the pre-v6 schema, then re-opens it through
 // createDatabase() to exercise the actual upgrade path an existing
 // operator hits.
-test("schema v5->v6 migration: an existing operator's pre-existing guilds row survives, and gains the new nullable columns, on upgrade", () => {
+test("schema v5 install upgrades straight to v7: gains the guilds columns from v6 and lands on the current version", () => {
   const dir = mkdtempSync(join(tmpdir(), "acp-db-migration-"));
   const dbPath = join(dir, "acp.db");
   try {
@@ -380,13 +344,15 @@ test("schema v5->v6 migration: an existing operator's pre-existing guilds row su
     `);
     legacyDb.close();
 
-    // Re-open through the real migration path.
+    // Re-open through the real migration path -- a v5 install jumps
+    // straight to v7 in one pass (the v6 ALTER TABLEs and the v7 DROP
+    // TABLEs both run off the same originally-captured currentVersion).
     const db = createDatabase(dbPath);
 
     assert.equal(
       db.prepare("SELECT version FROM schema_version").get().version,
-      6,
-      "schema_version must be bumped to 6 after migration"
+      7,
+      "schema_version must land on the current version after migration"
     );
 
     const columns = db.prepare("PRAGMA table_info(guilds)").all().map((c) => c.name);
@@ -410,10 +376,70 @@ test("schema v5->v6 migration: an existing operator's pre-existing guilds row su
   }
 });
 
-test("guild_stats_snapshot table exists on a fresh database (schema v6)", () => {
+// This is the direct regression test for the v7 hardening migration
+// itself: a real v6 install (exactly what was running before this
+// hardening pass) has all six now-removed tables actually populated with
+// real rows -- upgrading to v7 must drop them cleanly and preserve every
+// piece of data that's supposed to survive (the guilds row itself,
+// including its stats-sharing consent columns).
+test("schema v6->v7 hardening migration: drops all six removed tables and preserves the guilds row, including stats-sharing consent state", () => {
+  const dir = mkdtempSync(join(tmpdir(), "acp-db-v7-migration-"));
+  const dbPath = join(dir, "acp.db");
+  try {
+    const legacyDb = new Database(dbPath);
+    legacyDb.exec(`
+      CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+      CREATE TABLE guilds (
+        guild_id TEXT PRIMARY KEY, guild_name TEXT, console_url TEXT, adapter_token TEXT,
+        status TEXT DEFAULT 'active', created_at TEXT, updated_at TEXT,
+        stats_push_secret TEXT, stats_sharing_opted_in_at TEXT, stats_sharing_opted_out_at TEXT
+      );
+      CREATE TABLE player_links (id INTEGER PRIMARY KEY, guild_id TEXT, discord_user_id TEXT);
+      CREATE TABLE guild_member_activity (guild_id TEXT, discord_user_id TEXT, last_seen_at TEXT);
+      CREATE TABLE oauth_sessions (state TEXT PRIMARY KEY, access_token TEXT);
+      CREATE TABLE bot_stats (key TEXT PRIMARY KEY, value INTEGER);
+      CREATE TABLE stats_snapshot (id INTEGER PRIMARY KEY, payload TEXT);
+      CREATE TABLE guild_stats_snapshot (guild_id TEXT PRIMARY KEY, players_online INTEGER, spice_fields INTEGER, sietches INTEGER, updated_at TEXT);
+      INSERT INTO schema_version (version) VALUES (6);
+      INSERT INTO guilds (guild_id, guild_name, console_url, adapter_token, stats_push_secret, stats_sharing_opted_in_at)
+        VALUES ('existing-guild', 'Existing Guild', 'https://existing.test', 'a-real-token', 'a-real-secret', '2026-09-01 00:00:00');
+      INSERT INTO player_links (guild_id, discord_user_id) VALUES ('existing-guild', 'u1');
+      INSERT INTO guild_member_activity (guild_id, discord_user_id, last_seen_at) VALUES ('existing-guild', 'u1', datetime('now'));
+      INSERT INTO oauth_sessions (state, access_token) VALUES ('abc', 'token');
+      INSERT INTO bot_stats (key, value) VALUES ('commands_total', 42);
+      INSERT INTO stats_snapshot (id, payload) VALUES (1, '{}');
+      INSERT INTO guild_stats_snapshot (guild_id, players_online, spice_fields, sietches) VALUES ('existing-guild', 5, 2, 1);
+    `);
+    legacyDb.close();
+
+    const db = createDatabase(dbPath);
+
+    assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 7);
+
+    const tableNames = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name);
+    for (const removed of ["player_links", "guild_member_activity", "oauth_sessions", "bot_stats", "stats_snapshot", "guild_stats_snapshot"]) {
+      assert.equal(tableNames.includes(removed), false, `${removed} must be dropped by the v6->v7 migration`);
+    }
+
+    const row = db.prepare("SELECT * FROM guilds WHERE guild_id = ?").get("existing-guild");
+    assert.equal(row.guild_name, "Existing Guild", "the guilds row itself must survive the migration untouched");
+    assert.equal(row.stats_push_secret, "a-real-secret", "existing stats-sharing consent state must survive -- it's still a real column, not a dropped table");
+    assert.ok(row.stats_sharing_opted_in_at);
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("guild_stats_snapshot is not a real table on a fresh database -- it's in-memory only as of schema v7", () => {
   const db = createDatabase(":memory:");
   const tableNames = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name);
-  assert.ok(tableNames.includes("guild_stats_snapshot"));
+  assert.equal(tableNames.includes("guild_stats_snapshot"), false);
+  assert.equal(tableNames.includes("oauth_sessions"), false);
+  assert.equal(tableNames.includes("player_links"), false);
+  assert.equal(tableNames.includes("bot_stats"), false);
+  assert.equal(tableNames.includes("stats_snapshot"), false);
+  assert.equal(tableNames.includes("guild_member_activity"), false);
 });
 
 test("setGuildStatsSharingSecret records the opt-in and stores the secret encrypted at rest", () => {
@@ -439,12 +465,12 @@ test("getGuildStatsSharingStatus reports disabled for a guild that never opted i
   assert.deepEqual(getGuildStatsSharingStatus(db, "no-such-guild"), { enabled: false, optedInAt: null, optedOutAt: null });
 });
 
-test("clearGuildStatsSharingSecret revokes: clears the secret, records opted_out_at, and actually deletes the snapshot row rather than leaving it to go stale", () => {
+test("clearGuildStatsSharingSecret revokes: clears the secret, records opted_out_at, and actually deletes the in-memory snapshot rather than leaving it to go stale", () => {
   const db = createDatabase(":memory:");
   upsertGuild(db, { guildId: "g1", guildName: "Guild One", consoleUrl: "https://one.test", adapterToken: "t1", status: "active" });
   setGuildStatsSharingSecret(db, "g1", "secret-1");
-  upsertGuildStatsSnapshot(db, "g1", { playersOnline: 5, spiceFields: 2, sietches: 1 });
-  assert.ok(db.prepare("SELECT 1 FROM guild_stats_snapshot WHERE guild_id = ?").get("g1"));
+  upsertGuildStatsSnapshot("g1", { playersOnline: 5, spiceFields: 2, sietches: 1 });
+  assert.equal(getActiveGuildStatsAggregate(db).contributing_guilds, 1);
 
   clearGuildStatsSharingSecret(db, "g1");
 
@@ -452,9 +478,9 @@ test("clearGuildStatsSharingSecret revokes: clears the secret, records opted_out
   assert.equal(status.enabled, false);
   assert.ok(status.optedOutAt, "opted_out_at must be set on revoke");
   assert.equal(
-    db.prepare("SELECT 1 FROM guild_stats_snapshot WHERE guild_id = ?").get("g1"),
-    undefined,
-    "revoking must actively delete the snapshot row, not just wait for it to age out"
+    getActiveGuildStatsAggregate(db).contributing_guilds,
+    0,
+    "revoking must actively delete the in-memory snapshot, not just wait for it to age out"
   );
 });
 
@@ -501,29 +527,27 @@ test("upsertGuildStatsSnapshot writes a valid payload and rejects an invalid one
   const db = createDatabase(":memory:");
   upsertGuild(db, { guildId: "g1", guildName: "Guild One", consoleUrl: "https://one.test", adapterToken: "t1", status: "active" });
 
-  assert.equal(upsertGuildStatsSnapshot(db, "g1", { playersOnline: 10, spiceFields: 3, sietches: 2 }), true);
-  let row = db.prepare("SELECT * FROM guild_stats_snapshot WHERE guild_id = ?").get("g1");
-  assert.equal(row.players_online, 10);
+  assert.equal(upsertGuildStatsSnapshot("g1", { playersOnline: 10, spiceFields: 3, sietches: 2 }), true);
+  assert.equal(getActiveGuildStatsAggregate(db).players_online, 10);
 
   // A negative field must be rejected outright -- the previous snapshot
   // value must be left in place, not overwritten with garbage (Layer 1
   // Security Architect finding #4).
-  assert.equal(upsertGuildStatsSnapshot(db, "g1", { playersOnline: -5, spiceFields: 3, sietches: 2 }), false);
-  row = db.prepare("SELECT * FROM guild_stats_snapshot WHERE guild_id = ?").get("g1");
-  assert.equal(row.players_online, 10, "previous value must survive a rejected update");
+  assert.equal(upsertGuildStatsSnapshot("g1", { playersOnline: -5, spiceFields: 3, sietches: 2 }), false);
+  assert.equal(getActiveGuildStatsAggregate(db).players_online, 10, "previous value must survive a rejected update");
 
-  assert.equal(upsertGuildStatsSnapshot(db, "g1", { playersOnline: 11, spiceFields: 3, sietches: "not-a-number" }), false);
-  row = db.prepare("SELECT * FROM guild_stats_snapshot WHERE guild_id = ?").get("g1");
-  assert.equal(row.players_online, 10, "a single invalid field must reject the entire payload, not partially apply it");
+  assert.equal(upsertGuildStatsSnapshot("g1", { playersOnline: 11, spiceFields: 3, sietches: "not-a-number" }), false);
+  assert.equal(getActiveGuildStatsAggregate(db).players_online, 10, "a single invalid field must reject the entire payload, not partially apply it");
 });
 
 test("upsertGuildStatsSnapshot is idempotent per guild (last-write-wins, not a growing history)", () => {
   const db = createDatabase(":memory:");
   upsertGuild(db, { guildId: "g1", guildName: "Guild One", consoleUrl: "https://one.test", adapterToken: "t1", status: "active" });
-  upsertGuildStatsSnapshot(db, "g1", { playersOnline: 1, spiceFields: 1, sietches: 1 });
-  upsertGuildStatsSnapshot(db, "g1", { playersOnline: 2, spiceFields: 2, sietches: 2 });
-  const count = db.prepare("SELECT COUNT(*) AS n FROM guild_stats_snapshot WHERE guild_id = ?").get("g1");
-  assert.equal(count.n, 1);
+  upsertGuildStatsSnapshot("g1", { playersOnline: 1, spiceFields: 1, sietches: 1 });
+  upsertGuildStatsSnapshot("g1", { playersOnline: 2, spiceFields: 2, sietches: 2 });
+  const aggregate = getActiveGuildStatsAggregate(db);
+  assert.equal(aggregate.contributing_guilds, 1, "one guild pushing twice must not be double-counted");
+  assert.equal(aggregate.players_online, 2, "the second push must overwrite, not add to, the first");
 });
 
 // This is the direct regression test for Layer 1 Architect audit finding
@@ -537,15 +561,14 @@ test("getActiveGuildStatsAggregate: sums only guilds that are both status='activ
   upsertGuild(db, { guildId: "active-no-data", guildName: "C", consoleUrl: "https://c.test", adapterToken: "t", status: "active" });
   upsertGuild(db, { guildId: "active-stale-data", guildName: "D", consoleUrl: "https://d.test", adapterToken: "t", status: "active" });
 
-  upsertGuildStatsSnapshot(db, "active-with-data", { playersOnline: 10, spiceFields: 2, sietches: 1 });
-  upsertGuildStatsSnapshot(db, "suspended-with-data", { playersOnline: 999, spiceFields: 999, sietches: 999 });
-  upsertGuildStatsSnapshot(db, "active-stale-data", { playersOnline: 500, spiceFields: 500, sietches: 500 });
-  // Force this row to look 21 minutes old, past the 20-minute staleness
-  // window -- simulates a guild whose push has stopped.
-  db.prepare("UPDATE guild_stats_snapshot SET updated_at = datetime('now', '-21 minutes') WHERE guild_id = ?").run("active-stale-data");
+  upsertGuildStatsSnapshot("active-with-data", { playersOnline: 10, spiceFields: 2, sietches: 1 });
+  upsertGuildStatsSnapshot("suspended-with-data", { playersOnline: 999, spiceFields: 999, sietches: 999 });
+  // Backdate this one 21 minutes, past the 20-minute staleness window --
+  // simulates a guild whose push has stopped.
+  upsertGuildStatsSnapshot("active-stale-data", { playersOnline: 500, spiceFields: 500, sietches: 500 }, { nowMs: Date.now() - 21 * 60 * 1000 });
 
   const aggregate = getActiveGuildStatsAggregate(db);
-  assert.equal(aggregate.contributing_guilds, 1, "only the one active guild with a fresh row should count");
+  assert.equal(aggregate.contributing_guilds, 1, "only the one active guild with a fresh snapshot should count");
   assert.equal(aggregate.players_online, 10);
   assert.equal(aggregate.spice_fields, 2);
   assert.equal(aggregate.sietches, 1);

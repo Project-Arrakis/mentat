@@ -8,7 +8,7 @@ import { startHealthState } from "./healthState.js";
 import { logError, logInfo } from "./logger.js";
 import { startScheduler, startDailyDigest } from "./scheduler.js";
 import { alertSubscriber } from "./notifications.js";
-import { createDatabase, getGuild, getGuildRoles, getGuildSettings, initBotStats, incrementCommandCount } from "./database.js";
+import { createDatabase, getGuild, getGuildRoles, getGuildSettings } from "./database.js";
 import { createSetupServer } from "./setupServer.js";
 import { createSteamLinkServer } from "./steamLinkServer.js";
 import { handleGuildCreate, handleGuildDelete } from "./onboarding.js";
@@ -18,7 +18,6 @@ import { isEncryptionConfigured, checkSecretFilePermissions } from "./secretsCry
 
 const config = loadConfig();
 const db = config.multiTenant ? createDatabase(config.dbPath) : null;
-if (db) initBotStats(db);
 
 // Phase 3: Load command registry artifact at startup
 // CRITICAL-2 FIX: Registry loading is mandatory - bot cannot function without it
