@@ -12,10 +12,17 @@
 // mentat-link's js/sand.js so that relative request resolves directly,
 // with zero extra proxy hop, matching every other static asset on that
 // site. This copy exists so the page still renders correctly for anyone
-// who reaches this server directly (e.g. internal debugging against
-// mentat-backend.darkdante.org, bypassing the proxy) -- both copies must
-// stay in sync; it's small and static enough that's a low-risk drift
-// class, not worth a build step to dedupe for one file.
+// who reaches this server directly today (e.g. internal debugging against
+// mentat-backend.darkdante.org) -- note this direct-access rationale is
+// time-limited: once MENTAT_PROXY_SHARED_SECRET (mentat-link#129) is
+// actually enforced on both sides, requireProxySecret() in setupServer.js
+// will 403 a direct, non-proxied request before it ever reaches this
+// static file, and this comment's "direct access" scenario stops applying
+// -- the file should still be kept even then, since express.static()
+// serving it here costs nothing and a future rollback/debug-bypass of the
+// secret check would need it again. Both copies must stay in sync; it's
+// small and static enough that's a low-risk drift class, not worth a
+// build step to dedupe for one file.
 //
 // Purely static, no templated data -- safe to serve as-is either place.
 (function () {

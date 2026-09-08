@@ -29,7 +29,12 @@ test("docs/user-guide.md's Command Groups tables match the real, live command tr
 
   const doc = readFileSync(new URL("../docs/user-guide.md", import.meta.url), "utf8");
   const docByGroup = {};
-  for (const match of doc.matchAll(/\/dune ([a-z-]+) ([a-z-]+)/g)) {
+  // L3 audit finding (2026-09-08): [a-z-]+ excluded digits and underscores,
+  // both valid in a real Discord subcommand name -- a future subcommand
+  // like "readiness2" would get truncated by this regex at the digit,
+  // producing a false "doc is missing/mentions stale" failure on this
+  // "permanent regression test" for documentation that's actually correct.
+  for (const match of doc.matchAll(/\/dune ([a-z0-9_-]+) ([a-z0-9_-]+)/g)) {
     const [, group, sub] = match;
     (docByGroup[group] ??= new Set()).add(sub);
   }

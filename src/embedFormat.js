@@ -866,7 +866,7 @@ export function formatSetupEmbed(setup) {
       "### 📋 Step 1: Invite the Bot",
       `Use this link to invite the bot to your server:`,
       `\`\`\`${inviteUrl}\`\`\``,
-      `**Scopes:** \`bot\` + \`applications.commands\`  ·  **Permissions:** \`0\``,
+      `**Scopes:** \`bot\` + \`applications.commands\`  ·  **Permissions:** \`128\` (View Audit Log — required so the bot can identify who invited it)`,
       "",
       "### 🏷️ Step 2: Create Roles",
       "The bot uses Discord roles to control access. Create these roles:",

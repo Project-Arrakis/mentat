@@ -61,7 +61,7 @@ Select one, then choose a command from within that group.
 | `/dune data backups` | Lists recent game backups |
 | `/dune data maps` | Shows which game maps are running |
 
-### 🔗 `player` — Character Linking & Identity
+### 🔗 `player` — Character Linking, Identity & Game Data
 
 | Command | What It Does |
 |---------|-------------|

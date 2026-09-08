@@ -165,7 +165,18 @@ export function createSetupServer(config) {
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-  app.use(express.static(publicDir));
+  // L3 audit finding (2026-09-08): mentat-link#127's public/js/sand.js is
+  // provably static forever (no templated data, per its own header
+  // comment), but was being served with no cache lifetime at all -- every
+  // page load re-fetches/revalidates it, unlike this file's own
+  // /api/version and /api/live-stats routes below, which both explicitly
+  // set Cache-Control. A long, immutable max-age is safe here: this exact
+  // filename would need to change for content to change (no cache-busting
+  // query param scheme exists for it today), so a stale cached copy is
+  // only possible if the file's content changes without a rename, which
+  // would be a deploy-process bug independent of this cache header either
+  // way.
+  app.use(express.static(publicDir, { maxAge: "1d" }));
 
   // CORS — allow the landing page to fetch public API endpoints.
   // No auth endpoints are exposed here; all are read-only public data.

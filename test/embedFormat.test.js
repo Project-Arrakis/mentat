@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatRolesEmbed } from "../src/embedFormat.js";
+import { formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatRolesEmbed, formatSetupEmbed } from "../src/embedFormat.js";
 
 // ─── Real bug, found via a live user report (2026-07-26/27) ────────────────
 //
@@ -174,4 +174,22 @@ test("formatRolesEmbed omits the notice field when rolesConfigPayload has nothin
   const payload = { ok: true, source: "database (multi-tenant)", rbacMode: "restricted", owner: "Discord server owner (999)", roles: ["admin: Mods (admin-role)"] };
   const embed = formatRolesEmbed(payload).toJSON();
   assert.ok(!embed.fields.some((f) => f.name.includes("Notice")), "no notice field should appear when payload.notice is absent");
+});
+
+// L3 audit finding (2026-09-08): formatSetupEmbed()'s self-host branch
+// hardcoded "**Permissions:** `0`" in its description text, but
+// commands.js's setupPayload() (fixed for issue #281) now generates invite
+// URLs with &permissions=128 -- leaving this embed directly contradicting
+// the invite link it renders immediately above that same line. This test
+// asserts the two stay consistent: whatever permissions value the real
+// invite URL carries is the same value stated in the description text,
+// rather than hardcoding an assumption about either side.
+test("formatSetupEmbed's self-host description states the same permissions value the invite URL actually carries", () => {
+  const inviteUrl = "https://discord.com/oauth2/authorize?client_id=123&scope=bot%20applications.commands&permissions=128";
+  const embed = formatSetupEmbed({ inviteUrl, clientId: "123" }).toJSON();
+  const permsInUrl = new URL(inviteUrl).searchParams.get("permissions");
+  assert.ok(
+    embed.description.includes(`Permissions:** \`${permsInUrl}\``),
+    `description must state Permissions: \`${permsInUrl}\` to match the actual invite URL, not a stale hardcoded value`
+  );
 });

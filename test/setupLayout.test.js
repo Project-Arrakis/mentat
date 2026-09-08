@@ -18,7 +18,7 @@ import { renderPage, errorPage } from "../src/setupLayout.js";
 // immediately, not get rediscovered as a silent production breakage.
 test("renderPage() output has no inline <script> with content -- only same-origin <script src=...> references", () => {
   const html = renderPage("Test Page", "<p>body</p>");
-  const inlineScriptMatches = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)];
+  const inlineScriptMatches = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)];
   const nonEmptyInline = inlineScriptMatches.filter((m) => m[1].trim().length > 0);
   // False positive below: this is a test assertion reading regex-matched substrings out of a
   // locally-generated HTML string (never rendered, never sent to a browser) to prove NO
@@ -38,9 +38,26 @@ test("errorPage() output also has no inline <script> with content", () => {
   let sentHtml = null;
   const mockRes = { status: () => ({ send: (html) => { sentHtml = html; } }) };
   errorPage(mockRes, 500, "Oops", "Something went wrong.");
-  const inlineScriptMatches = [...sentHtml.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)];
+  const inlineScriptMatches = [...sentHtml.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)];
   const nonEmptyInline = inlineScriptMatches.filter((m) => m[1].trim().length > 0);
   // Same false positive as the test above -- see that comment.
   const nonEmptyScripts = nonEmptyInline.map((m) => m[0]);
   assert.deepEqual(nonEmptyScripts, []); // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag
+});
+
+// L3 audit finding (2026-09-08): the regex above originally used `\ssrc=`
+// in its negative lookahead, which matches any attribute merely ENDING in
+// "-src=" (a word boundary exists at the hyphen) -- not only a literal
+// `src` attribute. A future <script data-src="x">doRealWork()</script>
+// (no true src, so the inline content still executes and is still blocked
+// by CSP) would have incorrectly been excluded from inlineScriptMatches by
+// that lookahead, silently passing this "no inline script" regression
+// test. Fixed to `\ssrc=` (requires actual whitespace immediately before
+// "src="), which only matches a genuine standalone src attribute.
+test("the inline-script detection regex itself does not mistake a 'data-src' attribute for a real 'src' attribute", () => {
+  const html = '<script data-src="x">doRealWork();</script>';
+  const inlineScriptMatches = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)];
+  const nonEmptyInline = inlineScriptMatches.filter((m) => m[1].trim().length > 0);
+  // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag -- same false positive as the other tests in this file: asserting on a regex-extracted length from a locally-constructed literal string, no XSS sink involved.
+  assert.equal(nonEmptyInline.length, 1, "a <script data-src=...> with real inline content must still be detected as inline -- 'data-src' is not 'src'");
 });
