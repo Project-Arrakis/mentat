@@ -31,7 +31,6 @@ test("docs/user-guide.md's Command Groups tables match the real, live command tr
   const docByGroup = {};
   for (const match of doc.matchAll(/\/dune ([a-z-]+) ([a-z-]+)/g)) {
     const [, group, sub] = match;
-    if (!(group in realByGroup)) continue; // e.g. a prose mention of an unrelated group name
     (docByGroup[group] ??= new Set()).add(sub);
   }
 
@@ -42,6 +41,16 @@ test("docs/user-guide.md's Command Groups tables match the real, live command tr
     const stale = [...docSubs].filter((s) => !realSubs.has(s)).sort();
     if (missing.length) problems.push(`${group}: doc is missing ${JSON.stringify(missing)}`);
     if (stale.length) problems.push(`${group}: doc mentions ${JSON.stringify(stale)}, which no longer exist in the real command tree`);
+  }
+
+  // Any `/dune <group> <sub>` mention whose <group> isn't a real registered group at all --
+  // e.g. a typo, a renamed group, or a stale reference -- must fail loudly rather than being
+  // silently dropped from validation (see this test's own regression history: it previously
+  // `continue`d past unknown groups entirely, which would let a typoed or stale group name
+  // drift undetected).
+  const unknownGroups = Object.keys(docByGroup).filter((g) => !(g in realByGroup)).sort();
+  if (unknownGroups.length) {
+    problems.push(`doc mentions unknown command group(s) ${JSON.stringify(unknownGroups)}, which don't exist in the real command tree`);
   }
 
   assert.deepEqual(problems, [], `docs/user-guide.md has drifted from the real command tree:\n${problems.join("\n")}`);
