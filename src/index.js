@@ -15,6 +15,7 @@ import { handleGuildCreate, handleGuildDelete } from "./onboarding.js";
 import { startStatsPusher } from "./statsPusher.js";
 import { handleWriteButtonInteraction } from "./writeConfirmation.js";
 import { isEncryptionConfigured, checkSecretFilePermissions } from "./secretsCrypto.js";
+import { proxySharedSecret } from "./proxyAuth.js";
 
 const config = loadConfig();
 const db = config.multiTenant ? createDatabase(config.dbPath) : null;
@@ -72,10 +73,41 @@ if (process.env.ACP_SECRETS_KEY) {
 for (const [envVar, label] of [
   ["ACP_SECRETS_KEY_FILE", "ACP_SECRETS_KEY_FILE"],
   ["ACP_AGE_IDENTITY_FILE", "ACP_AGE_IDENTITY_FILE"],
-  ["ACP_KEK_FILE", "ACP_KEK_FILE"]
+  ["ACP_KEK_FILE", "ACP_KEK_FILE"],
+  ["MENTAT_PROXY_SHARED_SECRET_FILE", "MENTAT_PROXY_SHARED_SECRET_FILE"]
 ]) {
   const path = process.env[envVar];
   if (path) checkSecretFilePermissions(path, label);
+}
+
+// mentat#283 (Security Architect + Cloud Security hat findings, Layer 2
+// audit of PR #280): two loud, non-blocking startup warnings for
+// MENTAT_PROXY_SHARED_SECRET, since a mistake here is either a silent
+// no-op (weak secret) or a real production outage (wrong rollout order),
+// neither of which should first be discovered during an incident.
+{
+  const proxySecret = proxySharedSecret();
+  if (proxySecret) {
+    if (proxySecret.length < 32) {
+      logInfo("security.proxy_shared_secret_too_short", {
+        detail: "MENTAT_PROXY_SHARED_SECRET is set but shorter than 32 characters. " +
+          "mentat-backend.darkdante.org's hostname is discoverable via public Certificate " +
+          "Transparency logs, so a short/guessable secret is brute-forceable once this is the " +
+          "only thing standing between a direct request and the live setup/OAuth/Steam-link " +
+          "endpoints. Generate a real random value, e.g. `openssl rand -hex 32` -- and never " +
+          "paste it into a chat session (see compliance/evidence/incidents/" +
+          "2026-09-06-discord-bot-token-chat-exposure.md for why that matters)."
+      });
+    }
+    logInfo("security.proxy_shared_secret_enforcement_active", {
+      detail: "MENTAT_PROXY_SHARED_SECRET is configured -- every request to the gated routes on " +
+        "this process now requires a matching X-Mentat-Proxy-Secret header. Confirm the SAME " +
+        "value is already set on the mentat-link Pages project BEFORE this deploy reaches " +
+        "production, not after: enabling this here first (backend before client) rejects every " +
+        "legitimate request through the proxy until the client side catches up, which is a real " +
+        "self-inflicted outage, not just a safe no-op."
+    });
+  }
 }
 const adapterClient = new AdapterClient(config, {
   getGuildConfig: db ? (guildId) => {
