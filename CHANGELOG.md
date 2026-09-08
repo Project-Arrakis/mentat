@@ -6,6 +6,9 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
+### Added
+- **`docs-check.yml` CI workflow** (`.github`#3): `link-check` (lychee, works immediately) and `docs-review` (an automated tech-writer-style review of doc changes — accuracy, staleness, clarity, completeness — via the org's shared `reusable-docs-review.yml`; skips cleanly until an `ANTHROPIC_API_KEY`/`CLAUDE_CODE_OAUTH_TOKEN` org secret is configured, see `Project-Arrakis/.github`'s `docs/anthropic-api-key-setup.md`). Triggered only on PRs touching markdown/docs paths.
+
 ### Fixed
 - **`docs/admin-guide.md`/`docs/user-guide.md` never explained that this bot's role configuration and the game console's own role configuration are two separate, independently-checked decisions.** Companion to `dune-awakening-selfhost-docker`#703's L1 design doc and its own `operator-guide.md` rewrite. Added cross-references: an admin-facing note that bot roles only control which commands appear, never whether the console honors a privileged action; an end-user-facing note that a command listed and run but rejected by the console is a separate, console-side configuration issue, not a Discord role problem. Also found and filed separately (issue #286, not fixed here, and corrected after filing — the original finding compared against the wrong file, `src/commands-registry.json`, instead of the real source `src/commands.js`/the live `/api/commands` endpoint): `docs/user-guide.md`'s command tables have drifted from the live registry (a fictional `core` group; the `admin` group is missing `sync-commands` and `roles`).
 
