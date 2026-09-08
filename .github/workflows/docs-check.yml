@@ -15,6 +15,18 @@ jobs:
     uses: Project-Arrakis/.github/.github/workflows/reusable-link-check.yml@main
     with:
       paths: "docs/**/*.md README.md CHANGELOG.md"
+      # docs/changes/IS-0030-pin-github-actions.md and PR-0031-... cite a
+      # specific historical Actions-run URL as compliance evidence, under
+      # this project's pre-rename GitHub identity (yacketrj/
+      # Arrakis-Control-Panel). That repo/org no longer exists under that
+      # slug (renamed to Project-Arrakis/mentat) and GitHub does not
+      # redirect an old owner's specific run-ID URL to the new location, so
+      # this link 404s permanently regardless of the repo's real content --
+      # confirmed directly (curl returns 301 to a page that then 404s).
+      # Excluding rather than editing: the linked run ID is accurate
+      # historical evidence for what it documents, not a live reference
+      # that should point somewhere current.
+      exclude: "yacketrj/Arrakis-Control-Panel/actions/runs"
 
   docs-review:
     permissions:

@@ -1,7 +1,7 @@
 # Admin Guide — Connecting Your Server to the Hosted Bot
 
 This guide walks you through connecting your Dune Awakening server to the
-**hosted** Arrakis Control Panel bot, run and maintained by the ACP team.
+**hosted** Mentat bot (Sahir Venn), run and maintained by the project team.
 The bot side is fully hosted — you do **not** create a Discord
 application, run a Node process, or register slash commands.
 

@@ -1,7 +1,7 @@
 # Setup Portal Guide
 
-This guide walks you through connecting your Discord server to the Arrakis
-Control Panel. The bot side is fully hosted — no bot configuration needed on
+This guide walks you through connecting your Discord server to Mentat
+(Sahir Venn). The bot side is fully hosted — no bot configuration needed on
 your end. You will only need to configure your Dune console via SSH in
 **Step 5** (enabling the Discord adapter).
 
