@@ -6,6 +6,10 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
+### Added
+- **`requireProxySecret()` gate (`src/proxyAuth.js`)** validates a shared secret (`MENTAT_PROXY_SHARED_SECRET`/`_FILE`) against mentat-link's reverse proxy (issue #121) — `mentat-backend.darkdante.org`'s "internal-only, never advertised" posture was obscurity, not access control, since its Tunnel TLS cert is logged to public CT logs. Fail-open until the secret is configured on both sides (a deliberate two-phase rollout, not yet live).
+- **Layer 2 audit hardening for the above** (issue #283, found by a retroactive eight-hats audit): `setupServer.js`'s gate now runs before `express.static()`/CORS (previously an implicit, unreviewed exemption for anything under `public/`); both apps now consistently exempt `/health`; a minimum-secret-length warning and a rollout-order warning are logged loudly at startup; the 403 response now gives an actionable message and, for a browser navigation, a rendered error page instead of a raw JSON blob; `.env.example` documents the variable with generation/rollout-order guidance.
+
 ### Changed
 - **Discord Application identity swapped to the new "Sahir Venn" application** (`client_id` `1516816812006969494` → `1546203607807041697`), executed 2026-09-07 ~02:06 UTC per `docs/design/discord-application-replacement-l1-design-2026-09-06.md`. Bot token rotated, VM `.env` updated, `acp-bot.service` restarted under the new identity, slash commands re-registered. Four public-facing invite-link references (`README.md`, `docs/admin-guide.md`, `docs/quick-start-guide.md`, `docs/installation-guide.md`) updated to the new `client_id` (issue #278) — a fifth reference (`docs/DOMAIN-MIGRATION-ANALYSIS.md`) is accurate historical narrative and intentionally left as-is.
 

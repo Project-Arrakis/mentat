@@ -218,7 +218,7 @@ export function createSteamLinkServer({ config, adapterClient, client, fetchImpl
   // rule for this port, 3101). /health is exempt -- it's polled directly on
   // this port for internal liveness checks, never through the proxy, so it
   // would never carry the header and gating it would just break monitoring.
-  app.use(requireProxySecret({ exemptPaths: ["/health"] }));
+  app.use(requireProxySecret({ exemptPaths: ["/health"], renderError: errorPage }));
 
   const redirectUri = `${config.steamLink.baseUrl}/steam-link/callback`;
 

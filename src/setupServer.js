@@ -162,6 +162,16 @@ export function createSetupServer(config) {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const publicDir = join(__dirname, "..", "public");
 
+  // mentat#283 (Architect hat finding): this gate must run BEFORE
+  // express.static()/the CORS middleware below, not after. Registered
+  // after them, static() and CORS's own OPTIONS short-circuit would both
+  // silently bypass the secret check for anything they matched — an
+  // implicit, unreviewed exemption for the whole `public/` directory that
+  // nothing in exemptPaths documents. Gating first makes the exemption
+  // list (`/api/alerts/relay`, `/health`) the complete, honest picture of
+  // what's exempt, matching steamLinkServer.js's already-correct ordering.
+  app.use(requireProxySecret({ exemptPaths: ["/api/alerts/relay", "/health"], renderError: errorPage }));
+
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   app.use(express.static(publicDir));
@@ -193,8 +203,6 @@ export function createSetupServer(config) {
     }
     next();
   });
-
-  app.use(requireProxySecret({ exemptPaths: ["/api/alerts/relay"] }));
 
   const redirectUri = config.oauthRedirectUri || `${config.baseUrl}/oauth/callback`;
 
