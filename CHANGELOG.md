@@ -6,6 +6,9 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
+### Fixed
+- **`docs/admin-guide.md`/`docs/user-guide.md` never explained that this bot's role configuration and the game console's own role configuration are two separate, independently-checked decisions.** Companion to `dune-awakening-selfhost-docker`#703's L1 design doc and its own `operator-guide.md` rewrite. Added cross-references: an admin-facing note that bot roles only control which commands appear, never whether the console honors a privileged action; an end-user-facing note that a command listed and run but rejected by the console is a separate, console-side configuration issue, not a Discord role problem. Also found and filed separately (issue #286, not fixed here): `docs/user-guide.md`'s command tables have drifted significantly from the live registry (a fictional `core` group, `admin` listing 5 commands where only 1 exists).
+
 ### Added
 - **`requireProxySecret()` gate (`src/proxyAuth.js`)** validates a shared secret (`MENTAT_PROXY_SHARED_SECRET`/`_FILE`) against mentat-link's reverse proxy (issue #121) — `mentat-backend.darkdante.org`'s "internal-only, never advertised" posture was obscurity, not access control, since its Tunnel TLS cert is logged to public CT logs. Fail-open until the secret is configured on both sides (a deliberate two-phase rollout, not yet live).
 - **Layer 2 audit hardening for the above** (issue #283, found by a retroactive eight-hats audit): `setupServer.js`'s gate now runs before `express.static()`/CORS (previously an implicit, unreviewed exemption for anything under `public/`); both apps now consistently exempt `/health`; a minimum-secret-length warning and a rollout-order warning are logged loudly at startup; the 403 response now gives an actionable message and, for a browser navigation, a rendered error page instead of a raw JSON blob; `.env.example` documents the variable with generation/rollout-order guidance.
