@@ -86,6 +86,18 @@ or fill them in later:
 If you only configure one role, members with that role can use any
 command the bot considers allowed; configure both for proper separation.
 
+**Important — these roles only control what commands appear in Discord,
+not whether a privileged action (server restarts, backups, broadcasts)
+actually succeeds.** That decision is always made by your game console
+itself, using the console's *own*, separately-configured role IDs
+(`DISCORD_ADMIN_ROLE_IDS`, etc.) — not the roles you configure here.
+If you never configure roles on the console side, only the real Discord
+server owner can trigger privileged actions, regardless of what's
+configured here. See your console's operator guide (§8, Discord
+integration) to configure matching roles there if you want an Admin or
+Observer role from this step to actually be honored for privileged
+commands, not just appear available.
+
 ---
 
 ## Verify It Works

@@ -283,6 +283,8 @@ Most read-only commands require the **Observer** role. Admin commands require
 the **Admin** role. If you think you should have access, ask your server
 administrator.
 
+**A different failure looks similar but has a different cause:** if a command like `/dune admin broadcast` is listed and runs, but the game console itself rejects the action (not the bot), that's the console's own separate authorization — it's possible for the bot to consider your role sufficient while the console hasn't been configured to recognize it yet. That's a server-owner configuration step on the console side, not something you can fix by asking for a different Discord role.
+
 ## Where to See Status Updates
 
 The bot automatically posts server status updates to a dedicated channel
