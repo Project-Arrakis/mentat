@@ -960,8 +960,12 @@ export function backupPayload(b) { const list = Array.isArray(b?.result?.backups
 function setupPayload(config, interaction) {
   const clientId = process.env.DISCORD_CLIENT_ID || config?.discord?.clientId || "";
   const guildId = interaction?.guildId || "";
+  // permissions=128 (View Audit Log) is required for onboarding.js's
+  // findInviter() to identify who invited the bot via guild.fetchAuditLogs()
+  // -- see issue #281. Without it, every real invite silently degrades to
+  // fallbackNoticeFor() instead of the full setupMessageFor() DM.
   const inviteUrl = clientId
-    ? `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot%20applications.commands`
+    ? `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot%20applications.commands&permissions=128`
     : "*(Client ID not configured — ask the bot host for the invite link)*";
   // #213/A1: in multi-tenant mode the working setup path is the portal,
   // and the onboarding DM's own recovery instruction is "run /dune core

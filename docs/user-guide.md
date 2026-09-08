@@ -35,6 +35,7 @@ Select one, then choose a command from within that group.
 | `/dune core about` | Shows bot version, security info, and connection details |
 | `/dune core ping` | Tests how fast the bot can reach your game server |
 | `/dune core help` | Lists all commands you have permission to use |
+| `/dune core setup` | How to add this bot to your own Discord server |
 
 ### 🌍 `server` — Game Server Health
 
@@ -44,23 +45,21 @@ Select one, then choose a command from within that group.
 | `/dune server status` | Shows a dashboard card with server status, players, maps |
 | `/dune server summary` | Quick text summary of server status |
 | `/dune server readiness` | Checks if the game server is ready for players |
+| `/dune server readiness-detail` | Grouped readiness detail with specific issues |
 | `/dune server services` | Lists all game services and their status |
+| `/dune server services-detail` | Detailed service state with logs |
+| `/dune server maintenance` | Shows the current maintenance note or window (read-only) |
 
 > **Admin Tip:** Add `diagnostic:true` to `/dune server status` or
 > `/dune server readiness` for detailed technical output (admin only).
 
-### 📊 `data` — Game World Data & Player Features
+### 📊 `data` — Game World Data
 
 | Command | What It Does |
 |---------|-------------|
 | `/dune data population` | Shows how many players are online |
 | `/dune data backups` | Lists recent game backups |
 | `/dune data maps` | Shows which game maps are running |
-| `/dune player inventory` | View everything in your character's inventory |
-| `/dune player inventory <search>` | Search for an item in your inventory |
-| `/dune player storage` | View items in your storage containers (owned or guild) |
-| `/dune player storage <scope>` | View storage with scope (owned, guild, or all) |
-| `/dune player find <item-name>` | Search for an item across all your storage containers |
 
 ### 🔗 `player` — Character Linking & Identity
 
@@ -75,6 +74,11 @@ Select one, then choose a command from within that group.
 | `/dune player unlink <character>` | Unlink a character from your Discord |
 | `/dune player faction` | Show your real, in-game faction (read-only, auto-detected) |
 | `/dune player whoami` | Show your linked character info |
+| `/dune player inventory` | View everything in your character's inventory |
+| `/dune player inventory <search>` | Search for an item in your inventory |
+| `/dune player storage` | View items in your storage containers (owned or guild) |
+| `/dune player storage <scope>` | View storage with scope (owned, guild, or all) |
+| `/dune player find <item-name>` | Search for an item across all your storage containers |
 
 **Character Linking Flow:**
 
@@ -125,15 +129,19 @@ of them.
 | `/dune ops soc` | OPS bridge health and request stats |
 | `/dune ops prometheus` | Container CPU, memory, and uptime |
 | `/dune ops dashboard` | All of the above in one summary |
+| `/dune ops announcements` | Recent server and game announcements |
+| `/dune ops alerts` | Currently firing Prometheus/Alertmanager alerts |
 
 ### 🛡️ `admin` — Administration (restricted access)
 
 | Command | Who Can Use | What It Does |
 |---------|------------|-------------|
 | `/dune admin doctor` | Admins | Full system diagnostic across all services |
+| `/dune admin sync-commands` | Admins | Check Core's command catalog for drift against the bot's registry |
 | `/dune admin cooldowns` | Admins | Shows who is rate-limited |
 | `/dune admin latency` | Admins | Adapter request timing history |
 | `/dune admin events` | Admins | Recent server incidents and alerts |
+| `/dune admin roles` | Admins | Show configured admin/player roles, with current Discord role names |
 | `/dune admin broadcast` | Mods+ | Send a message to all in-game players |
 
 ### 🖥️ `infra` — Infrastructure
