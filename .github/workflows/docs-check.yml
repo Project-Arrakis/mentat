@@ -1,0 +1,28 @@
+name: Docs Check
+
+on:
+  pull_request:
+    paths:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  link-check:
+    uses: Project-Arrakis/.github/.github/workflows/reusable-link-check.yml@main
+    with:
+      paths: "docs/**/*.md README.md CHANGELOG.md"
+
+  docs-review:
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: Project-Arrakis/.github/.github/workflows/reusable-docs-review.yml@main
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    with:
+      paths: "docs/**/*.md README.md CHANGELOG.md"
