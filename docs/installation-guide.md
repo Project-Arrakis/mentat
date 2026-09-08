@@ -83,7 +83,7 @@ purpose, not by default.
 
 - **Node.js** 18+ (LTS recommended)
 - **Discord Bot Token** and **Application (Client) ID** (from Discord Developer Portal)
-- A running **Dune Docker Console** with the Discord adapter enabled (see [Discord Setup](discord-setup.md))
+- A running **Dune Docker Console** with the Discord adapter enabled — this is [Discord Setup, Step 6](discord-setup.md#step-6-enable-the-discord-adapter-on-the-console), a *different* step range than Step 1 below (which only covers Steps 1-5); don't skip it just because Step 1 doesn't mention it
 - **Internet connection** for Discord API
 
 ### Step 1: Create Your Discord Application, Invite the Bot, and Set Up Roles
@@ -184,8 +184,8 @@ In Discord, type:
   [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows,
   Mac, or Linux) installs both together with a normal graphical installer,
   no command-line experience needed for the install itself
-- The same `.env` values as Option 2 (get these via [Discord Setup](discord-setup.md) first)
-- A running Dune Docker Console with the Discord adapter enabled
+- The same `.env` values as Option 2 (get these via [Discord Setup](discord-setup.md), Steps 1-5, first)
+- A running Dune Docker Console with the Discord adapter enabled — [Discord Setup, Step 6](discord-setup.md#step-6-enable-the-discord-adapter-on-the-console)
 
 ### Step 1: Build and Run
 
