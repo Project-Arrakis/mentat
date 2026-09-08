@@ -25,14 +25,20 @@
 // build step to dedupe for one file.
 //
 // Purely static, no templated data -- safe to serve as-is either place.
-(function () {
-  var layer = document.getElementById("sandLayer");
+//
+// mentat-link L3 audit finding (2026-09-08, applied to both copies for
+// sync): wrapped in a DOMContentLoaded guard, defense-in-depth against a
+// future template change placing this script tag before #sandLayer exists
+// in the DOM -- not a bug today (renderPage() places the <script> at the
+// end of <body>, after the div), but cheap to guard against either way.
+document.addEventListener("DOMContentLoaded", function () {
+  const layer = document.getElementById("sandLayer");
   if (!layer) return;
-  for (var i = 0; i < 20; i++) {
-    var p = document.createElement("div");
+  for (let i = 0; i < 20; i++) {
+    const p = document.createElement("div");
     p.className = "sand-particle";
-    var size = Math.random() * 4 + 2;
+    const size = Math.random() * 4 + 2;
     p.style.cssText = "width:" + size + "px;height:" + size + "px;top:" + (Math.random() * 100) + "%;left:" + (Math.random() * -10) + "%;animation-duration:" + (Math.random() * 15 + 10) + "s;animation-delay:" + (Math.random() * 10) + "s;";
     layer.appendChild(p);
   }
-})();
+});
