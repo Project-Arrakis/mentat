@@ -50,7 +50,7 @@ Mentat is a **single, hosted bot** — you don't create a Discord application,
 run a process, or register commands. You invite the existing bot and
 connect your console through a web setup portal:
 
-1. [Invite the bot to your server](https://discord.com/oauth2/authorize?client_id=1516816812006969494&scope=bot%20applications.commands&permissions=128) — add the existing hosted bot to your Discord
+1. [Invite the bot to your server](https://discord.com/oauth2/authorize?client_id=1546203607807041697&scope=bot%20applications.commands&permissions=128) — add the existing hosted bot to your Discord
 2. [Complete the setup portal](docs/setup-portal-guide.md) — at <https://mentat-link.darkdante.org/setup>, sign in with Discord and connect your console URL and adapter token
 3. [Set up roles](docs/admin-guide.md#set-up-roles-and-configure-access) — control who can use which commands
 
