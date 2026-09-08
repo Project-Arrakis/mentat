@@ -20,11 +20,13 @@ test("renderPage() output has no inline <script> with content -- only same-origi
   const html = renderPage("Test Page", "<p>body</p>");
   const inlineScriptMatches = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)];
   const nonEmptyInline = inlineScriptMatches.filter((m) => m[1].trim().length > 0);
-  assert.deepEqual(
-    nonEmptyInline.map((m) => m[0]),
-    [],
-    "renderPage() must not emit an inline <script> block with real content -- it's served under a CSP with no 'unsafe-inline', so an inline script would be silently blocked by the browser"
-  );
+  // False positive below: this is a test assertion reading regex-matched substrings out of a
+  // locally-generated HTML string (never rendered, never sent to a browser) to prove NO
+  // inline <script> content exists -- there is no XSS sink here, no DOM write, no external
+  // input. The rule can't distinguish "asserting on extracted text" from "writing extracted
+  // text into a script tag."
+  const nonEmptyScripts = nonEmptyInline.map((m) => m[0]);
+  assert.deepEqual(nonEmptyScripts, [], "renderPage() must not emit an inline <script> block with real content -- it's served under a CSP with no 'unsafe-inline', so an inline script would be silently blocked by the browser"); // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag
 });
 
 test("renderPage() references its sand-particle script via a same-origin src, not inline", () => {
@@ -38,5 +40,7 @@ test("errorPage() output also has no inline <script> with content", () => {
   errorPage(mockRes, 500, "Oops", "Something went wrong.");
   const inlineScriptMatches = [...sentHtml.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)];
   const nonEmptyInline = inlineScriptMatches.filter((m) => m[1].trim().length > 0);
-  assert.deepEqual(nonEmptyInline.map((m) => m[0]), []);
+  // Same false positive as the test above -- see that comment.
+  const nonEmptyScripts = nonEmptyInline.map((m) => m[0]);
+  assert.deepEqual(nonEmptyScripts, []); // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag
 });
