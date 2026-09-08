@@ -26,14 +26,30 @@ Choose based on your needs:
 builds the image locally from this repo's own `Dockerfile`, it does not
 pull a prebuilt one.
 
+### Not sure which to pick?
+
+**If you don't know what Docker or Node.js is, or you just want it working
+in a few minutes — choose Hosted.** It's free, it's what most server
+operators use, and nothing below this section applies to you; skip
+straight to [Option 1](#option-1-hosted-bot-recommended). Self-hosting
+(Options 2/3) is for operators who specifically want their own bot
+identity, their own token, and full control over updates — pick it on
+purpose, not by default.
+
 ## Option 1: Hosted Bot (Recommended)
 
 ### Setup
 
-1. **Invite the bot:**
-   ```
-   https://discord.com/oauth2/authorize?client_id=1546203607807041697&scope=bot%20applications.commands&permissions=128
-   ```
+1. **Invite the bot** — click the link below, or scan the QR code with your
+   phone's camera:
+
+   [**→ Click here to invite Sahir Venn to your server**](https://discord.com/oauth2/authorize?client_id=1546203607807041697&scope=bot%20applications.commands&permissions=128)
+
+   <img src="../assets/qr/invite-hosted.svg" alt="QR code for the Sahir Venn Discord invite link" width="200" height="200">
+
+   (The QR code and the link above go to the exact same place — use
+   whichever is easier. If you're reading this on the same phone you'd
+   scan with, just tap the link instead.)
 
 2. **Open setup portal:**
    ```
@@ -43,7 +59,7 @@ pull a prebuilt one.
 3. **Complete the setup form** — see the [Setup Portal Guide](setup-portal-guide.md)
    for the full walkthrough (Console URL, adapter token, and optional role mapping).
 
-4. **Verify:**
+4. **Verify — in Discord, type:**
    ```
    /dune core ping
    ```
@@ -70,13 +86,24 @@ pull a prebuilt one.
 - A running **Dune Docker Console** with the Discord adapter enabled (see [Discord Setup](discord-setup.md))
 - **Internet connection** for Discord API
 
-### Step 1: Create Discord Application
+### Step 1: Create Your Discord Application, Invite the Bot, and Set Up Roles
 
-1. Visit [Discord Developer Portal](https://discord.com/developers/applications)
-2. Click **New Application**
-3. Go to **Bot** → **Add Bot**
-4. Copy the **TOKEN** (keep this secret!)
-5. Copy the **Application ID** from **General Information**
+Follow **[Discord Setup](discord-setup.md)**, Steps 1 through 5 — it walks
+through creating the application, turning off privileged intents you don't
+need, generating a correct, ready-made invite link (rather than manually
+picking permissions in Discord's own UI, which is easy to get wrong and
+would leave a feature silently degraded — see that guide's own explanation
+of exactly what `permissions=128` does and why), and creating the Discord
+roles that control who can use which commands. By the end of those 5 steps
+you'll have:
+
+- Your bot's **Token** (from Discord Setup Step 2)
+- Your **Application ID** (from Discord Setup Step 3)
+- The bot already invited to your server (from Discord Setup Step 4)
+- **Role IDs** for whichever roles you want to grant access (from Discord
+  Setup Step 5 — you'll need these for Step 3 below)
+
+Come back here once you have those.
 
 ### Step 2: Clone Repository
 
@@ -103,26 +130,23 @@ DISCORD_OBSERVER_ROLE_IDS=your_player_role_id
 DISCORD_ADMIN_ROLE_IDS=your_admin_role_id
 ```
 
+`DISCORD_RBAC_MODE=restricted` means only members holding the roles listed
+below can use restricted commands — get the Role IDs to paste in from
+[Discord Setup, Step 5](discord-setup.md#step-5-set-up-roles-in-discord).
+
 See [Configuration Reference](configuration.md) for every setting, and
-[docs/env-var-compatibility.md](env-var-compatibility.md) for the
+[Environment Variable Compatibility](env-var-compatibility.md) for the
 `MENTAT_*`/`SENTINEL_*`/`ACP_*` canonical/legacy prefix scheme used by
 several optional settings (base URL, Steam-link port, dashboard URLs).
 
-### Step 4: Add Bot to Your Server
-
-1. Go to Discord Developer Portal → Your App → OAuth2 → URL Generator
-2. Select scopes: `bot`, `applications.commands`
-3. Select permissions: `Send Messages`, `Embed Links`, `Use Slash Commands`
-4. Copy the generated URL
-5. Visit the URL and select your server
-
-### Step 5: Run the Bot
+### Step 4: Run the Bot
 
 ```bash
 npm start
 ```
 
-Or use a process manager:
+Or use a process manager (an alternative to the systemd approach later in
+this guide — pick one, not both):
 
 ```bash
 npm install -g pm2
@@ -130,9 +154,24 @@ pm2 start "npm start" --name mentat-bot
 pm2 save
 ```
 
+### Step 5: Register Slash Commands
+
+**Don't skip this — without it, `/dune` commands won't exist in Discord at
+all, even with the bot running and online.** With the bot's `.env` filled
+in from Step 3, run once:
+
+```bash
+npm run register
+```
+
+Commands appear **instantly** if you set `DISCORD_GUILD_ID` in `.env`.
+Without it, they register globally and can take up to an hour to appear —
+see [Discord Setup, Step 8](discord-setup.md#step-8-register-slash-commands)
+for more detail.
+
 ### Step 6: Verify
 
-In Discord:
+In Discord, type:
 ```
 /dune core ping
 ```
@@ -141,8 +180,11 @@ In Discord:
 
 ### Prerequisites
 
-- Docker & Docker Compose
-- The same `.env` values as Option 2
+- Docker & Docker Compose — if you don't already have these installed,
+  [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows,
+  Mac, or Linux) installs both together with a normal graphical installer,
+  no command-line experience needed for the install itself
+- The same `.env` values as Option 2 (get these via [Discord Setup](discord-setup.md) first)
 - A running Dune Docker Console with the Discord adapter enabled
 
 ### Step 1: Build and Run
@@ -165,13 +207,39 @@ and a real healthcheck script) — see `docker-compose.example.yml` in this
 repo for the exact, current definition rather than a copy here that could
 drift out of sync.
 
-### Step 2: Verify
+### Step 2: Register Slash Commands
+
+**Don't skip this — without it, `/dune` commands won't exist in Discord at
+all, even with the container running and healthy.** Run once, against the
+running container:
+
+```bash
+docker compose exec dune-discord-bot node scripts/register-commands.js
+```
+
+(Not `npm run register` here — the final container image deliberately
+removes `npm` itself to reduce attack surface, so only the plain `node`
+form works inside it. `npm run register` is exactly right for Option 2
+above, where the bot runs directly on your own host with `npm` installed.)
+
+Commands appear **instantly** if you set `DISCORD_GUILD_ID` in `.env`.
+Without it, they register globally and can take up to an hour to appear —
+see [Discord Setup, Step 8](discord-setup.md#step-8-register-slash-commands)
+for more detail.
+
+### Step 3: Verify
 
 ```bash
 docker compose logs -f
 ```
 
 ## Securing Your Deployment
+
+**Using the Hosted Bot?** The "Discord Bot Token Security" section below
+doesn't apply to you — you never create or hold a bot token; that belongs
+to the Mentat/Sahir Venn application, not you. "Console Adapter
+Credentials" below it does still apply, since you enter an adapter token
+into the setup portal either way.
 
 ### Discord Bot Token Security
 
@@ -217,6 +285,15 @@ Substitute your own install path and username throughout when adapting
 it for your own host — the paths in the template are not a requirement,
 just what this project's own hosted instance happens to use.
 
+**Why the filename changes from `acp-bot.service` to `mentat-bot.service`
+below:** that's intentional, not a typo. The source template in this repo
+keeps its old `acp-bot.service` name (see above), but the `cp` command
+below renames your copy to `mentat-bot.service` so the systemd service on
+*your* host is named after the current product, not its old one. Once
+copied, every command after that point (`systemctl enable/start/status`,
+`journalctl -u`) refers to your renamed copy, `mentat-bot` — not the
+source file.
+
 ```bash
 sudo cp systemd/acp-bot.service /etc/systemd/system/mentat-bot.service
 sudo nano /etc/systemd/system/mentat-bot.service   # adjust User/WorkingDirectory/paths for your host
@@ -261,7 +338,19 @@ docker compose up -d --build
 
 ## Troubleshooting Installation
 
+### Slash Commands Don't Show Up At All
+
+You likely haven't registered them yet — this is a separate step from
+starting the bot. See Step 5 (Node.js) / Step 2 (Docker) above:
+`npm run register` or `docker compose exec dune-discord-bot node
+scripts/register-commands.js`. Without `DISCORD_GUILD_ID` set, global
+registration can also take up to an hour to appear — that's normal, not
+a sign something's broken.
+
 ### Bot Doesn't Respond
+
+(This means the bot itself is unreachable/offline — different from the
+commands not existing at all, above.)
 
 1. Check bot is online in Discord
 2. Verify `DISCORD_BOT_TOKEN`/`DISCORD_CLIENT_ID` are correct in `.env`

@@ -16,6 +16,22 @@
 | `bot-banner-docs.png` | 1.9 MB | README, docs, RFC, roadmap |
 | `bot-banner.png` | 2.0 MB | Original source (1672×941) |
 
+## QR Codes
+
+| File | Use |
+|------|-----|
+| `qr/invite-hosted.svg` | Scannable QR for the hosted bot's Discord invite link — embedded in `docs/installation-guide.md` and (as an identical copy) `mentat-link`'s homepage |
+
+**Regenerating:** run `scripts/generate-invite-qr.sh` — it also decodes its
+own output back to plaintext and fails loudly if the result doesn't match
+the intended URL exactly, so a bad regeneration can't silently ship. Only
+re-run this if the hosted invite URL's `client_id`, `scope`, or
+`permissions` value ever changes (see `src/commands.js`'s `setupPayload()`
+for the current, real invite URL this asset must match). If you do
+regenerate it, also copy the new file to `mentat-link`'s own `qr/`
+directory to keep both copies in sync (same convention as
+`public/js/sand.js`).
+
 ## Updating
 
 ### Discord Bot Avatar
