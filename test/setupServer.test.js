@@ -805,3 +805,21 @@ test("wrong-secret requests against a real guild_id never exhaust that guild's o
     assert.equal(real.status, 200, "the real operator's legitimate push must succeed -- an attacker's wrong-secret requests against the same guild_id must never consume that guild's own rate-limit budget");
   });
 });
+
+// mentat-link#127: renderPage()'s sand-particle script was externalized
+// from an inline <script> block to a same-origin <script src="/js/sand.js">
+// reference (CSP compatibility, see setupLayout.test.js for that half of
+// this fix). This is the other half: prove the real, running setup server
+// actually serves that exact path with real content via express.static(),
+// not just that the HTML references it -- a broken/missing static file
+// would otherwise only surface as a silent, browser-console-only 404 for
+// real users, never failing any existing test.
+test("GET /js/sand.js is served by the real running setup server with real script content", async () => {
+  await withApp(async (base) => {
+    const res = await fetch(`${base}/js/sand.js`);
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.match(body, /sandLayer/, "must serve the real sand-particle script, not an empty/placeholder file");
+    assert.match(res.headers.get("content-type") || "", /javascript/, "must be served with a JS content type, not e.g. text/plain");
+  });
+});
