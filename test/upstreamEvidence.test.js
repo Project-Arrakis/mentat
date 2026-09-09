@@ -2,24 +2,37 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-// Baseline advanced to upstream v1.4.8 (release commit
-// b53765c2070c12d7ebb4adc8103f26c42745fa7c, released 2026-09-03) on
-// 2026-09-06. This re-verification (issue #178) directly diffed
-// DISCORD_ADAPTER_ROUTES, the opsRoutes dispatch table, and every route
-// handler in routes.js between the prior (v1.3.87) baseline and current
-// upstream (~1,139 commits of drift) and found the entire Discord-adapter
-// route surface UNCHANGED -- see docs/adapter-contract.md's 2026-09-06
-// entry for the full diff-based re-verification. It is NOT a
-// route-classification change, only an evidence/pin refresh. The prior
-// v1.3.87 evidence (2026-08-16) itself corrected two real drift issues
-// the original v1.3.79 evidence had missed: a false LIVE claim for the
-// players/accounts/* routes (never existed in any tagged release) and a
-// real regression (ops-dashboard: live at v1.3.79, 404s at v1.3.87,
-// still absent at v1.4.8). See #172 for that full audit.
+// Baseline advanced to upstream v1.4.12 (release commit
+// 1afdb95766eba92f4c3ef4ed3965d21990aab431, released 2026-09-08) on
+// 2026-09-08 (issue #267). Directly diffed DISCORD_ADAPTER_ROUTES, the
+// opsRoutes dispatch table, and every route handler in routes.js between
+// v1.4.8 and v1.4.12 (23 commits, `gh api .../compare/v1.4.8...v1.4.12`):
+// zero files under console/api/src/integrations/discord/ touched in that
+// range -- the game-data route classification remains accurate as-is.
+//
+// FOLLOW-UP (issue #267): #267 correctly flagged that no evidence existed
+// the PRIOR v1.4.8 re-classification (dated 2026-09-06) was actually
+// re-run at the code level, only cited in a doc header. Independently
+// re-checked that claim directly this session by diffing v1.3.87...v1.4.8
+// (not just v1.4.8...v1.4.12): adapter.js/routes.js/policy.js/
+// opsProvider.js were genuinely modified in that range, and a new
+// commandCatalog.js file (498 lines) was added, shipping
+// `GET /api/integrations/discord/catalog` (Phase 1 of
+// docs/rfc-command-discovery.md, upstream PR #171). This is NOT a gap in
+// the prior evidence, though: that route is deliberately excluded from
+// DISCORD_LIVE_ADAPTER_ROUTES (metadata about the live routes, not itself
+// a data route -- see adapter.js's own comment on the CATALOG key), so it
+// never affected this repo's LIVE_ROUTES/PLANNED_ROUTES/UNMERGED_ROUTES/
+// MISSING_ROUTES classification -- and this repo's own catalogTransform.js/
+// config.js/adapterClient.js already track and consume it separately
+// (Phase 3 command discovery, #181), predating this re-verification. The
+// v1.4.8 evidence's "entire route surface unchanged" phrasing was
+// imprecise (something *did* change) but not substantively wrong for what
+// it actually classifies (game-data routes).
 const currentEvidence = Object.freeze({
-  commit: "b53765c2070c12d7ebb4adc8103f26c42745fa7c",
-  tag: "v1.4.8",
-  date: "September 6, 2026"
+  commit: "1afdb95766eba92f4c3ef4ed3965d21990aab431",
+  tag: "v1.4.12",
+  date: "September 8, 2026"
 });
 
 const livingEvidenceDocs = Object.freeze([
@@ -44,7 +57,9 @@ const supersededEvidenceTerms = Object.freeze([
   "ac8f086",
   "v1.3.79",
   "b4f8fe4c5a36e2ac2f81deb4c9fddde087c77d06",
-  "v1.3.87"
+  "v1.3.87",
+  "b53765c2070c12d7ebb4adc8103f26c42745fa7c",
+  "v1.4.8"
 ]);
 
 test("living upstream evidence docs name the current baseline", async () => {

@@ -5,22 +5,46 @@
 The bot follows the Discord adapter in
 [Red-Blink/dune-awakening-selfhost-docker](https://github.com/Red-Blink/dune-awakening-selfhost-docker).
 
-Evidence checked on September 6, 2026 (re-verified; previous evidence August 16, 2026):
+Evidence checked on September 8, 2026 (re-verified; previous evidence September 6, 2026):
 
 | Source | Value |
 | --- | --- |
 | Upstream reference clone | Clean local clone of upstream `main`, kept outside this repository. Recommended sibling path: `../dune-awakening-selfhost-docker-upstream-main` |
 | Upstream commit | `741f54577007c3f1435131d22c5b25fb31bb1a97` |
 | Upstream file | `console/api/src/integrations/discord/adapter.js` and `routes.js` |
-| Latest published upstream release | `v1.4.8` (`b53765c2070c12d7ebb4adc8103f26c42745fa7c`, 2026-09-03) |
-| Latest upstream release candidate observed | None newer than `v1.4.8` |
+| Latest published upstream release | `v1.4.12` (`1afdb95766eba92f4c3ef4ed3965d21990aab431`, 2026-09-08) |
+| Latest upstream release candidate observed | None newer than `v1.4.12` |
 
-**2026-09-06 re-verification result: no route-classification changes.** Direct
-diff of `DISCORD_ADAPTER_ROUTES`, the `opsRoutes` dispatch table, and every
-route handler in `routes.js` between the 2026-08-16 baseline and current
-upstream (`v1.4.8`, ~1,139 commits of drift) found the entire
-Discord-adapter route surface unchanged: no new route constants, no
-route added to or removed from the 7-entry `opsRoutes` table (still exactly
+**2026-09-08 re-verification result: no route-classification changes since
+the September 6, 2026 evidence.** Direct diff (`gh api
+repos/Red-Blink/dune-awakening-selfhost-docker/compare/<prior-tag>...<current-tag>`,
+using the two tags in the table above) of every file under
+`console/api/src/integrations/discord/` between the two -- 23 commits --
+shows zero files touched: `DISCORD_ADAPTER_ROUTES`, the `opsRoutes`
+dispatch table, and every route handler are byte-for-byte unchanged in
+this range.
+
+**Follow-up on issue #267:** #267 correctly flagged that the September 6
+evidence cited a route-by-route diff against the August 16, 2026 baseline
+with no evidence that diff was actually re-run at the code level, only
+that a doc header cited the newer tag. Independently re-checked this
+session by diffing directly between the August 16 baseline and the
+September 3 release (not just the narrower September-to-September range
+above): `adapter.js`, `routes.js`, `policy.js`, and `opsProvider.js` were
+genuinely modified in that range, and a new `commandCatalog.js` file (498
+lines) was added, shipping `GET /api/integrations/discord/catalog`
+(Phase 1 of `docs/rfc-command-discovery.md`, upstream PR #171). This is
+real drift, but not a gap in the classification below: that route is
+deliberately excluded from `DISCORD_LIVE_ADAPTER_ROUTES` (it's metadata
+*about* the live routes, not itself a data route -- see `adapter.js`'s
+own comment on the `CATALOG` key), and this repo's own
+`catalogTransform.js`/`config.js`/`adapterClient.js` already track and
+consume it separately (Phase 3 command discovery, #181), predating this
+re-verification. The September 6 evidence's "entire route surface
+unchanged" phrasing was imprecise (something did change) but not
+substantively wrong for what it actually classifies here: no route added
+to or removed from the 7-entry `opsRoutes`
+table (still exactly
 activity/combat/resources/economy/inventory/soc/prometheus -- no
 `OPS_LOCATION`/`OPS_DASHBOARD`), and the `players/accounts/*`,
 `player-links-start`, `guild-grants/*`, and `player-inventory-v2` families
@@ -28,11 +52,9 @@ are still entirely absent upstream (confirmed via `git grep`; the
 `multiAccountLinkProvider.js` file backing the former still doesn't exist
 upstream at all). `src/adapterClient.js`'s `LIVE_ROUTES`/`PLANNED_ROUTES`/
 `UNMERGED_ROUTES`/`MISSING_ROUTES` classification from the 2026-08-16 audit
-remains accurate as-is -- this refresh only advances the pin/evidence date,
-it does not change any route's classification. Also checked: upstream's
-command-catalog `CATALOG_VERSION` is still `2`, matching
-`src/catalogTransform.js`'s already-shipped v2 handling (fixed 2026-08-20)
--- no drift there either.
+remains accurate as-is. Also checked: upstream's command-catalog
+`CATALOG_VERSION` is still `2`, matching `src/catalogTransform.js`'s
+already-shipped v2 handling (fixed 2026-08-20) -- no drift there either.
 
 The adapter contract was included in the upstream release reviewed on
 2026-08-16 (see that date's own evidence, since superseded above by the
