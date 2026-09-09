@@ -709,7 +709,17 @@ export function createSetupServer(config) {
   // token" from "token valid but wrong guild" to the caller.
   app.post("/api/consoles/register", async (req, res) => {
     try {
-      const { guildId, discordAccessToken, consoleUrl, adapterToken } = req.body;
+      // Fix-round-1 Important #1: req.body is `undefined`, not `{}`, for any
+      // POST whose Content-Type isn't application/json (missing header,
+      // text/plain, etc) under this express.json() setup -- an unguarded
+      // destructure here threw a 500 BEFORE verifyAndRegisterConsole (and
+      // therefore recordGlobalConsoleRegistrationAttempt) ever ran, making
+      // this entire request class invisible to the endpoint's global
+      // rate-limit ceiling. `|| {}` matches the existing precedent at
+      // `/api/stats/push` (`req.body?.guildId` / `req.body || {}` above) and
+      // ensures a malformed-body request still falls through to the normal
+      // validation/rate-limit path instead of short-circuiting past it.
+      const { guildId, discordAccessToken, consoleUrl, adapterToken } = req.body || {};
       const result = await verifyAndRegisterConsole(db, { guildId, discordAccessToken, consoleUrl, adapterToken });
       if (!result.ok) {
         const status = result.reason === "rate_limited" ? 429 : result.reason === "discord_unreachable" ? 502 : 403;

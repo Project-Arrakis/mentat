@@ -68,26 +68,32 @@ test("GET /health is unaffected by the new root route", async () => {
 });
 
 // ─── mentat#316: /api/consoles/register is exempted from requireProxySecret
-// (Task 11 builds the route itself; this task only wires the exemption and
-// its rate limiter). These tests exercise the REAL wiring in
+// (Task 10 wired the exemption and its rate limiter; Task 11 has since
+// built the real route). These tests exercise the REAL wiring in
 // createSetupServer -- the literal exemptPaths array baked into the
 // app.use(requireProxySecret(...)) call above -- not just the generic
 // requireProxySecret() mechanism in isolation (see proxyAuth.test.js for
 // that unit-level coverage). Before the exemptPaths entry was added, a
 // request here with no header (and a secret configured) was rejected by
-// the middleware with 403; the route itself doesn't exist yet (Task 11),
-// so a 404 after this fix -- not a 403 -- is what proves the exemption is
-// real and wired all the way into the actual running app. ────────────────
+// the middleware with 403.
+//
+// Fix-round-1 correction: this test originally inferred the exemption from
+// status code alone (expecting a 404, since Task 11's route didn't exist
+// yet). Now that Task 11's route is real, a malformed/empty POST body can
+// ALSO legitimately get a 403 straight from verifyAndRegisterConsole's own
+// validation -- so status code alone can no longer distinguish "blocked by
+// the proxy-secret gate" from "reached the real route and got validated."
+// Assert on the response BODY instead: requireProxySecret's own rejection
+// always has `error: "Forbidden"` (see proxyAuth.js); the real route's
+// rejection never does. ──────────────────────────────────────────────────
 
-test("POST /api/consoles/register is exempted from the proxy-secret gate (no 403 with no header)", async () => {
+test("POST /api/consoles/register is exempted from the proxy-secret gate (no 403 from the gate itself)", async () => {
   process.env.MENTAT_PROXY_SHARED_SECRET = "a-real-secret-that-is-at-least-32-chars-long";
   try {
     await withApp(async (base) => {
       const res = await fetch(`${base}/api/consoles/register`, { method: "POST" });
-      // The route itself is built in Task 11 -- a 404 here (route not
-      // found) rather than a 403 (blocked by the gate) is exactly what
-      // proves this request got PAST requireProxySecret.
-      assert.notEqual(res.status, 403, "requireProxySecret must not block this exempted path even with no X-Mentat-Proxy-Secret header");
+      const body = await res.json();
+      assert.notEqual(body.error, "Forbidden", "requireProxySecret must not block this exempted path even with no X-Mentat-Proxy-Secret header");
     });
   } finally {
     delete process.env.MENTAT_PROXY_SHARED_SECRET;

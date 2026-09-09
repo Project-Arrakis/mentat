@@ -11,20 +11,46 @@ import { logInfo, logError } from "./logger.js";
 
 const SNOWFLAKE_PATTERN = /^\d{17,19}$/;
 
-async function fetchOwnedGuildIds(accessToken, fetchImpl) {
-  const response = await fetchImpl("https://discord.com/api/v10/users/@me/guilds", {
+// Fix-round-1 Important #3: a degraded/hung Discord would otherwise pin
+// this handler open indefinitely -- combined with the 120/min global
+// ceiling, new hung requests get admitted every minute with no bound on
+// how many stay open concurrently. Matches src/adapterClient.js's own
+// AbortController + setTimeout pattern (its `request()` method).
+const DISCORD_FETCH_TIMEOUT_MS = 10000;
+
+async function fetchWithTimeout(fetchImpl, url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// fetchOwnedGuilds: returns { id, name } pairs, not bare ids -- Fix-round-1
+// should-fix finding: the previous bare-id version forced this file to
+// hardcode guildName: "Unknown" on every registration, unconditionally
+// clobbering a real name /setup/register may have already resolved for
+// the same guild. Discord's own /users/@me/guilds response already
+// includes each guild's real name, so no second API call is needed to
+// get it right.
+async function fetchOwnedGuilds(accessToken, fetchImpl, timeoutMs) {
+  const response = await fetchWithTimeout(fetchImpl, "https://discord.com/api/v10/users/@me/guilds", {
     headers: { Authorization: `Bearer ${accessToken}` }
-  });
+  }, timeoutMs);
   if (!response.ok) return null;
   const guilds = await response.json();
   if (!Array.isArray(guilds)) return null;
-  return guilds.filter((g) => g && g.owner === true).map((g) => String(g.id));
+  return guilds
+    .filter((g) => g && g.owner === true)
+    .map((g) => ({ id: String(g.id), name: (typeof g.name === "string" && g.name.trim()) || "Unknown" }));
 }
 
-async function fetchDiscordUserId(accessToken, fetchImpl) {
-  const response = await fetchImpl("https://discord.com/api/v10/users/@me", {
+async function fetchDiscordUserId(accessToken, fetchImpl, timeoutMs) {
+  const response = await fetchWithTimeout(fetchImpl, "https://discord.com/api/v10/users/@me", {
     headers: { Authorization: `Bearer ${accessToken}` }
-  });
+  }, timeoutMs);
   if (!response.ok) return null;
   const user = await response.json();
   return String(user?.id || "") || null;
@@ -35,7 +61,7 @@ async function fetchDiscordUserId(accessToken, fetchImpl) {
 // -- the route handler translates `reason` into the specific, deliberately-
 // vague-on-the-ambiguous-case error copy the design calls for; this
 // function itself never needs to know about HTTP status codes.
-export async function verifyAndRegisterConsole(db, { guildId, discordAccessToken, consoleUrl, adapterToken }, { fetchImpl = globalThis.fetch } = {}) {
+export async function verifyAndRegisterConsole(db, { guildId, discordAccessToken, consoleUrl, adapterToken }, { fetchImpl = globalThis.fetch, timeoutMs = DISCORD_FETCH_TIMEOUT_MS } = {}) {
   const globalCheck = recordGlobalConsoleRegistrationAttempt();
   if (!globalCheck.allowed) return { ok: false, reason: "rate_limited" };
 
@@ -55,18 +81,18 @@ export async function verifyAndRegisterConsole(db, { guildId, discordAccessToken
     return { ok: false, reason: "missing_adapter_token" };
   }
 
-  let ownedGuildIds;
+  let ownedGuilds;
   let discordUserId;
   try {
-    [ownedGuildIds, discordUserId] = await Promise.all([
-      fetchOwnedGuildIds(discordAccessToken, fetchImpl),
-      fetchDiscordUserId(discordAccessToken, fetchImpl)
+    [ownedGuilds, discordUserId] = await Promise.all([
+      fetchOwnedGuilds(discordAccessToken, fetchImpl, timeoutMs),
+      fetchDiscordUserId(discordAccessToken, fetchImpl, timeoutMs)
     ]);
   } catch (err) {
     logError("console_registration.discord_unreachable", err, { guildId });
     return { ok: false, reason: "discord_unreachable" };
   }
-  if (!ownedGuildIds || !discordUserId) {
+  if (!ownedGuilds || !discordUserId) {
     return { ok: false, reason: "invalid_token" };
   }
 
@@ -79,14 +105,20 @@ export async function verifyAndRegisterConsole(db, { guildId, discordAccessToken
 
   // THE load-bearing check: the submitted guildId must be one the token's
   // own owner genuinely owns -- never trust the request body's claim alone.
-  if (!ownedGuildIds.includes(guildId)) {
+  const matchedGuild = ownedGuilds.find((g) => g.id === guildId);
+  if (!matchedGuild) {
     logInfo("console_registration.guild_ownership_mismatch", { guildId, discordUserId });
     return { ok: false, reason: "guild_not_owned" };
   }
 
   upsertGuild(db, {
     guildId,
-    guildName: "Unknown", // resolved lazily elsewhere if needed; not worth a second Discord call here since fetchOwnedGuildIds already confirms membership+ownership
+    // Fix-round-1 should-fix: use the real name Discord's own
+    // /users/@me/guilds response already carries for this guild, rather
+    // than unconditionally hardcoding "Unknown" -- the previous version
+    // clobbered a real name /setup/register may have already resolved
+    // for this same guild on an earlier registration.
+    guildName: matchedGuild.name,
     consoleUrl,
     adapterToken,
     status: "active"
