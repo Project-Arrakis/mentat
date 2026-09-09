@@ -435,6 +435,22 @@ function decryptColumn(db, tableName, rowKey, columnName, stored) {
 // getGuild() transparently decrypts; every existing caller (index.js,
 // onboarding.js) continues to receive a plain adapterToken string exactly
 // as before.
+// code-review high (hosted-bot OAuth registration, mentat#316): the new
+// per-command "is this guild registered" gate in commands.js only ever
+// needs `status`, but was calling getGuild() -- which unconditionally
+// decrypts adapter_token and throws on a decrypt failure (e.g. mid key
+// rotation, see upsertGuild()'s own comment on that below) -- for every
+// single command dispatch, not just adapter-invoking ones. That widened a
+// decrypt failure's blast radius from "adapter-dependent commands only" to
+// "every command in the guild, including core:about/core:help", with no
+// user-facing reply (the failure surfaces only as index.js's generic,
+// reply-less interaction_failed log). This lightweight query never touches
+// the encrypted column, so it can't fail for that reason.
+export function getGuildStatus(db, guildId) {
+  const row = db.prepare("SELECT status FROM guilds WHERE guild_id = ?").get(guildId);
+  return row ? row.status : undefined;
+}
+
 export function getGuild(db, guildId) {
   const row = db.prepare("SELECT * FROM guilds WHERE guild_id = ?").get(guildId);
   if (!row) return row;

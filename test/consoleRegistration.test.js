@@ -178,6 +178,34 @@ test("POST /api/consoles/register with Content-Type: application/json and a malf
   });
 });
 
+// code-review high found a second body-parsing failure mode this handler's
+// original `err.type === "entity.parse.failed"` check missed: an oversized
+// body is raised by raw-body as `entity.too.large`, not `entity.parse.failed`,
+// so it fell through to next(err) uncounted -- the exact same rate-limit-
+// bypass consequence as the malformed-JSON case above, just a different
+// trigger. express.json() here uses its default 100kb limit (no explicit
+// `limit` option is configured), so a >100kb body reliably exceeds it.
+test("POST /api/consoles/register with an oversized body (over express.json()'s 100kb limit) returns 400 (not passed through uncounted), and still counts toward the global rate limit", async () => {
+  resetConsoleRegistrationRateLimiterForTests({ globalMax: 2, globalWindow: 60_000, globalBlock: 60_000 });
+  await withRegistrationApp(async (base) => {
+    const oversizedBody = JSON.stringify({ guildId: "1".repeat(150_000) });
+    const first = await fetch(`${base}/api/consoles/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: oversizedBody
+    });
+    assert.equal(first.status, 400, "an oversized body must fail with 400, not crash or pass through unhandled");
+
+    const second = await fetch(`${base}/api/consoles/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ guildId: "111111111111111111" })
+    });
+    assert.equal(second.status, 429, "the first (oversized-body) request must have incremented the global rate-limit bucket");
+    assert.equal(second.headers.get("retry-after"), "60");
+  });
+});
+
 test("POST /api/consoles/register with Content-Type: application/json and a malformed body itself returns 429 (with Retry-After) once the global bucket is already exhausted, rather than a bare 400", async () => {
   resetConsoleRegistrationRateLimiterForTests({ globalMax: 2, globalWindow: 60_000, globalBlock: 60_000 });
   await withRegistrationApp(async (base) => {

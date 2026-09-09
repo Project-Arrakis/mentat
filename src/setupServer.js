@@ -841,16 +841,23 @@ export function createSetupServer(config) {
   // verifyAndRegisterConsole()/recordGlobalConsoleRegistrationAttempt() --
   // ever runs. That request class was previously invisible to this
   // endpoint's global rate-limit ceiling, exactly like the missing-
-  // Content-Type case fix-round-1 already fixed. Scoped to exactly this
-  // one route by checking req.path: every other route's JSON-parse-error
-  // handling (including Express's own default stack-trace-leaking error
-  // page, tracked separately as mentat#318) is deliberately left
-  // untouched -- this is not a general app-wide error-handling change.
+  // Content-Type case fix-round-1 already fixed. A /code-review high pass
+  // found this handler's original check (matching only `entity.parse.failed`)
+  // missed a second body-parser failure mode with the exact same
+  // rate-limit-bypass consequence: an oversized body (over express.json()'s
+  // default 100kb limit) is raised by raw-body as `entity.too.large`, not
+  // `entity.parse.failed` -- now covered by the same handler. Scoped to
+  // exactly this one route by checking req.path: every other route's
+  // body-parsing-error handling (including Express's own default
+  // stack-trace-leaking error page, tracked separately as mentat#318) is
+  // deliberately left untouched -- this is not a general app-wide
+  // error-handling change.
   // Registered last so Express's error-dispatch (which walks forward
   // through the middleware stack from wherever `next(err)` was called)
   // finds it after express.json() near the top of this function.
   app.use((err, req, res, next) => {
-    if (err && err.type === "entity.parse.failed" && req.path === "/api/consoles/register") {
+    const isBodyParsingFailure = err && (err.type === "entity.parse.failed" || err.type === "entity.too.large");
+    if (isBodyParsingFailure && req.path === "/api/consoles/register") {
       const result = recordGlobalConsoleRegistrationAttempt();
       if (!result.allowed) {
         res.set("Retry-After", String(result.retryAfterSeconds));

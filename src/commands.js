@@ -18,7 +18,7 @@ import { writesEnabled, canWrite, writeRoleIds } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES, PLANNED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
-import { getGuild, getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
+import { getGuildStatus, getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
 import { multiTenantActorTier, tierAtLeast, resolveGuildOwnerId, isInteractionGuildOwner } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
@@ -242,8 +242,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
   // already know it exists -- blocking core:setup here entirely would
   // still remove the one working recovery command, same as before.
   if (config.multiTenant && db && guildId && !CONSOLE_REGISTRATION_EXEMPT_COMMANDS.has(key)) {
-    const guildRow = getGuild(db, guildId);
-    if (guildRow?.status !== "active") {
+    const guildStatus = getGuildStatus(db, guildId);
+    if (guildStatus !== "active") {
       // Task 12 fix-round-2 (Layer 3 integration review, mentat I2): a guild
       // whose row has status "suspended" (set by onboarding.js's
       // handleGuildDelete when the bot is kicked) is a factually different
@@ -259,7 +259,7 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       // CONSOLE_REGISTRATION_EXEMPT_COMMANDS above) so an operator who
       // doesn't want the in-console flow has a pointer to a working path
       // directly from this reply.
-      const content = guildRow?.status === "suspended"
+      const content = guildStatus === "suspended"
         ? "This server was previously connected but is currently disconnected. Reconnect from your console's Settings → Discord Bot section by clicking \"Connect to hosted bot\" again. You can also run `/dune core setup` for the manual setup link."
         : "This server isn't connected to a console yet. A server admin should go to their Dune Docker console's Settings → Discord Bot page and click \"Connect to hosted bot.\" You can also run `/dune core setup` for the manual setup link.";
       await interaction.reply({ content, ephemeral: true });
