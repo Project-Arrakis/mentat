@@ -233,21 +233,6 @@ const SHARED_CSS = `
   }
 `;
 
-function sandScript() {
-  return `
-    (function() {
-      var layer = document.getElementById('sandLayer');
-      if (!layer) return;
-      for (var i = 0; i < 20; i++) {
-        var p = document.createElement('div');
-        p.className = 'sand-particle';
-        var size = Math.random() * 4 + 2;
-        p.style.cssText = 'width:' + size + 'px;height:' + size + 'px;top:' + (Math.random() * 100) + '%;left:' + (Math.random() * -10) + '%;animation-duration:' + (Math.random() * 15 + 10) + 's;animation-delay:' + (Math.random() * 10) + 's;';
-        layer.appendChild(p);
-      }
-    })();`;
-}
-
 export function renderPage(title, body, opts = {}) {
   const center = opts.center ? " page--center" : "";
   const hero = opts.hero
@@ -281,7 +266,7 @@ export function renderPage(title, body, opts = {}) {
     ${hero}${heading}${subtitle}
     ${body}
   </div>
-  <script>${sandScript()}</script>
+  <script src="/js/sand.js"></script>
 </body>
 </html>`;
 }

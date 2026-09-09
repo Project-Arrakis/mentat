@@ -245,6 +245,30 @@ test("executeDuneCommand handles core:about without calling the adapter", async 
   assert.ok(edited?.embeds?.[0]?.data?.title, "about embed has title");
 });
 
+test("executeDuneCommand's core:setup generates an invite URL with permissions=128 (issue #281)", async () => {
+  const originalClientId = process.env.DISCORD_CLIENT_ID;
+  process.env.DISCORD_CLIENT_ID = "test-client-id";
+  try {
+    let edited = null;
+    const interaction = mockInteraction("core", "setup", { user: { id: "u1" }, roles: ["role-a"] });
+    interaction.deferReply = async (o) => { };
+    interaction.editReply = async (r) => { edited = r; };
+
+    const handled = await executeDuneCommand(interaction, {}, {
+      discord: { defaultEphemeral: true, rbac: { mode: "restricted", commandRoleIds: { "core:setup": ["role-a"] } } }
+    });
+    assert.equal(handled, true);
+    const description = edited?.embeds?.[0]?.data?.description || "";
+    assert.ok(
+      description.includes("permissions=128"),
+      `setup embed's invite URL must include permissions=128 (VIEW_AUDIT_LOG) so onboarding.js's findInviter() can identify the inviter -- got: ${description}`
+    );
+  } finally {
+    if (originalClientId === undefined) delete process.env.DISCORD_CLIENT_ID;
+    else process.env.DISCORD_CLIENT_ID = originalClientId;
+  }
+});
+
 test("executeDuneCommand handles core:ping through the health route", async () => {
   let seenActor, edited;
   const interaction = mockInteraction("core", "ping", { user: { id: "u1" }, roles: ["role-a"] });
