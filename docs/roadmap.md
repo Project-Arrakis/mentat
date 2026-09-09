@@ -112,8 +112,9 @@ Small pull requests:
 Progress:
 
 - Endpoint paths, methods, and payload shapes are confirmed against upstream
-  release `v1.4.8` (re-verified 2026-09-06; unchanged since the 2026-08-16
-  baseline).
+  release `v1.4.12` (re-verified 2026-09-08; unchanged since the September 6,
+  2026 evidence -- see `docs/adapter-contract.md`'s "Follow-up on issue #267"
+  entry for the independent re-check of that prior evidence itself).
 - Health, status, readiness, and services fixtures are covered by unit tests.
 - Configured route overrides are covered by compatibility tests.
 - A local token-protected adapter mock serves the fixtures on loopback for smoke
@@ -135,8 +136,8 @@ Progress:
   LIVE 19 / PLANNED 5 / UNMERGED 10 / MISSING 2, which was stale in all four
   directions; that audit found fourteen route keys with no classification at
   all, including nine player routes the bot calls daily. See
-  `docs/ro-roadmap-state-2026-08-06.md`, which itself now carries 2026-08-16
-  and 2026-09-06 correction notices at its top.)
+  `docs/ro-roadmap-state-2026-08-06.md`, which itself now carries 2026-08-16,
+  2026-09-06, and 2026-09-08 correction notices at its top.)
 
 Complexity: low to medium. **Status: Complete.**
 
@@ -175,8 +176,8 @@ Only add commands backed by safe upstream adapter responses.
 - `/dune ops dashboard` — Combined summary. **Regressed to a graceful error as
   of the 2026-08-16 upstream baseline** (was live through the 2026-08-06
   baseline; upstream's routes.js dispatch table now omits it -- see
-  `arrakis-control-panel#172`; still absent as of the 2026-09-06
-  re-verification, `v1.4.8`). The
+  `arrakis-control-panel#172`; still absent as of the 2026-09-08
+  re-verification, `v1.4.12` -- tracked in issue #266). The
   subcommand remains registered and surfaces a clear "not available on this
   Core installation" message rather than a raw 404.
 - `/dune admin doctor` — Full system diagnostic
@@ -207,7 +208,7 @@ Only add commands backed by safe upstream adapter responses.
 **Upstream PR:** [Red-Blink/dune-awakening-selfhost-docker#91](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/91)
 — **merged 2026-07-20** (`47ca186`, shipped in `v1.3.61`; all of PR #91's
 player routes remain live through the current baseline, re-verified against
-`v1.4.8` as of 2026-09-06). The
+`v1.4.12` as of 2026-09-08). The
 player-feature rows below are therefore live end-to-end, not pending
 upstream. This does not include the Steam multi-account linking flow's
 `players/accounts/*` routes, which are separate from PR #91 and never
@@ -277,11 +278,11 @@ Current release state (issue #178, re-verified 2026-09-06):
   `docs/v1.0.0-promotion-checklist.md` is satisfied (that checklist
   itself is still rc.1-era per this doc's earlier RO-roadmap audit --
   needs its own refresh, tracked separately).
-- Latest upstream stable baseline: `v1.4.8`
-  (`b53765c2070c12d7ebb4adc8103f26c42745fa7c`, "Release v1.4.8", 2026-09-03;
-  see `docs/adapter-contract.md`'s 2026-09-06 entry -- re-verified, route
+- Latest upstream stable baseline: `v1.4.12`
+  (`1afdb95766eba92f4c3ef4ed3965d21990aab431`, "Release v1.4.12", 2026-09-08;
+  see `docs/adapter-contract.md`'s 2026-09-08 entry -- re-verified, route
   classification unchanged since the 2026-08-16 baseline).
-- Latest upstream release candidate observed: none newer than `v1.4.8`.
+- Latest upstream release candidate observed: none newer than `v1.4.12`.
 - Upstream player-inventory PR #91: **merged 2026-07-20**, live since `v1.3.61`
   (unchanged, not re-checked this pass).
 - Test suite (verified directly against real `npm test` output, 2026-09-06):
