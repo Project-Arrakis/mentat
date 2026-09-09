@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { logError, logInfo } from "./logger.js";
-import { getCommandCount, getAllGuilds, getActiveGuilds, saveStatsSnapshot } from "./database.js";
+import { getCommandCount, getAllGuilds, getActiveGuilds, saveStatsSnapshot, getActiveGuildStatsAggregate } from "./database.js";
 import { sendChannelAlert } from "./notifications.js";
 import { resolveCompatEnv } from "./compatEnv.js";
 
@@ -30,43 +30,31 @@ function getVersion() {
   }
 }
 
-// Strict numeric check mirroring acp-landing's own isValidNumber() —
-// never let a wrong-typed or non-finite value pass through as if it were
-// real data (see docs/kv-stats-schema.md in yacketrj/acp-landing).
-function isValidNumber(value) {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-// Builds the acp-stats-aggregate KV contract fields
-// (players_online, sietches, battlegroups, spice_fields) from the four
-// real OPS routes wired in dune-awakening-selfhost-docker's Phase 1
-// (docs/remediation-prompt-cross-repo.md). Field names below match the
-// ACTUAL response shapes confirmed live against a running Core instance
-// during that phase — NOT the field names this function previously read
-// (r.deepDesert/r.haggaBasin/r.spiceFields/r.summary.battlegroups etc.),
-// none of which the real opsResourcesProvider/opsDashboardProvider ever
-// produced. That mismatch is why every one of these fields silently
-// evaluated to its `|| 0` fallback in production before this fix — not a
-// missing feature, a field-name bug on this side.
-//
-// Real shapes (console/api/src/integrations/discord/opsProvider.js +
-// console/api/src/duneDb.js, dune-awakening-selfhost-docker):
-//   opsActivity   -> { ok, result: { onlinePlayers, activeLast1h, activeLast24h, ... } }
-//   opsResources  -> { ok, result: { totalFields, totalValueRemaining, resourcesByMap, spiceFieldsBySize } }
-//   opsCombat     -> { ok, result: { totalDeaths, pvpDeaths, pveDeaths, ... } }
-//   opsEconomy    -> { ok, result: { totalCurrencyHolders, totalSupply, ... } }
 const SYSTEM_ACTOR = Object.freeze({ userId: "stats-pusher", username: "Mentat", guildId: "stats", channelId: "stats", roleIds: [] });
 
-// Aggregate game-level stats across all active guilds. Each guild has its
-// own console URL and adapter token (stored in the guilds table). We call
-// each guild's ops routes and sum up the results to produce the cross-
-// installation totals shown on the landing page stats bar.
+// Aggregate battlegroup/readiness status across all active guilds via each
+// guild's own adapter client — this route (adapterClient.status()) does
+// not require admin-tier authorization, unlike opsActivity()/
+// opsResources() below.
 //
-// Single-server deployments: one iteration, same result as before.
-// Multi-tenant: N parallel calls → aggregate sum.
+// players_online / spice_fields / sietches (mentat#276): previously this
+// function also called adapterClient.opsActivity()/opsResources() with
+// SYSTEM_ACTOR above to source these three fields. Those two routes
+// correctly require admin-tier authorization resolved from a real
+// Discord guild's role membership — SYSTEM_ACTOR is a synthetic actor
+// with no real Discord identity (roleIds: []) and can never legitimately
+// pass that check, so these calls always failed and the three fields
+// silently reported 0/unavailable for every guild, in every
+// installation, since this pusher was written. Removed rather than
+// patched: Core's authorization system was correctly refusing an
+// illegitimate request, not buggy. Replaced by an opt-in push model (see
+// database.js's getActiveGuildStatsAggregate(), called from pushStats()
+// below) where each operator's own Core console pushes its own numbers
+// via POST /api/stats/push, authenticated per-guild — see the mentat#276
+// Layer 1 Eight-Hats design audit for the full rationale.
 async function fetchAggregate(adapterClient, activeGuilds = []) {
   const aggregates = {};
-  let totalPlayers = 0, totalSpice = 0, sietchCount = 0, battleCount = 0;
+  let battleCount = 0;
   let successCount = 0, failCount = 0;
 
   // Filter to guilds that have a console URL configured
@@ -79,17 +67,7 @@ async function fetchAggregate(adapterClient, activeGuilds = []) {
 
   for (const guild of configuredGuilds) {
     const guildId = guild.guild_id; // null = default config
-    const tag = guildId || "default";
     let guildReachable = false;
-
-    try {
-      const activity = await adapterClient.opsActivity(SYSTEM_ACTOR, guildId).catch(() => null);
-      const ar = activity?.ok ? (activity.result || activity) : null;
-      if (ar && isValidNumber(ar.onlinePlayers)) {
-        totalPlayers += ar.onlinePlayers;
-        guildReachable = true;
-      }
-    } catch { /* tunnel-only or offline console — expected, not an error */ }
 
     try {
       const status = await adapterClient.status(SYSTEM_ACTOR, false, guildId).catch(() => null);
@@ -103,20 +81,6 @@ async function fetchAggregate(adapterClient, activeGuilds = []) {
       }
     } catch { }
 
-    try {
-      const resources = await adapterClient.opsResources(SYSTEM_ACTOR, guildId).catch(() => null);
-      const rr = resources?.ok ? (resources.result || resources) : null;
-      if (rr) {
-        guildReachable = true;
-        const dd = rr.deepDesert?.summary?.totalActiveFields;
-        const hb = rr.haggaBasin?.summary?.totalActiveFields;
-        if (isValidNumber(dd)) totalSpice += dd;
-        if (isValidNumber(hb)) totalSpice += hb;
-        const hbInstances = rr.haggaBasin?.instances;
-        if (Array.isArray(hbInstances)) sietchCount += hbInstances.length;
-      }
-    } catch { }
-
     if (guildReachable) {
       successCount++;
     } else {
@@ -124,12 +88,9 @@ async function fetchAggregate(adapterClient, activeGuilds = []) {
     }
   }
 
-  if (totalPlayers > 0 || configuredGuilds.length > 0) aggregates.players_online = totalPlayers;
-  if (totalSpice > 0 || configuredGuilds.length > 0) aggregates.spice_fields = totalSpice;
-  if (sietchCount > 0) aggregates.sietches = sietchCount;
   if (battleCount > 0) aggregates.battlegroups = battleCount;
 
-  logInfo("stats_push.aggregation", { guilds: configuredGuilds.length, succeeded: successCount, failed: failCount, total_players: totalPlayers, total_spice: totalSpice, sietches: sietchCount, battlegroups: battleCount });
+  logInfo("stats_push.aggregation", { guilds: configuredGuilds.length, succeeded: successCount, failed: failCount, battlegroups: battleCount });
 
   return aggregates;
 }
@@ -235,7 +196,15 @@ let consecutiveFailures = 0;
 // instead of being written to Cloudflare KV (removed per #83.2 /
 // docs/kv-replacement-evaluation.md -- the account is over Cloudflare's
 // free tier for KV specifically; Pages + Tunnel stay free).
-async function pushStats(client, db, adapterClient, { alertChannelId } = {}) {
+// Exported (mentat#276) so the guild_stats_snapshot -> aggregates wiring
+// can be tested directly against a real (temp-file or :memory:) DB
+// without needing a live Discord client/adapterClient — see
+// test/statsPusher.test.js. The core aggregation logic itself
+// (getActiveGuildStatsAggregate's fresh/stale/absent/suspended-guild
+// cases) is unit-tested directly in test/database.test.js; this export
+// covers the one remaining seam: that pushStats() actually merges that
+// result into the payload it saves.
+export async function pushStats(client, db, adapterClient, { alertChannelId } = {}) {
   if (!db) {
     return;
   }
@@ -243,8 +212,31 @@ async function pushStats(client, db, adapterClient, { alertChannelId } = {}) {
   try {
     const allGuilds = db ? getAllGuilds(db) : [];
     const activeGuilds = db ? getActiveGuilds(db) : [];
-    const commandsTotal = db ? getCommandCount(db) : 0;
+    const commandsTotal = db ? getCommandCount() : 0;
     const aggregates = adapterClient ? await fetchAggregate(adapterClient, activeGuilds) : {};
+
+    // mentat#276: players_online/spice_fields/sietches come from
+    // guild_stats_snapshot, not from fetchAggregate()'s adapterClient
+    // calls — populated regardless of whether an adapterClient is even
+    // configured, since this data no longer depends on one.
+    // getActiveGuildStatsAggregate() already filters to guilds that are
+    // both 'active' and have a fresh (<20-minute-old) pushed snapshot; a
+    // guild that never opted in, or whose push has stopped, contributes
+    // nothing — absent, not a fabricated zero, same contract as before.
+    const snapshotAggregate = getActiveGuildStatsAggregate(db, activeGuilds);
+    if (snapshotAggregate.contributing_guilds > 0) {
+      aggregates.players_online = snapshotAggregate.players_online;
+      aggregates.spice_fields = snapshotAggregate.spice_fields;
+      // L2 /code-review high finding on mentat#276: this used to be gated
+      // on `> 0`, unlike its two siblings above -- meaning a real,
+      // sourced count of exactly zero sietches across every currently
+      // contributing guild (a legitimate outcome, summed the identical
+      // way in getActiveGuildStatsAggregate()) was silently omitted from
+      // the payload entirely, indistinguishable from "no source
+      // available." Once contributing_guilds > 0, all three fields are
+      // equally real and sourced -- publish the true zero.
+      aggregates.sietches = snapshotAggregate.sietches;
+    }
 
     const stats = buildStatsPayload({
       guildCount: client.guilds.cache.size,
@@ -254,7 +246,7 @@ async function pushStats(client, db, adapterClient, { alertChannelId } = {}) {
       aggregates
     });
 
-    saveStatsSnapshot(db, stats);
+    saveStatsSnapshot(stats);
 
     consecutiveFailures = 0;
     logInfo("stats_pushed", {

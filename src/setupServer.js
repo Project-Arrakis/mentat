@@ -1,5 +1,5 @@
 import express from "express";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,18 +10,22 @@ import {
   createOauthSession,
   getOauthSession,
   updateOauthSession,
-  deleteOauthSession,
   upsertGuild,
   getGuild,
   addGuildRole,
   removeGuildRole,
   getGuildRoles,
   updateGuildSettings,
-  getStatsSnapshot
+  getStatsSnapshot,
+  verifyGuildStatsPushSecret,
+  upsertGuildStatsSnapshot,
+  setGuildStatsSharingSecret,
+  getGuildStatsSharingStatus
 } from "./database.js";
 import { esc } from "./htmlEscape.js";
 import { renderPage, errorPage } from "./setupLayout.js";
-import { isEncryptionConfigured } from "./secretsCrypto.js";
+import { isEncryptionConfigured, constantTimeStringsEqual } from "./secretsCrypto.js";
+import { recordGlobalStatsPushAttempt, recordGuildStatsPushAttempt } from "./statsPushRateLimit.js";
 
 // #215/A2: version comes from package.json — a hardcoded literal here
 // drifted two release candidates behind the real version.
@@ -118,19 +122,6 @@ function alertRelayToken(env = process.env) {
   }
 }
 
-// Constant-time comparison guards against a timing side-channel that
-// would otherwise let an attacker recover the token byte-by-byte by
-// measuring response latency across many requests. Buffer.compare()
-// length must match before timingSafeEqual() is called (it throws on
-// mismatched lengths), so a length check happens first -- this is safe
-// because the length itself is not the secret, only the token's value
-// is.
-function tokenMatches(provided, expected) {
-  const providedBuf = Buffer.from(String(provided || ""), "utf8");
-  const expectedBuf = Buffer.from(String(expected || ""), "utf8");
-  if (providedBuf.length !== expectedBuf.length) return false;
-  return timingSafeEqual(providedBuf, expectedBuf);
-}
 
 
 // Issue #195 fix: the setup form's guild <select> submits only the guild
@@ -228,7 +219,7 @@ export function createSetupServer(config) {
     const { guildId } = req.query;
     const state = randomBytes(16).toString("hex");
 
-    createOauthSession(db, {
+    createOauthSession({
       state,
       discordUserId: "",
       discordUsername: "",
@@ -267,7 +258,7 @@ export function createSetupServer(config) {
 
     if (error) return errorPage(res, 400, "OAuth Error", `Discord returned an error: ${error}`);
 
-    const session = getOauthSession(db, state);
+    const session = getOauthSession(state);
     if (!session) return errorPage(res, 400, "Session Expired", "Invalid or expired session. Please start over.");
 
     try {
@@ -286,7 +277,7 @@ export function createSetupServer(config) {
       if (!tokenRes.ok) throw new Error("Token exchange failed");
 
       const tokenData = await tokenRes.json();
-      updateOauthSession(db, state, {
+      updateOauthSession(state, {
         accessToken: tokenData.access_token,
         expiresAt: new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
       });
@@ -384,6 +375,32 @@ export function createSetupServer(config) {
             <div class="hint">Each Discord role may only be mapped to one of these tiers — separation of duties, matching the console.</div>
           </section>
 
+          <section class="panel">
+            <h2>Step 4: Live Stats Sharing</h2>
+            <div class="field" style="display:flex;align-items:flex-start;gap:10px;">
+              <input type="checkbox" name="statsSharingEnabled" id="statsSharingEnabled" value="on" style="margin-top:4px;">
+              <label for="statsSharingEnabled" style="font-weight:600;">Share this server's live stats publicly</label>
+            </div>
+            <div class="hint" style="margin-bottom:12px;">
+              Players online, spice field count, and sietch count will be shown publicly on the Mentat Link website, visible to any visitor — not just your own server's members. This is entirely optional and off unless you check this box and complete the steps below.
+            </div>
+            <div class="field">
+              <label for="statsPushSecret">Live Stats Sharing Secret</label>
+              <input type="text" name="statsPushSecret" id="statsPushSecret" placeholder="your-stats-push-secret">
+              <div class="hint">
+                Only needed if you checked the box above. From your Dune Docker install directory:<br>
+                1. Generate and store the secret on your own console (never in this browser):<br>
+                <code>dune stats-push enable</code><br>
+                2. Add the printed lines to your Dune Docker <code>.env</code> (alongside your adapter-token settings from Step 2, if you're editing that file in the same session):<br>
+                <code>DUNE_MENTAT_STATS_PUSH_URL=...</code><br>
+                <code>DUNE_MENTAT_STATS_PUSH_SECRET_FILE=...</code><br>
+                3. Recreate the console container (see the warning in Step 2)<br>
+                4. Paste the same secret value printed in step 1 here<br>
+                <strong>Note:</strong> your console needs outbound HTTPS access to <code>mentat-backend.darkdante.org</code> in addition to any existing egress you've already allowed for the public server directory.
+              </div>
+            </div>
+          </section>
+
           <div class="btn--text-center" style="margin-top:8px;">
             <button type="submit" id="submit-btn" class="btn">Connect Server</button>
           </div>
@@ -400,7 +417,7 @@ export function createSetupServer(config) {
 
   app.post("/setup/register", async (req, res) => {
     try {
-      const { discordUserId, guildId, consoleUrl, adapterToken, adminRoleId, moderatorRoleId, observerRoleId } = req.body;
+      const { discordUserId, guildId, consoleUrl, adapterToken, adminRoleId, moderatorRoleId, observerRoleId, statsSharingEnabled, statsPushSecret } = req.body;
 
       // #214/U7: this endpoint serves a browser form POST — errors must
       // render a styled page with a way back, not a bare JSON body.
@@ -474,6 +491,27 @@ export function createSetupServer(config) {
         default_ephemeral: 1
       });
 
+      // mentat#276: opt-in only, and deliberately never a silent opt-OUT.
+      // The checkbox isn't pre-filled on a resubmission (this is a
+      // stateless GET /oauth/callback form, same as every other field
+      // here), so treating "box unchecked this time" as "revoke" would
+      // silently disable stats sharing on every unrelated resubmission
+      // (e.g. an operator just updating a role mapping) -- the exact
+      // opposite of the explicit-action-required bar this feature is
+      // held to. Revocation is deliberately out of scope for this
+      // submission path; it belongs with the "edit my existing guild's
+      // settings" entry point already named as follow-up work in the
+      // Layer 1 design audit (finding #31), tracked as mentat#312, rather
+      // than being inferred here. A checked box with no secret is a
+      // no-op, not an error -- the operator hasn't finished the
+      // Core-side steps yet.
+      const wantsStatsSharing = statsSharingEnabled === "on" || statsSharingEnabled === "true" || statsSharingEnabled === true;
+      const trimmedStatsPushSecret = typeof statsPushSecret === "string" ? statsPushSecret.trim() : "";
+      if (wantsStatsSharing && trimmedStatsPushSecret) {
+        setGuildStatsSharingSecret(db, guildId, trimmedStatsPushSecret);
+        logInfo("setup.stats_sharing_enabled", { guildId });
+      }
+
       // Issue #207 (Req 24): do NOT log consoleUrl — even scheme-stripped
       // it identified each tenant's console host/IP:port. guildId is
       // enough for correlation.
@@ -511,6 +549,7 @@ export function createSetupServer(config) {
      const { guildId } = req.query;
      const guild = guildId ? getGuild(db, guildId) : null;
      const displayName = guild?.guild_name || "Your server";
+     const statsSharing = guildId ? getGuildStatsSharingStatus(db, guildId) : { enabled: false };
 
      const body = `
        <div class="success-page">
@@ -526,6 +565,7 @@ export function createSetupServer(config) {
              <li>Assign Discord roles to the four permission tiers (Player, Moderator, Admin, Owner)</li>
              <li>Run <code>/dune core help</code> to see available commands</li>
              <li>Run <code>/dune server status</code> to verify connection to your console</li>
+             <li>Live stats sharing: ${statsSharing.enabled ? "enabled — your server's numbers will appear on the public site once your console's first push arrives" : "not enabled"}</li>
            </ol>
          </div>
          <p style="color: var(--muted); font-size: 13px; margin-top: 24px;">
@@ -555,7 +595,7 @@ export function createSetupServer(config) {
 
   app.get("/api/live-stats", (req, res) => {
     try {
-      const stats = getStatsSnapshot(db);
+      const stats = getStatsSnapshot();
       if (!stats) {
         return res.status(503).json({ error: "No stats collected yet" });
       }
@@ -564,6 +604,74 @@ export function createSetupServer(config) {
     } catch (err) {
       res.status(500).json({ error: "Stats snapshot unavailable", details: err.message });
     }
+  });
+
+  // POST /api/stats/push (mentat#276): each opted-in operator's own Core
+  // console pushes its own aggregate live stats here, replacing the
+  // broken synthetic-actor pull this route's sibling function
+  // (statsPusher.js's fetchAggregate()) used to attempt against Core's
+  // admin-tier ops:activity/ops:resources routes. See the Layer 1
+  // Eight-Hats design audit (issue comment on mentat#276) for the full
+  // rationale behind every decision in this handler.
+  //
+  // Auth failure (unknown guild_id, a known guild that never opted in, or
+  // a genuinely wrong secret) always returns the exact same 401 body --
+  // see verifyGuildStatsPushSecret() in database.js for the matching
+  // constant-cost comparison. This route deliberately does NOT reuse
+  // alertRelayToken()/the fail-open pattern above: unlike
+  // /api/alerts/relay, there is no existing deployment to stay backward
+  // compatible with, so this is fail-closed from day one, scoped per
+  // guild rather than one global token.
+  app.post("/api/stats/push", express.json(), (req, res) => {
+    const rawGuildId = req.body?.guildId;
+    const guildId = typeof rawGuildId === "string" ? rawGuildId : "";
+    const authHeader = req.get("authorization") || "";
+    const providedSecret = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+
+    // Global rate limit is checked/recorded BEFORE the auth check touches
+    // the DB — this is what actually bounds the synchronous lookup+decrypt
+    // cost every request pays regardless of whether its credential turns
+    // out to be valid (Layer 1 Architect/Security Architect audit findings
+    // C1/#3). Safe to record pre-auth: this bucket has no guild_id key, so
+    // it can't be aimed at a specific victim guild.
+    const globalResult = recordGlobalStatsPushAttempt();
+    if (!globalResult.allowed) {
+      res.set("Retry-After", String(globalResult.retryAfterSeconds));
+      return res.status(429).json({ error: "rate_limited" });
+    }
+
+    if (!verifyGuildStatsPushSecret(db, guildId, providedSecret)) {
+      return res.status(401).json({ error: "unauthorized" });
+    }
+
+    // Per-guild rate limit is only ever recorded AFTER auth has already
+    // succeeded (Layer 2 /code-review high finding, mentat#276) — guild_id
+    // arrives unauthenticated in the request body, and Discord guild IDs
+    // are public, not secret. Recording this bucket pre-auth (as an
+    // earlier version of this route did) would let anyone who merely
+    // knows a victim guild's ID exhaust that specific guild's quota with
+    // zero valid credentials, denying its real console's own legitimate
+    // pushes. See statsPushRateLimit.js's module comment for the full
+    // rationale.
+    const guildResult = recordGuildStatsPushAttempt(guildId);
+    if (!guildResult.allowed) {
+      res.set("Retry-After", String(guildResult.retryAfterSeconds));
+      return res.status(429).json({ error: "rate_limited" });
+    }
+
+    const { playersOnline, spiceFields, sietches } = req.body || {};
+    const accepted = upsertGuildStatsSnapshot(guildId, { playersOnline, spiceFields, sietches });
+    if (!accepted) {
+      // Non-numeric/negative/absurd field — rejected without touching the
+      // previous snapshot value (Layer 1 Security Architect finding #4).
+      return res.status(400).json({ error: "invalid_payload" });
+    }
+
+    // nextPushSeconds mirrors publicDirectory.js's nextHeartbeatSeconds
+    // mechanism (Layer 1 Network audit finding #20) so a future
+    // load-based adjustment doesn't require a new field on every
+    // already-deployed Core instance. Fixed for now.
+    res.json({ ok: true, nextPushSeconds: 90 });
   });
 
   // Alertmanager → Discord webhook relay. Receives firing/resolved alerts
@@ -575,7 +683,7 @@ export function createSetupServer(config) {
     if (expectedToken) {
       const authHeader = req.get("authorization") || "";
       const providedToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      if (!tokenMatches(providedToken, expectedToken)) {
+      if (!constantTimeStringsEqual(providedToken, expectedToken)) {
         logError("alerts_relay.unauthorized", new Error("Missing or invalid bearer token"), {
           remote: req.ip,
           hasAuthHeader: Boolean(authHeader)

@@ -15,79 +15,8 @@
  *   ACP_DB_PATH (defaults to ./data/acp.db)
  */
 
-import { readFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import Database from "better-sqlite3";
-
-const SCHEMA = `
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-
-CREATE TABLE IF NOT EXISTS schema_version (
-  version INTEGER PRIMARY KEY
-);
-
-CREATE TABLE IF NOT EXISTS guilds (
-  guild_id TEXT PRIMARY KEY,
-  guild_name TEXT NOT NULL DEFAULT '',
-  console_url TEXT NOT NULL DEFAULT '',
-  adapter_token TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'pending',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS guild_roles (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  guild_id TEXT NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
-  role_type TEXT NOT NULL CHECK(role_type IN ('observer', 'admin', 'owner', 'moderator')),
-  role_id TEXT NOT NULL,
-  UNIQUE(guild_id, role_type, role_id)
-);
-
-CREATE TABLE IF NOT EXISTS guild_settings (
-  guild_id TEXT PRIMARY KEY REFERENCES guilds(guild_id) ON DELETE CASCADE,
-  rbac_mode TEXT NOT NULL DEFAULT 'restricted' CHECK(rbac_mode IN ('restricted', 'open')),
-  default_ephemeral INTEGER NOT NULL DEFAULT 1,
-  schedule_type TEXT NOT NULL DEFAULT 'none',
-  schedule_channel TEXT NOT NULL DEFAULT '',
-  schedule_interval_ms INTEGER NOT NULL DEFAULT 1800000,
-  announcements_enabled INTEGER NOT NULL DEFAULT 0,
-  announcements_channel TEXT NOT NULL DEFAULT '',
-  cooldown_ms INTEGER NOT NULL DEFAULT 5000,
-  admin_cooldown_ms INTEGER NOT NULL DEFAULT 1000
-);
-
-CREATE TABLE IF NOT EXISTS oauth_sessions (
-  state TEXT PRIMARY KEY,
-  discord_user_id TEXT NOT NULL,
-  discord_username TEXT NOT NULL DEFAULT '',
-  guild_id TEXT NOT NULL DEFAULT '',
-  access_token TEXT NOT NULL DEFAULT '',
-  expires_at TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS player_links (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  guild_id TEXT NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
-  discord_user_id TEXT NOT NULL,
-  character_name TEXT NOT NULL DEFAULT '',
-  player_controller_id TEXT NOT NULL DEFAULT '',
-  player_pawn_id TEXT NOT NULL DEFAULT '',
-  linked_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(guild_id, discord_user_id)
-);
-
-CREATE TABLE IF NOT EXISTS bot_stats (
-  key TEXT PRIMARY KEY,
-  value INTEGER DEFAULT 0
-);
-
-CREATE INDEX IF NOT EXISTS idx_guild_roles_guild ON guild_roles(guild_id);
-CREATE INDEX IF NOT EXISTS idx_guild_roles_type ON guild_roles(guild_id, role_type);
-CREATE INDEX IF NOT EXISTS idx_player_links_guild_user ON player_links(guild_id, discord_user_id);
-`;
+import { readFileSync, existsSync } from "node:fs";
+import { createDatabase } from "../src/database.js";
 
 function parseCsv(value) {
   return String(value || "")
@@ -156,21 +85,18 @@ function main() {
   const adminCooldownMs = Number.parseInt(env.DUNE_ADMIN_COOLDOWN_MS || "1000", 10) || 1000;
 
   const dbPath = env.ACP_DB_PATH || "data/acp.db";
-  const dbDir = dirname(dbPath);
-  if (!existsSync(dbDir)) {
-    mkdirSync(dbDir, { recursive: true });
-  }
 
   console.log("📦 Creating database at:", dbPath);
-  const db = new Database(dbPath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  db.exec(SCHEMA);
-
-  const currentVersion = db.prepare("SELECT version FROM schema_version LIMIT 1").get();
-  if (!currentVersion) {
-    db.prepare("INSERT INTO schema_version (version) VALUES (?)").run(1);
-  }
+  // Uses the real, current schema from src/database.js instead of a
+  // hand-rolled copy (Layer 3 /code-review ultra nit, mentat#276/#277):
+  // this script previously carried its own stale SCHEMA constant that
+  // still created oauth_sessions/player_links/bot_stats -- three tables
+  // the v6->v7 hardening migration drops the very next time the real bot
+  // starts against the resulting database, making this script's own
+  // output (and its bot_stats seed row below) immediately wrong. Calling
+  // createDatabase() directly means this script can never drift from the
+  // real schema again, on this or any future migration.
+  const db = createDatabase(dbPath);
 
   console.log("🏰 Migrating guild:", guildId);
 
@@ -219,7 +145,9 @@ function main() {
     console.log("  🔧 Admin role:", roleId);
   }
 
-  db.prepare("INSERT OR IGNORE INTO bot_stats (key, value) VALUES ('commands_total', 0)").run();
+  // No bot_stats seed: it's an in-memory-only vanity counter as of schema
+  // v7 (see src/database.js's "Schema hardening (v7)" comment) -- there
+  // is no table to seed, and commandCount already starts at 0.
 
   db.close();
 

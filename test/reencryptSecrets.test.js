@@ -64,7 +64,10 @@ test("reencryptColumn in dry-run mode changes nothing", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-test("runReencrypt migrates both tables and round-trips correctly", async () => {
+// "both tables" until schema v7 removed oauth_sessions (moved to
+// in-memory-only storage) -- guilds.adapter_token is the sole remaining
+// target now, see reencrypt-secrets.js's own TABLES comment.
+test("runReencrypt migrates guilds.adapter_token and round-trips correctly", async () => {
   const dir = await mkdtemp(join(tmpdir(), "reenc-"));
   const dbPath = join(dir, "acp.db");
   const db = openDb(dbPath);

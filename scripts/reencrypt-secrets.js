@@ -11,6 +11,12 @@
 // decryptSecret() (which is a transparent no-op for plaintext), and
 // rewrites it encrypted under the currently configured ACP_SECRETS_KEY.
 //
+// oauth_sessions removed from TABLES below (schema v7 hardening pass):
+// that table moved to in-memory-only storage and no longer exists in
+// SQLite at all, so there's nothing left for this tool to migrate there
+// -- see database.js's "Schema hardening (v7)" comment for the full
+// rationale. guilds.adapter_token is the sole remaining target.
+//
 // Usage (run against production, from the repo root, with the same env as
 // the running bot):
 //   set -a && . ./.env && set +a
@@ -27,8 +33,7 @@ import { decryptSecret, encryptSecret, isEncryptionConfigured } from "../src/sec
 
 const ENCRYPTED_PREFIX = "enc:v1:";
 const TABLES = [
-  { table: "guilds", keyColumns: ["guild_id"], valueColumn: "adapter_token" },
-  { table: "oauth_sessions", keyColumns: ["state"], valueColumn: "access_token" }
+  { table: "guilds", keyColumns: ["guild_id"], valueColumn: "adapter_token" }
 ];
 
 // Core migration logic, exported for tests. Returns a per-table summary.

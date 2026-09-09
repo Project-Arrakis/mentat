@@ -299,17 +299,22 @@ handler never called `setGuildFaction()` — it called
 `adapterClient.playerFaction()` (a real, different, per-player Core
 route) the whole time.
 
-Now wired up, as an automatic sync rather than a manual setter: every
-`/dune player faction` call triggers `guildFactionSync.js`'s
-`syncGuildFactionTheme()`, which tallies each bot-active Discord member's
-real IN-GAME GUILD's faction (`dune-awakening-selfhost-docker#699`'s
-`guilds/faction-summary` route — a genuinely different game concept from
-an individual's own personal faction; see that route's own comment) and
-calls `setGuildFaction()` with the majority result. Member list comes
-from a new local `guild_member_activity` table (schema v5, updated on
-every `/dune` command), not a real Discord member fetch — this bot only
-holds the `Guilds` gateway intent, not the privileged `GuildMembers`
-intent a real member-list fetch would require.
+**Regressed again (mentat#276, schema v7 hardening — see the "Six tables
+are gone from `data/acp.db`" migration in `src/database.js`):** the
+auto-sync wiring described in the paragraph above was itself removed
+when `guild_member_activity` (its only data source) was deleted as part
+of the v6→v7 SQLite hardening pass. `guildFactionSync.js` and
+`syncGuildFactionTheme()` no longer exist in this codebase; `/dune
+player faction` no longer calls either. `setGuildFaction()` is once
+again defined but never called by anything — the exact dead-code state
+mentat#251 originally fixed — so every guild's themed-embed faction is
+back to being permanently stuck at the empty-string default. This is a
+known, currently-undecided limitation, not an oversight left
+undocumented: see mentat#311 for whether to reintroduce a
+manual-setter command/setup-portal field (the hardening commit's own
+comment says the column is "still directly, manually settable," but no
+such manual path is actually implemented yet) or remove the dead
+`setGuildFaction()`/`guild_settings.faction` column outright.
 
 | Capability | Required Role | Commands |
 |-----------|---------------|----------|
@@ -389,12 +394,24 @@ In multi-tenant mode:
 
 ### Database Schema
 
-The bot manages these tables:
-- `guilds` — Per-guild console URL, adapter token, status
-- `guild_roles` — Per-guild observer/admin role IDs
+**Corrected (schema v7 hardening pass):** this section previously listed
+`oauth_sessions` and `player_links` as tables the bot stores. Neither is
+true anymore, and `player_links` never actually held real data even
+before this correction — see database.js's own "Schema hardening (v7)"
+comment for the full rationale (`player_links` was dead code with zero
+callers; player-linking has always actually lived in each operator's
+own Core Postgres, reached via `adapterClient.js`). `oauth_sessions`,
+along with the command counter and the live-stats display caches, moved
+to in-memory-only JS state in the same pass -- none of it needs to
+survive a process restart to be correct.
+
+The bot's SQLite database (`data/acp.db`) now holds only:
+- `guilds` — Per-guild console URL, encrypted adapter token, status, and
+  (opt-in) live-stats-sharing secret/consent record
+- `guild_roles` — Per-guild observer/admin/moderator role IDs
 - `guild_settings` — Per-guild RBAC mode, cooldowns, schedule
-- `oauth_sessions` — OAuth2 state and tokens
-- `player_links` — Per-guild Discord-to-character mappings
+- `key_versions` / `secret_keys` / `secret_access_log` — KEK/DEK
+  bookkeeping for the encrypted columns on `guilds` above
 
 ---
 

@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildStatsPayload, shouldAlertOnFailure, ALERT_AFTER_CONSECUTIVE_FAILURES } from "../src/statsPusher.js";
+import { buildStatsPayload, shouldAlertOnFailure, ALERT_AFTER_CONSECUTIVE_FAILURES, pushStats } from "../src/statsPusher.js";
+import { createDatabase, upsertGuild, setGuildStatsSharingSecret, upsertGuildStatsSnapshot, getStatsSnapshot, _resetEphemeralStateForTests } from "../src/database.js";
+
+// guild_stats_snapshot/stats_snapshot are module-level, in-memory, process-
+// wide state as of schema v7 -- reset before each test so one test's data
+// can't leak into another's assertions.
+test.beforeEach(() => {
+  _resetEphemeralStateForTests();
+});
 
 // Validates that buildStatsPayload() produces a shape acp-landing's
 // reader (yacketrj/acp-landing:functions/api/stats.js) would actually
@@ -140,4 +148,77 @@ test("shouldAlertOnFailure fires exactly at the configured threshold, not before
 
 test("shouldAlertOnFailure never fires for zero (no failures yet)", () => {
   assert.equal(shouldAlertOnFailure(0), false);
+});
+
+// ─── pushStats: guild_stats_snapshot wiring (mentat#276) ─────────────────
+// The core aggregation logic (fresh/stale/absent/suspended-guild
+// handling) is unit-tested directly against getActiveGuildStatsAggregate
+// in test/database.test.js. These tests cover the one remaining seam:
+// that pushStats() actually reads that aggregate and merges it into the
+// snapshot it saves, without needing a live Discord client or adapter.
+const fakeClient = { guilds: { cache: { size: 1 } } };
+
+test("pushStats includes players_online/spice_fields/sietches from guild_stats_snapshot, even with no adapterClient configured", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "g1", guildName: "G1", consoleUrl: "https://g1.test", adapterToken: "t", status: "active" });
+  setGuildStatsSharingSecret(db, "g1", "secret");
+  upsertGuildStatsSnapshot("g1", { playersOnline: 7, spiceFields: 2, sietches: 1 });
+
+  const ok = await pushStats(fakeClient, db, null, {});
+  assert.equal(ok, true);
+
+  const snapshot = getStatsSnapshot();
+  assert.equal(snapshot.players_online, 7);
+  assert.equal(snapshot.spice_fields, 2);
+  assert.equal(snapshot.sietches, 1);
+});
+
+test("pushStats publishes a real sietches: 0 (not an absent field) when every contributing guild genuinely has zero", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "g1", guildName: "G1", consoleUrl: "https://g1.test", adapterToken: "t", status: "active" });
+  setGuildStatsSharingSecret(db, "g1", "secret");
+  upsertGuildStatsSnapshot("g1", { playersOnline: 7, spiceFields: 2, sietches: 0 });
+
+  await pushStats(fakeClient, db, null, {});
+
+  const snapshot = getStatsSnapshot();
+  assert.equal(snapshot.players_online, 7);
+  assert.equal("sietches" in snapshot, true, "a real, sourced zero must be published, not treated as absent -- same contract as players_online/spice_fields");
+  assert.equal(snapshot.sietches, 0);
+});
+
+test("pushStats queries the active-guilds table only once per push, not twice", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "g1", guildName: "G1", consoleUrl: "https://g1.test", adapterToken: "t", status: "active" });
+  setGuildStatsSharingSecret(db, "g1", "secret");
+  upsertGuildStatsSnapshot("g1", { playersOnline: 7, spiceFields: 2, sietches: 1 });
+
+  // L2 /code-review high finding on mentat#276: getActiveGuildStatsAggregate()
+  // used to run its own independent "SELECT * FROM guilds WHERE status =
+  // 'active'" query even though pushStats() already had the identical
+  // result in `activeGuilds`. Wrap db.prepare() to count exactly how many
+  // times that specific query text is prepared during one pushStats()
+  // call -- a real query count, not an inference from the code shape.
+  const activeGuildsSql = "SELECT * FROM guilds WHERE status = 'active'";
+  const originalPrepare = db.prepare.bind(db);
+  let activeGuildsQueryCount = 0;
+  db.prepare = (sql) => {
+    if (sql === activeGuildsSql) activeGuildsQueryCount += 1;
+    return originalPrepare(sql);
+  };
+
+  await pushStats(fakeClient, db, null, {});
+
+  assert.equal(activeGuildsQueryCount, 1, "pushStats must reuse its own already-fetched activeGuilds list instead of querying it again inside getActiveGuildStatsAggregate()");
+});
+
+test("pushStats reports players_online/spice_fields as absent (not a fabricated zero) when no guild has opted in", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "g1", guildName: "G1", consoleUrl: "https://g1.test", adapterToken: "t", status: "active" });
+
+  await pushStats(fakeClient, db, null, {});
+
+  const snapshot = getStatsSnapshot();
+  assert.equal("players_online" in snapshot, false);
+  assert.equal("spice_fields" in snapshot, false);
 });
