@@ -1025,10 +1025,11 @@ export function backupPayload(b) { const list = Array.isArray(b?.result?.backups
 function setupPayload(config, interaction) {
   const clientId = process.env.DISCORD_CLIENT_ID || config?.discord?.clientId || "";
   const guildId = interaction?.guildId || "";
-  // permissions=128 (View Audit Log) is required for onboarding.js's
-  // findInviter() to identify who invited the bot via guild.fetchAuditLogs()
-  // -- see issue #281. Without it, every real invite silently degrades to
-  // fallbackNoticeFor() instead of the full setupMessageFor() DM.
+  // permissions=128 (View Audit Log) is no longer functionally required --
+  // onboarding.js's findInviter()/fallbackNoticeFor()/setupMessageFor(),
+  // the only code that ever used it (issue #281), were deleted as part of
+  // removing the DM-on-invite trigger. Left unchanged here rather than
+  // dropped to permissions=0, tracked as its own follow-up: see #319.
   const inviteUrl = clientId
     ? `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot%20applications.commands&permissions=128`
     : "*(Client ID not configured — ask the bot host for the invite link)*";
