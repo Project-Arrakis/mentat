@@ -64,9 +64,11 @@ configured before startup succeeds.
 
 ### Multi-Tenant RBAC
 
-When `ACP_MULTI_TENANT=true`, RBAC is configured per-guild via the web setup portal
-or DM onboarding. Role IDs are stored in the bot's SQLite database rather than
-environment variables. See [Configuration Reference](docs/configuration.md) for details.
+When `ACP_MULTI_TENANT=true`, RBAC is configured per-guild, either through the
+in-console "Connect to hosted bot" flow (primary) or the web setup portal
+(fallback) — there is no DM onboarding any more. Role IDs are stored in the
+bot's SQLite database rather than environment variables. See
+[Configuration Reference](docs/configuration.md) for details.
 
 ## Data Handling
 
@@ -96,8 +98,16 @@ When `ACP_MULTI_TENANT=true`, the bot runs as a centralized service serving
 multiple Discord servers. Each guild connects to its own Dune console.
 
 Setup options:
-1. **Web Portal** — Visit `http://your-server:3100/setup` to configure via OAuth2
-2. **DM Onboarding** — When the bot joins a new server, it DMs the owner a setup link
+1. **In-Console (primary)** — the operator's Dune Docker Console (Settings →
+   Discord Bot → "Connect to hosted bot") performs the Discord OAuth
+   round-trip itself and calls `POST /api/consoles/register` directly, after
+   independently re-verifying guild ownership against Discord's API
+2. **Web Portal (fallback)** — Visit `http://your-server:3100/setup` to
+   configure via OAuth2 by hand
+
+There is no DM-based onboarding any more — joining a guild is a no-op until
+one of the two options above registers it; a command run in an unregistered
+guild gets an in-guild reply instead of a DM.
 
 See [Multi-Tenant Design](docs/multi-tenant-design.md) for architecture details.
 

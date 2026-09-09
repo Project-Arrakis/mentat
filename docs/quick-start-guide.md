@@ -33,9 +33,15 @@ https://discord.com/oauth2/authorize?client_id=1546203607807041697&scope=bot%20a
 The bot is invite-link only — it is not listed in Discord's "Browse
 Available Bots" directory, so searching for it there will not find it.
 
-### Step 2: Open the Setup Portal
+### Step 2: Connect Your Console
 
-Visit the setup portal and sign in with Discord:
+**Primary path:** in your Dune Docker Console's WebUI, go to **Settings →
+Discord Bot → "Connect to hosted bot"**. It signs in with Discord and
+registers your server automatically — no separate portal, no manual token
+copying.
+
+**Fallback path:** if your console doesn't have that button yet, visit the
+setup portal and sign in with Discord yourself:
 
 ```
 https://mentat-link.darkdante.org/setup
@@ -44,7 +50,7 @@ https://mentat-link.darkdante.org/setup
 You'll connect your Dune Docker Console's URL and adapter token, and
 optionally map Discord roles to the bot's Admin / Moderator / Player
 tiers. See the [Setup Portal Guide](setup-portal-guide.md) for the full,
-step-by-step walkthrough.
+step-by-step walkthrough of this fallback path.
 
 ### Step 3: Verify It Works
 
@@ -144,7 +150,7 @@ All players in-game see the message immediately.
 2. Right-click the channel → Edit → Roles → the bot's role → Enable "Use Application Commands"
 3. Check bot is online (green dot in member list)
 4. Try `/dune core about` to verify bot is working
-5. Re-run setup: visit [mentat-link.darkdante.org/setup](https://mentat-link.darkdante.org/setup)
+5. Re-run setup: in your console, Settings → Discord Bot → "Connect to hosted bot" (or the fallback portal at [mentat-link.darkdante.org/setup](https://mentat-link.darkdante.org/setup))
 
 ### Can't Connect to Game Server
 
@@ -152,10 +158,10 @@ All players in-game see the message immediately.
 
 **Solution:**
 1. Verify your server is running: `dune status`
-2. Check the Console URL you entered in setup (must be publicly reachable — see the [Setup Portal Guide](setup-portal-guide.md))
+2. Check the Console URL registered with the bot (must be publicly reachable — see the [Setup Portal Guide](setup-portal-guide.md))
 3. Verify your adapter token matches on both sides
 4. Check firewall allows connections from the bot's host
-5. Update your Console URL/token via the setup portal if anything changed
+5. Update your Console URL/token via Settings → Discord Bot in your console (or the fallback setup portal) if anything changed
 
 ### Inventory Not Found
 
