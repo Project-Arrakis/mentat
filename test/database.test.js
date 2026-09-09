@@ -622,6 +622,53 @@ test("verifyGuildStatsPushSecret writes the same number of secret_access_log row
   assert.equal(after3 - before3, 1, "a known guild that never opted in must also append exactly one row -- not distinguishable from the other two cases by DB write count");
 });
 
+// Layer 3 /code-review ultra finding (CONFIRMED, normal): the row-count
+// test above proves both branches hit the DB the same number of times,
+// but in a real KEK-configured deployment that was not sufficient -- the
+// never-opted-in/unknown-guild path used to throw immediately inside
+// decryptWithDEK() ("no wrapped DEK was provided") with ZERO AES-GCM
+// operations, while the opted-in path paid a real unwrapDEK() + decrypt
+// (2 operations), a crypto-cost timing gap the DB-round-trip fix alone
+// didn't close. This test only makes sense in real KEK mode (v1
+// single-key mode never calls unwrapDEK() at all, so the gap doesn't
+// exist there) -- see the row-count test above for the mode-independent
+// coverage.
+test("real age/KEK: verifyGuildStatsPushSecret's never-opted-in path decrypts successfully instead of failing with 'no wrapped DEK'", { skip: !ageAvailable() && "age binary not installed" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "acp-db-kek-"));
+  try {
+    const { identityPath, kekPath } = makeRealKEKFixture(dir);
+    process.env.ACP_AGE_IDENTITY_FILE = identityPath;
+    process.env.ACP_KEK_FILE = kekPath;
+
+    const db = createDatabase(":memory:");
+    upsertGuild(db, { guildId: "opted-in", guildName: "Opted In", consoleUrl: "https://one.test", adapterToken: "t1", status: "active" });
+    setGuildStatsSharingSecret(db, "opted-in", "real-secret");
+    upsertGuild(db, { guildId: "never-opted-in", guildName: "Never Opted In", consoleUrl: "https://two.test", adapterToken: "t2", status: "active" });
+
+    verifyGuildStatsPushSecret(db, "opted-in", "wrong-guess");
+    verifyGuildStatsPushSecret(db, "no-such-guild", "anything");
+    verifyGuildStatsPushSecret(db, "never-opted-in", "anything");
+
+    // Before the fix, every decoy-path call above logged decrypt_failed
+    // (0 crypto ops) instead of decrypt (2 crypto ops, same as the
+    // opted-in call) -- assert none of them failed.
+    const failedEvents = db.prepare(
+      "SELECT COUNT(*) AS n FROM secret_access_log WHERE event = 'decrypt_failed'"
+    ).get().n;
+    assert.equal(failedEvents, 0, "the decoy path must decrypt successfully via a real, persisted wrappedDEK -- not fail with 'no wrapped DEK'");
+
+    // The decoy's own wrappedDEK must actually be persisted, under the
+    // fixed sentinel row key, not the caller-supplied guild_id -- this is
+    // what lets getWrappedDEK() find it on every subsequent call.
+    const decoyKeyRow = db.prepare(
+      "SELECT wrapped_dek FROM secret_keys WHERE table_name = 'guilds' AND row_key = '__stats_push_decoy__' AND column_name = 'stats_push_secret'"
+    ).get();
+    assert.ok(decoyKeyRow && decoyKeyRow.wrapped_dek, "the decoy's wrappedDEK must be persisted under a fixed, non-guild row key");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("isValidStatsPushValue: accepts finite non-negative numbers within a sane ceiling, rejects everything else", () => {
   assert.equal(isValidStatsPushValue(0), true);
   assert.equal(isValidStatsPushValue(42), true);

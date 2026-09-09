@@ -628,18 +628,46 @@ const STATS_PUSH_DECOY_PLACEHOLDER_PREFIX = "stats-push-decoy-";
 // exact same implementation. One shared helper now, see that file's
 // definition for the full rationale.
 
-// A single, process-lifetime decoy ciphertext (never persisted to the
-// database, never tied to any real guild_id) used to give the "no real
+// A single, process-lifetime decoy ciphertext used to give the "no real
 // secret to check" branch of verifyGuildStatsPushSecret() the same
 // decrypt-then-compare cost as the "real secret, wrong value" branch --
 // closing the timing side-channel the Layer 1 Security Architect audit
 // flagged (finding #2). Lazily generated on first use rather than at
 // module load so importing this module never has a KEK-dependent side
 // effect.
+//
+// STATS_PUSH_DECOY_ROW_KEY is a fixed, reserved secret_keys/
+// secret_access_log row_key -- never a real Discord guild_id (those are
+// numeric snowflakes; this deliberately isn't) -- used ONLY by the decoy
+// path below, never written by any real guild's data.
+//
+// FIX (Layer 3 /code-review ultra, mentat#276/#277 -- CONFIRMED normal):
+// the previous version of this decoy only equalized the two branches' DB
+// round-trip COUNT (both call decryptColumn() once), but in KEK-configured
+// deployments left a real crypto-op divergence: the decoy's wrappedDEK was
+// never persisted anywhere, so decryptColumn()'s getWrappedDEK() lookup for
+// an arbitrary (non-opted-in or nonexistent) guild_id correctly found
+// nothing, and decryptWithDEK() throws immediately on a v2-format
+// ciphertext with no wrappedDEK -- 0 AES-GCM operations -- while the
+// opted-in path's real per-guild wrappedDEK let decryptWithDEK() proceed
+// through unwrapDEK() + the actual secret decrypt, 2 AES-GCM operations.
+// An attacker could still time that gap to enumerate which of many
+// (publicly known) guild IDs have opted into stats sharing. Fixed by
+// persisting the decoy's own wrappedDEK into secret_keys, once, under
+// STATS_PUSH_DECOY_ROW_KEY the first time it's generated -- so the
+// never-opted-in path's getWrappedDEK() lookup (keyed on this fixed row
+// key, not the caller-supplied guild_id) finds a real row too, and
+// decryptWithDEK() pays the identical unwrapDEK()+decrypt cost either way.
+const STATS_PUSH_DECOY_ROW_KEY = "__stats_push_decoy__";
 let _statsPushDecoy;
-function statsPushDecoySecret() {
+function statsPushDecoySecret(db) {
   if (_statsPushDecoy === undefined) {
-    _statsPushDecoy = encryptWithDEK(`${STATS_PUSH_DECOY_PLACEHOLDER_PREFIX}${Date.now()}-${Math.random()}`);
+    const { ciphertext, wrappedDEK } = encryptWithDEK(`${STATS_PUSH_DECOY_PLACEHOLDER_PREFIX}${Date.now()}-${Math.random()}`);
+    if (wrappedDEK) {
+      const version = activeKeyVersion() || 1;
+      putWrappedDEK(db, "guilds", STATS_PUSH_DECOY_ROW_KEY, "stats_push_secret", wrappedDEK, version);
+    }
+    _statsPushDecoy = { ciphertext, wrappedDEK };
   }
   return _statsPushDecoy;
 }
@@ -662,25 +690,36 @@ function statsPushDecoySecret() {
 // letting an attacker distinguish "this guild opted in" from "it didn't"
 // by request latency alone, even though the *comparison* itself was
 // already constant-time. Fixed by routing BOTH cases through the exact
-// same decryptColumn() call (same table/rowKey/columnName, so the same
-// index lookups happen either way) -- real ciphertext when a secret
-// exists, the decoy ciphertext otherwise -- so the getWrappedDEK SELECT
-// and logSecretAccess INSERT happen unconditionally, once, regardless of
+// same decryptColumn() call (same table/columnName, so the same index
+// lookups happen either way) -- real ciphertext when a secret exists, the
+// decoy ciphertext otherwise -- so the getWrappedDEK SELECT and
+// logSecretAccess INSERT happen unconditionally, once, regardless of
 // which guild_id was requested or whether it ever opted in.
+//
+// FIX 2 (Layer 3 /code-review ultra): fix 1 above still keyed the decoy
+// path's decryptColumn() call on the caller-supplied guild_id, so its
+// getWrappedDEK() lookup correctly found nothing for a never-opted-in or
+// nonexistent guild -- leaving a real crypto-op divergence in
+// KEK-configured deployments (see statsPushDecoySecret()'s own comment
+// for the full mechanism). Fixed by keying the decoy path's lookup on the
+// fixed STATS_PUSH_DECOY_ROW_KEY instead of guildId, so it finds the
+// decoy's own persisted wrappedDEK and pays the identical
+// unwrapDEK()+decrypt cost as a real opted-in guild.
 export function verifyGuildStatsPushSecret(db, guildId, providedSecret) {
   const row = db.prepare("SELECT stats_push_secret FROM guilds WHERE guild_id = ?").get(guildId);
   const hasRealSecret = Boolean(row && row.stats_push_secret);
-  const ciphertextToDecrypt = hasRealSecret ? row.stats_push_secret : statsPushDecoySecret().ciphertext;
+  const ciphertextToDecrypt = hasRealSecret ? row.stats_push_secret : statsPushDecoySecret(db).ciphertext;
+  const rowKeyForLookup = hasRealSecret ? guildId : STATS_PUSH_DECOY_ROW_KEY;
 
   let plaintext = null;
   try {
-    plaintext = decryptColumn(db, "guilds", guildId, "stats_push_secret", ciphertextToDecrypt);
+    plaintext = decryptColumn(db, "guilds", rowKeyForLookup, "stats_push_secret", ciphertextToDecrypt);
   } catch {
-    // decrypt_failed is already logged by decryptColumn() -- expected and
-    // routine for the decoy path (its ciphertext was never wrapped under
-    // a key registered for this guildId/columnName), and also possible
-    // (though rare) for a real row with corrupted ciphertext. Either way,
-    // fall through to the uniform-cost comparison below.
+    // decrypt_failed is logged by decryptColumn() -- not expected to
+    // actually trigger on the decoy path anymore now that its wrappedDEK
+    // is real and persisted, but still possible (though rare) for a real
+    // row with corrupted ciphertext. Either way, fall through to the
+    // uniform-cost comparison below.
   }
 
   if (hasRealSecret && plaintext !== null) {
@@ -831,9 +870,24 @@ export function setGuildFaction(db, guildId, faction) {
 // schema v7 hardening pass (oauth sessions, the command counter, the
 // live-stats caches). Test-only -- production code has no reason to ever
 // clear these mid-process.
+//
+// _statsPushDecoy (Layer 3 /code-review ultra nit, mentat#276/#277): this
+// used to be omitted here, so a decoy ciphertext/wrappedDEK minted under
+// one test's crypto configuration (ACP_SECRETS_KEY/ACP_KEK_FILE, toggled
+// per test elsewhere in this suite's beforeEach) was silently reused by
+// later tests with a DIFFERENT configuration -- masking exactly the
+// timing/crypto-cost invariants those tests exist to check. Resetting it
+// here is now also load-bearing for correctness, not just hygiene: each
+// test's fresh (`:memory:`) database needs its OWN persisted decoy
+// secret_keys row (see statsPushDecoySecret()'s comment), and resetting
+// `_statsPushDecoy` is what forces that row to be (re)persisted against
+// the current test's db on its next call, instead of silently reusing a
+// value -- and the DB row that came with it -- from a previous test's
+// now-discarded database.
 export function _resetEphemeralStateForTests() {
   oauthSessions = new Map();
   commandCount = 0;
   statsSnapshotCache = null;
   guildStatsSnapshots = new Map();
+  _statsPushDecoy = undefined;
 }
