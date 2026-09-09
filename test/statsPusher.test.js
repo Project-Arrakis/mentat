@@ -173,6 +173,20 @@ test("pushStats includes players_online/spice_fields/sietches from guild_stats_s
   assert.equal(snapshot.sietches, 1);
 });
 
+test("pushStats publishes a real sietches: 0 (not an absent field) when every contributing guild genuinely has zero", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "g1", guildName: "G1", consoleUrl: "https://g1.test", adapterToken: "t", status: "active" });
+  setGuildStatsSharingSecret(db, "g1", "secret");
+  upsertGuildStatsSnapshot("g1", { playersOnline: 7, spiceFields: 2, sietches: 0 });
+
+  await pushStats(fakeClient, db, null, {});
+
+  const snapshot = getStatsSnapshot(db);
+  assert.equal(snapshot.players_online, 7);
+  assert.equal("sietches" in snapshot, true, "a real, sourced zero must be published, not treated as absent -- same contract as players_online/spice_fields");
+  assert.equal(snapshot.sietches, 0);
+});
+
 test("pushStats reports players_online/spice_fields as absent (not a fabricated zero) when no guild has opted in", async () => {
   const db = createDatabase(":memory:");
   upsertGuild(db, { guildId: "g1", guildName: "G1", consoleUrl: "https://g1.test", adapterToken: "t", status: "active" });

@@ -227,7 +227,15 @@ export async function pushStats(client, db, adapterClient, { alertChannelId } = 
     if (snapshotAggregate.contributing_guilds > 0) {
       aggregates.players_online = snapshotAggregate.players_online;
       aggregates.spice_fields = snapshotAggregate.spice_fields;
-      if (snapshotAggregate.sietches > 0) aggregates.sietches = snapshotAggregate.sietches;
+      // L2 /code-review high finding on mentat#276: this used to be gated
+      // on `> 0`, unlike its two siblings above -- meaning a real,
+      // sourced count of exactly zero sietches across every currently
+      // contributing guild (a legitimate outcome, summed the identical
+      // way in getActiveGuildStatsAggregate()) was silently omitted from
+      // the payload entirely, indistinguishable from "no source
+      // available." Once contributing_guilds > 0, all three fields are
+      // equally real and sourced -- publish the true zero.
+      aggregates.sietches = snapshotAggregate.sietches;
     }
 
     const stats = buildStatsPayload({
