@@ -167,7 +167,7 @@ test("pushStats includes players_online/spice_fields/sietches from guild_stats_s
   const ok = await pushStats(fakeClient, db, null, {});
   assert.equal(ok, true);
 
-  const snapshot = getStatsSnapshot(db);
+  const snapshot = getStatsSnapshot();
   assert.equal(snapshot.players_online, 7);
   assert.equal(snapshot.spice_fields, 2);
   assert.equal(snapshot.sietches, 1);
@@ -181,7 +181,7 @@ test("pushStats publishes a real sietches: 0 (not an absent field) when every co
 
   await pushStats(fakeClient, db, null, {});
 
-  const snapshot = getStatsSnapshot(db);
+  const snapshot = getStatsSnapshot();
   assert.equal(snapshot.players_online, 7);
   assert.equal("sietches" in snapshot, true, "a real, sourced zero must be published, not treated as absent -- same contract as players_online/spice_fields");
   assert.equal(snapshot.sietches, 0);
@@ -218,7 +218,7 @@ test("pushStats reports players_online/spice_fields as absent (not a fabricated 
 
   await pushStats(fakeClient, db, null, {});
 
-  const snapshot = getStatsSnapshot(db);
+  const snapshot = getStatsSnapshot();
   assert.equal("players_online" in snapshot, false);
   assert.equal("spice_fields" in snapshot, false);
 });
