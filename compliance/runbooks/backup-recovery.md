@@ -168,14 +168,22 @@ npx wrangler pages deploy dist --project-name=acp-landing --branch=main
 
 ### Stats Recovery
 
-The live stats payload is stored in the bot's local SQLite `stats_snapshot`
-table and served through the existing Cloudflare Tunnel at
+**Corrected (mentat#276, schema v7 hardening):** the live stats payload is no
+longer stored in SQLite. `stats_snapshot` and `guild_stats_snapshot` were both
+dropped from `data/acp.db` as part of the v6→v7 hardening migration (neither
+needs to survive a process restart to be correct) and now live purely as
+in-memory JS state, repopulated from Core on the bot's next poll/push after
+startup. There is nothing to back up or restore for this data — a restart
+naturally recovers it within one polling interval, not by restoring a file.
+It is still served through the existing Cloudflare Tunnel at
 `mentat-backend.darkdante.org/api/live-stats` (internal-only; the public
-`mentat-link.darkdante.org` site reaches it via its own reverse-proxy
-Pages Function). No Cloudflare KV dependency exists.
+`mentat-link.darkdante.org` site reaches it via its own reverse-proxy Pages
+Function). No Cloudflare KV dependency exists, and no SQLite dependency
+either, as of schema v7.
 
-**Scenario**: Stats corrupted.
-1. Restart bot to repopulate stats
+**Scenario**: Stats look stale or wrong.
+1. Restart the bot — this clears the in-memory cache and forces a fresh pull/
+   push cycle; there is no on-disk snapshot to corrupt or restore.
 2. Verify `GET https://mentat-backend.darkdante.org/api/live-stats` returns valid JSON
 
 ### Cloudflare Tunnel Recovery
