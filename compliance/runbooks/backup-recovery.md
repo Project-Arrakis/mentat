@@ -1,7 +1,7 @@
 # Backup & Recovery Runbook
 
-**Version**: 3.0
-**Date**: 2026-08-07 (original), corrected 2026-08-13, corrected 2026-08-17
+**Version**: 3.1
+**Date**: 2026-08-07 (original), corrected 2026-08-13, corrected 2026-08-17, corrected 2026-09-09
 **RTO**: 1 hour
 **RPO**: 15 minutes
 
@@ -90,6 +90,40 @@ receive traffic again on demand."
 | Bot database | SQLite file | Daily | 30 days |
 | Configuration | `.env` files | Manual | Until rotation |
 | Secrets | File system | Manual | Until rotation |
+
+## SSH Access
+
+All SSH commands in this runbook assume the dev machine's default
+ED25519 key, which is authorized on the dune-prod VM for user `dune`.
+
+**Corrected 2026-09-09:** this section's original Proxmox host IP
+(`192.168.10.5`) and key fingerprint were both wrong — verified
+directly, not assumed, before this correction (`ping` to
+`192.168.10.5` returns "Destination Net Unreachable"; the real Proxmox
+host, per the meta-repo README's Live Systems section, is
+`192.168.68.127` — this dev machine itself, confirmed reachable; the
+real local key fingerprint was re-derived via `ssh-keygen -lf
+~/.ssh/id_ed25519.pub`, and a live `ssh dune@192.168.20.10` round-trip
+was re-confirmed working with it):
+
+| Field | Value |
+|---|---|
+| User | `dune` |
+| VM host | `192.168.20.10` (internal, VLAN 10 Trusted LAN) — confirmed reachable, SSH round-trip confirmed working |
+| Proxmox host | `192.168.68.127` (this dev machine itself — see the meta-repo README's Live Systems section for the full tunnel/hosting context) |
+| SSH key | `~/.ssh/id_ed25519` (default, ED25519 256-bit) |
+| Key fingerprint | `SHA256:/mwqPXnB0tIEcLEVTFHUcJRxGBVr609PsgZZ7gVvcqw` |
+| SSH config | No dedicated `Host` block required (default key, reachable by IP) |
+
+The OCI VPS used a separate key (`~/.ssh/ssh-key-2026-07-18.key`, RSA
+2048-bit), which was revoked and archived at OCI decommission. Do not
+use the OCI key for any other system — it is exclusive to that
+now-terminated instance.
+
+An `ssh dune@192.168.20.10` command must succeed from the dev machine
+before any recovery procedure in this runbook is attempted.
+
+---
 
 ## Recovery Procedures
 
