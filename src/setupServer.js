@@ -1,5 +1,5 @@
 import express from "express";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,7 +23,7 @@ import {
 } from "./database.js";
 import { esc } from "./htmlEscape.js";
 import { renderPage, errorPage } from "./setupLayout.js";
-import { isEncryptionConfigured } from "./secretsCrypto.js";
+import { isEncryptionConfigured, constantTimeStringsEqual } from "./secretsCrypto.js";
 import { recordGlobalStatsPushAttempt, recordGuildStatsPushAttempt } from "./statsPushRateLimit.js";
 
 // #215/A2: version comes from package.json — a hardcoded literal here
@@ -121,19 +121,6 @@ function alertRelayToken(env = process.env) {
   }
 }
 
-// Constant-time comparison guards against a timing side-channel that
-// would otherwise let an attacker recover the token byte-by-byte by
-// measuring response latency across many requests. Buffer.compare()
-// length must match before timingSafeEqual() is called (it throws on
-// mismatched lengths), so a length check happens first -- this is safe
-// because the length itself is not the secret, only the token's value
-// is.
-function tokenMatches(provided, expected) {
-  const providedBuf = Buffer.from(String(provided || ""), "utf8");
-  const expectedBuf = Buffer.from(String(expected || ""), "utf8");
-  if (providedBuf.length !== expectedBuf.length) return false;
-  return timingSafeEqual(providedBuf, expectedBuf);
-}
 
 // Issue #195 fix: the setup form's guild <select> submits only the guild
 // id, so the previously-trusted req.body.guildName was always undefined
@@ -684,7 +671,7 @@ export function createSetupServer(config) {
     if (expectedToken) {
       const authHeader = req.get("authorization") || "";
       const providedToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      if (!tokenMatches(providedToken, expectedToken)) {
+      if (!constantTimeStringsEqual(providedToken, expectedToken)) {
         logError("alerts_relay.unauthorized", new Error("Missing or invalid bearer token"), {
           remote: req.ip,
           hasAuthHeader: Boolean(authHeader)

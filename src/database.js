@@ -1,8 +1,7 @@
 import Database from "better-sqlite3";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { timingSafeEqual } from "node:crypto";
-import { encryptWithDEK, decryptWithDEK, activeKeyVersion } from "./secretsCrypto.js";
+import { encryptWithDEK, decryptWithDEK, activeKeyVersion, constantTimeStringsEqual } from "./secretsCrypto.js";
 
 const SCHEMA_VERSION = 7;
 
@@ -623,12 +622,11 @@ export function getStatsSnapshot() {
 
 const STATS_PUSH_DECOY_PLACEHOLDER_PREFIX = "stats-push-decoy-";
 
-function constantTimeStringsEqual(a, b) {
-  const aBuf = Buffer.from(String(a ?? ""), "utf8");
-  const bBuf = Buffer.from(String(b ?? ""), "utf8");
-  if (aBuf.length !== bBuf.length) return false;
-  return timingSafeEqual(aBuf, bBuf);
-}
+// constantTimeStringsEqual is imported from secretsCrypto.js (L2
+// /code-review high finding on mentat#276: this used to be a duplicate,
+// byte-identical local copy -- setupServer.js's tokenMatches() had the
+// exact same implementation. One shared helper now, see that file's
+// definition for the full rationale.
 
 // A single, process-lifetime decoy ciphertext (never persisted to the
 // database, never tied to any real guild_id) used to give the "no real

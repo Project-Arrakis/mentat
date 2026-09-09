@@ -42,7 +42,7 @@
 // case explicitly rather than silently accepting it. See
 // docs/security-secrets-at-rest.md for full operator guidance.
 
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
@@ -60,6 +60,23 @@ let cachedKey;
 let cachedKeySource;
 let _kekCache;
 let _kekKeyVersion;
+
+// Constant-time string comparison, shared by every caller that needs to
+// compare a caller-supplied credential against a known value without
+// leaking its length or content through response-timing side channels
+// (setupServer.js's alert-relay bearer token, database.js's
+// verifyGuildStatsPushSecret()). Previously duplicated identically in
+// both call sites (L2 /code-review high finding on mentat#276) -- one
+// shared implementation here instead. Buffer.compare()/timingSafeEqual()
+// both throw on mismatched-length buffers, so the length check must
+// happen first; the length itself is not the secret, only the value is,
+// so branching on length alone leaks nothing new.
+export function constantTimeStringsEqual(a, b) {
+  const aBuf = Buffer.from(String(a ?? ""), "utf8");
+  const bBuf = Buffer.from(String(b ?? ""), "utf8");
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
 
 function loadKey(env = process.env) {
   if (cachedKey !== undefined) return cachedKey;
