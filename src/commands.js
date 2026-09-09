@@ -18,7 +18,7 @@ import { writesEnabled, canWrite, writeRoleIds } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES, PLANNED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
-import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
+import { getGuild, getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
 import { multiTenantActorTier, tierAtLeast, resolveGuildOwnerId, isInteractionGuildOwner } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
@@ -215,6 +215,27 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
   const subcommand = interaction.options.getSubcommand();
   const key = group ? `${group}:${subcommand}` : subcommand;
   const guildId = interaction.guildId;
+
+  // Task 12 (hosted-bot-oauth-registration plan, replacing the removed
+  // handleGuildCreate DM-on-invite trigger -- see onboarding.js's git
+  // history): a guild with no `guilds` row at all, or one whose status
+  // isn't "active", now gets an explicit, actionable reply here instead
+  // of silently reaching AdapterClient, which used to fall back to this
+  // bot's own default (non-guild-scoped) config via
+  // adapterClient.js's _resolveConfig() -- producing no clear signal at
+  // all for an unregistered guild. This runs before every other gate
+  // below, including the zero-role guild-owner bypass (#213/U4)
+  // immediately after: a guild that was never registered with a console
+  // is a more fundamental problem than a missing role mapping, and must
+  // not be masked by that gate's owner bypass reaching AdapterClient
+  // with the wrong (default) config.
+  if (config.multiTenant && db && guildId && getGuild(db, guildId)?.status !== "active") {
+    await interaction.reply({
+      content: "This server isn't connected to a console yet. A server admin should go to their Dune Docker console's Settings → Discord Bot page and click \"Connect to hosted bot.\"",
+      ephemeral: true
+    });
+    return true;
+  }
 
   // #213/U4: an unconfigured multi-tenant guild used to be denied EVERY
   // command — including /dune core setup, the exact command the

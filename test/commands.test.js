@@ -231,6 +231,66 @@ test("isAdminActor (multi-tenant) requires admin tier or above -- real guild own
   assert.equal(isAdminActor({ member: { roles: ["unconfigured"] } }, MT_CONFIG, db, "guild-1"), false);
 });
 
+// ── Task 12 (hosted-bot-oauth-registration plan): the removed
+// handleGuildCreate DM-on-invite trigger is replaced by an explicit,
+// in-guild reply here whenever a command is run in a guild with no
+// `guilds` row, or one whose status isn't "active" -- instead of
+// silently reaching AdapterClient with the bot's own default (non-
+// guild-scoped) config. These pin: (1) no row at all, (2) a row present
+// but not yet "active" (e.g. still "pending"), and (3) the unchanged,
+// working path for a real "active" guild.
+
+test("executeDuneCommand replies with the not-connected notice and never reaches AdapterClient when the guild has no `guilds` row at all", async () => {
+  const db = createDatabase(":memory:");
+  let replied = null;
+  const interaction = mockInteraction("core", "about", { user: { id: "u1" }, roles: ["role-a"] });
+  interaction.reply = async (r) => { replied = r; };
+  const adapterClient = {
+    health() { throw new Error("AdapterClient must not be called for an unregistered guild"); }
+  };
+
+  const handled = await executeDuneCommand(interaction, adapterClient, MT_CONFIG, db);
+
+  assert.equal(handled, true);
+  assert.match(replied?.content || "", /isn't connected to a console yet/);
+  assert.match(replied?.content || "", /Connect to hosted bot/);
+  assert.equal(replied?.ephemeral, true);
+});
+
+test("executeDuneCommand replies with the not-connected notice when the guild's `guilds` row exists but is not \"active\"", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "guild-1", guildName: "Test Guild", consoleUrl: "https://example.test", adapterToken: "t", status: "pending" });
+  addGuildRole(db, "guild-1", "moderator", "role-a");
+  let replied = null;
+  const interaction = mockInteraction("core", "about", { user: { id: "u1" }, roles: ["role-a"] });
+  interaction.reply = async (r) => { replied = r; };
+  const adapterClient = {
+    health() { throw new Error("AdapterClient must not be called for a non-active guild"); }
+  };
+
+  const handled = await executeDuneCommand(interaction, adapterClient, MT_CONFIG, db);
+
+  assert.equal(handled, true);
+  assert.match(replied?.content || "", /isn't connected to a console yet/);
+});
+
+test("executeDuneCommand proceeds normally (no regression) for a real \"active\" guild", async () => {
+  const db = multiTenantDb({ moderator: ["role-a"] });
+  let edited = null;
+  // A distinct userId (not "u1") to avoid colliding with the per-
+  // user/command cooldown another core:about test below asserts on --
+  // src/cooldown.js's cooldownMap is a module-level singleton shared
+  // across this whole test file.
+  const interaction = mockInteraction("core", "about", { user: { id: "active-guild-user" }, roles: ["role-a"] });
+  interaction.deferReply = async (o) => { };
+  interaction.editReply = async (r) => { edited = r; };
+
+  const handled = await executeDuneCommand(interaction, {}, MT_CONFIG, db);
+
+  assert.equal(handled, true);
+  assert.ok(edited?.embeds?.[0]?.data?.title, "core:about must still work unchanged for an active guild");
+});
+
 test("executeDuneCommand handles core:about without calling the adapter", async () => {
   let edited = null;
   const interaction = mockInteraction("core", "about", { user: { id: "u1" }, roles: ["role-a"] });
