@@ -9,10 +9,18 @@
 // bucket before verification would let anyone claiming any user ID exhaust
 // that specific user's quota with zero valid credentials. The global bucket
 // has no such key and is the only limit an unauthenticated caller can ever
-// affect -- and it is what actually bounds the endpoint's real cost (one
-// outbound Discord API call per accepted request), since a garbage token
-// still reaches the local shape-validation step (see the route handler)
-// before this limiter is even consulted for the per-user bucket.
+// affect -- and it is what actually bounds the endpoint's real cost, since a
+// garbage token still reaches the local shape-validation step (see the
+// route handler) before this limiter is even consulted for the per-user
+// bucket.
+//
+// Layer 3 integration review Minor finding (2026-09-09): the real cost of
+// one accepted request is TWO outbound Discord API calls, not one --
+// verifyAndRegisterConsole() fetches /users/@me/guilds AND /users/@me in
+// parallel for every request that passes local shape-validation. At
+// GLOBAL_MAX_ATTEMPTS=120 per GLOBAL_WINDOW_MS (one minute), the real
+// ceiling this bucket imposes on outbound Discord traffic is therefore 240
+// calls/min, not 120.
 const PER_USER_MAX_ATTEMPTS = 10;
 const PER_USER_WINDOW_MS = 60 * 1000;
 const PER_USER_BLOCK_MS = 60 * 1000;

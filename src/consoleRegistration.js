@@ -63,7 +63,7 @@ async function fetchDiscordUserId(accessToken, fetchImpl, timeoutMs) {
 // function itself never needs to know about HTTP status codes.
 export async function verifyAndRegisterConsole(db, { guildId, discordAccessToken, consoleUrl, adapterToken }, { fetchImpl = globalThis.fetch, timeoutMs = DISCORD_FETCH_TIMEOUT_MS } = {}) {
   const globalCheck = recordGlobalConsoleRegistrationAttempt();
-  if (!globalCheck.allowed) return { ok: false, reason: "rate_limited" };
+  if (!globalCheck.allowed) return { ok: false, reason: "rate_limited", retryAfterSeconds: globalCheck.retryAfterSeconds };
 
   // Cheap, local validation BEFORE any outbound Discord call -- the DoS
   // bound the design's own §3.3 requires. A garbage token/guildId never
@@ -101,7 +101,7 @@ export async function verifyAndRegisterConsole(db, { guildId, discordAccessToken
   // own module comment for why touching it any earlier would be a
   // victim-targetable DoS.
   const userCheck = recordUserConsoleRegistrationAttempt(discordUserId);
-  if (!userCheck.allowed) return { ok: false, reason: "rate_limited" };
+  if (!userCheck.allowed) return { ok: false, reason: "rate_limited", retryAfterSeconds: userCheck.retryAfterSeconds };
 
   // THE load-bearing check: the submitted guildId must be one the token's
   // own owner genuinely owns -- never trust the request body's claim alone.

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { logInfo, logError } from "./logger.js";
 import { requireProxySecret } from "./proxyAuth.js";
 import { verifyAndRegisterConsole } from "./consoleRegistration.js";
+import { recordGlobalConsoleRegistrationAttempt } from "./consoleRegistrationRateLimit.js";
 import {
   createDatabase,
   createOauthSession,
@@ -723,6 +724,14 @@ export function createSetupServer(config) {
       const result = await verifyAndRegisterConsole(db, { guildId, discordAccessToken, consoleUrl, adapterToken });
       if (!result.ok) {
         const status = result.reason === "rate_limited" ? 429 : result.reason === "discord_unreachable" ? 502 : 403;
+        // Minor finding (Layer 3 integration review): match the existing
+        // Retry-After precedent 2 routes up (/api/stats/push, above) and in
+        // steamLinkServer.js -- the rate limiter already computed this
+        // value, so surface it rather than making a rate-limited caller
+        // guess.
+        if (status === 429 && result.retryAfterSeconds) {
+          res.set("Retry-After", String(result.retryAfterSeconds));
+        }
         return res.status(status).json({ error: "Could not verify you own that Discord server -- please try connecting again." });
       }
       return res.status(200).json({ ok: true });
@@ -821,6 +830,35 @@ export function createSetupServer(config) {
     } catch (err) {
       res.status(500).json({ error: "Failed to load command registry", details: err.message });
     }
+  });
+
+  // Layer 3 integration review Important #1 (a second rate-limiter bypass,
+  // beyond fix-round-1's `req.body || {}` guard above): a POST to
+  // /api/consoles/register WITH a correct `Content-Type: application/json`
+  // header but a genuinely malformed body (e.g. `{not json`) throws inside
+  // the global `express.json()` middleware registered near the top of this
+  // function, BEFORE this route's own handler -- and therefore
+  // verifyAndRegisterConsole()/recordGlobalConsoleRegistrationAttempt() --
+  // ever runs. That request class was previously invisible to this
+  // endpoint's global rate-limit ceiling, exactly like the missing-
+  // Content-Type case fix-round-1 already fixed. Scoped to exactly this
+  // one route by checking req.path: every other route's JSON-parse-error
+  // handling (including Express's own default stack-trace-leaking error
+  // page, tracked separately as mentat#318) is deliberately left
+  // untouched -- this is not a general app-wide error-handling change.
+  // Registered last so Express's error-dispatch (which walks forward
+  // through the middleware stack from wherever `next(err)` was called)
+  // finds it after express.json() near the top of this function.
+  app.use((err, req, res, next) => {
+    if (err && err.type === "entity.parse.failed" && req.path === "/api/consoles/register") {
+      const result = recordGlobalConsoleRegistrationAttempt();
+      if (!result.allowed) {
+        res.set("Retry-After", String(result.retryAfterSeconds));
+        return res.status(429).json({ error: "Could not verify you own that Discord server -- please try connecting again." });
+      }
+      return res.status(400).json({ error: "Could not verify you own that Discord server -- please try connecting again." });
+    }
+    return next(err);
   });
 
   return app;

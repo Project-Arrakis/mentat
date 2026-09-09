@@ -145,3 +145,55 @@ test("POST /api/consoles/register with a non-JSON body returns the normal 403, n
     assert.equal(second.status, 429, "the first (non-JSON-body) request must have incremented the global rate-limit bucket");
   });
 });
+
+// Layer 3 integration review Important #1: a SECOND rate-limiter bypass,
+// distinct from the one above. A request WITH the correct
+// `Content-Type: application/json` header but a genuinely malformed body
+// throws inside express.json() itself, before this route's own handler (and
+// therefore recordGlobalConsoleRegistrationAttempt) ever runs. Verified live
+// by the reviewer before this fix: two malformed-JSON POSTs were not
+// counted by the global bucket at all.
+test("POST /api/consoles/register with Content-Type: application/json and a malformed body returns 400 (not 500), and still counts toward the global rate limit", async () => {
+  resetConsoleRegistrationRateLimiterForTests({ globalMax: 2, globalWindow: 60_000, globalBlock: 60_000 });
+  await withRegistrationApp(async (base) => {
+    const first = await fetch(`${base}/api/consoles/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not json"
+    });
+    assert.equal(first.status, 400, "malformed JSON with the correct Content-Type must fail with 400, not crash with a 500");
+
+    // globalMax is 2: if the first (malformed-JSON) request had NOT been
+    // recorded by the global rate limiter (the bug this test guards
+    // against), this second, well-formed-but-unauthenticated request would
+    // still see count=1 and be allowed through to normal 403 validation,
+    // not 429. Seeing 429 here proves the first request really was counted.
+    const second = await fetch(`${base}/api/consoles/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ guildId: "111111111111111111" })
+    });
+    assert.equal(second.status, 429, "the first (malformed-JSON) request must have incremented the global rate-limit bucket");
+    assert.equal(second.headers.get("retry-after"), "60", "the 429 must carry Retry-After, matching this endpoint's other 429 responses");
+  });
+});
+
+test("POST /api/consoles/register with Content-Type: application/json and a malformed body itself returns 429 (with Retry-After) once the global bucket is already exhausted, rather than a bare 400", async () => {
+  resetConsoleRegistrationRateLimiterForTests({ globalMax: 2, globalWindow: 60_000, globalBlock: 60_000 });
+  await withRegistrationApp(async (base) => {
+    const first = await fetch(`${base}/api/consoles/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ guildId: "111111111111111111" })
+    });
+    assert.equal(first.status, 403);
+
+    const second = await fetch(`${base}/api/consoles/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not json"
+    });
+    assert.equal(second.status, 429, "a malformed-JSON request must itself be rejected as rate-limited once the global bucket is exhausted");
+    assert.equal(second.headers.get("retry-after"), "60");
+  });
+});
