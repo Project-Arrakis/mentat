@@ -223,7 +223,7 @@ export async function pushStats(client, db, adapterClient, { alertChannelId } = 
     // both 'active' and have a fresh (<20-minute-old) pushed snapshot; a
     // guild that never opted in, or whose push has stopped, contributes
     // nothing — absent, not a fabricated zero, same contract as before.
-    const snapshotAggregate = getActiveGuildStatsAggregate(db);
+    const snapshotAggregate = getActiveGuildStatsAggregate(db, activeGuilds);
     if (snapshotAggregate.contributing_guilds > 0) {
       aggregates.players_online = snapshotAggregate.players_online;
       aggregates.spice_fields = snapshotAggregate.spice_fields;

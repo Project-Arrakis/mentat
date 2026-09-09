@@ -187,6 +187,31 @@ test("pushStats publishes a real sietches: 0 (not an absent field) when every co
   assert.equal(snapshot.sietches, 0);
 });
 
+test("pushStats queries the active-guilds table only once per push, not twice", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "g1", guildName: "G1", consoleUrl: "https://g1.test", adapterToken: "t", status: "active" });
+  setGuildStatsSharingSecret(db, "g1", "secret");
+  upsertGuildStatsSnapshot("g1", { playersOnline: 7, spiceFields: 2, sietches: 1 });
+
+  // L2 /code-review high finding on mentat#276: getActiveGuildStatsAggregate()
+  // used to run its own independent "SELECT * FROM guilds WHERE status =
+  // 'active'" query even though pushStats() already had the identical
+  // result in `activeGuilds`. Wrap db.prepare() to count exactly how many
+  // times that specific query text is prepared during one pushStats()
+  // call -- a real query count, not an inference from the code shape.
+  const activeGuildsSql = "SELECT * FROM guilds WHERE status = 'active'";
+  const originalPrepare = db.prepare.bind(db);
+  let activeGuildsQueryCount = 0;
+  db.prepare = (sql) => {
+    if (sql === activeGuildsSql) activeGuildsQueryCount += 1;
+    return originalPrepare(sql);
+  };
+
+  await pushStats(fakeClient, db, null, {});
+
+  assert.equal(activeGuildsQueryCount, 1, "pushStats must reuse its own already-fetched activeGuilds list instead of querying it again inside getActiveGuildStatsAggregate()");
+});
+
 test("pushStats reports players_online/spice_fields as absent (not a fabricated zero) when no guild has opted in", async () => {
   const db = createDatabase(":memory:");
   upsertGuild(db, { guildId: "g1", guildName: "G1", consoleUrl: "https://g1.test", adapterToken: "t", status: "active" });

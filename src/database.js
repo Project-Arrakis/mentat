@@ -795,8 +795,16 @@ const STATS_SNAPSHOT_STALENESS_MS = 20 * 60 * 1000;
 // guild status is the one piece of this check that IS persisted (it
 // lives on the guilds table), so this is the one place the in-memory
 // snapshot Map and SQLite meet.
-export function getActiveGuildStatsAggregate(db) {
-  const activeGuildIds = new Set(getActiveGuilds(db).map((g) => g.guild_id));
+//
+// activeGuilds is optional (L2 /code-review high finding on mentat#276):
+// pushStats() already fetches getActiveGuilds(db) once for its own
+// payload fields and was making this function run the identical query a
+// second time on every push cycle. Callers that already have a fresh
+// active-guilds list (pushStats()) should pass it directly; every other
+// caller (tests, any future one-off caller) can omit it and this
+// function queries it itself exactly as before.
+export function getActiveGuildStatsAggregate(db, activeGuilds = getActiveGuilds(db)) {
+  const activeGuildIds = new Set(activeGuilds.map((g) => g.guild_id));
   const cutoff = Date.now() - STATS_SNAPSHOT_STALENESS_MS;
   let playersOnline = 0, spiceFields = 0, sietches = 0, contributingGuilds = 0;
   for (const [guildId, snapshot] of guildStatsSnapshots) {
