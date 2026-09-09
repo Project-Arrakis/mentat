@@ -30,6 +30,12 @@ Use this link to invite the hosted bot to your Discord server:
 https://discord.com/oauth2/authorize?client_id=1546203607807041697&scope=bot%20applications.commands&permissions=128
 ```
 
+This link's `permissions=128` (View Audit Log) is a historical holdover
+from a now-removed feature and has no remaining functional use —
+`permissions=0` would work identically today. See
+[Discord Setup](discord-setup.md) for the full explanation. No action
+needed if you've already used this link.
+
 The bot is invite-link only — it is not listed in Discord's "Browse
 Available Bots" directory, so searching for it there will not find it.
 

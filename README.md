@@ -52,6 +52,7 @@ connect your console — **primarily from inside your own Dune Docker
 Console**, with a web setup portal kept as the fallback:
 
 1. [Invite the bot to your server](https://discord.com/oauth2/authorize?client_id=1546203607807041697&scope=bot%20applications.commands&permissions=128) — add the existing hosted bot to your Discord
+   (the link's `permissions=128`/View Audit Log is a historical holdover with no remaining functional use — see [Discord Setup](docs/discord-setup.md) for why; harmless, no action needed)
 2. **Connect your console** — in your Dune Docker Console's WebUI, go to
    **Settings → Discord Bot → "Connect to hosted bot"** and sign in with
    Discord; it registers your server automatically. If your console

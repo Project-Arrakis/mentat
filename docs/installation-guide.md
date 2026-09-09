@@ -51,6 +51,11 @@ purpose, not by default.
    whichever is easier. If you're reading this on the same phone you'd
    scan with, just tap the link instead.)
 
+   This link's `permissions=128` (View Audit Log) is a historical
+   holdover from a now-removed feature and has no remaining functional
+   use — see [Discord Setup](discord-setup.md#step-4-invite-the-bot-to-your-server)
+   for why. No action needed if you've already used this link.
+
 2. **Connect your console** — **primary path:** in your Dune Docker Console's
    WebUI, go to **Settings → Discord Bot → "Connect to hosted bot"** and
    sign in with Discord; it registers your server automatically. If your
