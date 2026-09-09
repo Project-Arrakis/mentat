@@ -235,17 +235,36 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
   // RBAC_EXEMPT_COMMANDS' existing "keep the recovery path reachable"
   // precedent (#213/U4/U8) -- core:setup's own reply already IS the
   // fallback path for a never-registered guild (a personalized
-  // setupPortalUrl(guildId) link), and this gate's own message doesn't
-  // mention that link at all, so blocking core:setup here would remove
-  // the one working recovery command instead of just this bot's now-
-  // removed DM.
-  if (config.multiTenant && db && guildId && !CONSOLE_REGISTRATION_EXEMPT_COMMANDS.has(key)
-    && getGuild(db, guildId)?.status !== "active") {
-    await interaction.reply({
-      content: "This server isn't connected to a console yet. A server admin should go to their Dune Docker console's Settings → Discord Bot page and click \"Connect to hosted bot.\"",
-      ephemeral: true
-    });
-    return true;
+  // setupPortalUrl(guildId) link). Fix round 2 also added a pointer to
+  // `/dune core setup` directly in this gate's own message text below
+  // (it previously didn't mention that command at all), so an operator
+  // who hits this gate learns about the fallback without having to
+  // already know it exists -- blocking core:setup here entirely would
+  // still remove the one working recovery command, same as before.
+  if (config.multiTenant && db && guildId && !CONSOLE_REGISTRATION_EXEMPT_COMMANDS.has(key)) {
+    const guildRow = getGuild(db, guildId);
+    if (guildRow?.status !== "active") {
+      // Task 12 fix-round-2 (Layer 3 integration review, mentat I2): a guild
+      // whose row has status "suspended" (set by onboarding.js's
+      // handleGuildDelete when the bot is kicked) is a factually different
+      // state from "never registered at all" -- console_url/adapter_token
+      // are still intact and Core's own console still shows "Connected."
+      // The generic "isn't connected to a console yet" copy previously
+      // fired for this case too, which is wrong (it implies setup was
+      // never done). Re-registering (clicking "Connect to hosted bot"
+      // again) upserts status back to "active", so a reconnect-specific
+      // message is both accurate and actionable. Both branches now also
+      // name `/dune core setup` as the documented manual-fallback path
+      // (already exempt from this very gate, see
+      // CONSOLE_REGISTRATION_EXEMPT_COMMANDS above) so an operator who
+      // doesn't want the in-console flow has a pointer to a working path
+      // directly from this reply.
+      const content = guildRow?.status === "suspended"
+        ? "This server was previously connected but is currently disconnected. Reconnect from your console's Settings → Discord Bot section by clicking \"Connect to hosted bot\" again. You can also run `/dune core setup` for the manual setup link."
+        : "This server isn't connected to a console yet. A server admin should go to their Dune Docker console's Settings → Discord Bot page and click \"Connect to hosted bot.\" You can also run `/dune core setup` for the manual setup link.";
+      await interaction.reply({ content, ephemeral: true });
+      return true;
+    }
   }
 
   // #213/U4: an unconfigured multi-tenant guild used to be denied EVERY

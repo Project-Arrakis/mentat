@@ -272,6 +272,36 @@ test("executeDuneCommand replies with the not-connected notice when the guild's 
 
   assert.equal(handled, true);
   assert.match(replied?.content || "", /isn't connected to a console yet/);
+  assert.match(replied?.content || "", /\/dune core setup/, "the generic not-connected reply must point at the manual-setup fallback command");
+});
+
+// Fix round 2 (Layer 3 integration review, mentat I2): a guild whose row
+// has status "suspended" (set by onboarding.js's handleGuildDelete when
+// the bot is kicked) is a factually different state from "never
+// registered at all" -- console_url/adapter_token are still intact and
+// Core's own console still shows "Connected." This must get its own,
+// accurate, reconnect-specific message, not the generic
+// "isn't connected to a console yet" copy (which implies setup was never
+// done at all).
+test("executeDuneCommand replies with a reconnect-specific notice for a \"suspended\" guild, distinct from the generic not-connected notice", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "guild-1", guildName: "Test Guild", consoleUrl: "https://example.test", adapterToken: "t", status: "suspended" });
+  addGuildRole(db, "guild-1", "moderator", "role-a");
+  let replied = null;
+  const interaction = mockInteraction("core", "about", { user: { id: "u1" }, roles: ["role-a"] });
+  interaction.reply = async (r) => { replied = r; };
+  const adapterClient = {
+    health() { throw new Error("AdapterClient must not be called for a suspended guild"); }
+  };
+
+  const handled = await executeDuneCommand(interaction, adapterClient, MT_CONFIG, db);
+
+  assert.equal(handled, true);
+  assert.doesNotMatch(replied?.content || "", /isn't connected to a console yet/, "a suspended (previously-connected) guild must not see the never-connected copy");
+  assert.match(replied?.content || "", /previously connected but is currently disconnected/);
+  assert.match(replied?.content || "", /Connect to hosted bot/);
+  assert.match(replied?.content || "", /\/dune core setup/);
+  assert.equal(replied?.ephemeral, true);
 });
 
 // Fix round 1 (reviewer finding): core:setup is the documented, real
@@ -362,6 +392,17 @@ test("executeDuneCommand handles core:about without calling the adapter", async 
   assert.ok(edited?.embeds?.[0]?.data?.title, "about embed has title");
 });
 
+// Fix round 2 (Layer 3 integration review, mentat I3): the assertion below
+// still tests real, current behavior -- setupPayload()'s generated invite
+// URL literally still contains permissions=128, unchanged as of this
+// change (tracked as mentat#319, not yet fixed to permissions=0). Its
+// original rationale ("so onboarding.js's findInviter() can identify the
+// inviter") is now stale: findInviter()/handleGuildCreate() were deleted
+// by this same branch (Task 12), and permissions=128/View Audit Log has no
+// remaining functional use in this codebase (see docs/discord-setup.md).
+// Kept the assertion, dropped the stale rationale from its message --
+// mentat#319 should account for this test (and its embedFormat.test.js
+// sibling below) when the permissions value itself is finally changed.
 test("executeDuneCommand's core:setup generates an invite URL with permissions=128 (issue #281)", async () => {
   const originalClientId = process.env.DISCORD_CLIENT_ID;
   process.env.DISCORD_CLIENT_ID = "test-client-id";
@@ -378,7 +419,7 @@ test("executeDuneCommand's core:setup generates an invite URL with permissions=1
     const description = edited?.embeds?.[0]?.data?.description || "";
     assert.ok(
       description.includes("permissions=128"),
-      `setup embed's invite URL must include permissions=128 (VIEW_AUDIT_LOG) so onboarding.js's findInviter() can identify the inviter -- got: ${description}`
+      `setup embed's invite URL must include permissions=128 (VIEW_AUDIT_LOG, currently vestigial -- see mentat#319) -- got: ${description}`
     );
   } finally {
     if (originalClientId === undefined) delete process.env.DISCORD_CLIENT_ID;
