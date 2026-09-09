@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
-import { createDatabase, getGuild, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, deleteOauthSession, saveStatsSnapshot, getStatsSnapshot, getGuildFaction, setGuildFaction, verifyGuildStatsPushSecret, setGuildStatsSharingSecret, clearGuildStatsSharingSecret, getGuildStatsSharingStatus, upsertGuildStatsSnapshot, getActiveGuildStatsAggregate, isValidStatsPushValue, _resetEphemeralStateForTests } from "../src/database.js";
+import { createDatabase, getGuild, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, deleteOauthSession, saveStatsSnapshot, getStatsSnapshot, getGuildFaction, setGuildFaction, verifyGuildStatsPushSecret, setGuildStatsSharingSecret, clearGuildStatsSharingSecret, getGuildStatsSharingStatus, upsertGuildStatsSnapshot, getActiveGuildStatsAggregate, isValidStatsPushValue, rollbackSchemaV7ToV6, _resetEphemeralStateForTests } from "../src/database.js";
 import { _resetKeyCacheForTests, _resetKEKCacheForTests, decryptWithDEK } from "../src/secretsCrypto.js";
 
 const VALID_KEY_HEX = "c".repeat(64);
@@ -425,6 +425,85 @@ test("schema v6->v7 hardening migration: drops all six removed tables and preser
     assert.equal(row.guild_name, "Existing Guild", "the guilds row itself must survive the migration untouched");
     assert.equal(row.stats_push_secret, "a-real-secret", "existing stats-sharing consent state must survive -- it's still a real column, not a dropped table");
     assert.ok(row.stats_sharing_opted_in_at);
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Requirement 26: every migration needs a documented rollback path and a
+// test that verifies it works against the previous version's schema. This
+// exercises rollbackSchemaV7ToV6() against a real, freshly-migrated v7
+// database (not a hand-built fixture) -- start on v6, migrate forward via
+// the real createDatabase() path, then roll back and confirm a v6-era
+// query shape works again on every one of the six recreated tables.
+test("schema v7->v6 rollback: recreates all six tables with the pre-v7 shape and old-code queries succeed again", () => {
+  const dir = mkdtempSync(join(tmpdir(), "acp-db-v7-rollback-"));
+  const dbPath = join(dir, "acp.db");
+  try {
+    const legacyDb = new Database(dbPath);
+    legacyDb.exec(`
+      CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+      CREATE TABLE guilds (
+        guild_id TEXT PRIMARY KEY, guild_name TEXT, console_url TEXT, adapter_token TEXT,
+        status TEXT DEFAULT 'active', created_at TEXT, updated_at TEXT,
+        stats_push_secret TEXT, stats_sharing_opted_in_at TEXT, stats_sharing_opted_out_at TEXT
+      );
+      INSERT INTO schema_version (version) VALUES (6);
+      INSERT INTO guilds (guild_id, guild_name, console_url, adapter_token) VALUES ('g1', 'G1', 'https://g1.test', 'tok');
+    `);
+    legacyDb.close();
+
+    // Forward migration (the real path, not a hand-built v7 fixture) --
+    // this is the exact database a v7 upgrade produces.
+    const migrated = createDatabase(dbPath);
+    assert.equal(migrated.prepare("SELECT version FROM schema_version").get().version, 7);
+    migrated.close();
+
+    // Now roll it back, as an operator downgrading to pre-v7 code would.
+    const db = new Database(dbPath);
+    rollbackSchemaV7ToV6(db);
+
+    assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 6, "schema_version must be reset to 6");
+
+    // Exercise the exact query shapes pre-v7 code actually used against
+    // each recreated table (see database.js pre-5516a6b for the source of
+    // these statements) -- a shape mismatch would throw here, not just
+    // fail a table-existence check.
+    assert.doesNotThrow(() => {
+      db.prepare("INSERT INTO oauth_sessions (state, discord_user_id, discord_username, guild_id) VALUES (?, ?, ?, ?)").run("state1", "u1", "user1", "g1");
+      db.prepare("SELECT * FROM oauth_sessions WHERE state = ?").get("state1");
+    }, "oauth_sessions must accept the old code's real INSERT/SELECT shape");
+
+    assert.doesNotThrow(() => {
+      db.prepare("INSERT INTO player_links (guild_id, discord_user_id, character_name) VALUES (?, ?, ?) ON CONFLICT(guild_id, discord_user_id) DO UPDATE SET character_name = excluded.character_name").run("g1", "u1", "Char One");
+      db.prepare("SELECT * FROM player_links WHERE guild_id = ? AND discord_user_id = ?").get("g1", "u1");
+    }, "player_links must accept the old code's real UPSERT shape");
+
+    assert.doesNotThrow(() => {
+      db.prepare("INSERT INTO guild_member_activity (guild_id, discord_user_id) VALUES (?, ?) ON CONFLICT(guild_id, discord_user_id) DO UPDATE SET last_seen_at = datetime('now')").run("g1", "u1");
+    }, "guild_member_activity must accept the old code's real UPSERT shape");
+
+    assert.doesNotThrow(() => {
+      db.prepare("INSERT OR IGNORE INTO bot_stats (key, value) VALUES ('commands_total', 0)").run();
+      db.prepare("UPDATE bot_stats SET value = value + 1 WHERE key = 'commands_total'").run();
+      assert.equal(db.prepare("SELECT value FROM bot_stats WHERE key = 'commands_total'").get().value, 1);
+    }, "bot_stats must accept the old code's real increment shape");
+
+    assert.doesNotThrow(() => {
+      db.prepare("INSERT INTO stats_snapshot (id, payload) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload").run("{}");
+      db.prepare("SELECT payload FROM stats_snapshot WHERE id = 1").get();
+    }, "stats_snapshot must accept the old code's real UPSERT shape");
+
+    assert.doesNotThrow(() => {
+      db.prepare("INSERT INTO guild_stats_snapshot (guild_id, players_online, spice_fields, sietches) VALUES (?, ?, ?, ?) ON CONFLICT(guild_id) DO UPDATE SET players_online = excluded.players_online").run("g1", 5, 2, 1);
+    }, "guild_stats_snapshot must accept the old code's real UPSERT shape");
+
+    // Rollback must never touch the guilds row itself -- it was never one
+    // of the dropped tables.
+    const guildRow = db.prepare("SELECT * FROM guilds WHERE guild_id = ?").get("g1");
+    assert.equal(guildRow.guild_name, "G1", "rollback must not touch the guilds table");
+
     db.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -263,6 +263,90 @@ export function createDatabase(dbPath = "./data/acp.db") {
   return db;
 }
 
+// ── v7->v6 schema rollback (Requirement 26) ─────────────────────────────
+//
+// Recreates the six tables the v6->v7 hardening migration dropped, with
+// their exact pre-v7 shape (see 5516a6b's diff to SCHEMA for the source of
+// truth these CREATE TABLEs are copied from), and resets schema_version to
+// 6 -- for the one scenario this matters: an operator upgrades to a mentat
+// version carrying schema v7, then needs to roll the *code* back to a
+// pre-v7 release for some unrelated reason (a regression found elsewhere,
+// say) and that older code's queries (e.g. `SELECT * FROM bot_stats`) would
+// otherwise throw "no such table" against an already-migrated database.
+//
+// IMPORTANT -- this restores SCHEMA SHAPE ONLY, not data. The v6->v7
+// migration's DROP TABLE statements are destructive; whatever rows existed
+// in player_links/guild_member_activity/oauth_sessions/bot_stats/
+// stats_snapshot/guild_stats_snapshot at migration time are gone and this
+// function cannot bring them back. None of that data needed to survive a
+// restart to begin with (see the "Schema hardening (v7)" comment above the
+// schema string for why each table was safe to drop), so an operator
+// downgrading immediately after the v7 migration ran loses nothing they'd
+// notice -- a vanity command counter resets, an in-flight OAuth session
+// needs restarting, cosmetic guild-faction theming resets to blank. The
+// one column with real, meaningful state (guilds.stats_push_secret /
+// stats_sharing_opted_in_at/opted_out_at) was never one of the dropped
+// tables and is untouched by both this function and the forward migration.
+// If genuine data recovery is ever needed, it requires restoring a backup
+// taken before the v6->v7 migration ran (Requirement 25), not this
+// function -- see compliance/runbooks/backup-recovery.md.
+//
+// Exposed as a manual, operator-invoked recovery step (scripts/
+// rollback-v7-schema.js) -- never called automatically. createDatabase()
+// only ever migrates forward.
+export function rollbackSchemaV7ToV6(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS oauth_sessions (
+      state TEXT PRIMARY KEY,
+      discord_user_id TEXT NOT NULL,
+      discord_username TEXT NOT NULL DEFAULT '',
+      guild_id TEXT NOT NULL DEFAULT '',
+      access_token TEXT NOT NULL DEFAULT '',
+      expires_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS player_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guild_id TEXT NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+      discord_user_id TEXT NOT NULL,
+      character_name TEXT NOT NULL DEFAULT '',
+      player_controller_id TEXT NOT NULL DEFAULT '',
+      player_pawn_id TEXT NOT NULL DEFAULT '',
+      linked_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(guild_id, discord_user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS guild_member_activity (
+      guild_id TEXT NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+      discord_user_id TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (guild_id, discord_user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS bot_stats (
+      key TEXT PRIMARY KEY,
+      value INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS stats_snapshot (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS guild_stats_snapshot (
+      guild_id TEXT PRIMARY KEY REFERENCES guilds(guild_id) ON DELETE CASCADE,
+      players_online INTEGER NOT NULL,
+      spice_fields INTEGER NOT NULL,
+      sietches INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  db.prepare("UPDATE schema_version SET version = 6").run();
+}
+
 // ── KEK/DEK per-row secret helpers (schema v4, issues #107/#108/#109) ──
 //
 // secret_keys holds the wrapped DEK for one (table, row, column) triple.
