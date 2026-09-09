@@ -502,9 +502,10 @@ export function createSetupServer(config) {
       // held to. Revocation is deliberately out of scope for this
       // submission path; it belongs with the "edit my existing guild's
       // settings" entry point already named as follow-up work in the
-      // Layer 1 design audit (finding #31) rather than being inferred
-      // here. A checked box with no secret is a no-op, not an error --
-      // the operator hasn't finished the Core-side steps yet.
+      // Layer 1 design audit (finding #31), tracked as mentat#312, rather
+      // than being inferred here. A checked box with no secret is a
+      // no-op, not an error -- the operator hasn't finished the
+      // Core-side steps yet.
       const wantsStatsSharing = statsSharingEnabled === "on" || statsSharingEnabled === "true" || statsSharingEnabled === true;
       const trimmedStatsPushSecret = typeof statsPushSecret === "string" ? statsPushSecret.trim() : "";
       if (wantsStatsSharing && trimmedStatsPushSecret) {
