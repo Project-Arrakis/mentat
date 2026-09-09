@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logInfo, logError } from "./logger.js";
 import { requireProxySecret } from "./proxyAuth.js";
+import { verifyAndRegisterConsole } from "./consoleRegistration.js";
 import {
   createDatabase,
   createOauthSession,
@@ -692,6 +693,33 @@ export function createSetupServer(config) {
     // load-based adjustment doesn't require a new field on every
     // already-deployed Core instance. Fixed for now.
     res.json({ ok: true, nextPushSeconds: 90 });
+  });
+
+  // POST /api/consoles/register (mentat#316, hosted-bot OAuth registration
+  // design, Task 11) -- Core's console calls this directly (never through
+  // the mentat-link reverse proxy, see the requireProxySecret exemption
+  // comment above) to register itself to a Discord guild, forwarding a
+  // Discord OAuth access token alongside its claimed guildId. The route
+  // itself does no authorization logic at all -- verifyAndRegisterConsole()
+  // in consoleRegistration.js owns the entire accept/reject/register
+  // decision, including the load-bearing independent re-verification of
+  // guild ownership against Discord's own API. This handler's only job is
+  // translating that function's `reason` into an HTTP status and a
+  // deliberately generic error message that doesn't distinguish "bad
+  // token" from "token valid but wrong guild" to the caller.
+  app.post("/api/consoles/register", async (req, res) => {
+    try {
+      const { guildId, discordAccessToken, consoleUrl, adapterToken } = req.body;
+      const result = await verifyAndRegisterConsole(db, { guildId, discordAccessToken, consoleUrl, adapterToken });
+      if (!result.ok) {
+        const status = result.reason === "rate_limited" ? 429 : result.reason === "discord_unreachable" ? 502 : 403;
+        return res.status(status).json({ error: "Could not verify you own that Discord server -- please try connecting again." });
+      }
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      logError("console_registration.route_error", err, {});
+      return res.status(500).json({ error: "Registration failed unexpectedly." });
+    }
   });
 
   // Alertmanager → Discord webhook relay. Receives firing/resolved alerts
