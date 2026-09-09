@@ -107,6 +107,31 @@ test("getOauthSession returns undefined for an unknown state, without throwing",
   assert.equal(getOauthSession("no-such-state"), undefined);
 });
 
+// Layer 3 /code-review ultra finding (CONFIRMED, normal severity): GET
+// /setup (the only caller of createOauthSession()) is public and
+// unauthenticated with no rate limit ahead of it, so before this fix the
+// Map had no size cap at all -- only the 30-minute TTL, which sustained
+// abuse could outrun (accumulating far more entries than the TTL alone
+// would ever reclaim) while retaining unbounded memory in the shared bot
+// process.
+test("createOauthSession caps total sessions and evicts the oldest first (FIFO), not silently growing forever", () => {
+  const first = "session-created-first";
+  createOauthSession({ state: first, discordUserId: "u0", discordUsername: "first", guildId: "g0" });
+
+  // Fill well past the cap. 1000 is MAX_OAUTH_SESSIONS in src/database.js
+  // -- not exported, so this pins the same number a change to that
+  // constant would need to update here too, which is deliberate: a
+  // silent widening of the cap should be a visible test change, not an
+  // invisible one.
+  for (let i = 0; i < 1005; i++) {
+    createOauthSession({ state: `filler-${i}`, discordUserId: `u${i}`, discordUsername: `filler${i}`, guildId: "g" });
+  }
+
+  assert.equal(getOauthSession(first), undefined, "the oldest session must be evicted once the cap is exceeded, not retained forever");
+  assert.ok(getOauthSession("filler-1004"), "the most recently created session must still be present");
+  assert.ok(getOauthSession("filler-500"), "a recent-enough session well within the cap must still be present");
+});
+
 test("deleteOauthSession removes a session so it can no longer be read back", () => {
   createOauthSession({ state: "state1", discordUserId: "u1", discordUsername: "tester", guildId: "g1" });
   assert.ok(getOauthSession("state1"));

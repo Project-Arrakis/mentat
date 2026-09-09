@@ -526,17 +526,56 @@ export function getGuildRoleIds(db, guildId, roleType) {
 // takes to read the config form and submit it.
 const SESSION_MAX_AGE_MS = 30 * 60 * 1000;
 
+// MAX_OAUTH_SESSIONS (Layer 3 /code-review ultra finding, CONFIRMED
+// normal severity, mentat#277): GET /setup -- the only caller of
+// createOauthSession() -- is fully public and unauthenticated, with no
+// rate limit anywhere ahead of it (unlike POST /api/stats/push, which
+// has statsPushRateLimit.js). Before this fix, the Map had no size cap
+// at all, only the 30-minute TTL below -- sustained request volume R/sec
+// could grow it to roughly R*1800 entries before the TTL ever reclaimed
+// anything, all retained in the same Node process that also serves
+// Discord command handlers and every other route in this file. 1000 is
+// generous headroom over realistic concurrent legitimate setup-wizard
+// usage (this is a low-traffic admin flow, not a public-facing feature)
+// while keeping worst-case memory bounded regardless of attack volume.
+const MAX_OAUTH_SESSIONS = 1000;
+
 let oauthSessions = new Map();
 
+// sweepExpiredOauthSessions (Layer 3 /code-review ultra finding, same as
+// above): this used to scan and check EVERY entry in the Map on every
+// single call, not just the expired ones. Map iterates in insertion
+// order, every entry shares the identical SESSION_MAX_AGE_MS TTL, and
+// createOauthSession()/updateOauthSession() never re-`.set()` an
+// existing key (updateOauthSession mutates the session object in place;
+// deletion never reorders what remains) -- so iteration order always
+// matches creation-time order exactly, and the oldest (soonest-to-expire)
+// entries are always first. Stopping at the first still-fresh entry
+// turns this from an O(N) full-Map scan into O(actually-expired-count)
+// on every call, instead of paying the whole Map's size on the shared
+// Node event loop regardless of how few (or zero) entries actually
+// expired.
 function sweepExpiredOauthSessions() {
   const cutoff = Date.now() - SESSION_MAX_AGE_MS;
   for (const [state, session] of oauthSessions) {
-    if (session.createdAtMs < cutoff) oauthSessions.delete(state);
+    if (session.createdAtMs >= cutoff) break;
+    oauthSessions.delete(state);
   }
 }
 
 export function createOauthSession({ state, discordUserId, discordUsername, guildId = "" }) {
   sweepExpiredOauthSessions();
+  // Hard cap, independent of the TTL sweep above -- see
+  // MAX_OAUTH_SESSIONS's own comment for why this is needed even with
+  // the sweep in place. Evicts the single oldest entry (Map's insertion
+  // order, which is also creation-time order -- see
+  // sweepExpiredOauthSessions()'s comment) rather than rejecting the new
+  // session, so sustained abuse degrades old, likely-already-abandoned
+  // sessions instead of blocking a legitimate new setup attempt.
+  if (oauthSessions.size >= MAX_OAUTH_SESSIONS) {
+    const oldestState = oauthSessions.keys().next().value;
+    oauthSessions.delete(oldestState);
+  }
   oauthSessions.set(state, {
     state,
     discord_user_id: discordUserId,
