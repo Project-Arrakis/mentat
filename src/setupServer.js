@@ -161,7 +161,16 @@ export function createSetupServer(config) {
   // nothing in exemptPaths documents. Gating first makes the exemption
   // list (`/api/alerts/relay`, `/health`) the complete, honest picture of
   // what's exempt, matching steamLinkServer.js's already-correct ordering.
-  app.use(requireProxySecret({ exemptPaths: ["/api/alerts/relay", "/health"], renderError: errorPage }));
+  // mentat#316: /api/consoles/register (Task 11) is a new, unauthenticated-
+  // by-design endpoint -- Core's console calls it directly during its own
+  // hosted-bot OAuth registration flow, never through the mentat-link
+  // reverse proxy, so it can never carry the X-Mentat-Proxy-Secret header
+  // this gate checks. Its own security comes from local shape-validation
+  // plus a fresh, independent Discord token verification per request (see
+  // Task 11's route handler and consoleRegistrationRateLimit.js), the same
+  // "exempt because it has its own real auth, not because it has none"
+  // pattern /api/alerts/relay already uses above.
+  app.use(requireProxySecret({ exemptPaths: ["/api/alerts/relay", "/health", "/api/consoles/register"], renderError: errorPage }));
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
