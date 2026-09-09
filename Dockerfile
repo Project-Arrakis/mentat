@@ -23,11 +23,16 @@ RUN rm -rf \
     /usr/local/bin/yarnpkg \
     /usr/local/lib/node_modules/corepack \
     /usr/local/lib/node_modules/npm
+# DL3066 flags a non-numeric USER as "may not be resolvable by host
+# system" -- `node` is the official node:22-alpine base image's own
+# baked-in user (fixed UID/GID, not something this Dockerfile invents),
+# so it's always resolvable in the image this actually runs in.
+# hadolint ignore=DL3066
 USER node
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node package.json ./
 COPY --chown=node:node src ./src
 COPY --chown=node:node scripts ./scripts
 COPY --chown=node:node assets ./assets
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD node scripts/healthcheck.js
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["node", "scripts/healthcheck.js"]
 CMD ["node", "src/index.js"]
