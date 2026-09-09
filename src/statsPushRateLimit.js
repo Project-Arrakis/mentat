@@ -3,17 +3,28 @@
 // independent limits, per the Layer 1 Security Architect / Network audit
 // (findings #3/#20):
 //
+//   - Global: bounds total request volume regardless of guild_id, before
+//     any authentication is attempted -- this is what actually protects
+//     the synchronous DB lookup + decrypt on the shared Node event loop
+//     that every request pays regardless of whether its credential is
+//     valid (Layer 1 Architect audit finding C1, Security Architect
+//     finding #3).
 //   - Per-guild: caps how often ONE guild's secret can be used, tighter
 //     than the expected push interval so a legitimate operator's Core
 //     instance never gets throttled but a runaway retry loop does.
-//   - Global: bounds total request volume regardless of guild_id, so a
-//     flood of requests using fabricated/unknown guild_ids -- each of
-//     which would otherwise get its own fresh per-guild bucket -- can't
-//     defeat the per-guild limit simply by rotating IDs. This is what
-//     actually protects the synchronous DB lookup + decrypt on the
-//     shared Node event loop that every request pays regardless of
-//     whether its credential is valid (Layer 1 Architect audit finding
-//     C1, Security Architect finding #3).
+//
+// SECURITY (found in a Layer 2 /code-review high pass, mentat#276): the
+// per-guild bucket MUST only ever be touched AFTER a request has already
+// authenticated successfully. guild_id arrives in the unauthenticated
+// request body, and Discord guild IDs are not secret -- if the per-guild
+// bucket were consumed before auth (as an earlier version of this route
+// did), anyone who merely knows a victim guild's ID could send garbage-
+// credentialed requests to exhaust THAT GUILD's own rate-limit bucket,
+// denying its real, correctly-authenticated console the ability to push
+// at all. Callers must call recordGlobalStatsPushAttempt() before auth
+// and recordGuildStatsPushAttempt(guildId) only once auth has actually
+// succeeded -- never the reverse, and never call the per-guild function
+// for a request that hasn't passed verifyGuildStatsPushSecret().
 //
 // Keyed by guild_id (from the request body), not IP -- this endpoint sits
 // behind the same Cloudflare Tunnel that makes client IP unreliable for
@@ -86,8 +97,24 @@ function checkBucket(map, key, timestamp, windowMs) {
   return { allowed: true, retryAfterSeconds: 0 };
 }
 
+// BUG FIXED (Layer 2 /code-review high, mentat#276): this used to
+// recompute `blockedUntil = timestamp + blockMs` on EVERY call while a
+// bucket was already blocked, because the "already blocked" branch of
+// activeBucket() returns the bucket as truthy and the old code treated
+// any truthy `current` the same as a fresh one to increment. That meant
+// a bucket already past its threshold had its block silently extended by
+// every subsequent request that arrived before the block expired --
+// turning a bounded, temporary rate limit into an unbounded one that a
+// slow, sustained trickle of requests (an attacker deliberately pacing
+// just inside the window, or even a naive un-backed-off retry loop)
+// could keep alive indefinitely. Fixed by short-circuiting on an
+// already-blocked bucket: once blocked, further calls are a pure no-op
+// read (via checkBucket) until blockedUntil naturally elapses.
 function recordBucket(map, key, timestamp, windowMs, maxAttempts, blockMs) {
   const current = activeBucket(map, key, timestamp, windowMs);
+  if (current?.blockedUntil && current.blockedUntil > timestamp) {
+    return checkBucket(map, key, timestamp, windowMs);
+  }
   const next = !current || current.firstAttemptAt + windowMs <= timestamp
     ? { count: 1, firstAttemptAt: timestamp, blockedUntil: 0 }
     : { ...current, count: current.count + 1 };
@@ -96,13 +123,11 @@ function recordBucket(map, key, timestamp, windowMs, maxAttempts, blockMs) {
   return checkBucket(map, key, timestamp, windowMs);
 }
 
-// checkStatsPushRateLimit: call before doing any DB work for a request.
-// Checks the global bucket first (so an already-flooded global limit
-// rejects a fabricated-guild-id request before it can even acquire its
-// own fresh per-guild bucket), then the per-guild bucket. Does not record
-// an attempt itself -- call recordStatsPushAttempt() once the request is
-// actually processed (matches steamLinkRateLimit.js's own check/record
-// split).
+// checkStatsPushRateLimit: read-only peek at both buckets (global, then
+// per-guild), without recording an attempt against either. Exposed for
+// callers that want a dry-run check; the real route below uses the
+// record* functions directly instead (see the check-then-record lag
+// warning on those).
 export function checkStatsPushRateLimit(guildId) {
   const timestamp = now();
   const globalResult = checkBucket(globalAttempts, GLOBAL_KEY, timestamp, globalWindow);
@@ -110,18 +135,25 @@ export function checkStatsPushRateLimit(guildId) {
   return checkBucket(perGuildAttempts, String(guildId || ""), timestamp, perGuildWindow);
 }
 
-// recordStatsPushAttempt: records this request against both the global
-// and per-guild buckets and returns whichever result is more
-// restrictive. Callers wanting an immediate, per-request allow/reject
-// decision (e.g. the HTTP route) should call this directly rather than
-// calling checkStatsPushRateLimit() first and record separately -- a
-// bucket only becomes "blocked" as a side effect of a record call, so a
-// check-then-record split lags one request behind: the exact request
-// that pushes a bucket over its threshold would otherwise still be
-// reported allowed by a check that ran before this call updated state.
-export function recordStatsPushAttempt(guildId) {
+// recordGlobalStatsPushAttempt: call this FIRST, before authenticating
+// the request at all. Bounds the synchronous DB-lookup-and-decrypt cost
+// every request pays regardless of whether its credential is valid, and
+// is the only limit an unauthenticated caller can ever affect -- it has
+// no guild_id key, so it cannot be aimed at a specific victim guild.
+export function recordGlobalStatsPushAttempt() {
   const timestamp = now();
-  const globalResult = recordBucket(globalAttempts, GLOBAL_KEY, timestamp, globalWindow, globalMax, globalBlock);
-  const perGuildResult = recordBucket(perGuildAttempts, String(guildId || ""), timestamp, perGuildWindow, perGuildMax, perGuildBlock);
-  return globalResult.allowed ? perGuildResult : globalResult;
+  return recordBucket(globalAttempts, GLOBAL_KEY, timestamp, globalWindow, globalMax, globalBlock);
+}
+
+// recordGuildStatsPushAttempt: call this ONLY after the request has
+// already passed verifyGuildStatsPushSecret() for this exact guildId.
+// Never call it before authentication succeeds -- guild_id arrives
+// unauthenticated in the request body, and Discord guild IDs are public
+// (visible in invite links, widgets, etc.), so consuming this bucket
+// pre-auth would let anyone who merely knows a victim's guild ID exhaust
+// that specific guild's quota with zero valid credentials, denying their
+// real console's own legitimate pushes. See the module-level comment.
+export function recordGuildStatsPushAttempt(guildId) {
+  const timestamp = now();
+  return recordBucket(perGuildAttempts, String(guildId || ""), timestamp, perGuildWindow, perGuildMax, perGuildBlock);
 }

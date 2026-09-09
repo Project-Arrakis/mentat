@@ -24,7 +24,7 @@ import {
 import { esc } from "./htmlEscape.js";
 import { renderPage, errorPage } from "./setupLayout.js";
 import { isEncryptionConfigured } from "./secretsCrypto.js";
-import { recordStatsPushAttempt } from "./statsPushRateLimit.js";
+import { recordGlobalStatsPushAttempt, recordGuildStatsPushAttempt } from "./statsPushRateLimit.js";
 
 // #215/A2: version comes from package.json — a hardcoded literal here
 // drifted two release candidates behind the real version.
@@ -628,23 +628,35 @@ export function createSetupServer(config) {
     const authHeader = req.get("authorization") || "";
     const providedSecret = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
 
-    // Rate limiting happens BEFORE the auth check touches the DB — this
-    // is what actually bounds the synchronous lookup+decrypt cost every
-    // request pays regardless of whether its credential turns out to be
-    // valid (Layer 1 Architect/Security Architect audit findings C1/#3).
-    // A single recordStatsPushAttempt() call, not a separate check-then-
-    // record pair, is required here: a bucket only becomes "blocked" as
-    // a side effect of recording, so checking before recording would lag
-    // one request behind and let through the exact request that pushes
-    // a guild (or the global count) over its threshold.
-    const rateResult = recordStatsPushAttempt(guildId);
-    if (!rateResult.allowed) {
-      res.set("Retry-After", String(rateResult.retryAfterSeconds));
+    // Global rate limit is checked/recorded BEFORE the auth check touches
+    // the DB — this is what actually bounds the synchronous lookup+decrypt
+    // cost every request pays regardless of whether its credential turns
+    // out to be valid (Layer 1 Architect/Security Architect audit findings
+    // C1/#3). Safe to record pre-auth: this bucket has no guild_id key, so
+    // it can't be aimed at a specific victim guild.
+    const globalResult = recordGlobalStatsPushAttempt();
+    if (!globalResult.allowed) {
+      res.set("Retry-After", String(globalResult.retryAfterSeconds));
       return res.status(429).json({ error: "rate_limited" });
     }
 
     if (!verifyGuildStatsPushSecret(db, guildId, providedSecret)) {
       return res.status(401).json({ error: "unauthorized" });
+    }
+
+    // Per-guild rate limit is only ever recorded AFTER auth has already
+    // succeeded (Layer 2 /code-review high finding, mentat#276) — guild_id
+    // arrives unauthenticated in the request body, and Discord guild IDs
+    // are public, not secret. Recording this bucket pre-auth (as an
+    // earlier version of this route did) would let anyone who merely
+    // knows a victim guild's ID exhaust that specific guild's quota with
+    // zero valid credentials, denying its real console's own legitimate
+    // pushes. See statsPushRateLimit.js's module comment for the full
+    // rationale.
+    const guildResult = recordGuildStatsPushAttempt(guildId);
+    if (!guildResult.allowed) {
+      res.set("Retry-After", String(guildResult.retryAfterSeconds));
+      return res.status(429).json({ error: "rate_limited" });
     }
 
     const { playersOnline, spiceFields, sietches } = req.body || {};

@@ -769,3 +769,39 @@ test("POST /api/stats/push rate limiting is global-capped too, bounding a flood 
     assert.equal(third.status, 429, "a flood of distinct fabricated guild_ids must still be bounded by the global cap, not just the per-guild one");
   });
 });
+
+// Direct regression test for the Layer 2 /code-review high finding
+// (statsPushRateLimit.js's own module comment): an unauthenticated
+// attacker who merely knows a victim guild's REAL id (public -- visible
+// in invite links, widgets, etc., not a secret) must not be able to
+// exhaust that guild's own per-guild rate-limit bucket using
+// wrong-secret requests, since that would deny the real operator's own
+// legitimate, correctly-authenticated push. The per-guild bucket must
+// only ever be consumed by requests that already passed auth.
+test("wrong-secret requests against a real guild_id never exhaust that guild's own rate limit for the real operator", async () => {
+  const { resetStatsPushRateLimiterForTests } = await import("../src/statsPushRateLimit.js");
+  await withStatsPushApp(async (base) => {
+    resetStatsPushRateLimiterForTests({ perGuildMax: 2, perGuildWindow: 60000, perGuildBlock: 60000, globalMax: 1000, globalWindow: 60000 });
+
+    // An attacker who knows "opted-in-guild" is a real, active guild
+    // sends several wrong-secret requests against it.
+    for (let i = 0; i < 5; i++) {
+      const res = await fetch(`${base}/api/stats/push`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer attacker-guess" },
+        body: JSON.stringify({ guildId: "opted-in-guild", playersOnline: 1, spiceFields: 1, sietches: 1 })
+      });
+      assert.equal(res.status, 401);
+    }
+
+    // The real operator's own correctly-authenticated push must still
+    // succeed -- the attacker's failed attempts must not have consumed
+    // "opted-in-guild"'s per-guild bucket.
+    const real = await fetch(`${base}/api/stats/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer the-real-push-secret" },
+      body: JSON.stringify(validStatsPushPayload)
+    });
+    assert.equal(real.status, 200, "the real operator's legitimate push must succeed -- an attacker's wrong-secret requests against the same guild_id must never consume that guild's own rate-limit budget");
+  });
+});
