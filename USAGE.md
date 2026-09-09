@@ -100,8 +100,11 @@ multiple Discord servers. Each guild connects to its own Dune console.
 Setup options:
 1. **In-Console (primary)** — the operator's Dune Docker Console (Settings →
    Discord Bot → "Connect to hosted bot") performs the Discord OAuth
-   round-trip itself and calls `POST /api/consoles/register` directly, after
-   independently re-verifying guild ownership against Discord's API
+   round-trip itself and calls `POST /api/consoles/register` directly,
+   forwarding the Discord access token; this bot (not the console)
+   independently re-verifies guild ownership against Discord's own API on
+   receipt before registering — it never trusts the console's claimed
+   `guildId` alone
 2. **Web Portal (fallback)** — Visit `http://your-server:3100/setup` to
    configure via OAuth2 by hand
 
