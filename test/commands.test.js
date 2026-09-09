@@ -274,6 +274,63 @@ test("executeDuneCommand replies with the not-connected notice when the guild's 
   assert.match(replied?.content || "", /isn't connected to a console yet/);
 });
 
+// Fix round 1 (reviewer finding): core:setup is the documented, real
+// recovery path for a never-registered guild (docs/user-guide.md:38,
+// "how to add this bot to your own Discord server") -- it must stay
+// reachable through the new gate above, exactly like
+// RBAC_EXEMPT_COMMANDS' admin:roles exemption already does for the
+// unrelated RBAC gate. Both cases use the real guild owner (rather than
+// a configured role) to reach dispatch, since a never-registered guild
+// has zero guild_roles rows by definition and only real Discord guild
+// ownership bypasses the separate, pre-existing #213/U4 zero-role gate.
+test("executeDuneCommand still allows core:setup in a guild with no `guilds` row at all, without calling AdapterClient", async () => {
+  const db = createDatabase(":memory:");
+  let edited = null, replied = null;
+  const interaction = mockInteraction("core", "setup", { user: { id: "owner-1" }, roles: [] });
+  interaction.guild = { ownerId: "owner-1" };
+  interaction.deferReply = async (o) => { };
+  interaction.editReply = async (r) => { edited = r; };
+  interaction.reply = async (r) => { replied = r; };
+  const adapterClient = {
+    health() { throw new Error("AdapterClient must not be called for core:setup"); }
+  };
+
+  const handled = await executeDuneCommand(interaction, adapterClient, MT_CONFIG, db);
+
+  assert.equal(handled, true);
+  assert.equal(replied, null, "core:setup must not hit the new gate's interaction.reply() path at all");
+  assert.ok(edited?.embeds?.[0]?.data?.title, "core:setup must still return its own setup embed via editReply");
+  const description = edited?.embeds?.[0]?.data?.description || "";
+  assert.doesNotMatch(description, /isn't connected to a console yet/, "core:setup must return its own setup reply, not the new gate's message");
+});
+
+test("executeDuneCommand still allows core:setup when the guild's `guilds` row exists but is not \"active\", without calling AdapterClient", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "guild-1", guildName: "Test Guild", consoleUrl: "https://example.test", adapterToken: "t", status: "pending" });
+  let edited = null, replied = null;
+  // A distinct userId from the sibling "no `guilds` row" test above --
+  // both run core:setup, and src/cooldown.js's cooldownMap is a
+  // module-level singleton keyed by userId:commandName shared across
+  // this whole test file (same collision class already noted on the
+  // "active guild" test further below).
+  const interaction = mockInteraction("core", "setup", { user: { id: "owner-2" }, roles: [] });
+  interaction.guild = { ownerId: "owner-2" };
+  interaction.deferReply = async (o) => { };
+  interaction.editReply = async (r) => { edited = r; };
+  interaction.reply = async (r) => { replied = r; };
+  const adapterClient = {
+    health() { throw new Error("AdapterClient must not be called for core:setup"); }
+  };
+
+  const handled = await executeDuneCommand(interaction, adapterClient, MT_CONFIG, db);
+
+  assert.equal(handled, true);
+  assert.equal(replied, null, "core:setup must not hit the new gate's interaction.reply() path at all");
+  assert.ok(edited?.embeds?.[0]?.data?.title, "core:setup must still return its own setup embed via editReply");
+  const description = edited?.embeds?.[0]?.data?.description || "";
+  assert.doesNotMatch(description, /isn't connected to a console yet/, "core:setup must return its own setup reply, not the new gate's message");
+});
+
 test("executeDuneCommand proceeds normally (no regression) for a real \"active\" guild", async () => {
   const db = multiTenantDb({ moderator: ["role-a"] });
   let edited = null;

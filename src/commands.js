@@ -229,7 +229,18 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
   // is a more fundamental problem than a missing role mapping, and must
   // not be masked by that gate's owner bypass reaching AdapterClient
   // with the wrong (default) config.
-  if (config.multiTenant && db && guildId && getGuild(db, guildId)?.status !== "active") {
+  //
+  // Fix round 1: `core:setup` is exempt (see
+  // CONSOLE_REGISTRATION_EXEMPT_COMMANDS below), mirroring
+  // RBAC_EXEMPT_COMMANDS' existing "keep the recovery path reachable"
+  // precedent (#213/U4/U8) -- core:setup's own reply already IS the
+  // fallback path for a never-registered guild (a personalized
+  // setupPortalUrl(guildId) link), and this gate's own message doesn't
+  // mention that link at all, so blocking core:setup here would remove
+  // the one working recovery command instead of just this bot's now-
+  // removed DM.
+  if (config.multiTenant && db && guildId && !CONSOLE_REGISTRATION_EXEMPT_COMMANDS.has(key)
+    && getGuild(db, guildId)?.status !== "active") {
     await interaction.reply({
       content: "This server isn't connected to a console yet. A server admin should go to their Dune Docker console's Settings → Discord Bot page and click \"Connect to hosted bot.\"",
       ephemeral: true
@@ -795,6 +806,20 @@ export function actorFromInteraction(interaction) {
 // truth instead. Currently just `admin:roles` (issue #238: the roles viewer
 // must stay reachable for a locked-out user to see why, and what to fix).
 const RBAC_EXEMPT_COMMANDS = new Set(["admin:roles"]);
+
+// CONSOLE_REGISTRATION_EXEMPT_COMMANDS: same pattern as
+// RBAC_EXEMPT_COMMANDS above, one gate up in executeDuneCommand -- a
+// dedicated set (not reused/merged with RBAC_EXEMPT_COMMANDS, since
+// they gate two different, independent things: RBAC role config vs.
+// console registration status) so a future exempt command added to one
+// gate can't be silently assumed to cover the other. Currently just
+// `core:setup` (Task 12 fix round 1): it's the documented, currently-
+// working recovery path for a never-registered guild (returns a
+// personalized setupPortalUrl(guildId) link via setupPayload(), never
+// touches AdapterClient), so it must stay reachable even when the new
+// "not connected to a console yet" gate would otherwise block every
+// other command.
+const CONSOLE_REGISTRATION_EXEMPT_COMMANDS = new Set(["core:setup"]);
 export function isCommandAllowed(interaction, command, config, db = null, guildId = null) {
   // The real Discord guild owner always passes, in every mode -- owner is a
   // live Discord fact (interaction.guild.ownerId), never something an RBAC
