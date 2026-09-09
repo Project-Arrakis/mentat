@@ -510,6 +510,39 @@ test("verifyGuildStatsPushSecret: unknown guild_id, never-opted-in guild, and wr
   assert.equal(verifyGuildStatsPushSecret(db, "g2", ""), false, "empty provided secret");
 });
 
+// Direct regression test for the Layer 2 /code-review high finding
+// (mentat#276): the opted-in branch used to pay 2 extra real DB
+// round-trips (a secret_keys SELECT + a secret_access_log INSERT) that
+// the "no secret to check" branch skipped entirely -- a timing
+// side-channel letting an attacker distinguish "this guild opted in"
+// from "it didn't" by response latency, even though the comparison
+// itself was already constant-time. This test proves the DB write cost
+// is now identical either way by counting real rows appended to
+// secret_access_log, not just checking the boolean return value.
+test("verifyGuildStatsPushSecret writes the same number of secret_access_log rows whether or not the guild has a real secret", () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "opted-in", guildName: "Opted In", consoleUrl: "https://one.test", adapterToken: "t1", status: "active" });
+  setGuildStatsSharingSecret(db, "opted-in", "real-secret");
+  upsertGuild(db, { guildId: "never-opted-in", guildName: "Never Opted In", consoleUrl: "https://two.test", adapterToken: "t2", status: "active" });
+
+  const countLogRows = () => db.prepare("SELECT COUNT(*) AS n FROM secret_access_log").get().n;
+
+  const before1 = countLogRows();
+  verifyGuildStatsPushSecret(db, "opted-in", "wrong-guess");
+  const after1 = countLogRows();
+  assert.equal(after1 - before1, 1, "checking an opted-in guild with a wrong secret must append exactly one secret_access_log row");
+
+  const before2 = countLogRows();
+  verifyGuildStatsPushSecret(db, "no-such-guild", "anything");
+  const after2 = countLogRows();
+  assert.equal(after2 - before2, 1, "checking a completely unknown guild_id must append exactly one secret_access_log row too -- the same DB cost as a real opted-in guild, not zero");
+
+  const before3 = countLogRows();
+  verifyGuildStatsPushSecret(db, "never-opted-in", "anything");
+  const after3 = countLogRows();
+  assert.equal(after3 - before3, 1, "a known guild that never opted in must also append exactly one row -- not distinguishable from the other two cases by DB write count");
+});
+
 test("isValidStatsPushValue: accepts finite non-negative numbers within a sane ceiling, rejects everything else", () => {
   assert.equal(isValidStatsPushValue(0), true);
   assert.equal(isValidStatsPushValue(42), true);

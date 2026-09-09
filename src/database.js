@@ -569,31 +569,43 @@ function statsPushDecoySecret() {
 // lookup+decrypt+compare cost and return the identical `false`, so none
 // of them are distinguishable to a caller by response shape or timing
 // (Layer 1 Security Architect / QA audit findings #1/#2).
+//
+// FIX (Layer 2 /code-review high, mentat#276): the two branches used to
+// diverge in real DB cost, not just outcome -- an opted-in guild's branch
+// called decryptColumn(), which does its own getWrappedDEK() SELECT on
+// secret_keys plus a logSecretAccess() INSERT on secret_access_log; the
+// "no secret to check" branch skipped both and only touched the
+// in-memory-cached decoy ciphertext. That's 2 extra DB round-trips only
+// the opted-in path ever paid -- a real, measurable timing side-channel
+// letting an attacker distinguish "this guild opted in" from "it didn't"
+// by request latency alone, even though the *comparison* itself was
+// already constant-time. Fixed by routing BOTH cases through the exact
+// same decryptColumn() call (same table/rowKey/columnName, so the same
+// index lookups happen either way) -- real ciphertext when a secret
+// exists, the decoy ciphertext otherwise -- so the getWrappedDEK SELECT
+// and logSecretAccess INSERT happen unconditionally, once, regardless of
+// which guild_id was requested or whether it ever opted in.
 export function verifyGuildStatsPushSecret(db, guildId, providedSecret) {
   const row = db.prepare("SELECT stats_push_secret FROM guilds WHERE guild_id = ?").get(guildId);
+  const hasRealSecret = Boolean(row && row.stats_push_secret);
+  const ciphertextToDecrypt = hasRealSecret ? row.stats_push_secret : statsPushDecoySecret().ciphertext;
 
-  if (row && row.stats_push_secret) {
-    let plaintext = null;
-    try {
-      plaintext = decryptColumn(db, "guilds", guildId, "stats_push_secret", row.stats_push_secret);
-    } catch {
-      // decrypt_failed is already logged by decryptColumn(); fall through
-      // to the uniform-cost decoy comparison below rather than returning
-      // early, so a decrypt failure isn't itself distinguishable.
-    }
-    if (plaintext !== null) {
-      return constantTimeStringsEqual(providedSecret, plaintext);
-    }
-  }
-
-  const { ciphertext, wrappedDEK } = statsPushDecoySecret();
-  let decoyPlaintext = "";
+  let plaintext = null;
   try {
-    decoyPlaintext = decryptWithDEK(ciphertext, wrappedDEK);
+    plaintext = decryptColumn(db, "guilds", guildId, "stats_push_secret", ciphertextToDecrypt);
   } catch {
-    // Should never happen against our own freshly-generated decoy.
+    // decrypt_failed is already logged by decryptColumn() -- expected and
+    // routine for the decoy path (its ciphertext was never wrapped under
+    // a key registered for this guildId/columnName), and also possible
+    // (though rare) for a real row with corrupted ciphertext. Either way,
+    // fall through to the uniform-cost comparison below.
   }
-  constantTimeStringsEqual(providedSecret, decoyPlaintext);
+
+  if (hasRealSecret && plaintext !== null) {
+    return constantTimeStringsEqual(providedSecret, plaintext);
+  }
+
+  constantTimeStringsEqual(providedSecret, plaintext ?? "");
   return false;
 }
 
