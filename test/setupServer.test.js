@@ -823,3 +823,37 @@ test("GET /js/sand.js is served by the real running setup server with real scrip
     assert.match(res.headers.get("content-type") || "", /javascript/, "must be served with a JS content type, not e.g. text/plain");
   });
 });
+
+// mentat#333 (comprehensive wizard security audit finding): the CORS
+// allowlist had gone stale (dead acp.darkdante.org/acp-landing.pages.dev
+// origins, missing the real current production origin).
+test("CORS allowlist accepts the real, current production origin (mentat-link.darkdante.org)", async () => {
+  await withApp(async (base) => {
+    const res = await fetch(`${base}/health`, { headers: { Origin: "https://mentat-link.darkdante.org" } });
+    assert.equal(res.headers.get("access-control-allow-origin"), "https://mentat-link.darkdante.org");
+  });
+});
+
+test("CORS allowlist no longer accepts the dead acp.darkdante.org/acp-landing.pages.dev origins", async () => {
+  await withApp(async (base) => {
+    const dead1 = await fetch(`${base}/health`, { headers: { Origin: "https://acp.darkdante.org" } });
+    assert.equal(dead1.headers.get("access-control-allow-origin"), null);
+    const dead2 = await fetch(`${base}/health`, { headers: { Origin: "https://acp-landing.pages.dev" } });
+    assert.equal(dead2.headers.get("access-control-allow-origin"), null);
+  });
+});
+
+// mentat#333: err.message used to be shown verbatim to an unauthenticated
+// caller on these two error paths -- pinned at the source level (both
+// call sites are hard to reliably force into their generic-error catch
+// block via a real HTTP request without a more invasive DB-failure
+// harness, disproportionate to this LOW-severity, non-exploitable finding
+// -- unnecessary detail exposure, not a secret leak).
+test("the /oauth/callback and /setup/register error paths log the real error and no longer interpolate err.message into the caller-visible response", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("../src/setupServer.js", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /errorPage\(res, 500, "Setup Error", err\.message\)/, "oauth/callback must not echo err.message back to the caller");
+  assert.doesNotMatch(src, /\$\{err\.message\}/, "no remaining verbatim err.message interpolation into a caller-visible string");
+  assert.match(src, /logError\("setup\.oauth_callback_failed", err\)/, "the real error must still be logged server-side");
+  assert.match(src, /logError\("setup\.register_failed", err\)/, "the real error must still be logged server-side");
+});
