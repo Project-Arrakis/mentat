@@ -271,12 +271,14 @@ store `DISCORD_BOT_TOKEN` in a 0600 file, not plaintext in `.env`.
 **Q: What if my adapter token gets leaked?**
 
 The token only authorizes calls to your console's Discord adapter:
-1. Generate a new token via the setup portal's **Generate** button (or stop
-   the console's adapter)
-2. Replace the token file on the console
-   (`/repo/runtime/secrets/discord-adapter-token.txt`), or set the new value
-   in the portal
-3. Reconnect — the portal stores the new value encrypted at rest
+1. Generate a new token yourself on the console (e.g. `openssl rand -hex 32`)
+   and write it to `/repo/runtime/secrets/discord-adapter-token.txt` (or stop
+   the console's adapter entirely)
+2. Give the bot the new value: either re-run **Settings → Discord Bot →
+   Enable/Regenerate Token** in your Dune console (primary path — no portal
+   sign-in needed), or set the new value in the [setup
+   portal](setup-portal-guide.md) (fallback path)
+3. Reconnect — the new value is stored encrypted at rest either way
 4. The old token becomes invalid instantly
 
 **Q: Can the bot do anything destructive?**

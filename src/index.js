@@ -11,7 +11,7 @@ import { alertSubscriber } from "./notifications.js";
 import { createDatabase, getGuild, getGuildRoles, getGuildSettings } from "./database.js";
 import { createSetupServer } from "./setupServer.js";
 import { createSteamLinkServer } from "./steamLinkServer.js";
-import { handleGuildCreate, handleGuildDelete } from "./onboarding.js";
+import { handleGuildDelete } from "./onboarding.js";
 import { startStatsPusher } from "./statsPusher.js";
 import { handleWriteButtonInteraction } from "./writeConfirmation.js";
 import { isEncryptionConfigured, checkSecretFilePermissions } from "./secretsCrypto.js";
@@ -310,9 +310,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 client.on(Events.GuildCreate, async (guild) => {
   logInfo("guild.joined", { guildId: guild.id, guildName: guild.name });
-  if (config.multiTenant) {
-    await handleGuildCreate(client, guild, db);
-  }
 });
 
 client.on(Events.GuildDelete, async (guild) => {

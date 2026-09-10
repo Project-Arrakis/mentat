@@ -86,7 +86,7 @@ Now let's add the bot to your Discord server.
 
 1. Replace `YOUR_APP_ID` in this URL with your Application ID from Step 3:
    ```
-   https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot%20applications.commands&permissions=128
+   https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot%20applications.commands&permissions=0
    ```
 2. Open the URL in your browser
 3. Select your server from the dropdown
@@ -96,19 +96,22 @@ Now let's add the bot to your Discord server.
 |----------|-------|
 | Client ID | Your Application ID from Step 3 |
 | Scopes | `bot` + `applications.commands` (already in the URL) |
-| Permissions | `128` (View Audit Log -- see below; slash commands themselves don't need any extra permissions) |
+| Permissions | `0` (slash commands don't need any extra permissions) |
 
-**Why `128` and not `0`:** the bot uses `View Audit Log` (2026-07-27) to
-identify who actually invited it to your server, so it can send the
-setup DM to the real inviter rather than always defaulting to the
-server owner (who may not be the person who did the inviting -- Discord
-only requires "Manage Server" to complete this OAuth flow, not
-ownership). This is optional: if you've already invited the bot with
-`permissions=0` (the old default), it still works exactly as before --
-it just falls back to DMing the server owner directly, since it can't
-look up who really invited it without this permission. Re-invite with
-the URL above (Discord will prompt to update permissions on an
-already-added bot) if you'd like the owner-vs-inviter distinction.
+**Corrected (2026-09, mentat#316):** this guide previously recommended
+`permissions=128` (View Audit Log) so the bot could look up who actually
+invited it and DM that person a setup link, rather than always DMing the
+server owner. That entire DM-on-invite onboarding flow (`onboarding.js`'s
+`findInviter()`/`handleGuildCreate()`) has since been removed — replaced
+for hosted-bot operators by the in-console "Connect to hosted bot" OAuth
+registration flow (see the top of this guide and the
+[Admin Guide](admin-guide.md)) and, for every deployment mode, an in-guild
+"not connected" reply for commands run before setup finishes. **`View
+Audit Log` has no remaining functional use in this
+codebase** — nothing calls `guild.fetchAuditLogs()` any more. If you
+already invited the bot with `permissions=128` from an older version of
+this guide, that's harmless and requires no action; new invites should
+just use `permissions=0` as shown above.
 
 The bot will appear in your server's member list as **offline**. This is
 normal — it shows as offline until the bot process is actually running on

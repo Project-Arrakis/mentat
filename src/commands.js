@@ -18,7 +18,7 @@ import { writesEnabled, canWrite, writeRoleIds } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES, PLANNED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
-import { getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
+import { getGuildStatus, getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
 import { multiTenantActorTier, tierAtLeast, resolveGuildOwnerId, isInteractionGuildOwner } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
@@ -215,6 +215,57 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
   const subcommand = interaction.options.getSubcommand();
   const key = group ? `${group}:${subcommand}` : subcommand;
   const guildId = interaction.guildId;
+
+  // Task 12 (hosted-bot-oauth-registration plan, replacing the removed
+  // handleGuildCreate DM-on-invite trigger -- see onboarding.js's git
+  // history): a guild with no `guilds` row at all, or one whose status
+  // isn't "active", now gets an explicit, actionable reply here instead
+  // of silently reaching AdapterClient, which used to fall back to this
+  // bot's own default (non-guild-scoped) config via
+  // adapterClient.js's _resolveConfig() -- producing no clear signal at
+  // all for an unregistered guild. This runs before every other gate
+  // below, including the zero-role guild-owner bypass (#213/U4)
+  // immediately after: a guild that was never registered with a console
+  // is a more fundamental problem than a missing role mapping, and must
+  // not be masked by that gate's owner bypass reaching AdapterClient
+  // with the wrong (default) config.
+  //
+  // Fix round 1: `core:setup` is exempt (see
+  // CONSOLE_REGISTRATION_EXEMPT_COMMANDS below), mirroring
+  // RBAC_EXEMPT_COMMANDS' existing "keep the recovery path reachable"
+  // precedent (#213/U4/U8) -- core:setup's own reply already IS the
+  // fallback path for a never-registered guild (a personalized
+  // setupPortalUrl(guildId) link). Fix round 2 also added a pointer to
+  // `/dune core setup` directly in this gate's own message text below
+  // (it previously didn't mention that command at all), so an operator
+  // who hits this gate learns about the fallback without having to
+  // already know it exists -- blocking core:setup here entirely would
+  // still remove the one working recovery command, same as before.
+  if (config.multiTenant && db && guildId && !CONSOLE_REGISTRATION_EXEMPT_COMMANDS.has(key)) {
+    const guildStatus = getGuildStatus(db, guildId);
+    if (guildStatus !== "active") {
+      // Task 12 fix-round-2 (Layer 3 integration review, mentat I2): a guild
+      // whose row has status "suspended" (set by onboarding.js's
+      // handleGuildDelete when the bot is kicked) is a factually different
+      // state from "never registered at all" -- console_url/adapter_token
+      // are still intact and Core's own console still shows "Connected."
+      // The generic "isn't connected to a console yet" copy previously
+      // fired for this case too, which is wrong (it implies setup was
+      // never done). Re-registering (clicking "Connect to hosted bot"
+      // again) upserts status back to "active", so a reconnect-specific
+      // message is both accurate and actionable. Both branches now also
+      // name `/dune core setup` as the documented manual-fallback path
+      // (already exempt from this very gate, see
+      // CONSOLE_REGISTRATION_EXEMPT_COMMANDS above) so an operator who
+      // doesn't want the in-console flow has a pointer to a working path
+      // directly from this reply.
+      const content = guildStatus === "suspended"
+        ? "This server was previously connected but is currently disconnected. Reconnect from your console's Settings → Discord Bot section by clicking \"Connect to hosted bot\" again. You can also run `/dune core setup` for the manual setup link."
+        : "This server isn't connected to a console yet. A server admin should go to their Dune Docker console's Settings → Discord Bot page and click \"Connect to hosted bot.\" You can also run `/dune core setup` for the manual setup link.";
+      await interaction.reply({ content, ephemeral: true });
+      return true;
+    }
+  }
 
   // #213/U4: an unconfigured multi-tenant guild used to be denied EVERY
   // command — including /dune core setup, the exact command the
@@ -774,6 +825,20 @@ export function actorFromInteraction(interaction) {
 // truth instead. Currently just `admin:roles` (issue #238: the roles viewer
 // must stay reachable for a locked-out user to see why, and what to fix).
 const RBAC_EXEMPT_COMMANDS = new Set(["admin:roles"]);
+
+// CONSOLE_REGISTRATION_EXEMPT_COMMANDS: same pattern as
+// RBAC_EXEMPT_COMMANDS above, one gate up in executeDuneCommand -- a
+// dedicated set (not reused/merged with RBAC_EXEMPT_COMMANDS, since
+// they gate two different, independent things: RBAC role config vs.
+// console registration status) so a future exempt command added to one
+// gate can't be silently assumed to cover the other. Currently just
+// `core:setup` (Task 12 fix round 1): it's the documented, currently-
+// working recovery path for a never-registered guild (returns a
+// personalized setupPortalUrl(guildId) link via setupPayload(), never
+// touches AdapterClient), so it must stay reachable even when the new
+// "not connected to a console yet" gate would otherwise block every
+// other command.
+const CONSOLE_REGISTRATION_EXEMPT_COMMANDS = new Set(["core:setup"]);
 export function isCommandAllowed(interaction, command, config, db = null, guildId = null) {
   // The real Discord guild owner always passes, in every mode -- owner is a
   // live Discord fact (interaction.guild.ownerId), never something an RBAC
@@ -960,10 +1025,11 @@ export function backupPayload(b) { const list = Array.isArray(b?.result?.backups
 function setupPayload(config, interaction) {
   const clientId = process.env.DISCORD_CLIENT_ID || config?.discord?.clientId || "";
   const guildId = interaction?.guildId || "";
-  // permissions=128 (View Audit Log) is required for onboarding.js's
-  // findInviter() to identify who invited the bot via guild.fetchAuditLogs()
-  // -- see issue #281. Without it, every real invite silently degrades to
-  // fallbackNoticeFor() instead of the full setupMessageFor() DM.
+  // permissions=128 (View Audit Log) is no longer functionally required --
+  // onboarding.js's findInviter()/fallbackNoticeFor()/setupMessageFor(),
+  // the only code that ever used it (issue #281), were deleted as part of
+  // removing the DM-on-invite trigger. Left unchanged here rather than
+  // dropped to permissions=0, tracked as its own follow-up: see #319.
   const inviteUrl = clientId
     ? `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot%20applications.commands&permissions=128`
     : "*(Client ID not configured — ask the bot host for the invite link)*";

@@ -49,7 +49,7 @@ future plan.)
 | Auth | Bot token + adapter token | Discord OAuth2 + per-guild adapter tokens |
 | RBAC | Global role IDs in `.env` | Per-guild role configuration |
 | Player Links | Console database | Console database (unchanged, per-guild via adapter) |
-| Setup | Manual `.env` editing | DM wizard + web portal |
+| Setup | Manual `.env` editing | In-console OAuth registration (primary, added 2026-09) or web portal (fallback) — the original DM wizard was removed the same time the in-console flow shipped, see Onboarding Flow below |
 
 **Player Links stays in each operator's own console database, by design,
 in both self-hosted and multi-tenant mode.** This is a deliberate,
@@ -141,6 +141,26 @@ that operator's own Postgres.
 
 ## Onboarding Flow
 
+**Current state (2026-09):** the primary registration path is now
+**in-console** — the operator's Dune Docker Console (Settings → Discord
+Bot → "Connect to hosted bot") performs a Discord OAuth round-trip itself
+and calls this bot's `POST /api/consoles/register` directly, forwarding the
+Discord access token, the chosen `guildId`, and the console's own
+`consoleUrl`/`adapterToken`. `verifyAndRegisterConsole()`
+(`src/consoleRegistration.js`) independently re-verifies guild ownership
+against Discord's own API before registering — it never trusts the
+submitted `guildId` on its own. No DM is sent at any point in this flow.
+The manual web portal (old Step 4 below) remains as a fallback for
+consoles without that button yet. **Steps 2-3 below (bot-initiated DM
+onboarding) describe a flow that has been fully removed** (mentat#316,
+2026-09) — `onboarding.js`'s `findInviter()`/`handleGuildCreate()` and
+every helper that existed only to support them are gone; kept here for
+historical reference only. A command run today in a guild with no
+registered, active console instead gets an in-guild reply explaining the
+server isn't connected yet (with `/dune core setup` specifically exempted,
+since it already returns its own setup-portal link and needs to work even
+in an unregistered guild).
+
 ### Step 1: User Invites Bot
 
 User clicks OAuth2 invite link:
@@ -148,30 +168,33 @@ User clicks OAuth2 invite link:
 https://discord.com/oauth2/authorize?client_id=BOT_ID&scope=bot%20applications.commands&permissions=128
 ```
 
-`permissions=128` (View Audit Log) is optional but recommended -- see
-Step 3 below for what it enables. An older `permissions=0` link still
-works; it just changes who gets DMed.
+`permissions=128` (View Audit Log) is a historical holdover from the now-
+removed inviter-DM lookup below (Step 3) — it has no remaining functional
+use. `permissions=0` works identically today; see `discord-setup.md` for
+the current status.
 
-### Step 2: Bot Detects New Guild
+### Step 2 (REMOVED, historical only): Bot Detects New Guild
 
-Bot receives `guildCreate` event, checks if guild is registered:
-- If registered → commands work immediately
-- If not registered → send DM with setup link
+Bot received a `guildCreate` event and checked if the guild was
+registered — if not, it sent a DM with a setup link. This event handler no
+longer exists; joining a guild today is a no-op (only a log line).
 
-### Step 3: DM Setup Wizard
+### Step 3 (REMOVED, historical only): DM Setup Wizard
 
-Real implementation (onboarding.js, 2026-07-27): Discord's bot-invite
+Original implementation (onboarding.js, 2026-07-27): Discord's bot-invite
 OAuth flow only requires "Manage Server" permission, not guild
 ownership, so the person who actually invites the bot is often NOT the
-guild owner. If the bot has View Audit Log permission, it looks up the
-real inviter from the guild's BOT_ADD audit log entry and DMs them the
-full setup instructions below; the owner instead gets a short notice
+guild owner. If the bot had View Audit Log permission, it looked up the
+real inviter from the guild's BOT_ADD audit log entry and DMed them the
+full setup instructions below; the owner instead got a short notice
 naming who invited the bot (not a duplicate setup DM), unless the owner
-IS the inviter, in which case only one DM is sent. Without View Audit
-Log permission (or if the lookup fails for any reason), this falls back
+WAS the inviter, in which case only one DM was sent. Without View Audit
+Log permission (or if the lookup failed for any reason), this fell back
 to the original behavior: DM the guild owner directly.
 
-Setup DM content:
+This entire mechanism — `findInviter()`, the DM copy helpers, and the
+`guildCreate` listener that triggered them — was removed in full
+(mentat#316, 2026-09). Former setup DM content, for history only:
 ```
 Welcome to ACP! To get started, click the link below to configure
 your server's connection to your Dune Awakening console.
@@ -179,9 +202,10 @@ your server's connection to your Dune Awakening console.
 Setup Link: https://acp.example.com/setup?state=XYZ
 ```
 
-### Step 4: Web Portal (OAuth2)
+### Step 4: Web Portal (OAuth2) — fallback
 
-User clicks link → Discord OAuth2 → web portal:
+User opens the portal directly (not via a DM link, since none is sent
+anymore) → Discord OAuth2 → web portal:
 1. Authenticate with Discord
 2. Select which server to configure (if user is in multiple)
 3. Enter console URL
@@ -189,11 +213,16 @@ User clicks link → Discord OAuth2 → web portal:
 5. Configure roles (paste role IDs or select from dropdown)
 6. Submit → saved to database
 
+See `setup-portal-guide.md` for the current, real walkthrough of this
+fallback path.
+
 ### Step 5: Confirmation
 
-Bot sends confirmation DM:
+Neither the in-console flow nor the web portal sends a confirmation DM.
+Success is shown directly in whichever UI initiated the request: the
+console's own "Connected" state for the in-console flow, or the portal's
+"Setup Complete" page for the web-portal fallback. Once connected, try:
 ```
-Your server "Tabr-Tau" is now connected! You can use:
 /dune server status
 /dune data population
 /dune player link <character>
@@ -219,10 +248,17 @@ Run /dune core help for all commands.
 - Setup form with validation
 - Guild registration API
 
-### Phase 4: DM Onboarding
+### Phase 4: DM Onboarding (implemented 2026-07-27, fully removed 2026-09, mentat#316)
 - `guildCreate` event handler
 - DM wizard with setup link
 - Status notifications
+
+This phase shipped, then was removed in full once the in-console OAuth
+registration flow (see Onboarding Flow above) replaced its purpose. A
+command run in an unregistered guild now gets an in-guild reply instead of
+relying on a DM ever having been sent; `/dune core setup` is exempted from
+that gate so it still returns its setup-portal link even in an
+unregistered guild.
 
 ### Phase 5: Player Links Migration (superseded -- will not be done)
 This phase originally planned to move player links from the console

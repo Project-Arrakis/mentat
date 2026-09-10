@@ -15,6 +15,7 @@ function withApp(middlewareOpts) {
   app.use(requireProxySecret(middlewareOpts));
   app.get("/setup", (req, res) => res.json({ ok: true }));
   app.post("/api/alerts/relay", (req, res) => res.json({ ok: true }));
+  app.post("/api/consoles/register", (req, res) => res.json({ ok: true }));
   return app;
 }
 
@@ -213,6 +214,66 @@ test("requireProxySecret: a non-exempt path is still gated even when a different
     const app = withApp({ exemptPaths: ["/api/alerts/relay"] });
     const { status } = await request(app, "GET", "/setup");
     assert.equal(status, 403);
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  }
+});
+
+// mentat#316: /api/consoles/register (Task 11's new hosted-bot OAuth
+// registration endpoint, built in a later task; this task only wires the
+// exemption and its rate limiter) exempts the same way /api/alerts/relay
+// does above -- it has its own, independent per-request auth (a Discord
+// token re-verified server-side, see Task 11), never the shared proxy
+// secret, so it can never carry the X-Mentat-Proxy-Secret header.
+
+test("requireProxySecret: exempts /api/consoles/register with no header", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = "supersecret";
+  try {
+    const app = withApp({ exemptPaths: ["/api/alerts/relay", "/health", "/api/consoles/register"] });
+    const { status } = await request(app, "POST", "/api/consoles/register");
+    assert.equal(status, 200, "/api/consoles/register has its own auth (a re-verified Discord token, see Task 11) and must not require this header too");
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  }
+});
+
+test("requireProxySecret: exempts /api/consoles/register with a wrong header too", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = "supersecret";
+  try {
+    const app = withApp({ exemptPaths: ["/api/alerts/relay", "/health", "/api/consoles/register"] });
+    const { status } = await request(app, "POST", "/api/consoles/register", { "x-mentat-proxy-secret": "wrong" });
+    assert.equal(status, 200);
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  }
+});
+
+// Precise-scoping check (self-review requirement): the exemption is one
+// exact path string in an array (Array.prototype.includes), not a prefix
+// match -- a sibling or child path must still be gated even though it
+// starts with the same string.
+test("requireProxySecret: a near-miss path is NOT exempted -- exact match only, not a prefix", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = "supersecret";
+  try {
+    const app = express();
+    app.use(requireProxySecret({ exemptPaths: ["/api/alerts/relay", "/health", "/api/consoles/register"] }));
+    app.post("/api/consoles/register/extra", (req, res) => res.json({ ok: true }));
+    app.post("/api/consoles/registerx", (req, res) => res.json({ ok: true }));
+    const first = await request(app, "POST", "/api/consoles/register/extra");
+    const second = await request(app, "POST", "/api/consoles/registerx");
+    assert.equal(first.status, 403, "a child path of the exempted string must still be gated");
+    assert.equal(second.status, 403, "a string that merely starts with the exempted path must still be gated");
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  }
+});
+
+test("requireProxySecret: exempting /api/consoles/register does not widen the gate for /setup or /api/alerts/relay's own auth expectations", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = "supersecret";
+  try {
+    const app = withApp({ exemptPaths: ["/api/alerts/relay", "/health", "/api/consoles/register"] });
+    const setupResult = await request(app, "GET", "/setup");
+    assert.equal(setupResult.status, 403, "/setup must remain gated");
   } finally {
     delete process.env.MENTAT_PROXY_SHARED_SECRET;
   }
