@@ -142,6 +142,7 @@ if (config.multiTenant) {
     baseUrl: config.baseUrl,
     oauthRedirectUri: config.oauthRedirectUri,
     autoInviteRedirectUri: config.autoInviteRedirectUri,
+    autoInviteReturnBaseUrl: config.autoInviteReturnBaseUrl,
     // mentat#343 Phase 2: createSetupServer() previously never received the
     // live discord.js Client (createSteamLinkServer() below already does,
     // for its own, unrelated reason) -- the owner-confirmation gate's DM

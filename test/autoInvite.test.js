@@ -47,6 +47,7 @@ function makeApp(overrides = {}) {
     discordClientSecret: "sahir-venn-client-secret",
     baseUrl: "http://localhost:3100",
     autoInviteRedirectUri: "https://mentat-link.darkdante.org/api/consoles/auto-invite/callback",
+    autoInviteReturnBaseUrl: "https://mentat-link.darkdante.org",
     fetchImpl: fetchImplStub(overrides.fetchStubOpts),
     ...overrides
   });
@@ -74,6 +75,21 @@ async function startSession(base, headers = { "x-mentat-proxy-secret": PROXY_SEC
     body: JSON.stringify({ consoleUrl: "https://console.test", adapterToken: "adapter-token-123" })
   });
   return res;
+}
+
+// callbackRedirectFields: Phase 3 changed /auto-invite/callback from
+// returning JSON directly to issuing a signed 302 redirect toward
+// mentat-link's bounce page (design doc §4.1/§4.4) -- fetch() with
+// `redirect: "manual"` so the Location header's query params (the signed
+// payload fields) can be inspected directly, without needing
+// mentat-link's own /return endpoint to exist for these mentat-only tests.
+async function callbackRedirectFields(base, query) {
+  const res = await fetch(`${base}/api/consoles/auto-invite/callback?${query}`, { redirect: "manual" });
+  assert.equal(res.status, 302, "the callback route must always redirect, never return raw JSON");
+  const location = res.headers.get("location");
+  assert.ok(location, "a 302 must carry a Location header");
+  const url = new URL(location);
+  return Object.fromEntries(url.searchParams.entries());
 }
 
 // ─── /auto-invite/start: fail-closed proxy-secret gate (issue #844) ──────
@@ -140,10 +156,8 @@ test("GET /auto-invite/callback is exempt from the proxy-secret gate -- Discord'
       const startRes = await startSession(base);
       const { state } = await startRes.json();
       // No x-mentat-proxy-secret header on this request at all.
-      const res = await fetch(`${base}/api/consoles/auto-invite/callback?code=abc&state=${state}&guild_id=111111111111111111`);
-      assert.equal(res.status, 200);
-      const body = await res.json();
-      assert.equal(body.ok, true);
+      const fields = await callbackRedirectFields(base, `code=abc&state=${state}&guild_id=111111111111111111`);
+      assert.equal(fields.ok, "true");
     });
   } finally {
     delete process.env.MENTAT_PROXY_SHARED_SECRET;
@@ -160,14 +174,17 @@ test("happy path: /start then /callback stages a pending owner confirmation and 
       const startRes = await startSession(base);
       const { state } = await startRes.json();
 
-      const res = await fetch(`${base}/api/consoles/auto-invite/callback?code=real-code&state=${state}&guild_id=111111111111111111`);
-      assert.equal(res.status, 200);
-      const body = await res.json();
-      assert.equal(body.ok, true);
-      assert.equal(body.guildId, "111111111111111111");
-      assert.equal(body.guildName, "Real Guild");
-      assert.equal(typeof body.confirmationId, "string");
-      assert.ok(body.confirmationId.length > 0);
+      const fields = await callbackRedirectFields(base, `code=real-code&state=${state}&guild_id=111111111111111111`);
+      assert.equal(fields.ok, "true");
+      assert.equal(fields.guildName, "Real Guild");
+      assert.equal(fields.state, state);
+      // confirmationId is deliberately NOT part of the signed redirect
+      // payload (design doc §4.1/§4.4) -- it's DM'd server-side to the
+      // verified owner only, never exposed to the browser, which would
+      // otherwise let an observer of this redirect forge a confirm/deny
+      // link for a guild they don't own.
+      assert.equal(fields.confirmationId, undefined);
+      assert.ok(fields.sig && fields.sig.length > 0, "the redirect must be signed");
 
       // The app's own in-memory DB is a separate instance per createSetupServer()
       // call and not directly reachable from here, but the crucial assertion is
@@ -193,13 +210,12 @@ test("replay-after-consume: a second /callback hit with an already-consumed stat
       const startRes = await startSession(base);
       const { state } = await startRes.json();
 
-      const first = await fetch(`${base}/api/consoles/auto-invite/callback?code=real-code&state=${state}&guild_id=111111111111111111`);
-      assert.equal((await first.json()).ok, true);
+      const first = await callbackRedirectFields(base, `code=real-code&state=${state}&guild_id=111111111111111111`);
+      assert.equal(first.ok, "true");
 
-      const replay = await fetch(`${base}/api/consoles/auto-invite/callback?code=real-code&state=${state}&guild_id=111111111111111111`);
-      const replayBody = await replay.json();
-      assert.equal(replayBody.ok, false);
-      assert.equal(replayBody.reason, "expired");
+      const replay = await callbackRedirectFields(base, `code=real-code&state=${state}&guild_id=111111111111111111`);
+      assert.equal(replay.ok, "false");
+      assert.equal(replay.reason, "expired");
     });
   } finally {
     delete process.env.MENTAT_PROXY_SHARED_SECRET;
@@ -208,10 +224,9 @@ test("replay-after-consume: a second /callback hit with an already-consumed stat
 
 test("a /callback hit with a state that was never staged (guessed/leaked) gets the expired response, fails closed", async () => {
   await withAutoInviteApp({}, async (base) => {
-    const res = await fetch(`${base}/api/consoles/auto-invite/callback?code=x&state=never-existed&guild_id=111111111111111111`);
-    const body = await res.json();
-    assert.equal(body.ok, false);
-    assert.equal(body.reason, "expired");
+    const fields = await callbackRedirectFields(base, "code=x&state=never-existed&guild_id=111111111111111111");
+    assert.equal(fields.ok, "false");
+    assert.equal(fields.reason, "expired");
   });
 });
 
@@ -225,13 +240,12 @@ test("operator-cancelled path (error=access_denied) consumes the session -- a su
       const startRes = await startSession(base);
       const { state } = await startRes.json();
 
-      const cancelled = await fetch(`${base}/api/consoles/auto-invite/callback?state=${state}&error=access_denied`);
-      const cancelledBody = await cancelled.json();
-      assert.equal(cancelledBody.ok, false);
-      assert.equal(cancelledBody.reason, "denied");
+      const cancelled = await callbackRedirectFields(base, `state=${state}&error=access_denied`);
+      assert.equal(cancelled.ok, "false");
+      assert.equal(cancelled.reason, "denied");
 
-      const replay = await fetch(`${base}/api/consoles/auto-invite/callback?state=${state}&error=access_denied`);
-      assert.equal((await replay.json()).reason, "expired");
+      const replay = await callbackRedirectFields(base, `state=${state}&error=access_denied`);
+      assert.equal(replay.reason, "expired");
     });
   } finally {
     delete process.env.MENTAT_PROXY_SHARED_SECRET;
@@ -248,13 +262,12 @@ test("ownership-check-failed path (token proves ownership of a DIFFERENT guild) 
       // Requests guild 111... but the token's own /users/@me/guilds only
       // proves ownership of 222... -- the exact session-fixation/guild-hijack
       // shape this whole gate exists to reject.
-      const res = await fetch(`${base}/api/consoles/auto-invite/callback?code=x&state=${state}&guild_id=111111111111111111`);
-      const body = await res.json();
-      assert.equal(body.ok, false);
-      assert.equal(body.reason, "not_owner");
+      const fields = await callbackRedirectFields(base, `code=x&state=${state}&guild_id=111111111111111111`);
+      assert.equal(fields.ok, "false");
+      assert.equal(fields.reason, "not_owner");
 
-      const replay = await fetch(`${base}/api/consoles/auto-invite/callback?code=x&state=${state}&guild_id=111111111111111111`);
-      assert.equal((await replay.json()).reason, "expired");
+      const replay = await callbackRedirectFields(base, `code=x&state=${state}&guild_id=111111111111111111`);
+      assert.equal(replay.reason, "expired");
     });
   } finally {
     delete process.env.MENTAT_PROXY_SHARED_SECRET;
@@ -268,13 +281,12 @@ test("discord_unreachable path (token exchange fails) consumes the session too -
       const startRes = await startSession(base);
       const { state } = await startRes.json();
 
-      const res = await fetch(`${base}/api/consoles/auto-invite/callback?code=x&state=${state}&guild_id=111111111111111111`);
-      const body = await res.json();
-      assert.equal(body.ok, false);
-      assert.equal(body.reason, "discord_unreachable");
+      const fields = await callbackRedirectFields(base, `code=x&state=${state}&guild_id=111111111111111111`);
+      assert.equal(fields.ok, "false");
+      assert.equal(fields.reason, "discord_unreachable");
 
-      const replay = await fetch(`${base}/api/consoles/auto-invite/callback?code=x&state=${state}&guild_id=111111111111111111`);
-      assert.equal((await replay.json()).reason, "expired");
+      const replay = await callbackRedirectFields(base, `code=x&state=${state}&guild_id=111111111111111111`);
+      assert.equal(replay.reason, "expired");
     });
   } finally {
     delete process.env.MENTAT_PROXY_SHARED_SECRET;
