@@ -164,6 +164,17 @@ export function loadConfig(env = process.env) {
     consoleDashboardUrl: resolveCompatEnv(env, "CONSOLE_DASHBOARD_URL", { urlShaped: true }),
     grafanaDashboardUrl: resolveCompatEnv(env, "GRAFANA_DASHBOARD_URL", { urlShaped: true }),
     oauthRedirectUri: resolveCompatEnv(env, "OAUTH_REDIRECT_URI", { urlShaped: true }),
+    // mentat#343 (hosted-bot auto-invite Phase 1) -- distinct from
+    // oauthRedirectUri above: this is the fixed, single redirect_uri
+    // registered on Sahir Venn's own Discord Application for the NEW
+    // auto-invite flow (design doc §4.1/§10), always
+    // https://mentat-link.darkdante.org/api/consoles/auto-invite/callback
+    // in every real deployment -- there is exactly one correct value
+    // (unlike oauthRedirectUri, which is per-console self-hosted-path
+    // territory), so this defaults to that real value rather than
+    // requiring every environment to set it explicitly.
+    autoInviteRedirectUri: resolveCompatEnv(env, "AUTO_INVITE_REDIRECT_URI", { urlShaped: true }) ||
+      "https://mentat-link.darkdante.org/api/consoles/auto-invite/callback",
     // steamLink: the /dune player link Steam-connections feature's own
     // small Express app (src/steamLinkServer.js), started unconditionally
     // regardless of multiTenant -- see docs/steam-link-architecture.md's Single-Tenant

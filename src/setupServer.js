@@ -4,9 +4,10 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logInfo, logError } from "./logger.js";
-import { requireProxySecret } from "./proxyAuth.js";
+import { requireProxySecret, requireProxySecretFailClosed, proxySecretValidFailClosed } from "./proxyAuth.js";
 import { verifyAndRegisterConsole } from "./consoleRegistration.js";
 import { recordGlobalConsoleRegistrationAttempt } from "./consoleRegistrationRateLimit.js";
+import { stageAutoInviteSession, handleAutoInviteCallback } from "./autoInvite.js";
 import {
   createDatabase,
   createOauthSession,
@@ -235,7 +236,15 @@ export function createSetupServer(config) {
   // Task 11's route handler and consoleRegistrationRateLimit.js), the same
   // "exempt because it has its own real auth, not because it has none"
   // pattern /api/alerts/relay already uses above.
-  app.use(requireProxySecret({ exemptPaths: ["/api/alerts/relay", "/health", "/api/consoles/register"], renderError: errorPage }));
+  // mentat#343: /api/consoles/auto-invite/callback is ALSO exempt here --
+  // it's Discord's own browser-mediated redirect target and can never
+  // carry the X-Mentat-Proxy-Secret header (design doc issue #842). Its
+  // sibling, /api/consoles/auto-invite/start, is deliberately NOT exempt
+  // here -- it gets its OWN, stricter, fail-CLOSED check
+  // (requireProxySecretFailClosed(), mounted directly on that route below)
+  // rather than inheriting this middleware's fail-open default, per design
+  // doc issue #844.
+  app.use(requireProxySecret({ exemptPaths: ["/api/alerts/relay", "/health", "/api/consoles/register", "/api/consoles/auto-invite/callback"], renderError: errorPage }));
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
@@ -851,6 +860,78 @@ export function createSetupServer(config) {
     }
   });
 
+  // POST /api/consoles/auto-invite/start (mentat#343, Phase 1 of the
+  // hosted-bot auto-invite design, dune-awakening-selfhost-docker#832 --
+  // docs/design/hosted-bot-auto-invite-and-role-picker-l1-design-2026-09-10.md
+  // §4.1/§4.4). Stages a pending session bridging Core's request to
+  // Discord's redirect back to /auto-invite/callback below. Deliberately
+  // does NOT authenticate the caller as a legitimate Core install beyond
+  // this fail-closed proxy-secret check + the shared global rate limiter
+  // -- per design doc issue #844's own analysis, mentat-link's proxy
+  // blindly forwards any request it receives, so this check alone proves
+  // only that a request passed through mentat-link's infrastructure, not
+  // caller legitimacy. The real defense against abuse is the
+  // owner-confirmation gate a later phase adds downstream of
+  // /auto-invite/callback, not authentication on this route.
+  app.post("/api/consoles/auto-invite/start", requireProxySecretFailClosed(), async (req, res) => {
+    try {
+      const globalCheck = recordGlobalConsoleRegistrationAttempt();
+      if (!globalCheck.allowed) {
+        res.set("Retry-After", String(globalCheck.retryAfterSeconds));
+        return res.status(429).json({ error: "rate_limited" });
+      }
+
+      const { consoleUrl, adapterToken } = req.body || {};
+      if (typeof consoleUrl !== "string" || consoleUrl.length === 0) {
+        return res.status(400).json({ error: "consoleUrl is required" });
+      }
+      if (typeof adapterToken !== "string" || adapterToken.length === 0) {
+        return res.status(400).json({ error: "adapterToken is required" });
+      }
+
+      const state = stageAutoInviteSession({ consoleUrl, adapterToken });
+      return res.status(200).json({ state });
+    } catch (err) {
+      logError("auto_invite.start_route_error", err, {});
+      return res.status(500).json({ error: "Could not start the connection." });
+    }
+  });
+
+  // GET /api/consoles/auto-invite/callback -- Discord's own redirect
+  // target after the operator approves the combined bot-invite +
+  // identify-guilds consent screen. Exempt from requireProxySecret (see
+  // the exemption list above) since Discord's browser-mediated redirect
+  // can never carry that header.
+  //
+  // Phase 1 stops at staging a pendingOwnerConfirmation record on success
+  // -- the actual upsertGuild() write only happens from a later phase's
+  // owner-confirmation gate, on an explicit Confirm.
+  //
+  // NOTE: Phase 1 returns the raw result as JSON rather than the signed
+  // mentat-link bounce-page redirect the design doc's finished flow calls
+  // for (§4.1/§4.4) -- that redirect requires a later phase's HMAC-signing
+  // machinery on mentat-link's side, which does not exist yet. This is
+  // Phase 1's own, deliberately narrower scope: prove the staging logic is
+  // correct in isolation before wiring it to the signed-redirect phase.
+  app.get("/api/consoles/auto-invite/callback", async (req, res) => {
+    try {
+      const { code, state, guild_id: guildId, error } = req.query || {};
+      const result = await handleAutoInviteCallback(
+        { code, state, guildId, error },
+        {
+          clientId: config.discordClientId,
+          clientSecret: config.discordClientSecret,
+          redirectUri: config.autoInviteRedirectUri,
+          fetchImpl
+        }
+      );
+      return res.status(200).json(result);
+    } catch (err) {
+      logError("auto_invite.callback_route_error", err, {});
+      return res.status(500).json({ ok: false, reason: "internal_error" });
+    }
+  });
+
   // Alertmanager → Discord webhook relay. Receives firing/resolved alerts
   // from Prometheus's Alertmanager, reformats into Discord embeds, and posts
   // to the configured DUNE_ALERT_WEBHOOK_URL. If no webhook URL is configured,
@@ -974,6 +1055,29 @@ export function createSetupServer(config) {
         return res.status(429).json({ error: "Could not verify you own that Discord server -- please try connecting again." });
       }
       return res.status(400).json({ error: "Could not verify you own that Discord server -- please try connecting again." });
+    }
+    // mentat#343, Layer 2 audit finding: a malformed/oversized JSON body
+    // is caught by express.json() BEFORE Express ever matches a route --
+    // meaning it skips every route-specific middleware, including this
+    // route's own requireProxySecretFailClosed() check, and lands here
+    // instead. Without this branch, an attacker could flood
+    // /auto-invite/start with malformed bodies to bypass BOTH the
+    // fail-closed proxy-secret gate (issue #844's whole point) AND the
+    // global rate limiter uncounted -- exactly the same bug class the
+    // /api/consoles/register branch above already fixes, now extended to
+    // this route. The fail-closed check runs FIRST, matching what the
+    // route's own middleware chain would have enforced for a well-formed
+    // request.
+    if (isBodyParsingFailure && req.path === "/api/consoles/auto-invite/start") {
+      if (!proxySecretValidFailClosed(req)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const result = recordGlobalConsoleRegistrationAttempt();
+      if (!result.allowed) {
+        res.set("Retry-After", String(result.retryAfterSeconds));
+        return res.status(429).json({ error: "rate_limited" });
+      }
+      return res.status(400).json({ error: "consoleUrl and adapterToken are required" });
     }
     return next(err);
   });
