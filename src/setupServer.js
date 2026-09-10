@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logInfo, logError } from "./logger.js";
 import { requireProxySecret } from "./proxyAuth.js";
+import { verifyAndRegisterConsole } from "./consoleRegistration.js";
+import { recordGlobalConsoleRegistrationAttempt } from "./consoleRegistrationRateLimit.js";
 import {
   createDatabase,
   createOauthSession,
@@ -224,7 +226,16 @@ export function createSetupServer(config) {
   // nothing in exemptPaths documents. Gating first makes the exemption
   // list (`/api/alerts/relay`, `/health`) the complete, honest picture of
   // what's exempt, matching steamLinkServer.js's already-correct ordering.
-  app.use(requireProxySecret({ exemptPaths: ["/api/alerts/relay", "/health"], renderError: errorPage }));
+  // mentat#316: /api/consoles/register (Task 11) is a new, unauthenticated-
+  // by-design endpoint -- Core's console calls it directly during its own
+  // hosted-bot OAuth registration flow, never through the mentat-link
+  // reverse proxy, so it can never carry the X-Mentat-Proxy-Secret header
+  // this gate checks. Its own security comes from local shape-validation
+  // plus a fresh, independent Discord token verification per request (see
+  // Task 11's route handler and consoleRegistrationRateLimit.js), the same
+  // "exempt because it has its own real auth, not because it has none"
+  // pattern /api/alerts/relay already uses above.
+  app.use(requireProxySecret({ exemptPaths: ["/api/alerts/relay", "/health", "/api/consoles/register"], renderError: errorPage }));
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
@@ -795,6 +806,51 @@ export function createSetupServer(config) {
     res.json({ ok: true, nextPushSeconds: 90 });
   });
 
+  // POST /api/consoles/register (mentat#316, hosted-bot OAuth registration
+  // design, Task 11) -- Core's console calls this directly (never through
+  // the mentat-link reverse proxy, see the requireProxySecret exemption
+  // comment above) to register itself to a Discord guild, forwarding a
+  // Discord OAuth access token alongside its claimed guildId. The route
+  // itself does no authorization logic at all -- verifyAndRegisterConsole()
+  // in consoleRegistration.js owns the entire accept/reject/register
+  // decision, including the load-bearing independent re-verification of
+  // guild ownership against Discord's own API. This handler's only job is
+  // translating that function's `reason` into an HTTP status and a
+  // deliberately generic error message that doesn't distinguish "bad
+  // token" from "token valid but wrong guild" to the caller.
+  app.post("/api/consoles/register", async (req, res) => {
+    try {
+      // Fix-round-1 Important #1: req.body is `undefined`, not `{}`, for any
+      // POST whose Content-Type isn't application/json (missing header,
+      // text/plain, etc) under this express.json() setup -- an unguarded
+      // destructure here threw a 500 BEFORE verifyAndRegisterConsole (and
+      // therefore recordGlobalConsoleRegistrationAttempt) ever ran, making
+      // this entire request class invisible to the endpoint's global
+      // rate-limit ceiling. `|| {}` matches the existing precedent at
+      // `/api/stats/push` (`req.body?.guildId` / `req.body || {}` above) and
+      // ensures a malformed-body request still falls through to the normal
+      // validation/rate-limit path instead of short-circuiting past it.
+      const { guildId, discordAccessToken, consoleUrl, adapterToken } = req.body || {};
+      const result = await verifyAndRegisterConsole(db, { guildId, discordAccessToken, consoleUrl, adapterToken });
+      if (!result.ok) {
+        const status = result.reason === "rate_limited" ? 429 : result.reason === "discord_unreachable" ? 502 : 403;
+        // Minor finding (Layer 3 integration review): match the existing
+        // Retry-After precedent 2 routes up (/api/stats/push, above) and in
+        // steamLinkServer.js -- the rate limiter already computed this
+        // value, so surface it rather than making a rate-limited caller
+        // guess.
+        if (status === 429 && result.retryAfterSeconds) {
+          res.set("Retry-After", String(result.retryAfterSeconds));
+        }
+        return res.status(status).json({ error: "Could not verify you own that Discord server -- please try connecting again." });
+      }
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      logError("console_registration.route_error", err, {});
+      return res.status(500).json({ error: "Registration failed unexpectedly." });
+    }
+  });
+
   // Alertmanager → Discord webhook relay. Receives firing/resolved alerts
   // from Prometheus's Alertmanager, reformats into Discord embeds, and posts
   // to the configured DUNE_ALERT_WEBHOOK_URL. If no webhook URL is configured,
@@ -884,6 +940,42 @@ export function createSetupServer(config) {
     } catch (err) {
       res.status(500).json({ error: "Failed to load command registry", details: err.message });
     }
+  });
+
+  // Layer 3 integration review Important #1 (a second rate-limiter bypass,
+  // beyond fix-round-1's `req.body || {}` guard above): a POST to
+  // /api/consoles/register WITH a correct `Content-Type: application/json`
+  // header but a genuinely malformed body (e.g. `{not json`) throws inside
+  // the global `express.json()` middleware registered near the top of this
+  // function, BEFORE this route's own handler -- and therefore
+  // verifyAndRegisterConsole()/recordGlobalConsoleRegistrationAttempt() --
+  // ever runs. That request class was previously invisible to this
+  // endpoint's global rate-limit ceiling, exactly like the missing-
+  // Content-Type case fix-round-1 already fixed. A /code-review high pass
+  // found this handler's original check (matching only `entity.parse.failed`)
+  // missed a second body-parser failure mode with the exact same
+  // rate-limit-bypass consequence: an oversized body (over express.json()'s
+  // default 100kb limit) is raised by raw-body as `entity.too.large`, not
+  // `entity.parse.failed` -- now covered by the same handler. Scoped to
+  // exactly this one route by checking req.path: every other route's
+  // body-parsing-error handling (including Express's own default
+  // stack-trace-leaking error page, tracked separately as mentat#318) is
+  // deliberately left untouched -- this is not a general app-wide
+  // error-handling change.
+  // Registered last so Express's error-dispatch (which walks forward
+  // through the middleware stack from wherever `next(err)` was called)
+  // finds it after express.json() near the top of this function.
+  app.use((err, req, res, next) => {
+    const isBodyParsingFailure = err && (err.type === "entity.parse.failed" || err.type === "entity.too.large");
+    if (isBodyParsingFailure && req.path === "/api/consoles/register") {
+      const result = recordGlobalConsoleRegistrationAttempt();
+      if (!result.allowed) {
+        res.set("Retry-After", String(result.retryAfterSeconds));
+        return res.status(429).json({ error: "Could not verify you own that Discord server -- please try connecting again." });
+      }
+      return res.status(400).json({ error: "Could not verify you own that Discord server -- please try connecting again." });
+    }
+    return next(err);
   });
 
   return app;

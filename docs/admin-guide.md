@@ -18,6 +18,14 @@ application, run a Node process, or register slash commands.
 > instead — this guide is for connecting your **server** to the **hosted**
 > bot.
 
+> **Updated 2026-09 — the primary connection path moved in-console.** If
+> your Dune Docker Console has the **Settings → Discord Bot** page, use its
+> **"Connect to hosted bot"** button instead of Step 2 below — it does the
+> Discord sign-in and guild selection itself and calls Mentat directly, so
+> there's no separate portal sign-in and no manual token copying. Step 2
+> (the web setup portal) is kept below as the fallback for consoles without
+> that button yet, or if you'd rather do it by hand.
+
 ## What You Need
 
 - A Discord server where you have the **Manage Server** permission
@@ -41,30 +49,32 @@ Select your server from the dropdown and click **Authorize**.
 |----------|-------|
 | Client ID | `1546203607807041697` (the hosted bot's application) |
 | Scopes | `bot` + `applications.commands` |
-| Permissions | `128` (View Audit Log — lets the bot identify who invited it, so setup DMs reach the right person; slash commands themselves don't need any extra permissions) |
+| Permissions | `128` (View Audit Log — historical; slash commands themselves don't need any extra permissions) |
 
-See `discord-setup.md` for the full explanation of why this permission is
-requested.
+See `discord-setup.md` for the current status of this permission — the
+feature it originally supported (DM-based inviter identification) has
+since been removed, so `permissions=0` works exactly as well today.
 
 The bot will appear in your server's member list as **offline** — that's
 normal until a console is connected.
 
 ---
 
-## Step 2: Complete the Setup Portal
+## Step 2 (Fallback): Complete the Setup Portal
 
-The rest of the connection happens in the web setup portal — **not** in
-this repo:
+If your console doesn't have the in-console "Connect to hosted bot" button
+yet (see the note at the top of this guide), the rest of the connection
+happens in the web setup portal instead — **not** in this repo:
 
 1. Open **<https://mentat-link.darkdante.org/setup>** in your browser
 2. **Sign in with Discord** (identify + guilds scope only — no messages, roles, or private data)
 3. **Select your server** from the dropdown
 4. **Enter your Console URL** — must be publicly reachable from the internet (a public IP/domain, or a Cloudflare Tunnel URL for a home PC)
-5. **Enter your Adapter Token** — paste the existing token file (`/repo/runtime/secrets/discord-adapter-token.txt` on the console host) or generate a fresh one from the portal and write it to the console's secrets file with `DUNE_DISCORD_ADAPTER_ENABLED=true`
+5. **Enter your Adapter Token** — paste the existing token from the console's token file (`/repo/runtime/secrets/discord-adapter-token.txt`), or generate one yourself with `openssl rand -hex 32`, write it to that file, and set `DUNE_DISCORD_ADAPTER_ENABLED=true`
 6. Click **Connect Server**
 
 Follow `setup-portal-guide.md` for the full walkthrough of each field,
-including the role IDs (optional) and the generate-token option.
+including the optional role IDs.
 
 ---
 
@@ -148,7 +158,7 @@ configuration surface.
 - [User Guide](user-guide.md) — how to use all commands
 - [FAQ](faq.md) — answers to common questions
 - [Troubleshooting](troubleshooting.md) — what to do when things go wrong
-- [Setup Portal Guide](setup-portal-guide.md) — full portal walkthrough (primary setup path)
+- [Setup Portal Guide](setup-portal-guide.md) — full portal walkthrough (fallback setup path; the in-console "Connect to hosted bot" button is now primary)
 
 ## Sources
 

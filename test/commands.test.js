@@ -231,6 +231,153 @@ test("isAdminActor (multi-tenant) requires admin tier or above -- real guild own
   assert.equal(isAdminActor({ member: { roles: ["unconfigured"] } }, MT_CONFIG, db, "guild-1"), false);
 });
 
+// ── Task 12 (hosted-bot-oauth-registration plan): the removed
+// handleGuildCreate DM-on-invite trigger is replaced by an explicit,
+// in-guild reply here whenever a command is run in a guild with no
+// `guilds` row, or one whose status isn't "active" -- instead of
+// silently reaching AdapterClient with the bot's own default (non-
+// guild-scoped) config. These pin: (1) no row at all, (2) a row present
+// but not yet "active" (e.g. still "pending"), and (3) the unchanged,
+// working path for a real "active" guild.
+
+test("executeDuneCommand replies with the not-connected notice and never reaches AdapterClient when the guild has no `guilds` row at all", async () => {
+  const db = createDatabase(":memory:");
+  let replied = null;
+  const interaction = mockInteraction("core", "about", { user: { id: "u1" }, roles: ["role-a"] });
+  interaction.reply = async (r) => { replied = r; };
+  const adapterClient = {
+    health() { throw new Error("AdapterClient must not be called for an unregistered guild"); }
+  };
+
+  const handled = await executeDuneCommand(interaction, adapterClient, MT_CONFIG, db);
+
+  assert.equal(handled, true);
+  assert.match(replied?.content || "", /isn't connected to a console yet/);
+  assert.match(replied?.content || "", /Connect to hosted bot/);
+  assert.equal(replied?.ephemeral, true);
+});
+
+test("executeDuneCommand replies with the not-connected notice when the guild's `guilds` row exists but is not \"active\"", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "guild-1", guildName: "Test Guild", consoleUrl: "https://example.test", adapterToken: "t", status: "pending" });
+  addGuildRole(db, "guild-1", "moderator", "role-a");
+  let replied = null;
+  const interaction = mockInteraction("core", "about", { user: { id: "u1" }, roles: ["role-a"] });
+  interaction.reply = async (r) => { replied = r; };
+  const adapterClient = {
+    health() { throw new Error("AdapterClient must not be called for a non-active guild"); }
+  };
+
+  const handled = await executeDuneCommand(interaction, adapterClient, MT_CONFIG, db);
+
+  assert.equal(handled, true);
+  assert.match(replied?.content || "", /isn't connected to a console yet/);
+  assert.match(replied?.content || "", /\/dune core setup/, "the generic not-connected reply must point at the manual-setup fallback command");
+});
+
+// Fix round 2 (Layer 3 integration review, mentat I2): a guild whose row
+// has status "suspended" (set by onboarding.js's handleGuildDelete when
+// the bot is kicked) is a factually different state from "never
+// registered at all" -- console_url/adapter_token are still intact and
+// Core's own console still shows "Connected." This must get its own,
+// accurate, reconnect-specific message, not the generic
+// "isn't connected to a console yet" copy (which implies setup was never
+// done at all).
+test("executeDuneCommand replies with a reconnect-specific notice for a \"suspended\" guild, distinct from the generic not-connected notice", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "guild-1", guildName: "Test Guild", consoleUrl: "https://example.test", adapterToken: "t", status: "suspended" });
+  addGuildRole(db, "guild-1", "moderator", "role-a");
+  let replied = null;
+  const interaction = mockInteraction("core", "about", { user: { id: "u1" }, roles: ["role-a"] });
+  interaction.reply = async (r) => { replied = r; };
+  const adapterClient = {
+    health() { throw new Error("AdapterClient must not be called for a suspended guild"); }
+  };
+
+  const handled = await executeDuneCommand(interaction, adapterClient, MT_CONFIG, db);
+
+  assert.equal(handled, true);
+  assert.doesNotMatch(replied?.content || "", /isn't connected to a console yet/, "a suspended (previously-connected) guild must not see the never-connected copy");
+  assert.match(replied?.content || "", /previously connected but is currently disconnected/);
+  assert.match(replied?.content || "", /Connect to hosted bot/);
+  assert.match(replied?.content || "", /\/dune core setup/);
+  assert.equal(replied?.ephemeral, true);
+});
+
+// Fix round 1 (reviewer finding): core:setup is the documented, real
+// recovery path for a never-registered guild (docs/user-guide.md:38,
+// "how to add this bot to your own Discord server") -- it must stay
+// reachable through the new gate above, exactly like
+// RBAC_EXEMPT_COMMANDS' admin:roles exemption already does for the
+// unrelated RBAC gate. Both cases use the real guild owner (rather than
+// a configured role) to reach dispatch, since a never-registered guild
+// has zero guild_roles rows by definition and only real Discord guild
+// ownership bypasses the separate, pre-existing #213/U4 zero-role gate.
+test("executeDuneCommand still allows core:setup in a guild with no `guilds` row at all, without calling AdapterClient", async () => {
+  const db = createDatabase(":memory:");
+  let edited = null, replied = null;
+  const interaction = mockInteraction("core", "setup", { user: { id: "owner-1" }, roles: [] });
+  interaction.guild = { ownerId: "owner-1" };
+  interaction.deferReply = async (o) => { };
+  interaction.editReply = async (r) => { edited = r; };
+  interaction.reply = async (r) => { replied = r; };
+  const adapterClient = {
+    health() { throw new Error("AdapterClient must not be called for core:setup"); }
+  };
+
+  const handled = await executeDuneCommand(interaction, adapterClient, MT_CONFIG, db);
+
+  assert.equal(handled, true);
+  assert.equal(replied, null, "core:setup must not hit the new gate's interaction.reply() path at all");
+  assert.ok(edited?.embeds?.[0]?.data?.title, "core:setup must still return its own setup embed via editReply");
+  const description = edited?.embeds?.[0]?.data?.description || "";
+  assert.doesNotMatch(description, /isn't connected to a console yet/, "core:setup must return its own setup reply, not the new gate's message");
+});
+
+test("executeDuneCommand still allows core:setup when the guild's `guilds` row exists but is not \"active\", without calling AdapterClient", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "guild-1", guildName: "Test Guild", consoleUrl: "https://example.test", adapterToken: "t", status: "pending" });
+  let edited = null, replied = null;
+  // A distinct userId from the sibling "no `guilds` row" test above --
+  // both run core:setup, and src/cooldown.js's cooldownMap is a
+  // module-level singleton keyed by userId:commandName shared across
+  // this whole test file (same collision class already noted on the
+  // "active guild" test further below).
+  const interaction = mockInteraction("core", "setup", { user: { id: "owner-2" }, roles: [] });
+  interaction.guild = { ownerId: "owner-2" };
+  interaction.deferReply = async (o) => { };
+  interaction.editReply = async (r) => { edited = r; };
+  interaction.reply = async (r) => { replied = r; };
+  const adapterClient = {
+    health() { throw new Error("AdapterClient must not be called for core:setup"); }
+  };
+
+  const handled = await executeDuneCommand(interaction, adapterClient, MT_CONFIG, db);
+
+  assert.equal(handled, true);
+  assert.equal(replied, null, "core:setup must not hit the new gate's interaction.reply() path at all");
+  assert.ok(edited?.embeds?.[0]?.data?.title, "core:setup must still return its own setup embed via editReply");
+  const description = edited?.embeds?.[0]?.data?.description || "";
+  assert.doesNotMatch(description, /isn't connected to a console yet/, "core:setup must return its own setup reply, not the new gate's message");
+});
+
+test("executeDuneCommand proceeds normally (no regression) for a real \"active\" guild", async () => {
+  const db = multiTenantDb({ moderator: ["role-a"] });
+  let edited = null;
+  // A distinct userId (not "u1") to avoid colliding with the per-
+  // user/command cooldown another core:about test below asserts on --
+  // src/cooldown.js's cooldownMap is a module-level singleton shared
+  // across this whole test file.
+  const interaction = mockInteraction("core", "about", { user: { id: "active-guild-user" }, roles: ["role-a"] });
+  interaction.deferReply = async (o) => { };
+  interaction.editReply = async (r) => { edited = r; };
+
+  const handled = await executeDuneCommand(interaction, {}, MT_CONFIG, db);
+
+  assert.equal(handled, true);
+  assert.ok(edited?.embeds?.[0]?.data?.title, "core:about must still work unchanged for an active guild");
+});
+
 test("executeDuneCommand handles core:about without calling the adapter", async () => {
   let edited = null;
   const interaction = mockInteraction("core", "about", { user: { id: "u1" }, roles: ["role-a"] });
@@ -245,6 +392,17 @@ test("executeDuneCommand handles core:about without calling the adapter", async 
   assert.ok(edited?.embeds?.[0]?.data?.title, "about embed has title");
 });
 
+// Fix round 2 (Layer 3 integration review, mentat I3): the assertion below
+// still tests real, current behavior -- setupPayload()'s generated invite
+// URL literally still contains permissions=128, unchanged as of this
+// change (tracked as mentat#319, not yet fixed to permissions=0). Its
+// original rationale ("so onboarding.js's findInviter() can identify the
+// inviter") is now stale: findInviter()/handleGuildCreate() were deleted
+// by this same branch (Task 12), and permissions=128/View Audit Log has no
+// remaining functional use in this codebase (see docs/discord-setup.md).
+// Kept the assertion, dropped the stale rationale from its message --
+// mentat#319 should account for this test (and its embedFormat.test.js
+// sibling below) when the permissions value itself is finally changed.
 test("executeDuneCommand's core:setup generates an invite URL with permissions=128 (issue #281)", async () => {
   const originalClientId = process.env.DISCORD_CLIENT_ID;
   process.env.DISCORD_CLIENT_ID = "test-client-id";
@@ -261,7 +419,7 @@ test("executeDuneCommand's core:setup generates an invite URL with permissions=1
     const description = edited?.embeds?.[0]?.data?.description || "";
     assert.ok(
       description.includes("permissions=128"),
-      `setup embed's invite URL must include permissions=128 (VIEW_AUDIT_LOG) so onboarding.js's findInviter() can identify the inviter -- got: ${description}`
+      `setup embed's invite URL must include permissions=128 (VIEW_AUDIT_LOG, currently vestigial -- see mentat#319) -- got: ${description}`
     );
   } finally {
     if (originalClientId === undefined) delete process.env.DISCORD_CLIENT_ID;

@@ -98,6 +98,63 @@ test("GET /health is unaffected by the new root route", async () => {
   });
 });
 
+// ─── mentat#316: /api/consoles/register is exempted from requireProxySecret
+// (Task 10 wired the exemption and its rate limiter; Task 11 has since
+// built the real route). These tests exercise the REAL wiring in
+// createSetupServer -- the literal exemptPaths array baked into the
+// app.use(requireProxySecret(...)) call above -- not just the generic
+// requireProxySecret() mechanism in isolation (see proxyAuth.test.js for
+// that unit-level coverage). Before the exemptPaths entry was added, a
+// request here with no header (and a secret configured) was rejected by
+// the middleware with 403.
+//
+// Fix-round-1 correction: this test originally inferred the exemption from
+// status code alone (expecting a 404, since Task 11's route didn't exist
+// yet). Now that Task 11's route is real, a malformed/empty POST body can
+// ALSO legitimately get a 403 straight from verifyAndRegisterConsole's own
+// validation -- so status code alone can no longer distinguish "blocked by
+// the proxy-secret gate" from "reached the real route and got validated."
+// Assert on the response BODY instead: requireProxySecret's own rejection
+// always has `error: "Forbidden"` (see proxyAuth.js); the real route's
+// rejection never does. ──────────────────────────────────────────────────
+
+test("POST /api/consoles/register is exempted from the proxy-secret gate (no 403 from the gate itself)", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = "a-real-secret-that-is-at-least-32-chars-long";
+  try {
+    await withApp(async (base) => {
+      const res = await fetch(`${base}/api/consoles/register`, { method: "POST" });
+      const body = await res.json();
+      assert.notEqual(body.error, "Forbidden", "requireProxySecret must not block this exempted path even with no X-Mentat-Proxy-Secret header");
+    });
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  }
+});
+
+test("POST /setup/register (a real, non-exempt path) is still gated by the proxy-secret check when a secret is configured", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = "a-real-secret-that-is-at-least-32-chars-long";
+  try {
+    await withApp(async (base) => {
+      const res = await fetch(`${base}/setup/register`, { method: "POST" });
+      assert.equal(res.status, 403, "adding /api/consoles/register to exemptPaths must not broaden the gate for any other route");
+    });
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  }
+});
+
+test("a near-miss path (/api/consoles/register/extra) is NOT exempted -- exact match only, not a prefix", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = "a-real-secret-that-is-at-least-32-chars-long";
+  try {
+    await withApp(async (base) => {
+      const res = await fetch(`${base}/api/consoles/register/extra`, { method: "POST" });
+      assert.equal(res.status, 403, "exemptPaths does exact-string membership, not prefix matching -- a sibling/child path must still be gated");
+    });
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  }
+});
+
 // ─── /api/live-stats (KV replacement, issue #83.2) ───────────────────────
 // The former Cloudflare KV acp-stats-aggregate payload is now stored in
 // the local stats_snapshot table (statsPusher.js) and served here. The

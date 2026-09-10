@@ -51,15 +51,24 @@ purpose, not by default.
    whichever is easier. If you're reading this on the same phone you'd
    scan with, just tap the link instead.)
 
-2. **Open setup portal:**
+   This link's `permissions=128` (View Audit Log) is a historical
+   holdover from a now-removed feature and has no remaining functional
+   use — see [Discord Setup](discord-setup.md#step-4-invite-the-bot-to-your-server)
+   for why. No action needed if you've already used this link.
+
+2. **Connect your console** — **primary path:** in your Dune Docker Console's
+   WebUI, go to **Settings → Discord Bot → "Connect to hosted bot"** and
+   sign in with Discord; it registers your server automatically. If your
+   console doesn't have that button yet, use the **fallback** setup portal
+   instead:
    ```
    https://mentat-link.darkdante.org/setup
    ```
+   See the [Setup Portal Guide](setup-portal-guide.md) for the full
+   walkthrough of the fallback path (Console URL, adapter token, and
+   optional role mapping).
 
-3. **Complete the setup form** — see the [Setup Portal Guide](setup-portal-guide.md)
-   for the full walkthrough (Console URL, adapter token, and optional role mapping).
-
-4. **Verify — in Discord, type:**
+3. **Verify — in Discord, type:**
    ```
    /dune core ping
    ```
@@ -238,8 +247,9 @@ docker compose logs -f
 **Using the Hosted Bot?** The "Discord Bot Token Security" section below
 doesn't apply to you — you never create or hold a bot token; that belongs
 to the Mentat/Sahir Venn application, not you. "Console Adapter
-Credentials" below it does still apply, since you enter an adapter token
-into the setup portal either way.
+Credentials" below it does still apply, since your console's adapter
+token is what gets registered either way — through the in-console
+"Connect to hosted bot" flow or the fallback setup portal.
 
 ### Discord Bot Token Security
 

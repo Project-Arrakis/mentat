@@ -1,9 +1,20 @@
 # Setup Portal Guide
 
+> **The primary path is now in your Dune console (added 2026-09).** Go to
+> **Settings → Discord Bot → "Connect to hosted bot"** in your Dune Docker
+> Console's WebUI. It runs a Discord OAuth round-trip itself, lets you pick
+> the guild you own, and registers your console with Mentat automatically —
+> no manual token copying, no separate sign-in page. This guide's manual
+> web-portal walkthrough below is the **fallback** path: it still works
+> (for consoles that don't yet have the "Connect to hosted bot" button, or
+> if you'd simply rather do it by hand), it's just no longer the
+> recommended first thing to try. See the [Admin Guide](admin-guide.md)
+> and [README](../README.md#quick-start) for the current recommendation.
+
 This guide walks you through connecting your Discord server to Mentat
-(Sahir Venn). The bot side is fully hosted — no bot configuration needed on
-your end. You will only need to configure your Dune console via SSH in
-**Step 5** (enabling the Discord adapter).
+(Sahir Venn) using the manual setup portal. The bot side is fully hosted —
+no bot configuration needed on your end. You will only need to configure
+your Dune console via SSH in **Step 5** (enabling the Discord adapter).
 
 ## Before You Start
 
@@ -89,7 +100,13 @@ the bot is active.
 This field is labeled **"Adapter Token"**. It authenticates the bot with
 your Dune console so it can query server status, player data, etc.
 
-You have two options:
+> **Note (corrected, mentat#194):** the portal used to have a **Generate**
+> button here that minted a token in your browser. It was removed — a
+> browser-generated value can never match what the console itself reads
+> from its token file, so every setup that used it was a guaranteed
+> authentication failure. The console is always the source of truth for
+> this token; the steps below either read an existing one from it or
+> create one and write it there first.
 
 ### Option A: Copy an existing token
 
@@ -103,31 +120,32 @@ If you already enabled the Discord adapter on your Dune console:
 3. Copy the output and paste it into the **Adapter Token** field on the
    setup portal page
 
-### Option B: Generate a new token from the portal
+### Option B: Generate a new token yourself
 
 If you haven't set up the adapter yet, or want a fresh token:
 
-1. On the setup portal page (after signing in with Discord), find the
-   **Adapter Token** field
-2. Click the **Generate** button to the right of that field
-   - A random 64-character token will appear in the field automatically
-3. **Copy this token** — you will need it in the next step
-4. SSH into the machine running your Dune console
-5. Edit your console's `.env` file and add (or update) these lines:
+1. SSH into the machine running your Dune console
+2. Edit your console's `.env` file and add (or update) these lines:
    ```bash
    DUNE_DISCORD_ADAPTER_ENABLED=true
    DUNE_DISCORD_ADAPTER_TOKEN_FILE=/repo/runtime/secrets/discord-adapter-token.txt
    ```
-6. Create the token file with the value you copied from the portal:
+3. Create the token file yourself — the console reads it, it does not
+   generate it:
    ```bash
    mkdir -p /repo/runtime/secrets
-   echo -n "paste-the-generated-token-here" > /repo/runtime/secrets/discord-adapter-token.txt
+   openssl rand -hex 32 > /repo/runtime/secrets/discord-adapter-token.txt
    chmod 600 /repo/runtime/secrets/discord-adapter-token.txt
    ```
-7. Restart your Dune console:
+4. Restart your Dune console:
    ```bash
    cd ~/dune-awakening-selfhost-docker
    docker compose -f docker-compose.web.yml restart redblink-dune-docker-console
+   ```
+5. Read the value back out and paste it into the **Adapter Token** field
+   on the setup portal page:
+   ```bash
+   cat /repo/runtime/secrets/discord-adapter-token.txt
    ```
 
 ---

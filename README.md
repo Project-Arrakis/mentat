@@ -47,11 +47,18 @@ without leaving Discord.
 ### For Server Owners (Full Setup)
 
 Mentat is a **single, hosted bot** — you don't create a Discord application,
-run a process, or register commands. You invite the existing bot and
-connect your console through a web setup portal:
+run a process, or register commands. You invite the existing bot, then
+connect your console — **primarily from inside your own Dune Docker
+Console**, with a web setup portal kept as the fallback:
 
 1. [Invite the bot to your server](https://discord.com/oauth2/authorize?client_id=1546203607807041697&scope=bot%20applications.commands&permissions=128) — add the existing hosted bot to your Discord
-2. [Complete the setup portal](docs/setup-portal-guide.md) — at <https://mentat-link.darkdante.org/setup>, sign in with Discord and connect your console URL and adapter token
+   (the link's `permissions=128`/View Audit Log is a historical holdover with no remaining functional use — see [Discord Setup](docs/discord-setup.md) for why; harmless, no action needed)
+2. **Connect your console** — in your Dune Docker Console's WebUI, go to
+   **Settings → Discord Bot → "Connect to hosted bot"** and sign in with
+   Discord; it registers your server automatically. If your console
+   doesn't have that button yet, use the
+   [fallback setup portal](docs/setup-portal-guide.md) instead, at
+   <https://mentat-link.darkdante.org/setup>
 3. [Set up roles](docs/admin-guide.md#set-up-roles-and-configure-access) — control who can use which commands
 
 **Estimated time:** about 10 minutes for first-time setup; no code, Docker,
@@ -118,7 +125,7 @@ Type `/dune` in Discord and select a group:
 - [Troubleshooting](docs/troubleshooting.md) — error messages and how to fix them
 
 ### For Server Owners
-- [Setup Portal Guide](docs/setup-portal-guide.md) — connect your server to the hosted bot (the primary path)
+- [Setup Portal Guide](docs/setup-portal-guide.md) — connect your server to the hosted bot manually (fallback path; the in-console "Connect to hosted bot" button is now primary — see Quick Start above)
 - [Admin Guide](docs/admin-guide.md) — roles, console adapter, and operator configuration
 - [Configuration Reference](docs/configuration.md) — every setting explained
 

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
-import { createDatabase, getGuild, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, deleteOauthSession, saveStatsSnapshot, getStatsSnapshot, getGuildFaction, setGuildFaction, verifyGuildStatsPushSecret, setGuildStatsSharingSecret, clearGuildStatsSharingSecret, getGuildStatsSharingStatus, upsertGuildStatsSnapshot, getActiveGuildStatsAggregate, isValidStatsPushValue, rollbackSchemaV7ToV6, _resetEphemeralStateForTests } from "../src/database.js";
+import { createDatabase, getGuild, getGuildStatus, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, deleteOauthSession, saveStatsSnapshot, getStatsSnapshot, getGuildFaction, setGuildFaction, verifyGuildStatsPushSecret, setGuildStatsSharingSecret, clearGuildStatsSharingSecret, getGuildStatsSharingStatus, upsertGuildStatsSnapshot, getActiveGuildStatsAggregate, isValidStatsPushValue, rollbackSchemaV7ToV6, _resetEphemeralStateForTests } from "../src/database.js";
 import { _resetKeyCacheForTests, _resetKEKCacheForTests, decryptWithDEK } from "../src/secretsCrypto.js";
 
 const VALID_KEY_HEX = "c".repeat(64);
@@ -252,6 +252,38 @@ test("real age/KEK: a decrypt failure is logged as decrypt_failed, not silently 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// code-review high (hosted-bot OAuth registration, mentat#316): the
+// per-command "is this guild registered" gate in commands.js was calling
+// getGuild() -- which decrypts adapter_token and throws on failure, exactly
+// like the test above -- for every single command dispatch, not just
+// adapter-invoking ones. getGuildStatus() exists so that gate can check
+// status without ever touching the encrypted column, so a corrupted/
+// unrotatable adapter_token can no longer take down every command in the
+// guild (only the ones that actually need the decrypted token still do).
+test("getGuildStatus survives exactly the decrypt failure that breaks getGuild", { skip: !ageAvailable() && "age binary not installed" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "acp-db-kek-"));
+  try {
+    const { identityPath, kekPath } = makeRealKEKFixture(dir);
+    process.env.ACP_AGE_IDENTITY_FILE = identityPath;
+    process.env.ACP_KEK_FILE = kekPath;
+
+    const db = createDatabase(":memory:");
+    upsertGuild(db, { guildId: "g1", guildName: "Test Guild", consoleUrl: "https://example.test", adapterToken: "will-be-corrupted", status: "active" });
+
+    db.prepare("DELETE FROM secret_keys WHERE table_name = 'guilds' AND row_key = 'g1'").run();
+
+    assert.throws(() => getGuild(db, "g1"), "sanity check: this exact corruption must still break getGuild()");
+    assert.equal(getGuildStatus(db, "g1"), "active", "getGuildStatus must survive the same corruption unaffected");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("getGuildStatus returns undefined for a guild that does not exist, without throwing", () => {
+  const db = createDatabase(":memory:");
+  assert.equal(getGuildStatus(db, "nonexistent"), undefined);
 });
 
 test("real age/KEK: a v1-encrypted row written before a KEK existed still decrypts correctly once a KEK is added later", { skip: !ageAvailable() && "age binary not installed" }, () => {

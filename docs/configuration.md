@@ -379,7 +379,7 @@ is the one exception, deliberately not yet resolved through that scheme.
 
 In multi-tenant mode:
 - `DUNE_CONSOLE_API_URL` and `DUNE_DISCORD_ADAPTER_TOKEN` are optional placeholders
-- RBAC is configured per-guild via the web portal or DM onboarding
+- RBAC is configured per-guild, either via the in-console "Connect to hosted bot" flow (primary) or the web setup portal (fallback) — the old DM onboarding flow no longer exists
 - Guild configuration is stored in SQLite (`data/acp.db`)
 - The setup portal runs at `http://localhost:3100/setup`
 
@@ -389,7 +389,8 @@ In multi-tenant mode:
 |----------|-------------|
 | `GET /setup` | OAuth2 login page |
 | `GET /oauth/callback` | Discord OAuth2 callback |
-| `POST /setup/register` | Guild registration API |
+| `POST /setup/register` | Guild registration API (manual/portal path) |
+| `POST /api/consoles/register` | In-console registration API — called directly by the Dune Docker Console's "Connect to hosted bot" button, never through the portal; independently re-verifies Discord guild ownership before registering |
 | `GET /health` | Setup server health check |
 
 ### Database Schema
