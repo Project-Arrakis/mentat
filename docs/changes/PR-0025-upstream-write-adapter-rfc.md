@@ -54,7 +54,7 @@ storage, audit retention, and permission mapping still need maintainer review.
 - Current adapter contract: `docs/adapter-contract.md`
 - Non-read-only roadmap: `docs/non-readonly-roadmap.md`
 - OWASP API Security Top 10 2023:
-  https://owasp.org/API-Security/editions/2023/en/0x00-header/
+  https://github.com/OWASP/API-Security
 - OWASP Authorization Cheat Sheet:
   https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html
 - OWASP Logging Cheat Sheet:

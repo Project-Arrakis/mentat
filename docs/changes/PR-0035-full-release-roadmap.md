@@ -57,4 +57,4 @@ change runtime behavior, implement write support, or open an upstream PR.
 - SLSA build provenance:
   https://slsa.dev/spec/draft/build-provenance
 - OWASP Software Component Verification Standard:
-  https://owasp.org/www-project-software-component-verification-standard/
+  https://scvs.owasp.org/scvs/
