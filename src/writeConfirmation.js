@@ -94,7 +94,21 @@ export function buildExpiredEmbed() {
 
 // Registers a pending confirmation and schedules its timeout. Returns the
 // row/embed pair the caller should send alongside the initial write reply.
+//
+// mentat#331: userId is now REQUIRED, not optional. handleWriteButtonInteraction()
+// below only enforces "this button belongs to you" when entry.userId is
+// truthy (`if (entry.userId && interaction.user?.id !== entry.userId)`) --
+// a caller that omitted it would silently let ANY guild member who can see
+// a non-ephemeral confirmation button confirm someone else's pending write.
+// Today's sole caller always passes it correctly, but dune-awakening-selfhost-docker's
+// hosted-bot auto-invite design (issue #844 on that repo) proposes reusing
+// this exact pattern as its load-bearing, "unforgeable" owner-confirmation
+// gate -- failing closed here, structurally, removes the possibility of
+// that reuse silently losing this property.
 export function createPendingConfirmation({ idempotencyKey, action, tier, risk, target, userId, onTimeout }) {
+  if (typeof userId !== "string" || userId.length === 0) {
+    throw new Error("createPendingConfirmation: userId is required -- a confirmation with no bound owner would be confirmable by anyone.");
+  }
   const timeoutMs = confirmationTimeoutMs();
   const expiresAt = Date.now() + timeoutMs;
   const timer = setTimeout(() => {
@@ -150,7 +164,13 @@ export async function handleWriteButtonInteraction(interaction) {
     return true;
   }
 
-  if (entry.userId && interaction.user?.id !== entry.userId) {
+  // mentat#331: fail closed unconditionally, not just "if entry.userId is
+  // set" -- an entry with no bound owner must never be treated as
+  // confirmable by whoever happens to click it. createPendingConfirmation()
+  // now refuses to create such an entry at all, but this check stays
+  // unconditional as defense in depth against any future caller that
+  // bypasses it.
+  if (interaction.user?.id !== entry.userId) {
     await interaction.reply({ embeds: [buildNotYoursEmbed()], ephemeral: true });
     return true;
   }
