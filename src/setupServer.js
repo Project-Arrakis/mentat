@@ -10,7 +10,7 @@ import { recordGlobalConsoleRegistrationAttempt } from "./consoleRegistrationRat
 import { stageAutoInviteSession, handleAutoInviteCallback } from "./autoInvite.js";
 import { notifyOwnerOfPendingConfirmation } from "./ownerConfirmation.js";
 import { signAutoInviteRedirect } from "./signedRedirect.js";
-import { findRoleTierConflict, applyGuildRoleMapping } from "./guildRoles.js";
+import { findRoleTierConflict, applyGuildRoleMapping, replaceGuildRoleMapping } from "./guildRoles.js";
 import {
   createDatabase,
   createOauthSession,
@@ -954,6 +954,103 @@ export function createSetupServer(config) {
         logError("auto_invite.callback_signing_unavailable", signingErr, {});
         return res.status(503).json({ error: "The hosted-bot connection service is temporarily unavailable. Please try again later." });
       }
+    }
+  });
+
+  // mentat#343+ Phase 5 (design doc §4.3/§4.4/§4.7): the role-name picker's
+  // read + write endpoints. Auth is the guild's own `adapterToken` --
+  // NOT a new credential, the same one Core already holds locally for
+  // this specific guild (it minted it) and already legitimately presents
+  // to mentat, used here in the direction Core actually needs (proving
+  // "I am the console that registered THIS guild"). requireProxySecret's
+  // existing global middleware (see the top of this function) already
+  // covers the hop-level defense-in-depth layer for these routes -- they
+  // are deliberately NOT in that middleware's exemptPaths list.
+  //
+  // mentat#339 design-doc-round-2 re-fix: an earlier draft of this design
+  // dropped adapterToken from this route's auth entirely (reasoning:
+  // reusing it here would double a leak's blast radius) -- that reasoning
+  // was directionally right but led to the WRONG fix; using the SAME
+  // credential in the direction Core already legitimately holds it for
+  // does not expand its blast radius at all. See the design doc's own
+  // §4.3 for the full round-1-regression history.
+  function guildAdapterTokenMatches(req, guildId) {
+    const authHeader = req.get("authorization") || "";
+    const providedToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+    if (!providedToken) return false;
+    const guild = getGuild(db, guildId);
+    if (!guild || !guild.adapter_token) return false;
+    return constantTimeStringsEqual(providedToken, guild.adapter_token);
+  }
+
+  app.get("/api/consoles/:guildId/roles", async (req, res) => {
+    try {
+      const { guildId } = req.params;
+      if (!guildAdapterTokenMatches(req, guildId)) {
+        return res.status(401).json({ error: "Unauthorized — missing or invalid adapter token for this guild." });
+      }
+
+      // Reads the bot's own already-connected discord.js gateway cache --
+      // NO Discord REST call, zero extra rate-limit cost (matches
+      // rbac.js's resolveGuildOwnerId() precedent for reading guild-level
+      // state this same way). config.discordClient may be absent in a
+      // test/config context that doesn't need it -- treated the same as
+      // "guild not in cache" (cacheStale fallback), not a crash.
+      const guild = config.discordClient?.guilds?.cache?.get(guildId);
+      if (!guild) {
+        return res.status(200).json({ roles: [], cacheStale: true });
+      }
+      const roles = [...guild.roles.cache.values()]
+        .filter((role) => role.id !== guildId) // exclude the @everyone role (its id always equals the guild id)
+        .map((role) => ({ id: role.id, name: role.name, color: role.hexColor, position: role.position }));
+      return res.status(200).json({ roles });
+    } catch (err) {
+      logError("guild_roles.get_route_error", err, {});
+      return res.status(500).json({ error: "Could not load this server's roles." });
+    }
+  });
+
+  app.post("/api/consoles/:guildId/roles", async (req, res) => {
+    try {
+      const { guildId } = req.params;
+      if (!guildAdapterTokenMatches(req, guildId)) {
+        return res.status(401).json({ error: "Unauthorized — missing or invalid adapter token for this guild." });
+      }
+
+      // Wire contract uses playerRoleIds (matching the existing
+      // discordAdapterSettingsApi.enable() convention at the Core↔mentat
+      // boundary) -- translated to observer internally via
+      // rbac.js's ROLE_TYPE_LABELS mapping (player <-> observer), not a
+      // newly-invented naming scheme.
+      const { playerRoleIds, moderatorRoleIds, adminRoleIds } = req.body || {};
+      const toArray = (value) => (Array.isArray(value) ? value.filter((v) => typeof v === "string" && v.length > 0) : []);
+      const submission = {
+        observerRoleIds: toArray(playerRoleIds),
+        moderatorRoleIds: toArray(moderatorRoleIds),
+        adminRoleIds: toArray(adminRoleIds)
+      };
+
+      // Layer 2 audit finding (mentat#353): replaceGuildRoleMapping()
+      // (guildRoles.js) does the conflict check AND the write atomically,
+      // inside one transaction against one read of current state -- an
+      // earlier version of this route called findRoleTierConflict() here
+      // separately, then applyGuildRoleMapping() (which re-checks
+      // internally), a real TOCTOU race between two concurrent requests
+      // for the same guild, plus a redundant duplicate DB read. It also
+      // does a FULL-STATE diff (mentat#352): a role previously mapped but
+      // absent from this submission is now actually removed, not left
+      // silently retained -- the actual semantic a multi-select picker's
+      // Save action needs, distinct from the old /setup portal's
+      // reassignment-only applyGuildRoleMapping() above.
+      const result = replaceGuildRoleMapping(db, guildId, submission);
+      if (!result.ok) {
+        return res.status(409).json({ conflict: result.conflict });
+      }
+
+      return res.status(200).json({ applied: true });
+    } catch (err) {
+      logError("guild_roles.post_route_error", err, {});
+      return res.status(500).json({ error: "Could not save the role configuration." });
     }
   });
 

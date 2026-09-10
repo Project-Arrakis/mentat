@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createDatabase, getGuildRoles, upsertGuild } from "../src/database.js";
-import { findRoleTierConflict, applyGuildRoleMapping } from "../src/guildRoles.js";
+import { findRoleTierConflict, applyGuildRoleMapping, replaceGuildRoleMapping } from "../src/guildRoles.js";
 
 function fakeDb() {
   return createDatabase(":memory:");
@@ -207,6 +207,68 @@ test("applyGuildRoleMapping's remove-then-add sequence is wrapped in a real tran
   try {
     applyGuildRoleMapping(db, "guild-1", { adminRoleIds: ["r1"], moderatorRoleIds: [], observerRoleIds: [] });
     assert.equal(transactionInvoked, true, "the write sequence must actually go through db.transaction(), not just claim to in a comment");
+  } finally {
+    db.transaction = originalTransaction;
+  }
+});
+
+// ─── replaceGuildRoleMapping: full-state diff for the new role picker
+// (mentat#352/#353) -- distinct semantics from applyGuildRoleMapping() ────
+
+test("replaceGuildRoleMapping: a role absent from the new submission is actually removed (deselection works)", () => {
+  const db = fakeDb();
+  seedGuild(db, "guild-1");
+  replaceGuildRoleMapping(db, "guild-1", { adminRoleIds: ["a1", "a2"], moderatorRoleIds: [], observerRoleIds: [] });
+  const first = replaceGuildRoleMapping(db, "guild-1", { adminRoleIds: ["a1"], moderatorRoleIds: [], observerRoleIds: [] });
+  assert.equal(first.ok, true);
+  assert.deepEqual(getGuildRoles(db, "guild-1").map((r) => r.role_id), ["a1"]);
+});
+
+test("replaceGuildRoleMapping: an empty submission for every tier clears all existing non-owner mappings", () => {
+  const db = fakeDb();
+  seedGuild(db, "guild-1");
+  replaceGuildRoleMapping(db, "guild-1", { adminRoleIds: ["a1"], moderatorRoleIds: ["m1"], observerRoleIds: ["o1"] });
+  const result = replaceGuildRoleMapping(db, "guild-1", { adminRoleIds: [], moderatorRoleIds: [], observerRoleIds: [] });
+  assert.equal(result.ok, true);
+  assert.equal(getGuildRoles(db, "guild-1").length, 0);
+});
+
+test("replaceGuildRoleMapping: still handles reassignment correctly (a role moved to a new tier disappears from the old one)", () => {
+  const db = fakeDb();
+  seedGuild(db, "guild-1");
+  replaceGuildRoleMapping(db, "guild-1", { adminRoleIds: [], moderatorRoleIds: [], observerRoleIds: ["role-x"] });
+  const result = replaceGuildRoleMapping(db, "guild-1", { adminRoleIds: ["role-x"], moderatorRoleIds: [], observerRoleIds: [] });
+  assert.equal(result.ok, true);
+  const rows = getGuildRoles(db, "guild-1");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].role_type, "admin");
+});
+
+test("replaceGuildRoleMapping: returns {ok:false, conflict} on a tier conflict -- never throws, writes NOTHING (all-or-nothing)", () => {
+  const db = fakeDb();
+  seedGuild(db, "guild-1");
+  replaceGuildRoleMapping(db, "guild-1", { adminRoleIds: [], moderatorRoleIds: [], observerRoleIds: ["p1"] });
+  const result = replaceGuildRoleMapping(db, "guild-1", { adminRoleIds: ["shared"], moderatorRoleIds: ["shared"], observerRoleIds: ["p1"] });
+  assert.equal(result.ok, false);
+  assert.equal(result.conflict.roleId, "shared");
+  // The pre-existing mapping (p1 -> observer) must be completely untouched.
+  const rows = getGuildRoles(db, "guild-1");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].role_id, "p1");
+});
+
+test("replaceGuildRoleMapping: the entire check+write happens inside ONE transaction -- no TOCTOU window between checking and writing", () => {
+  const db = fakeDb();
+  seedGuild(db, "guild-1");
+  let transactionInvoked = false;
+  const originalTransaction = db.transaction.bind(db);
+  db.transaction = (fn) => {
+    transactionInvoked = true;
+    return originalTransaction(fn);
+  };
+  try {
+    replaceGuildRoleMapping(db, "guild-1", { adminRoleIds: ["a1"], moderatorRoleIds: [], observerRoleIds: [] });
+    assert.equal(transactionInvoked, true);
   } finally {
     db.transaction = originalTransaction;
   }
