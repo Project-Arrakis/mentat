@@ -95,11 +95,23 @@ export function requireProxySecret({ exemptPaths = [], renderError } = {}) {
 // route-scoped middleware (not global, unlike requireProxySecret above)
 // so it doesn't change behavior for any existing route -- mount it only
 // on the specific new route(s) that need this stricter posture.
+// proxySecretValidFailClosed: the raw boolean check behind
+// requireProxySecretFailClosed()'s middleware, exported separately so a
+// route's own body-parsing-error handler (which runs on a DIFFERENT
+// Express dispatch path that skips all non-error-handling middleware --
+// including this one -- for a malformed body, see setupServer.js's
+// body-parsing-failure handler) can still apply the identical check
+// before deciding how to respond, rather than that error path silently
+// bypassing this gate entirely.
+export function proxySecretValidFailClosed(req) {
+  const expected = proxySharedSecret();
+  const provided = req.get("x-mentat-proxy-secret") || "";
+  return Boolean(expected) && secretMatches(provided, expected);
+}
+
 export function requireProxySecretFailClosed() {
   return function proxySecretFailClosedMiddleware(req, res, next) {
-    const expected = proxySharedSecret();
-    const provided = req.get("x-mentat-proxy-secret") || "";
-    if (!expected || !secretMatches(provided, expected)) {
+    if (!proxySecretValidFailClosed(req)) {
       logError("reverse_proxy.unauthorized_fail_closed", new Error("Missing, invalid, or unconfigured X-Mentat-Proxy-Secret for a fail-closed route"), {
         remote: req.ip,
         path: req.path

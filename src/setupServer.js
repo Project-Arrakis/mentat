@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logInfo, logError } from "./logger.js";
-import { requireProxySecret, requireProxySecretFailClosed } from "./proxyAuth.js";
+import { requireProxySecret, requireProxySecretFailClosed, proxySecretValidFailClosed } from "./proxyAuth.js";
 import { verifyAndRegisterConsole } from "./consoleRegistration.js";
 import { recordGlobalConsoleRegistrationAttempt } from "./consoleRegistrationRateLimit.js";
 import { stageAutoInviteSession, handleAutoInviteCallback } from "./autoInvite.js";
@@ -1055,6 +1055,29 @@ export function createSetupServer(config) {
         return res.status(429).json({ error: "Could not verify you own that Discord server -- please try connecting again." });
       }
       return res.status(400).json({ error: "Could not verify you own that Discord server -- please try connecting again." });
+    }
+    // mentat#343, Layer 2 audit finding: a malformed/oversized JSON body
+    // is caught by express.json() BEFORE Express ever matches a route --
+    // meaning it skips every route-specific middleware, including this
+    // route's own requireProxySecretFailClosed() check, and lands here
+    // instead. Without this branch, an attacker could flood
+    // /auto-invite/start with malformed bodies to bypass BOTH the
+    // fail-closed proxy-secret gate (issue #844's whole point) AND the
+    // global rate limiter uncounted -- exactly the same bug class the
+    // /api/consoles/register branch above already fixes, now extended to
+    // this route. The fail-closed check runs FIRST, matching what the
+    // route's own middleware chain would have enforced for a well-formed
+    // request.
+    if (isBodyParsingFailure && req.path === "/api/consoles/auto-invite/start") {
+      if (!proxySecretValidFailClosed(req)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const result = recordGlobalConsoleRegistrationAttempt();
+      if (!result.allowed) {
+        res.set("Retry-After", String(result.retryAfterSeconds));
+        return res.status(429).json({ error: "rate_limited" });
+      }
+      return res.status(400).json({ error: "consoleUrl and adapterToken are required" });
     }
     return next(err);
   });

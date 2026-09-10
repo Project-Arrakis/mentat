@@ -86,29 +86,34 @@ export async function handleAutoInviteCallback(
     return { ok: false, reason: "expired", state };
   }
 
+  // Layer 2 audit finding (mentat#343): deleting the session only after
+  // the async token-exchange/ownership-verification calls below left a
+  // real TOCTOU window -- two near-simultaneous requests for the same
+  // `state` could both pass the getAutoInviteSession() read above before
+  // either await point ran, both proceeding to call Discord concurrently.
+  // Deleting synchronously, immediately after the read and before ANY
+  // `await`, makes the read-then-consume atomic with respect to Node's
+  // single-threaded event loop -- no other request can interleave between
+  // this line and the read two lines up. Every branch below already has
+  // everything it needs from the local `session` object.
+  deleteAutoInviteSession(state);
+
   if (error) {
     // Path A -- operator cancelled on Discord's own consent screen.
-    deleteAutoInviteSession(state);
     return { ok: false, reason: "denied", state };
   }
 
   if (typeof code !== "string" || code.length === 0 || typeof guildId !== "string" || guildId.length === 0) {
-    deleteAutoInviteSession(state);
     return { ok: false, reason: "invalid_callback", state };
   }
 
   const accessToken = await exchangeCodeForToken({ code, clientId, clientSecret, redirectUri, fetchImpl, timeoutMs });
   if (!accessToken) {
-    deleteAutoInviteSession(state);
     logError("auto_invite.discord_unreachable", new Error("token exchange failed"), { state });
     return { ok: false, reason: "discord_unreachable", state };
   }
 
   const verification = await verifyGuildOwnership({ guildId, discordAccessToken: accessToken }, { fetchImpl, timeoutMs });
-  // Consumed regardless of outcome -- issue #836. The session's job (bridge
-  // /start to this callback) is done the instant we've read it once, win
-  // or lose.
-  deleteAutoInviteSession(state);
 
   if (!verification.ok) {
     const reason = verification.reason === "guild_not_owned" ? "not_owner" : verification.reason;

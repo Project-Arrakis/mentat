@@ -301,3 +301,47 @@ test("global rate limit on /auto-invite/start returns 429 with Retry-After once 
     resetConsoleRegistrationRateLimiterForTests({});
   }
 });
+
+// ─── Layer 2 audit finding: a malformed JSON body must not bypass EITHER
+// the fail-closed proxy-secret gate OR the global rate limiter (the exact
+// bug class already fixed once for /api/consoles/register -- see
+// consoleRegistration.test.js's own "still counts toward the global rate
+// limit" tests) ──────────────────────────────────────────────────────────
+
+test("a malformed-JSON POST to /auto-invite/start without the proxy secret is still rejected 403, not silently let through", async () => {
+  delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  await withAutoInviteApp({}, async (base) => {
+    const res = await fetch(`${base}/api/consoles/auto-invite/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{not valid json"
+    });
+    assert.equal(res.status, 403, "a malformed body must not bypass the fail-closed proxy-secret gate");
+  });
+});
+
+test("a malformed-JSON POST to /auto-invite/start (with a valid secret) returns 400, not 500, and still counts toward the global rate limit", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = PROXY_SECRET;
+  resetConsoleRegistrationRateLimiterForTests({ globalMax: 2, globalWindow: 60_000, globalBlock: 60_000 });
+  try {
+    await withAutoInviteApp({}, async (base) => {
+      const first = await fetch(`${base}/api/consoles/auto-invite/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-mentat-proxy-secret": PROXY_SECRET },
+        body: "{not valid json"
+      });
+      assert.equal(first.status, 400, "a malformed body must fail normal validation with 400, not crash with a 500");
+
+      // globalMax is 2: if the first (malformed-body) request had NOT been
+      // recorded by the global rate limiter (the bug this test guards
+      // against), this second, well-formed request would still see count=1
+      // and succeed (200, not 429). Seeing 429 here proves the first
+      // request really was counted.
+      const second = await startSession(base);
+      assert.equal(second.status, 429, "the first (malformed-body) request must have incremented the global rate-limit bucket");
+    });
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+    resetConsoleRegistrationRateLimiterForTests({});
+  }
+});
