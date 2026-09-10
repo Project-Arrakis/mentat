@@ -514,10 +514,22 @@ export function createSetupServer(config) {
       // design -- a single Discord role may never be mapped to two
       // different tiers. Reject the whole submission and name the
       // conflicting role, rather than silently letting one mapping win.
-      const roleConflict = findRoleTierConflict({
+      //
+      // Layer 2 audit finding (mentat#350): the single-value-per-tier form
+      // fields must be boxed into single-element arrays for
+      // findRoleTierConflict()/applyGuildRoleMapping()'s array-based
+      // contract -- boxed exactly once, into `submittedRoleIdsByTier`,
+      // reused by both calls below rather than duplicating the same
+      // ternary at each call site (a prior version of this diff had two
+      // independent copies, a real desync risk if either one were ever
+      // edited without the other).
+      const submittedRoleIdsByTier = {
         adminRoleIds: adminRoleId ? [adminRoleId] : [],
         moderatorRoleIds: moderatorRoleId ? [moderatorRoleId] : [],
-        observerRoleIds: observerRoleId ? [observerRoleId] : [],
+        observerRoleIds: observerRoleId ? [observerRoleId] : []
+      };
+      const roleConflict = findRoleTierConflict({
+        ...submittedRoleIdsByTier,
         existingRoles: getGuildRoles(db, guildId)
       });
       if (roleConflict) {
@@ -549,11 +561,7 @@ export function createSetupServer(config) {
       // one -- findRoleTierConflict() above has already confirmed the new
       // combined mapping is conflict-free once that reassignment happens,
       // so this can run unconditionally for every submitted role ID.
-      applyGuildRoleMapping(db, guildId, {
-        adminRoleIds: adminRoleId ? [adminRoleId] : [],
-        moderatorRoleIds: moderatorRoleId ? [moderatorRoleId] : [],
-        observerRoleIds: observerRoleId ? [observerRoleId] : []
-      });
+      applyGuildRoleMapping(db, guildId, submittedRoleIdsByTier);
 
       updateGuildSettings(db, guildId, {
         rbac_mode: "restricted",

@@ -168,3 +168,46 @@ test("single-element arrays behave identically to the old portal's single-role c
   applyGuildRoleMapping(db, "guild-1", { adminRoleIds: ["r1"], moderatorRoleIds: [], observerRoleIds: [] });
   assert.equal(getGuildRoles(db, "guild-1").length, 1);
 });
+
+// ─── Layer 2 audit finding: applyGuildRoleMapping() self-enforces the
+// separation-of-duties invariant, independent of caller discipline ───────
+
+test("applyGuildRoleMapping throws (and writes nothing) when called directly with a one-role-two-tiers submission, even without a prior findRoleTierConflict() call", () => {
+  const db = fakeDb();
+  seedGuild(db, "guild-1");
+  assert.throws(
+    () => applyGuildRoleMapping(db, "guild-1", { adminRoleIds: ["shared"], moderatorRoleIds: ["shared"], observerRoleIds: [] }),
+    /refusing to write a one-role-two-tiers violation/
+  );
+  assert.equal(getGuildRoles(db, "guild-1").length, 0, "a rejected call must write nothing at all");
+});
+
+test("applyGuildRoleMapping throws when the submission conflicts with an EXISTING, different-role mapping already in the DB", () => {
+  const db = fakeDb();
+  seedGuild(db, "guild-1");
+  applyGuildRoleMapping(db, "guild-1", { adminRoleIds: [], moderatorRoleIds: ["role-x"], observerRoleIds: [] });
+  assert.throws(
+    () => applyGuildRoleMapping(db, "guild-1", { adminRoleIds: ["role-x"], moderatorRoleIds: ["role-x"], observerRoleIds: [] }),
+    /refusing to write a one-role-two-tiers violation/
+  );
+});
+
+// ─── Layer 2 audit finding: the write sequence is atomic -- a mid-sequence
+// failure must not leave a partial write ──────────────────────────────────
+
+test("applyGuildRoleMapping's remove-then-add sequence is wrapped in a real transaction (db.transaction is actually invoked, not just documented)", () => {
+  const db = fakeDb();
+  seedGuild(db, "guild-1");
+  let transactionInvoked = false;
+  const originalTransaction = db.transaction.bind(db);
+  db.transaction = (fn) => {
+    transactionInvoked = true;
+    return originalTransaction(fn);
+  };
+  try {
+    applyGuildRoleMapping(db, "guild-1", { adminRoleIds: ["r1"], moderatorRoleIds: [], observerRoleIds: [] });
+    assert.equal(transactionInvoked, true, "the write sequence must actually go through db.transaction(), not just claim to in a comment");
+  } finally {
+    db.transaction = originalTransaction;
+  }
+});

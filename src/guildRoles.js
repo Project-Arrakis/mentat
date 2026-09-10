@@ -12,12 +12,8 @@
 // Two responsibilities, kept separate so a caller can conflict-check
 // before deciding whether to write at all:
 //   - findRoleTierConflict(): read-only, no DB writes.
-//   - applyGuildRoleMapping(): the write side. Callers wrapping this in a
-//     transaction (the new POST /api/consoles/:guildId/roles endpoint, a
-//     later phase) are responsible for that -- this function itself does
-//     not open one, matching database.js's own convention of leaving
-//     transaction scope to the caller.
-import { addGuildRole, removeGuildRole } from "./database.js";
+//   - applyGuildRoleMapping(): the write side.
+import { addGuildRole, removeGuildRole, getGuildRoles } from "./database.js";
 
 const TIERS = ["admin", "moderator", "observer"];
 
@@ -53,6 +49,12 @@ function flattenSubmission({ adminRoleIds = [], moderatorRoleIds = [], observerR
 // below removes the role's old-tier row before re-adding it under the new
 // one, so by the time this combined mapping is actually persisted, no
 // real conflict exists.
+//
+// Layer 2 audit finding (mentat#350): rewritten from an O(n²) all-pairs
+// scan to a single-pass Map<roleId, tier> lookup -- this phase exists
+// specifically to support N roles per tier (was 1), so a guild with
+// several dozen roles mapped now pays that quadratic cost on every
+// submission for no correctness benefit over the linear form.
 export function findRoleTierConflict({ adminRoleIds = [], moderatorRoleIds = [], observerRoleIds = [], existingRoles = [] }) {
   const submitted = flattenSubmission({ adminRoleIds, moderatorRoleIds, observerRoleIds });
   const submittedRoleIds = new Set(submitted.map(([, roleId]) => String(roleId)));
@@ -64,14 +66,14 @@ export function findRoleTierConflict({ adminRoleIds = [], moderatorRoleIds = [],
       .map((row) => [row.role_type, row.role_id])
   ];
 
-  for (let i = 0; i < mapped.length; i++) {
-    for (let j = i + 1; j < mapped.length; j++) {
-      const [tierA, roleIdA] = mapped[i];
-      const [tierB, roleIdB] = mapped[j];
-      if (tierA !== tierB && String(roleIdA) === String(roleIdB)) {
-        return { roleId: roleIdA, tierA, tierB };
-      }
+  const seenTierByRoleId = new Map();
+  for (const [tier, roleId] of mapped) {
+    const key = String(roleId);
+    const priorTier = seenTierByRoleId.get(key);
+    if (priorTier !== undefined && priorTier !== tier) {
+      return { roleId, tierA: priorTier, tierB: tier };
     }
+    if (priorTier === undefined) seenTierByRoleId.set(key, tier);
   }
   return null;
 }
@@ -79,22 +81,50 @@ export function findRoleTierConflict({ adminRoleIds = [], moderatorRoleIds = [],
 // applyGuildRoleMapping: the write side. Reassigns each submitted role to
 // its new tier -- removes any OTHER tier's row for that same role_id
 // FIRST (a role being resubmitted under a new tier must have its old
-// tier's row removed, or it ends up mapped to both at once -- exactly
-// what findRoleTierConflict() exists to prevent, and would be rejected on
-// the operator's NEXT submission even though this one created the
-// violation), then adds every submitted (tier, roleId) pair. Callers must
-// call findRoleTierConflict() first and reject on conflict -- this
-// function assumes that's already been done and applies the mapping
-// unconditionally.
+// tier's row removed, or it ends up mapped to both at once), then adds
+// every submitted (tier, roleId) pair.
+//
+// Layer 2 audit findings (mentat#350), both fixed here:
+//   - This function now SELF-ENFORCES the separation-of-duties invariant
+//     by re-running findRoleTierConflict() internally against the guild's
+//     current DB state and throwing if a conflict exists, rather than
+//     only documenting "callers must check first." Once this module has
+//     a second real caller (the new POST /api/consoles/:guildId/roles
+//     endpoint, a later phase), a caller that forgets the check would
+//     otherwise silently write a one-role-two-tiers violation -- issue
+//     #238's whole point -- with no error anywhere. Redundant with an
+//     already-correct caller (the existing /setup/register handler
+//     already calls findRoleTierConflict() itself before this), but that
+//     redundancy is the point: this invariant is now impossible to
+//     violate via this function regardless of caller discipline.
+//   - The remove-then-add sequence now runs inside a single
+//     db.transaction() -- previously undocumented-but-assumed atomicity
+//     that didn't actually exist anywhere in this codebase (confirmed:
+//     zero `.transaction(` calls existed before this fix). A mid-sequence
+//     DB error (SQLITE_BUSY, disk full) could otherwise leave a guild
+//     with some roles stripped of access and never re-added.
 export function applyGuildRoleMapping(db, guildId, { adminRoleIds = [], moderatorRoleIds = [], observerRoleIds = [] }) {
   const submitted = flattenSubmission({ adminRoleIds, moderatorRoleIds, observerRoleIds });
 
-  for (const [tier, roleId] of submitted) {
-    for (const otherTier of TIERS) {
-      if (otherTier !== tier) removeGuildRole(db, guildId, otherTier, roleId);
+  const conflict = findRoleTierConflict({
+    adminRoleIds,
+    moderatorRoleIds,
+    observerRoleIds,
+    existingRoles: getGuildRoles(db, guildId)
+  });
+  if (conflict) {
+    throw new Error(`applyGuildRoleMapping: refusing to write a one-role-two-tiers violation -- role ${conflict.roleId} would be mapped to both ${conflict.tierA} and ${conflict.tierB}. Callers must call findRoleTierConflict() first and reject on conflict before ever reaching this function.`);
+  }
+
+  const applyInTransaction = db.transaction(() => {
+    for (const [tier, roleId] of submitted) {
+      for (const otherTier of TIERS) {
+        if (otherTier !== tier) removeGuildRole(db, guildId, otherTier, roleId);
+      }
     }
-  }
-  for (const [tier, roleId] of submitted) {
-    addGuildRole(db, guildId, tier, roleId);
-  }
+    for (const [tier, roleId] of submitted) {
+      addGuildRole(db, guildId, tier, roleId);
+    }
+  });
+  applyInTransaction();
 }
