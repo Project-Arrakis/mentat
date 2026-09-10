@@ -48,7 +48,12 @@ test("key derivation: the signature is NOT computable from the raw shared secret
     reclaimed: signed.reclaimed,
     exp: signed.exp
   });
-  const naiveSig = createHmac("sha256", SHARED_SECRET).update(naivePayload).digest("hex");
+  // SHARED_SECRET here is a hardcoded TEST FIXTURE (see the module-level
+  // const above), not a real production secret -- this line deliberately
+  // recreates the WRONG, rejected construction (raw secret as the HMAC
+  // key) to prove the real implementation does NOT match it. Semgrep's
+  // hardcoded-hmac-key rule can't distinguish a fixture from a real leak.
+  const naiveSig = createHmac("sha256", SHARED_SECRET).update(naivePayload).digest("hex"); // nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key
   assert.notEqual(signed.sig, naiveSig, "the raw shared secret must not be usable directly as the HMAC key");
 });
 
