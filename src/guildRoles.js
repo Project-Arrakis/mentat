@@ -128,3 +128,64 @@ export function applyGuildRoleMapping(db, guildId, { adminRoleIds = [], moderato
   });
   applyInTransaction();
 }
+
+// replaceGuildRoleMapping: the write path for the NEW multi-select role
+// picker (Phase 5, mentat#353) -- deliberately a DIFFERENT function from
+// applyGuildRoleMapping() above, not a shared code path, because it has a
+// genuinely different semantic: the submitted arrays are the FULL DESIRED
+// STATE per tier, not just additions/reassignments. A role that was
+// previously mapped but is simply ABSENT from this submission is REMOVED
+// -- matching what a picker's "Save" button actually means to an operator
+// (mentat#352, filed during Phase 4's own audit specifically to direct
+// this function's design rather than silently changing the OLD portal's
+// already-shipped, additive-only behavior). applyGuildRoleMapping() stays
+// exactly as it was for the old /setup portal's single-role fields, which
+// intentionally do NOT support clearing a mapping by blanking a field.
+//
+// Layer 2 audit findings (mentat#353), both fixed by this function's
+// design, not worked around:
+//   - The old two-step "route calls findRoleTierConflict() itself, THEN
+//     calls applyGuildRoleMapping() (which re-checks internally)" pattern
+//     had a real TOCTOU race: two concurrent requests for the same guild
+//     could each pass their own pre-check before either write landed,
+//     and paid for guild_roles to be read twice per request. This
+//     function does the read, the conflict check, and the write all
+//     inside ONE transaction, against ONE read of current state -- no
+//     redundant query, no window for a concurrent write to invalidate an
+//     already-passed check.
+//   - Returns {ok: false, conflict} on a tier conflict rather than
+//     throwing -- a conflict is a routine, expected outcome for this
+//     endpoint (an operator can legitimately submit an invalid picker
+//     state), not an exceptional one a caller should have prevented
+//     up front the way applyGuildRoleMapping()'s callers are expected
+//     to. The route handler surfaces this directly as its 409 response,
+//     with no separate pre-check of its own to fall out of sync.
+export function replaceGuildRoleMapping(db, guildId, { adminRoleIds = [], moderatorRoleIds = [], observerRoleIds = [] }) {
+  let result;
+  const run = db.transaction(() => {
+    const existingRoles = getGuildRoles(db, guildId);
+    const conflict = findRoleTierConflict({ adminRoleIds, moderatorRoleIds, observerRoleIds, existingRoles });
+    if (conflict) {
+      result = { ok: false, conflict };
+      return;
+    }
+
+    const submittedByTier = {
+      admin: new Set(adminRoleIds),
+      moderator: new Set(moderatorRoleIds),
+      observer: new Set(observerRoleIds)
+    };
+    for (const row of existingRoles) {
+      if (row.role_type === "owner") continue;
+      if (!submittedByTier[row.role_type]?.has(row.role_id)) {
+        removeGuildRole(db, guildId, row.role_type, row.role_id);
+      }
+    }
+    for (const [tier, roleId] of flattenSubmission({ adminRoleIds, moderatorRoleIds, observerRoleIds })) {
+      addGuildRole(db, guildId, tier, roleId);
+    }
+    result = { ok: true };
+  });
+  run();
+  return result;
+}

@@ -10,7 +10,7 @@ import { recordGlobalConsoleRegistrationAttempt } from "./consoleRegistrationRat
 import { stageAutoInviteSession, handleAutoInviteCallback } from "./autoInvite.js";
 import { notifyOwnerOfPendingConfirmation } from "./ownerConfirmation.js";
 import { signAutoInviteRedirect } from "./signedRedirect.js";
-import { findRoleTierConflict, applyGuildRoleMapping } from "./guildRoles.js";
+import { findRoleTierConflict, applyGuildRoleMapping, replaceGuildRoleMapping } from "./guildRoles.js";
 import {
   createDatabase,
   createOauthSession,
@@ -1030,17 +1030,22 @@ export function createSetupServer(config) {
         adminRoleIds: toArray(adminRoleIds)
       };
 
-      const conflict = findRoleTierConflict({ ...submission, existingRoles: getGuildRoles(db, guildId) });
-      if (conflict) {
-        return res.status(409).json({ conflict });
+      // Layer 2 audit finding (mentat#353): replaceGuildRoleMapping()
+      // (guildRoles.js) does the conflict check AND the write atomically,
+      // inside one transaction against one read of current state -- an
+      // earlier version of this route called findRoleTierConflict() here
+      // separately, then applyGuildRoleMapping() (which re-checks
+      // internally), a real TOCTOU race between two concurrent requests
+      // for the same guild, plus a redundant duplicate DB read. It also
+      // does a FULL-STATE diff (mentat#352): a role previously mapped but
+      // absent from this submission is now actually removed, not left
+      // silently retained -- the actual semantic a multi-select picker's
+      // Save action needs, distinct from the old /setup portal's
+      // reassignment-only applyGuildRoleMapping() above.
+      const result = replaceGuildRoleMapping(db, guildId, submission);
+      if (!result.ok) {
+        return res.status(409).json({ conflict: result.conflict });
       }
-
-      // applyGuildRoleMapping() (guildRoles.js) already wraps its own
-      // remove-then-add sequence in a db.transaction() and self-enforces
-      // this same conflict check again internally -- the check above is
-      // for producing the 409 response with the real conflict detail,
-      // not the only thing standing between this route and a bad write.
-      applyGuildRoleMapping(db, guildId, submission);
 
       return res.status(200).json({ applied: true });
     } catch (err) {

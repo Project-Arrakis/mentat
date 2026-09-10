@@ -249,3 +249,74 @@ test("POST /roles ignores non-string/malformed entries in the submitted arrays r
     assert.equal(res.status, 200);
   });
 });
+
+// ─── Layer 2 audit finding, HIGH: deselecting a role (omitting it from a
+// resubmission) must actually revoke it -- full-state diffing, not just
+// additive writes (mentat#352, the exact gap this endpoint was directed
+// to close) ─────────────────────────────────────────────────────────────
+
+test("POST /roles actually REVOKES a previously-mapped role that is absent from a resubmission -- the picker's real 'deselect' semantics", async () => {
+  await withRolesTestDb({ seed: seedOneGuild }, async (base, dbPath) => {
+    const first = await fetch(`${base}/api/consoles/${GUILD_ID}/roles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADAPTER_TOKEN}` },
+      body: JSON.stringify({ playerRoleIds: ["p1", "p2", "p3"], moderatorRoleIds: [], adminRoleIds: [] })
+    });
+    assert.equal(first.status, 200);
+
+    // Operator deselects p2/p3 in the picker, keeping only p1.
+    const second = await fetch(`${base}/api/consoles/${GUILD_ID}/roles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADAPTER_TOKEN}` },
+      body: JSON.stringify({ playerRoleIds: ["p1"], moderatorRoleIds: [], adminRoleIds: [] })
+    });
+    assert.equal(second.status, 200);
+
+    const db = createDatabase(dbPath);
+    const rows = getGuildRoles(db, GUILD_ID);
+    db.close();
+    assert.deepEqual(rows.map((r) => r.role_id).sort(), ["p1"], "p2 and p3 must be actually revoked, not silently retained");
+  });
+});
+
+test("POST /roles: submitting an empty picker state for every tier clears all non-owner role mappings for the guild", async () => {
+  await withRolesTestDb({ seed: seedOneGuild }, async (base, dbPath) => {
+    await fetch(`${base}/api/consoles/${GUILD_ID}/roles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADAPTER_TOKEN}` },
+      body: JSON.stringify({ playerRoleIds: ["p1"], moderatorRoleIds: ["m1"], adminRoleIds: ["a1"] })
+    });
+    const cleared = await fetch(`${base}/api/consoles/${GUILD_ID}/roles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADAPTER_TOKEN}` },
+      body: JSON.stringify({ playerRoleIds: [], moderatorRoleIds: [], adminRoleIds: [] })
+    });
+    assert.equal(cleared.status, 200);
+    const db = createDatabase(dbPath);
+    const rows = getGuildRoles(db, GUILD_ID);
+    db.close();
+    assert.equal(rows.length, 0);
+  });
+});
+
+test("POST /roles: a rejected (409) resubmission leaves the PREVIOUS mapping completely untouched -- the full-state diff never partially applies", async () => {
+  await withRolesTestDb({ seed: seedOneGuild }, async (base, dbPath) => {
+    await fetch(`${base}/api/consoles/${GUILD_ID}/roles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADAPTER_TOKEN}` },
+      body: JSON.stringify({ playerRoleIds: ["p1"], moderatorRoleIds: [], adminRoleIds: [] })
+    });
+    // A conflicting resubmission that would ALSO have deselected p1.
+    const conflicting = await fetch(`${base}/api/consoles/${GUILD_ID}/roles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADAPTER_TOKEN}` },
+      body: JSON.stringify({ playerRoleIds: [], moderatorRoleIds: ["shared"], adminRoleIds: ["shared"] })
+    });
+    assert.equal(conflicting.status, 409);
+
+    const db = createDatabase(dbPath);
+    const rows = getGuildRoles(db, GUILD_ID);
+    db.close();
+    assert.deepEqual(rows.map((r) => r.role_id), ["p1"], "the rejected submission must not have deselected p1 either -- all-or-nothing");
+  });
+});
