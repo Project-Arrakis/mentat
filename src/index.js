@@ -261,9 +261,30 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     // Write-confirmation buttons (confirm/cancel/timeout) are real,
     // handled component interactions -- route them first.
+    //
+    // mentat#332 (comprehensive wizard security audit finding): this used
+    // to unconditionally `return` after calling handleWriteButtonInteraction(),
+    // never inspecting its return value. That function correctly returns
+    // `false` for any customId it doesn't own (it only handles the
+    // "write:"-prefixed customId space) -- but since nothing here checked
+    // that, EVERY button interaction, regardless of customId, was silently
+    // swallowed with no response. A future non-"write:"-prefixed button
+    // (e.g. dune-awakening-selfhost-docker's hosted-bot auto-invite design,
+    // issue #844 on that repo, proposes new "autoinvite:confirm:"/
+    // "autoinvite:deny:" buttons as its load-bearing owner-confirmation
+    // gate) would get Discord's generic "This interaction failed" with no
+    // code path ever reached -- a real implementation trap for exactly the
+    // fix that closes that design's worst finding. Falling through on
+    // `false` (instead of returning) means any future prefix-dispatched
+    // handler added below this line will actually run.
     if (interaction.isButton?.()) {
-      await handleWriteButtonInteraction(interaction);
-      return;
+      const handled = await handleWriteButtonInteraction(interaction);
+      if (handled) return;
+      // Falls through to the isMessageComponent?.() branch below, which
+      // already correctly no-ops for the one other known component today
+      // (the Steam-link Link-style button, which Discord never sends an
+      // interaction event for at all) -- and is the obvious place a future
+      // handler for a new customId prefix should be added.
     }
     // Closes a previously-total gap: this handler used to only ever check
     // isChatInputCommand?.() inside executeDuneCommand() and silently fall

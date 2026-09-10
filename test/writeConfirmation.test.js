@@ -142,3 +142,24 @@ test("pending confirmation expires and fires onTimeout when not confirmed", asyn
     process.env.DUNE_WRITE_CONFIRMATION_TIMEOUT_MS = old;
   }
 });
+
+// mentat#331 (comprehensive wizard security audit finding): userId used to
+// be optional -- a caller that omitted it would silently let ANY guild
+// member confirm someone else's pending write, since the ownership check
+// only ran "if (entry.userId && ...)" . Both halves of the fix (creation
+// now refuses to omit it; the check itself is unconditional) are pinned
+// here.
+test("createPendingConfirmation refuses to create an entry with no userId", () => {
+  assert.throws(
+    () => createPendingConfirmation({ idempotencyKey: "key-no-owner", action: "a", tier: "admin", risk: "low" }),
+    /userId is required/
+  );
+  assert.equal(getPendingConfirmation("key-no-owner"), undefined, "no entry must be created");
+});
+
+test("createPendingConfirmation refuses an empty-string userId", () => {
+  assert.throws(
+    () => createPendingConfirmation({ idempotencyKey: "key-empty-owner", action: "a", tier: "admin", risk: "low", userId: "" }),
+    /userId is required/
+  );
+});
