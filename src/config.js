@@ -175,6 +175,14 @@ export function loadConfig(env = process.env) {
     // requiring every environment to set it explicitly.
     autoInviteRedirectUri: resolveCompatEnv(env, "AUTO_INVITE_REDIRECT_URI", { urlShaped: true }) ||
       "https://mentat-link.darkdante.org/api/consoles/auto-invite/callback",
+    // mentat#343 Phase 3: the origin the signed redirect targets (mentat-
+    // link's bounce page, functions/api/consoles/auto-invite/return.js) --
+    // a separate value from autoInviteRedirectUri above (that one is the
+    // Discord-facing OAuth redirect_uri; this one is where THIS server
+    // sends the browser next after processing that callback). Same fixed,
+    // single-value-in-every-real-deployment reasoning applies.
+    autoInviteReturnBaseUrl: resolveCompatEnv(env, "AUTO_INVITE_RETURN_BASE_URL", { urlShaped: true }) ||
+      "https://mentat-link.darkdante.org",
     // steamLink: the /dune player link Steam-connections feature's own
     // small Express app (src/steamLinkServer.js), started unconditionally
     // regardless of multiTenant -- see docs/steam-link-architecture.md's Single-Tenant

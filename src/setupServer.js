@@ -9,6 +9,7 @@ import { verifyAndRegisterConsole } from "./consoleRegistration.js";
 import { recordGlobalConsoleRegistrationAttempt } from "./consoleRegistrationRateLimit.js";
 import { stageAutoInviteSession, handleAutoInviteCallback } from "./autoInvite.js";
 import { notifyOwnerOfPendingConfirmation } from "./ownerConfirmation.js";
+import { signAutoInviteRedirect } from "./signedRedirect.js";
 import {
   createDatabase,
   createOauthSession,
@@ -914,6 +915,29 @@ export function createSetupServer(config) {
   // machinery on mentat-link's side, which does not exist yet. This is
   // Phase 1's own, deliberately narrower scope: prove the staging logic is
   // correct in isolation before wiring it to the signed-redirect phase.
+  // mentat#343 Phase 3 -- a deliberate, documented interpretation of the
+  // design doc's sequence diagram: the signed redirect toward mentat-link's
+  // bounce page fires IMMEDIATELY once staging (verify ownership, create
+  // the pendingOwnerConfirmation) succeeds -- NOT after the owner actually
+  // clicks Confirm. The doc's own diagram places the "M-->>ML: signed
+  // redirect" arrow after the owner-confirmation `rect` block, which read
+  // literally would mean holding this HTTP response open for up to the
+  // 15-minute confirmation window. That's incompatible with real,
+  // already-shipped infrastructure this flow runs through:
+  // mentat-link's proxyRequest() aborts any backend call after 15 SECONDS
+  // (functions/_lib/reverseProxy.js's `AbortSignal.timeout(15_000)`), and
+  // Cloudflare Pages Functions have their own execution-time ceiling far
+  // below 15 minutes regardless. Held open, this request would 502 long
+  // before any real owner could act on a DM.
+  //
+  // Reframed: `ok: true` on this redirect means "a connection request was
+  // successfully staged and the verified owner has been notified," NOT
+  // "the guild is now connected." Core's own wizard UI (a later phase)
+  // must show a "waiting for owner confirmation, check Discord" state on
+  // this outcome, not treat it as final success. This is a documented
+  // engineering judgment call, not an oversight -- flag it explicitly in
+  // any Layer 2 audit of this route rather than assuming the diagram's
+  // literal ordering was already implemented.
   app.get("/api/consoles/auto-invite/callback", async (req, res) => {
     try {
       const { code, state, guild_id: guildId, error } = req.query || {};
@@ -926,15 +950,15 @@ export function createSetupServer(config) {
           fetchImpl
         }
       );
-      // mentat#343 Phase 2: on successful staging, hand off to the owner-
-      // confirmation gate -- DM the verified owner, schedule the active
-      // timeout. discordClient is the live discord.js Client (wired in via
-      // config.discordClient, matching createSteamLinkServer()'s own
-      // client-passing convention) -- absent in tests that don't need it,
-      // in which case the DM step is skipped rather than crashing the
-      // response (the pending record still exists either way; a missing
-      // client here is a test/config gap, not a reason to fail the whole
-      // callback response the operator's browser is waiting on).
+      // On successful staging, hand off to the owner-confirmation gate --
+      // DM the verified owner, schedule the active timeout. discordClient
+      // is the live discord.js Client (wired in via config.discordClient,
+      // matching createSteamLinkServer()'s own client-passing convention)
+      // -- absent in tests that don't need it, in which case the DM step
+      // is skipped rather than crashing the response (the pending record
+      // still exists either way; a missing client here is a test/config
+      // gap, not a reason to fail the whole redirect the operator's
+      // browser is waiting on).
       if (result.ok && config.discordClient) {
         notifyOwnerOfPendingConfirmation(config.discordClient, {
           confirmationId: result.confirmationId,
@@ -947,10 +971,41 @@ export function createSetupServer(config) {
           logError("auto_invite.notify_owner_failed", err, { guildId: result.guildId });
         });
       }
-      return res.status(200).json(result);
+
+      const signed = signAutoInviteRedirect({
+        consoleUrl: result.consoleUrl,
+        state: result.state,
+        ok: result.ok,
+        guildName: result.guildName,
+        reason: result.reason,
+        reclaimed: false
+      });
+      const returnUrl = new URL(`${config.autoInviteReturnBaseUrl}/api/consoles/auto-invite/return`);
+      for (const [key, value] of Object.entries(signed)) {
+        returnUrl.searchParams.set(key, String(value));
+      }
+      return res.redirect(302, returnUrl.toString());
     } catch (err) {
       logError("auto_invite.callback_route_error", err, {});
-      return res.status(500).json({ ok: false, reason: "internal_error" });
+      // signAutoInviteRedirect() itself throws when MENTAT_PROXY_SHARED_SECRET
+      // is unconfigured (Layer 2 audit finding, CRITICAL -- see that
+      // function's own comment) -- this second try/catch exists so THAT
+      // failure mode doesn't itself throw uncaught here, which would
+      // otherwise crash this handler with a raw Express error page instead
+      // of a clean response. There is no safe signed redirect to issue at
+      // all in that case; fail with a plain, generic error rather than
+      // attempting to sign anything.
+      try {
+        const signed = signAutoInviteRedirect({ state: req.query?.state, ok: false, reason: "internal_error" });
+        const returnUrl = new URL(`${config.autoInviteReturnBaseUrl}/api/consoles/auto-invite/return`);
+        for (const [key, value] of Object.entries(signed)) {
+          returnUrl.searchParams.set(key, String(value));
+        }
+        return res.redirect(302, returnUrl.toString());
+      } catch (signingErr) {
+        logError("auto_invite.callback_signing_unavailable", signingErr, {});
+        return res.status(503).json({ error: "The hosted-bot connection service is temporarily unavailable. Please try again later." });
+      }
     }
   });
 
