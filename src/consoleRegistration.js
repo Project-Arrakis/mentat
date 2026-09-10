@@ -56,15 +56,36 @@ async function fetchDiscordUserId(accessToken, fetchImpl, timeoutMs) {
   return String(user?.id || "") || null;
 }
 
-// verifyAndRegisterConsole: the full accept/reject/register decision.
-// Returns { ok: true } on success, { ok: false, reason } on any rejection
-// -- the route handler translates `reason` into the specific, deliberately-
-// vague-on-the-ambiguous-case error copy the design calls for; this
-// function itself never needs to know about HTTP status codes.
-export async function verifyAndRegisterConsole(db, { guildId, discordAccessToken, consoleUrl, adapterToken }, { fetchImpl = globalThis.fetch, timeoutMs = DISCORD_FETCH_TIMEOUT_MS } = {}) {
-  const globalCheck = recordGlobalConsoleRegistrationAttempt();
-  if (!globalCheck.allowed) return { ok: false, reason: "rate_limited", retryAfterSeconds: globalCheck.retryAfterSeconds };
-
+// verifyGuildOwnership: the Discord-facing half of verifyAndRegisterConsole,
+// extracted (mentat#343, hosted-bot auto-invite Phase 1) so the new
+// /api/consoles/auto-invite/callback route can reuse the IDENTICAL
+// ownership-verification steps -- token/guildId shape validation, the two
+// Discord calls, per-user rate limiting, the ownership match -- without
+// also reaching this file's own upsertGuild() write, which the auto-invite
+// flow must not call until a later, separate owner-confirmation step (see
+// mentat#343's tracking issue and dune-awakening-selfhost-docker#832's
+// design doc, §4.1).
+//
+// Deliberately does NOT include the global rate-limit check
+// (recordGlobalConsoleRegistrationAttempt()) -- that stays the caller's own
+// responsibility, called at whatever position in the caller's own request
+// handling makes sense for it (verifyAndRegisterConsole calls it first,
+// unchanged from pre-extraction behavior; the auto-invite callback route
+// calls it itself too, matching the design doc's "reused directly" intent).
+// An earlier version of this extraction folded the global check in here,
+// which subtly changed verifyAndRegisterConsole's own observable behavior
+// -- a request rejected by consoleUrl/adapterToken validation (which still
+// runs before this function is ever called) stopped consuming global
+// rate-limit budget, unlike before the extraction. Caught by
+// test/consoleRegistration.test.js's existing "still counts toward the
+// global rate limit" tests, which assert exactly that budget-consumption
+// behavior for malformed requests.
+//
+// Returns { ok: true, matchedGuild: {id, name}, discordUserId } on success,
+// { ok: false, reason, retryAfterSeconds? } on any rejection -- identical
+// shape/reason vocabulary to verifyAndRegisterConsole's own return value,
+// since callers already know how to translate these into HTTP responses.
+export async function verifyGuildOwnership({ guildId, discordAccessToken }, { fetchImpl = globalThis.fetch, timeoutMs = DISCORD_FETCH_TIMEOUT_MS } = {}) {
   // Cheap, local validation BEFORE any outbound Discord call -- the DoS
   // bound the design's own §3.3 requires. A garbage token/guildId never
   // reaches Discord's API at all.
@@ -73,12 +94,6 @@ export async function verifyAndRegisterConsole(db, { guildId, discordAccessToken
   }
   if (typeof guildId !== "string" || !SNOWFLAKE_PATTERN.test(guildId)) {
     return { ok: false, reason: "malformed_guild_id" };
-  }
-  if (typeof consoleUrl !== "string" || consoleUrl.length === 0) {
-    return { ok: false, reason: "missing_console_url" };
-  }
-  if (typeof adapterToken !== "string" || adapterToken.length === 0) {
-    return { ok: false, reason: "missing_adapter_token" };
   }
 
   let ownedGuilds;
@@ -111,6 +126,32 @@ export async function verifyAndRegisterConsole(db, { guildId, discordAccessToken
     return { ok: false, reason: "guild_not_owned" };
   }
 
+  return { ok: true, matchedGuild, discordUserId };
+}
+
+// verifyAndRegisterConsole: the full accept/reject/register decision.
+// Returns { ok: true } on success, { ok: false, reason } on any rejection
+// -- the route handler translates `reason` into the specific, deliberately-
+// vague-on-the-ambiguous-case error copy the design calls for; this
+// function itself never needs to know about HTTP status codes.
+export async function verifyAndRegisterConsole(db, { guildId, discordAccessToken, consoleUrl, adapterToken }, opts = {}) {
+  // Unchanged from pre-extraction: the global rate-limit check is the very
+  // first thing that happens, before any field validation, so a malformed
+  // request still counts toward the shared budget (test/consoleRegistration
+  // .test.js's "still counts toward the global rate limit" tests pin this).
+  const globalCheck = recordGlobalConsoleRegistrationAttempt();
+  if (!globalCheck.allowed) return { ok: false, reason: "rate_limited", retryAfterSeconds: globalCheck.retryAfterSeconds };
+
+  if (typeof consoleUrl !== "string" || consoleUrl.length === 0) {
+    return { ok: false, reason: "missing_console_url" };
+  }
+  if (typeof adapterToken !== "string" || adapterToken.length === 0) {
+    return { ok: false, reason: "missing_adapter_token" };
+  }
+
+  const verification = await verifyGuildOwnership({ guildId, discordAccessToken }, opts);
+  if (!verification.ok) return verification;
+
   upsertGuild(db, {
     guildId,
     // Fix-round-1 should-fix: use the real name Discord's own
@@ -118,14 +159,14 @@ export async function verifyAndRegisterConsole(db, { guildId, discordAccessToken
     // than unconditionally hardcoding "Unknown" -- the previous version
     // clobbered a real name /setup/register may have already resolved
     // for this same guild on an earlier registration.
-    guildName: matchedGuild.name,
+    guildName: verification.matchedGuild.name,
     consoleUrl,
     adapterToken,
     status: "active"
   });
-  logInfo("console_registration.registered", { guildId, discordUserId });
+  logInfo("console_registration.registered", { guildId, discordUserId: verification.discordUserId });
   // discordAccessToken deliberately goes out of scope here, never
   // persisted, never logged -- the last reference to it in this function
-  // was the two fetch calls above.
+  // was inside verifyGuildOwnership()'s two fetch calls above.
   return { ok: true };
 }

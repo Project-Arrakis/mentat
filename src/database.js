@@ -629,6 +629,128 @@ export function deleteOauthSession(state) {
   oauthSessions.delete(state);
 }
 
+// ─── Hosted-bot auto-invite: pending-state stores ──────────────────────
+// mentat#343 (Phase 1 of dune-awakening-selfhost-docker#832's design,
+// docs/design/hosted-bot-auto-invite-and-role-picker-l1-design-2026-09-10.md
+// §4.5) -- two stores, deliberately separate from oauthSessions above and
+// from each other, since each stage of the flow has a genuinely different
+// lifetime and a different party responsible for advancing it (design
+// doc's own §4.5 "why three stores instead of fewer" -- the third,
+// hostedBotAutoInvitePendingStates, lives in Core, not here).
+
+// autoInviteSessions: stage 1, bridges POST /auto-invite/start (stages
+// {consoleUrl, adapterToken}) to GET /auto-invite/callback (the Discord
+// redirect target). 2-minute TTL -- much shorter than oauthSessions' 30
+// minutes, since the design doc's issue #844 explicitly shortens this to
+// minimize the phishing-link viability window for the FIRST leg of the
+// flow, before Discord ownership is even verified. Unlike oauthSessions'
+// own deleteOauthSession() (confirmed dead code -- never called from
+// setupServer.js), this store's delete-on-consume is REAL: the
+// /auto-invite/callback handler must call deleteAutoInviteSession() on
+// EVERY terminal path (success, operator-cancelled, ownership-check-
+// failed, expired/already-consumed, and discord_unreachable), per design
+// doc issue #836.
+const AUTO_INVITE_SESSION_MAX_AGE_MS = 2 * 60 * 1000;
+const MAX_AUTO_INVITE_SESSIONS = 1000;
+
+let autoInviteSessions = new Map();
+
+function sweepExpiredAutoInviteSessions() {
+  const cutoff = Date.now() - AUTO_INVITE_SESSION_MAX_AGE_MS;
+  for (const [state, session] of autoInviteSessions) {
+    if (session.createdAtMs >= cutoff) break;
+    autoInviteSessions.delete(state);
+  }
+}
+
+export function createAutoInviteSession({ state, consoleUrl, adapterToken }) {
+  sweepExpiredAutoInviteSessions();
+  if (autoInviteSessions.size >= MAX_AUTO_INVITE_SESSIONS) {
+    const oldestState = autoInviteSessions.keys().next().value;
+    autoInviteSessions.delete(oldestState);
+  }
+  autoInviteSessions.set(state, {
+    state,
+    console_url: consoleUrl,
+    adapter_token: adapterToken,
+    createdAtMs: Date.now()
+  });
+}
+
+// Inline expiry recheck on read (design doc issue #852, matching this
+// same file's getOauthSession() precedent above) -- without it, a
+// low-traffic period could let a stale entry linger past its nominal TTL
+// until the next create() call's lazy sweep, which matters more here
+// given this store's deliberately short 2-minute TTL.
+export function getAutoInviteSession(state) {
+  const session = autoInviteSessions.get(state);
+  if (!session) return undefined;
+  if (session.createdAtMs < Date.now() - AUTO_INVITE_SESSION_MAX_AGE_MS) {
+    autoInviteSessions.delete(state);
+    return undefined;
+  }
+  const { createdAtMs, ...publicShape } = session;
+  return publicShape;
+}
+
+export function deleteAutoInviteSession(state) {
+  autoInviteSessions.delete(state);
+}
+
+// pendingOwnerConfirmations: stage 2 (Phase 1 writes to this store once
+// Discord ownership is verified; Phase 2 -- mentat#344+ -- adds the
+// DM/slash-command machinery that reads it and is the only thing that may
+// call upsertGuild() off the back of it). 15-minute TTL, matching
+// writeConfirmation.js's own confirmation-window pattern extended for a
+// human checking Discord, per design doc §4.5. Keyed by a fresh opaque
+// confirmationId (NOT the same as the auto-invite `state` above --
+// deliberately a different value, so a leaked/replayed auto-invite state
+// can't be reused to probe or forge a pending owner-confirmation record).
+const OWNER_CONFIRMATION_MAX_AGE_MS = 15 * 60 * 1000;
+const MAX_PENDING_OWNER_CONFIRMATIONS = 1000;
+
+let pendingOwnerConfirmations = new Map();
+
+function sweepExpiredPendingOwnerConfirmations() {
+  const cutoff = Date.now() - OWNER_CONFIRMATION_MAX_AGE_MS;
+  for (const [confirmationId, entry] of pendingOwnerConfirmations) {
+    if (entry.createdAtMs >= cutoff) break;
+    pendingOwnerConfirmations.delete(confirmationId);
+  }
+}
+
+export function createPendingOwnerConfirmation({ confirmationId, guildId, guildName, consoleUrl, adapterToken, ownerId }) {
+  sweepExpiredPendingOwnerConfirmations();
+  if (pendingOwnerConfirmations.size >= MAX_PENDING_OWNER_CONFIRMATIONS) {
+    const oldestId = pendingOwnerConfirmations.keys().next().value;
+    pendingOwnerConfirmations.delete(oldestId);
+  }
+  pendingOwnerConfirmations.set(confirmationId, {
+    confirmation_id: confirmationId,
+    guild_id: guildId,
+    guild_name: guildName,
+    console_url: consoleUrl,
+    adapter_token: adapterToken,
+    owner_id: ownerId,
+    createdAtMs: Date.now()
+  });
+}
+
+export function getPendingOwnerConfirmation(confirmationId) {
+  const entry = pendingOwnerConfirmations.get(confirmationId);
+  if (!entry) return undefined;
+  if (entry.createdAtMs < Date.now() - OWNER_CONFIRMATION_MAX_AGE_MS) {
+    pendingOwnerConfirmations.delete(confirmationId);
+    return undefined;
+  }
+  const { createdAtMs, ...publicShape } = entry;
+  return publicShape;
+}
+
+export function deletePendingOwnerConfirmation(confirmationId) {
+  pendingOwnerConfirmations.delete(confirmationId);
+}
+
 export function getAllGuilds(db) {
   return db.prepare("SELECT * FROM guilds").all();
 }
@@ -941,6 +1063,8 @@ export function setGuildFaction(db, guildId, faction) {
 // now-discarded database.
 export function _resetEphemeralStateForTests() {
   oauthSessions = new Map();
+  autoInviteSessions = new Map();
+  pendingOwnerConfirmations = new Map();
   commandCount = 0;
   statsSnapshotCache = null;
   guildStatsSnapshots = new Map();

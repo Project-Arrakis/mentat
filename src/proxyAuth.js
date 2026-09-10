@@ -79,3 +79,33 @@ export function requireProxySecret({ exemptPaths = [], renderError } = {}) {
     next();
   };
 }
+
+// requireProxySecretFailClosed: mentat#343 (hosted-bot auto-invite Phase
+// 1, design doc issue #844). The global requireProxySecret() above is
+// deliberately FAIL-OPEN when MENTAT_PROXY_SHARED_SECRET is unconfigured
+// -- a safe two-phase-rollout default for the lower-stakes routes it
+// already gates (/health, /api/alerts/relay). The new auto-invite routes
+// are a stricter posture: per the design doc, this alone does NOT
+// authenticate the caller as a legitimate Core install (mentat-link's
+// proxy blindly forwards any request it receives, secret or not) -- the
+// real defense is the owner-confirmation gate downstream (Phase 2). But
+// failing OPEN here specifically, before that gate even exists to run,
+// would mean this route is reachable with zero barrier at all the moment
+// it ships, on top of a gate that isn't live yet either. Applied as a
+// route-scoped middleware (not global, unlike requireProxySecret above)
+// so it doesn't change behavior for any existing route -- mount it only
+// on the specific new route(s) that need this stricter posture.
+export function requireProxySecretFailClosed() {
+  return function proxySecretFailClosedMiddleware(req, res, next) {
+    const expected = proxySharedSecret();
+    const provided = req.get("x-mentat-proxy-secret") || "";
+    if (!expected || !secretMatches(provided, expected)) {
+      logError("reverse_proxy.unauthorized_fail_closed", new Error("Missing, invalid, or unconfigured X-Mentat-Proxy-Secret for a fail-closed route"), {
+        remote: req.ip,
+        path: req.path
+      });
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    next();
+  };
+}

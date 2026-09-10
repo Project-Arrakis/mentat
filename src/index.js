@@ -139,7 +139,8 @@ if (config.multiTenant) {
     discordClientId: config.discord.clientId,
     discordClientSecret: config.discord.clientSecret,
     baseUrl: config.baseUrl,
-    oauthRedirectUri: config.oauthRedirectUri
+    oauthRedirectUri: config.oauthRedirectUri,
+    autoInviteRedirectUri: config.autoInviteRedirectUri
   });
   const setupPort = config.setupPort || 3100;
   setupApp.listen(setupPort, () => {
