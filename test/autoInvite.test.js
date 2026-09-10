@@ -223,10 +223,33 @@ test("replay-after-consume: a second /callback hit with an already-consumed stat
 });
 
 test("a /callback hit with a state that was never staged (guessed/leaked) gets the expired response, fails closed", async () => {
+  // The signed-redirect step (Phase 3) needs the shared secret configured
+  // even on a failure path, since the callback route always signs SOME
+  // response -- see the dedicated "signing itself fails closed" test
+  // below for the secret-unconfigured case specifically.
+  process.env.MENTAT_PROXY_SHARED_SECRET = PROXY_SECRET;
+  try {
+    await withAutoInviteApp({}, async (base) => {
+      const fields = await callbackRedirectFields(base, "code=x&state=never-existed&guild_id=111111111111111111");
+      assert.equal(fields.ok, "false");
+      assert.equal(fields.reason, "expired");
+    });
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  }
+});
+
+// ─── Layer 2 audit finding, CRITICAL: signing itself must fail closed when
+// MENTAT_PROXY_SHARED_SECRET is unconfigured -- an empty secret would
+// otherwise make BOTH mentat and mentat-link derive the same publicly-
+// computable key, letting anyone forge a validly-"signed" redirect ───────
+
+test("when MENTAT_PROXY_SHARED_SECRET is unconfigured, /callback returns a plain 503 error -- never a redirect signed with a predictable key", async () => {
+  delete process.env.MENTAT_PROXY_SHARED_SECRET;
   await withAutoInviteApp({}, async (base) => {
-    const fields = await callbackRedirectFields(base, "code=x&state=never-existed&guild_id=111111111111111111");
-    assert.equal(fields.ok, "false");
-    assert.equal(fields.reason, "expired");
+    const res = await fetch(`${base}/api/consoles/auto-invite/callback?code=x&state=never-existed&guild_id=111111111111111111`, { redirect: "manual" });
+    assert.equal(res.status, 503, "must fail closed with a plain error, not a 302 signed with a known, predictable key");
+    assert.equal(res.headers.get("location"), null, "must never issue a redirect at all in this state");
   });
 });
 

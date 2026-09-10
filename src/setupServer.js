@@ -987,12 +987,25 @@ export function createSetupServer(config) {
       return res.redirect(302, returnUrl.toString());
     } catch (err) {
       logError("auto_invite.callback_route_error", err, {});
-      const signed = signAutoInviteRedirect({ state: req.query?.state, ok: false, reason: "internal_error" });
-      const returnUrl = new URL(`${config.autoInviteReturnBaseUrl}/api/consoles/auto-invite/return`);
-      for (const [key, value] of Object.entries(signed)) {
-        returnUrl.searchParams.set(key, String(value));
+      // signAutoInviteRedirect() itself throws when MENTAT_PROXY_SHARED_SECRET
+      // is unconfigured (Layer 2 audit finding, CRITICAL -- see that
+      // function's own comment) -- this second try/catch exists so THAT
+      // failure mode doesn't itself throw uncaught here, which would
+      // otherwise crash this handler with a raw Express error page instead
+      // of a clean response. There is no safe signed redirect to issue at
+      // all in that case; fail with a plain, generic error rather than
+      // attempting to sign anything.
+      try {
+        const signed = signAutoInviteRedirect({ state: req.query?.state, ok: false, reason: "internal_error" });
+        const returnUrl = new URL(`${config.autoInviteReturnBaseUrl}/api/consoles/auto-invite/return`);
+        for (const [key, value] of Object.entries(signed)) {
+          returnUrl.searchParams.set(key, String(value));
+        }
+        return res.redirect(302, returnUrl.toString());
+      } catch (signingErr) {
+        logError("auto_invite.callback_signing_unavailable", signingErr, {});
+        return res.status(503).json({ error: "The hosted-bot connection service is temporarily unavailable. Please try again later." });
       }
-      return res.redirect(302, returnUrl.toString());
     }
   });
 

@@ -57,6 +57,30 @@ function canonicalPayload({ consoleUrl, state, ok, guildName, reason, reclaimed,
 // exist between a success and failure payload and reopening a form of the
 // #862 canonicalization problem).
 export function signAutoInviteRedirect(fields, { sharedSecret = proxySharedSecret() } = {}) {
+  // Layer 2 audit finding, CRITICAL: MENTAT_PROXY_SHARED_SECRET is
+  // DOCUMENTED as safe to leave unset (proxyAuth.js's own comment:
+  // "deliberately a no-op... so this ships and deploys safely before the
+  // secret exists on either side") for its OTHER, lower-stakes uses (hop-
+  // auth headers on routes like /health, /api/alerts/relay). For THIS
+  // mechanism specifically, that same "unset is safe" default is
+  // catastrophic: an empty sharedSecret makes deriveSigningKey() compute
+  // SHA-256(":auto-invite-redirect-signing-v1") -- a value anyone who has
+  // read this open-source code can compute themselves, with zero secret
+  // knowledge, since the context string is public. Independently
+  // reproduced: sha256("" + ":auto-invite-redirect-signing-v1") is fully
+  // public/predictable, and mentat-link's verifier would derive the
+  // IDENTICAL key from the SAME unset default -- letting anyone forge a
+  // validly-"signed" redirect to an arbitrary consoleUrl, fully defeating
+  // the open-redirect fix (issue #845) this entire mechanism exists to
+  // close. Refusing to sign at all when the secret is unconfigured is the
+  // only safe behavior -- this feature must not function during the
+  // "secret not yet provisioned" rollout window design doc §8 phase 8
+  // already requires verifying before real exposure; failing loudly here
+  // makes that requirement self-enforcing rather than relying solely on
+  // an operator remembering to check.
+  if (!sharedSecret) {
+    throw new Error("signAutoInviteRedirect: MENTAT_PROXY_SHARED_SECRET is not configured -- refusing to sign with a predictable, publicly-derivable key.");
+  }
   const exp = Date.now() + EXP_WINDOW_MS;
   const payload = {
     consoleUrl: fields.consoleUrl || "",

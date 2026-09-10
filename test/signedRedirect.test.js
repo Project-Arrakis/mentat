@@ -85,3 +85,22 @@ test("exp is set roughly 2 minutes in the future", () => {
   const after = Date.now();
   assert.ok(signed.exp >= before + 119_000 && signed.exp <= after + 121_000, "exp must be ~2 minutes out");
 });
+
+// ─── Layer 2 audit finding, CRITICAL: refuses to sign at all when the
+// shared secret is unconfigured -- an empty secret is otherwise a
+// publicly-computable key on both ends of this signature ─────────────────
+
+test("throws rather than signing with a predictable key when sharedSecret is empty", () => {
+  assert.throws(() => signAutoInviteRedirect({ state: "s1", ok: true }, { sharedSecret: "" }), /MENTAT_PROXY_SHARED_SECRET is not configured/);
+});
+
+test("throws when sharedSecret is not passed at all and proxySharedSecret() itself resolves empty", () => {
+  const original = process.env.MENTAT_PROXY_SHARED_SECRET;
+  delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  delete process.env.MENTAT_PROXY_SHARED_SECRET_FILE;
+  try {
+    assert.throws(() => signAutoInviteRedirect({ state: "s1", ok: true }), /MENTAT_PROXY_SHARED_SECRET is not configured/);
+  } finally {
+    if (original !== undefined) process.env.MENTAT_PROXY_SHARED_SECRET = original;
+  }
+});
