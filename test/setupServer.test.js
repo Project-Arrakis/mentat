@@ -858,6 +858,52 @@ test("GET /js/sand.js is served by the real running setup server with real scrip
   });
 });
 
+// mentat#333 (comprehensive wizard security audit finding): the CORS
+// allowlist had gone stale (dead acp.darkdante.org/acp-landing.pages.dev
+// origins, missing the real current production origin).
+test("CORS allowlist accepts the real, current production origin (mentat-link.darkdante.org)", async () => {
+  await withApp(async (base) => {
+    const res = await fetch(`${base}/health`, { headers: { Origin: "https://mentat-link.darkdante.org" } });
+    assert.equal(res.headers.get("access-control-allow-origin"), "https://mentat-link.darkdante.org");
+  });
+});
+
+test("CORS allowlist no longer accepts the dead acp.darkdante.org/acp-landing.pages.dev origins", async () => {
+  await withApp(async (base) => {
+    const dead1 = await fetch(`${base}/health`, { headers: { Origin: "https://acp.darkdante.org" } });
+    assert.equal(dead1.headers.get("access-control-allow-origin"), null);
+    const dead2 = await fetch(`${base}/health`, { headers: { Origin: "https://acp-landing.pages.dev" } });
+    assert.equal(dead2.headers.get("access-control-allow-origin"), null);
+  });
+});
+
+// mentat#333: err.message used to be shown verbatim to an unauthenticated
+// caller on these two error paths -- pinned at the source level (both
+// call sites are hard to reliably force into their generic-error catch
+// block via a real HTTP request without a more invasive DB-failure
+// harness, disproportionate to this LOW-severity, non-exploitable finding
+// -- unnecessary detail exposure, not a secret leak).
+//
+// mentat#327/#328 (merged after this test was written) added two NEW,
+// narrower `${err.message}` usages inside /setup/register's inner
+// try/catch blocks (verifyGuildOwnership/validateConsoleUrl) -- those are
+// safe by construction: both throw only fixed, developer-authored strings
+// with no interpolated external/internal data (see
+// src/consoleUrlValidation.js and verifyGuildOwnership in src/setupServer.js),
+// unlike the generic outer catches below, which wrap arbitrary unexpected
+// exceptions. A blanket "no ${err.message} anywhere in the file" assertion
+// would false-positive on that legitimate, reviewed usage -- so this test
+// pins the two *generic outer catch* call sites specifically, not the
+// literal string everywhere in the file.
+test("the /oauth/callback and /setup/register error paths log the real error and no longer interpolate err.message into the caller-visible response", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("../src/setupServer.js", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /errorPage\(res, 500, "Setup Error", err\.message\)/, "oauth/callback must not echo err.message back to the caller");
+  assert.doesNotMatch(src, /errorPage\(res, 500, "Setup Failed",\s*\n\s*`?\$\{err\.message\}/, "setup/register's generic outer catch must not echo err.message back to the caller");
+  assert.match(src, /logError\("setup\.oauth_callback_failed", err\)/, "the real error must still be logged server-side");
+  assert.match(src, /logError\("setup\.register_failed", err\)/, "the real error must still be logged server-side");
+});
+
 // ─── mentat#327/#328/#330: /setup/register + /setup/success security ─────
 // hardening -- regression tests proving the actual fixes, not just that
 // pre-existing tests still pass.

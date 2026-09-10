@@ -243,15 +243,21 @@ export function createSetupServer(config) {
 
   // CORS — allow the landing page to fetch public API endpoints.
   // No auth endpoints are exposed here; all are read-only public data.
-  // #224: sentinel.darkdante.org added ahead of the DNS/Tunnel cutover —
-  // safe to add early since a CORS allowlist only widens what's
-  // accepted, it can't break the still-live acp.darkdante.org origin.
-  // Remove the acp.* origins once issue #224's domain migration is
-  // verified complete end-to-end.
+  //
+  // mentat#333 (comprehensive wizard security audit finding): this list
+  // had gone stale twice over -- acp.darkdante.org and
+  // acp-landing.pages.dev have zero DNS/Pages presence any more (the org's
+  // own meta README documents both migrations), and even
+  // sentinel.darkdante.org (the product name that superseded "acp") was
+  // itself superseded by the mentat-link.darkdante.org domain
+  // consolidation. None of the dead entries were an active vulnerability
+  // (a CORS allowlist only widens what's accepted; a request claiming
+  // Origin: https://acp-landing.pages.dev today just means nobody owns
+  // that hostname any more to make such a request from) but is exactly
+  // the kind of documentation/config drift Requirement 12 exists to catch
+  // -- corrected to the real, current production origin.
   const ALLOWED_ORIGINS = [
-    "https://sentinel.darkdante.org",
-    "https://acp.darkdante.org",
-    "https://acp-landing.pages.dev",
+    "https://mentat-link.darkdante.org",
     "http://localhost:5173",
     "http://localhost:3000"
   ];
@@ -483,7 +489,12 @@ export function createSetupServer(config) {
       res.send(renderPage("Mentat Setup — Configure Server", body));
 
     } catch (err) {
-      errorPage(res, 500, "Setup Error", err.message);
+      // mentat#333: err.message was previously shown verbatim to the
+      // caller on this unauthenticated (pre-login) page -- no evidence of
+      // secret leakage found, but unnecessary internal detail exposure.
+      // Log the real error server-side, show a generic message.
+      logError("setup.oauth_callback_failed", err);
+      errorPage(res, 500, "Setup Error", "Something went wrong completing sign-in. Please try again.");
     }
   });
 
@@ -635,8 +646,12 @@ export function createSetupServer(config) {
       res.redirect(`/setup/success?guildId=${encodeURIComponent(guildId)}&token=${successToken}`);
     } catch (err) {
       // #214/U7: styled error page for the browser flow, not raw JSON.
+      // mentat#333: err.message was previously shown verbatim on this
+      // unauthenticated-reachable page -- log the real error server-side,
+      // show a generic message to the caller.
+      logError("setup.register_failed", err);
       errorPage(res, 500, "Setup Failed",
-        `Something went wrong while saving your configuration: ${err.message}. Use your browser's Back button to return to the form and try again.`);
+        "Something went wrong while saving your configuration. Use your browser's Back button to return to the form and try again.");
     }
    });
 
