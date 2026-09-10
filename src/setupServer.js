@@ -8,6 +8,7 @@ import { requireProxySecret, requireProxySecretFailClosed, proxySecretValidFailC
 import { verifyAndRegisterConsole } from "./consoleRegistration.js";
 import { recordGlobalConsoleRegistrationAttempt } from "./consoleRegistrationRateLimit.js";
 import { stageAutoInviteSession, handleAutoInviteCallback } from "./autoInvite.js";
+import { notifyOwnerOfPendingConfirmation } from "./ownerConfirmation.js";
 import {
   createDatabase,
   createOauthSession,
@@ -925,6 +926,27 @@ export function createSetupServer(config) {
           fetchImpl
         }
       );
+      // mentat#343 Phase 2: on successful staging, hand off to the owner-
+      // confirmation gate -- DM the verified owner, schedule the active
+      // timeout. discordClient is the live discord.js Client (wired in via
+      // config.discordClient, matching createSteamLinkServer()'s own
+      // client-passing convention) -- absent in tests that don't need it,
+      // in which case the DM step is skipped rather than crashing the
+      // response (the pending record still exists either way; a missing
+      // client here is a test/config gap, not a reason to fail the whole
+      // callback response the operator's browser is waiting on).
+      if (result.ok && config.discordClient) {
+        notifyOwnerOfPendingConfirmation(config.discordClient, {
+          confirmationId: result.confirmationId,
+          guildId: result.guildId,
+          guildName: result.guildName,
+          consoleUrl: result.consoleUrl,
+          ownerId: result.ownerId,
+          supersededConfirmationId: result.supersededConfirmationId
+        }).catch((err) => {
+          logError("auto_invite.notify_owner_failed", err, { guildId: result.guildId });
+        });
+      }
       return res.status(200).json(result);
     } catch (err) {
       logError("auto_invite.callback_route_error", err, {});

@@ -719,8 +719,32 @@ function sweepExpiredPendingOwnerConfirmations() {
   }
 }
 
+// createPendingOwnerConfirmation: enforces AT MOST ONE pending confirmation
+// per guildId at a time (Layer 2 audit finding, mentat#346). Without this,
+// a retried auto-invite flow (e.g. the first DM never arrived, so the
+// operator clicks "connect" again) leaves two independent, fully-armed
+// confirmation records for the same guild -- each with its own active
+// timeout timer (ownerConfirmation.js). If the owner confirms via the
+// SECOND flow, the guild becomes active, but the FIRST flow's now-stale
+// entry is still armed: its later timeout (or a Deny click on its now-
+// abandoned DM) discards ITS OWN record and best-effort leaves the guild --
+// silently destroying the connection the second flow just legitimately
+// established, with no error surfaced anywhere. Returns the superseded
+// entry's confirmationId (or undefined) so the caller can also cancel that
+// entry's ACTIVE TIMER, which lives in a different module
+// (ownerConfirmation.js) and isn't touched by this function.
 export function createPendingOwnerConfirmation({ confirmationId, guildId, guildName, consoleUrl, adapterToken, ownerId }) {
   sweepExpiredPendingOwnerConfirmations();
+
+  let supersededConfirmationId;
+  for (const [existingId, entry] of pendingOwnerConfirmations) {
+    if (entry.guild_id === guildId) {
+      supersededConfirmationId = existingId;
+      pendingOwnerConfirmations.delete(existingId);
+      break; // invariant: at most one entry per guildId, so at most one match
+    }
+  }
+
   if (pendingOwnerConfirmations.size >= MAX_PENDING_OWNER_CONFIRMATIONS) {
     const oldestId = pendingOwnerConfirmations.keys().next().value;
     pendingOwnerConfirmations.delete(oldestId);
@@ -734,6 +758,8 @@ export function createPendingOwnerConfirmation({ confirmationId, guildId, guildN
     owner_id: ownerId,
     createdAtMs: Date.now()
   });
+
+  return { supersededConfirmationId };
 }
 
 export function getPendingOwnerConfirmation(confirmationId) {
@@ -749,6 +775,25 @@ export function getPendingOwnerConfirmation(confirmationId) {
 
 export function deletePendingOwnerConfirmation(confirmationId) {
   pendingOwnerConfirmations.delete(confirmationId);
+}
+
+// findPendingOwnerConfirmationByGuildId: the /confirm-connection slash
+// command (mentat#343 Phase 2) is run inside a guild and has no
+// confirmationId to look up by -- only the guildId the command was
+// invoked in. This store is capacity-capped at 1000 entries (see
+// MAX_PENDING_OWNER_CONFIRMATIONS above), so a linear scan here is cheap
+// and bounded; not worth a second guildId-keyed index for a Map this
+// small. Applies the same inline expiry recheck as getPendingOwnerConfirmation()
+// so an expired-but-not-yet-swept entry is never matched.
+export function findPendingOwnerConfirmationByGuildId(guildId) {
+  const cutoff = Date.now() - OWNER_CONFIRMATION_MAX_AGE_MS;
+  for (const [confirmationId, entry] of pendingOwnerConfirmations) {
+    if (entry.guild_id !== guildId) continue;
+    if (entry.createdAtMs < cutoff) continue;
+    const { createdAtMs, ...publicShape } = entry;
+    return publicShape;
+  }
+  return undefined;
 }
 
 export function getAllGuilds(db) {
