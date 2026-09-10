@@ -26,6 +26,37 @@ function makeSetupApp() {
   });
 }
 
+// mentat#327/#328: /setup/register now independently re-verifies Discord
+// guild ownership and validates consoleUrl's resolved destination, both of
+// which need injectable mocks in tests -- neither should make a real
+// network/DNS call. fetchImplOwning(guildId) mocks Discord confirming
+// ownership of exactly that guildId; publicLookupImpl mocks DNS resolution
+// to a public address for any hostname (the test suite's "https://console.test"
+// URLs have no real DNS record).
+function fetchImplOwning(guildId) {
+  return async (url) => {
+    if (String(url).includes("/users/@me/guilds")) {
+      return { ok: true, json: async () => ([{ id: guildId, name: "Test Guild", owner: true }]) };
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+}
+
+async function publicLookupImpl() {
+  return [{ address: "203.0.113.10", family: 4 }];
+}
+
+function registerServerConfig(overrides = {}) {
+  return {
+    dbPath: ":memory:",
+    discordClientId: "client-id",
+    baseUrl: "http://localhost:3100",
+    fetchImpl: fetchImplOwning(overrides.guildId),
+    lookupImpl: publicLookupImpl,
+    ...overrides
+  };
+}
+
 async function withApp(fn) {
   const app = makeSetupApp();
   const server = app.listen(0, "127.0.0.1");
@@ -167,11 +198,7 @@ test("POST /setup/register persists admin/moderator/observer role rows, never an
 
   const dir = mkdtempSync(join(tmpdir(), "acp-setup-rbac-"));
   const dbPath = join(dir, "setup.db");
-  const app = createSetupServer({
-    dbPath,
-    discordClientId: "client-id",
-    baseUrl: "http://localhost:3100"
-  });
+  const app = createSetupServer(registerServerConfig({ dbPath, guildId: "g-role-tiers" }));
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const { port } = server.address();
@@ -183,6 +210,7 @@ test("POST /setup/register persists admin/moderator/observer role rows, never an
       guildId: "g-role-tiers",
       consoleUrl: "https://console.test",
       adapterToken: "mock-token",
+      accessToken: "mock-access-token",
       adminRoleId: "admin-role",
       moderatorRoleId: "mod-role",
       observerRoleId: "player-role"
@@ -198,7 +226,8 @@ test("POST /setup/register persists admin/moderator/observer role rows, never an
       redirect: "manual"
     });
     assert.equal(res.status, 302);
-    assert.equal(res.headers.get("location"), "/setup/success?guildId=g-role-tiers");
+    // mentat#330: the redirect now also carries a single-use handoff token.
+    assert.ok(res.headers.get("location").startsWith("/setup/success?guildId=g-role-tiers&token="));
 
     const db = createDatabase(dbPath);
     const roles = getGuildRoles(db, "g-role-tiers");
@@ -224,7 +253,7 @@ test("POST /setup/register succeeds with zero role mappings -- the real guild ow
 
   const dir = mkdtempSync(join(tmpdir(), "acp-setup-no-roles-"));
   const dbPath = join(dir, "setup.db");
-  const app = createSetupServer({ dbPath, discordClientId: "client-id", baseUrl: "http://localhost:3100" });
+  const app = createSetupServer(registerServerConfig({ dbPath, guildId: "g-no-roles" }));
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const { port } = server.address();
@@ -234,7 +263,7 @@ test("POST /setup/register succeeds with zero role mappings -- the real guild ow
     const res = await fetch(`${base}/setup/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ guildId: "g-no-roles", consoleUrl: "https://console.test", adapterToken: "mock-token" }),
+      body: JSON.stringify({ guildId: "g-no-roles", consoleUrl: "https://console.test", adapterToken: "mock-token", accessToken: "mock-access-token" }),
       redirect: "manual"
     });
     assert.equal(res.status, 302, "no role mapping is required any more -- owner-tier access always exists via real guild ownership");
@@ -253,7 +282,7 @@ test("POST /setup/register rejects a role mapped to two tiers (separation of dut
 
   const dir = mkdtempSync(join(tmpdir(), "acp-setup-sod-"));
   const dbPath = join(dir, "setup.db");
-  const app = createSetupServer({ dbPath, discordClientId: "client-id", baseUrl: "http://localhost:3100" });
+  const app = createSetupServer(registerServerConfig({ dbPath, guildId: "g-sod" }));
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const { port } = server.address();
@@ -267,6 +296,7 @@ test("POST /setup/register rejects a role mapped to two tiers (separation of dut
         guildId: "g-sod",
         consoleUrl: "https://console.test",
         adapterToken: "mock-token",
+        accessToken: "mock-access-token",
         adminRoleId: "same-role",
         moderatorRoleId: "same-role"
       }),
@@ -291,7 +321,7 @@ test("POST /setup/register lets an operator reassign an already-mapped role to a
 
   const dir = mkdtempSync(join(tmpdir(), "acp-setup-reassign-"));
   const dbPath = join(dir, "setup.db");
-  const app = createSetupServer({ dbPath, discordClientId: "client-id", baseUrl: "http://localhost:3100" });
+  const app = createSetupServer(registerServerConfig({ dbPath, guildId: "g-reassign" }));
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const { port } = server.address();
@@ -308,6 +338,7 @@ test("POST /setup/register lets an operator reassign an already-mapped role to a
         guildId: "g-reassign",
         consoleUrl: "https://console.test",
         adapterToken: "mock-token",
+        accessToken: "mock-access-token",
         moderatorRoleId: "role-x"
       }),
       redirect: "manual"
@@ -321,6 +352,7 @@ test("POST /setup/register lets an operator reassign an already-mapped role to a
         guildId: "g-reassign",
         consoleUrl: "https://console.test",
         adapterToken: "mock-token",
+        accessToken: "mock-access-token",
         adminRoleId: "role-x"
       }),
       redirect: "manual"
@@ -347,7 +379,7 @@ test("POST /setup/register still rejects a genuine conflict against an unrelated
 
   const dir = mkdtempSync(join(tmpdir(), "acp-setup-real-conflict-"));
   const dbPath = join(dir, "setup.db");
-  const app = createSetupServer({ dbPath, discordClientId: "client-id", baseUrl: "http://localhost:3100" });
+  const app = createSetupServer(registerServerConfig({ dbPath, guildId: "g-real-conflict" }));
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const { port } = server.address();
@@ -365,6 +397,7 @@ test("POST /setup/register still rejects a genuine conflict against an unrelated
         guildId: "g-real-conflict",
         consoleUrl: "https://console.test",
         adapterToken: "mock-token",
+        accessToken: "mock-access-token",
         observerRoleId: "role-a"
       }),
       redirect: "manual"
@@ -378,6 +411,7 @@ test("POST /setup/register still rejects a genuine conflict against an unrelated
         guildId: "g-real-conflict",
         consoleUrl: "https://console.test",
         adapterToken: "mock-token",
+        accessToken: "mock-access-token",
         observerRoleId: "role-a",
         adminRoleId: "role-a"
       }),
@@ -849,11 +883,216 @@ test("CORS allowlist no longer accepts the dead acp.darkdante.org/acp-landing.pa
 // block via a real HTTP request without a more invasive DB-failure
 // harness, disproportionate to this LOW-severity, non-exploitable finding
 // -- unnecessary detail exposure, not a secret leak).
+//
+// mentat#327/#328 (merged after this test was written) added two NEW,
+// narrower `${err.message}` usages inside /setup/register's inner
+// try/catch blocks (verifyGuildOwnership/validateConsoleUrl) -- those are
+// safe by construction: both throw only fixed, developer-authored strings
+// with no interpolated external/internal data (see
+// src/consoleUrlValidation.js and verifyGuildOwnership in src/setupServer.js),
+// unlike the generic outer catches below, which wrap arbitrary unexpected
+// exceptions. A blanket "no ${err.message} anywhere in the file" assertion
+// would false-positive on that legitimate, reviewed usage -- so this test
+// pins the two *generic outer catch* call sites specifically, not the
+// literal string everywhere in the file.
 test("the /oauth/callback and /setup/register error paths log the real error and no longer interpolate err.message into the caller-visible response", async () => {
   const { readFile } = await import("node:fs/promises");
   const src = await readFile(new URL("../src/setupServer.js", import.meta.url), "utf8");
   assert.doesNotMatch(src, /errorPage\(res, 500, "Setup Error", err\.message\)/, "oauth/callback must not echo err.message back to the caller");
-  assert.doesNotMatch(src, /\$\{err\.message\}/, "no remaining verbatim err.message interpolation into a caller-visible string");
+  assert.doesNotMatch(src, /errorPage\(res, 500, "Setup Failed",\s*\n\s*`?\$\{err\.message\}/, "setup/register's generic outer catch must not echo err.message back to the caller");
   assert.match(src, /logError\("setup\.oauth_callback_failed", err\)/, "the real error must still be logged server-side");
   assert.match(src, /logError\("setup\.register_failed", err\)/, "the real error must still be logged server-side");
+});
+
+// ─── mentat#327/#328/#330: /setup/register + /setup/success security ─────
+// hardening -- regression tests proving the actual fixes, not just that
+// pre-existing tests still pass.
+
+test("POST /setup/register rejects a guildId the submitted access token does not own -- mentat#327 (unauthenticated cross-tenant guild hijack)", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createDatabase, getGuild } = await import("../src/database.js");
+
+  const dir = mkdtempSync(join(tmpdir(), "acp-setup-hijack-"));
+  const dbPath = join(dir, "setup.db");
+  // fetchImplOwning is configured to confirm ownership of "g-legit-owned",
+  // NOT the guildId this test actually submits -- simulating an attacker
+  // who knows a victim's guildId but has no real Discord ownership of it.
+  const app = createSetupServer(registerServerConfig({ dbPath, guildId: "g-legit-owned" }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const res = await fetch(`${base}/setup/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guildId: "g-victim-guild",
+        consoleUrl: "https://console.test",
+        adapterToken: "attacker-controlled-token",
+        accessToken: "attacker-access-token"
+      }),
+      redirect: "manual"
+    });
+    assert.equal(res.status, 403, "a hijack attempt against an unowned guildId must be rejected, not silently registered");
+
+    const db = createDatabase(dbPath);
+    const stored = getGuild(db, "g-victim-guild");
+    db.close();
+    assert.equal(stored, undefined, "the victim guild must NOT be registered to the attacker's consoleUrl/adapterToken");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(`${dbPath}-wal`, { force: true });
+    rmSync(`${dbPath}-shm`, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /setup/register rejects a missing access token outright -- no bypass for callers that omit it", async () => {
+  await withApp(async (base) => {
+    const res = await fetch(`${base}/setup/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guildId: "g-no-token",
+        consoleUrl: "https://console.test",
+        adapterToken: "mock-token"
+        // deliberately no accessToken
+      }),
+      redirect: "manual"
+    });
+    assert.equal(res.status, 403, "omitting the access token must not be treated as a trusted API/test caller -- it must fail ownership verification");
+  });
+});
+
+test("POST /setup/register rejects a consoleUrl that resolves to a private/internal address -- mentat#328 (SSRF)", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createDatabase, getGuild } = await import("../src/database.js");
+
+  const dir = mkdtempSync(join(tmpdir(), "acp-setup-ssrf-"));
+  const dbPath = join(dir, "setup.db");
+  const app = createSetupServer({
+    dbPath,
+    discordClientId: "client-id",
+    baseUrl: "http://localhost:3100",
+    fetchImpl: fetchImplOwning("g-ssrf-guild"),
+    // Simulates a hostname that resolves to a cloud-metadata/link-local
+    // address -- the exact class of destination this check must reject.
+    lookupImpl: async () => ([{ address: "169.254.169.254", family: 4 }])
+  });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const res = await fetch(`${base}/setup/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guildId: "g-ssrf-guild",
+        consoleUrl: "https://attacker-controlled-hostname.test",
+        adapterToken: "mock-token",
+        accessToken: "mock-access-token"
+      }),
+      redirect: "manual"
+    });
+    assert.equal(res.status, 400, "a consoleUrl resolving to a metadata/link-local address must be rejected");
+
+    const db = createDatabase(dbPath);
+    const stored = getGuild(db, "g-ssrf-guild");
+    db.close();
+    assert.equal(stored, undefined, "the guild must not be registered with an SSRF-capable consoleUrl");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(`${dbPath}-wal`, { force: true });
+    rmSync(`${dbPath}-shm`, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /setup/register rejects a non-https consoleUrl", async () => {
+  const app = createSetupServer(registerServerConfig({ dbPath: ":memory:", guildId: "g-http-only" }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    const res = await fetch(`${base}/setup/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guildId: "g-http-only",
+        consoleUrl: "http://console.test",
+        adapterToken: "mock-token",
+        accessToken: "mock-access-token"
+      }),
+      redirect: "manual"
+    });
+    assert.equal(res.status, 400);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("GET /setup/success discloses guild details ONLY to the holder of the single-use handoff token -- mentat#330", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const dir = mkdtempSync(join(tmpdir(), "acp-setup-success-token-"));
+  const dbPath = join(dir, "setup.db");
+  const app = createSetupServer(registerServerConfig({ dbPath, guildId: "g-success-token" }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const registerRes = await fetch(`${base}/setup/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guildId: "g-success-token",
+        consoleUrl: "https://console.test",
+        adapterToken: "mock-token",
+        accessToken: "mock-access-token"
+      }),
+      redirect: "manual"
+    });
+    assert.equal(registerRes.status, 302);
+    const location = registerRes.headers.get("location");
+    assert.match(location, /^\/setup\/success\?guildId=g-success-token&token=[0-9a-f]+$/);
+
+    // An unauthenticated caller who merely knows the guildId (no token) must
+    // NOT see the real guild name -- previously, this was a full,
+    // unauthenticated cross-tenant enumeration oracle.
+    const noToken = await fetch(`${base}/setup/success?guildId=g-success-token`);
+    assert.equal(noToken.status, 200);
+    const noTokenBody = await noToken.text();
+    assert.ok(!noTokenBody.includes("Test Guild"), "must not disclose the real guild name without the handoff token");
+    assert.ok(noTokenBody.includes("Your server"), "must fall back to the generic placeholder");
+
+    // The real redirect (with the correct token) DOES see the real details.
+    const withToken = await fetch(`${base}${location}`);
+    assert.equal(withToken.status, 200);
+    const withTokenBody = await withToken.text();
+    assert.ok(withTokenBody.includes("Test Guild"), "the legitimate holder of the handoff token must see the real guild name");
+
+    // The token is single-use -- a second visit with the same token/guildId
+    // must no longer disclose the real name either.
+    const replay = await fetch(`${base}${location}`);
+    const replayBody = await replay.text();
+    assert.ok(!replayBody.includes("Test Guild"), "the handoff token must not be reusable");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(`${dbPath}-wal`, { force: true });
+    rmSync(`${dbPath}-shm`, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

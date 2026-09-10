@@ -26,6 +26,7 @@ import { esc } from "./htmlEscape.js";
 import { renderPage, errorPage } from "./setupLayout.js";
 import { isEncryptionConfigured, constantTimeStringsEqual } from "./secretsCrypto.js";
 import { recordGlobalStatsPushAttempt, recordGuildStatsPushAttempt } from "./statsPushRateLimit.js";
+import { validateConsoleUrl } from "./consoleUrlValidation.js";
 
 // #215/A2: version comes from package.json — a hardcoded literal here
 // drifted two release candidates behind the real version.
@@ -35,6 +36,66 @@ const PKG_VERSION = JSON.parse(readFileSync(join(__setupDirname, "..", "package.
 const DISCORD_OAUTH_URL = "https://discord.com/api/v10/oauth2/authorize";
 const DISCORD_TOKEN_URL = "https://discord.com/api/v10/oauth2/token";
 const DISCORD_USER_URL = "https://discord.com/api/v10/users/@me";
+const DISCORD_GUILDS_URL = "https://discord.com/api/v10/users/@me/guilds";
+
+// Single-use, short-lived tokens handing off from /setup/register's
+// redirect to /setup/success -- closes an unauthenticated cross-tenant
+// information-disclosure gap (mentat#330): without this, GET /setup/success
+// discloses any registered guild's real display name and live-stats-sharing
+// status to any caller who merely knows its guildId (not secret).
+const SETUP_SUCCESS_TOKEN_TTL_MS = 5 * 60 * 1000;
+const setupSuccessTokens = new Map(); // guildId -> { token, expiresAt }
+
+const MAX_SETUP_SUCCESS_TOKENS = 1000;
+
+function issueSetupSuccessToken(guildId) {
+  // Bounded, capacity-capped Map -- mirrors the existing oauthSessions
+  // pattern (database.js) rather than growing unboundedly if a registration
+  // succeeds but its success page is never visited.
+  for (const [key, entry] of setupSuccessTokens) {
+    if (entry.expiresAt < Date.now()) setupSuccessTokens.delete(key);
+  }
+  if (setupSuccessTokens.size >= MAX_SETUP_SUCCESS_TOKENS) {
+    const oldestKey = setupSuccessTokens.keys().next().value;
+    setupSuccessTokens.delete(oldestKey);
+  }
+  const token = randomBytes(24).toString("hex");
+  setupSuccessTokens.set(guildId, { token, expiresAt: Date.now() + SETUP_SUCCESS_TOKEN_TTL_MS });
+  return token;
+}
+
+function consumeSetupSuccessToken(guildId, token) {
+  const entry = setupSuccessTokens.get(guildId);
+  if (!entry || entry.expiresAt < Date.now()) return false;
+  if (typeof token !== "string" || !constantTimeStringsEqual(token, entry.token)) return false;
+  // Only ever delete on a genuine match -- an unauthenticated or wrong-token
+  // request must not be able to burn the real pending token before the
+  // legitimate holder (whose browser is mid-redirect) presents it. This was
+  // a real bug in an earlier version of this function, caught by this
+  // file's own test suite.
+  setupSuccessTokens.delete(guildId);
+  return true;
+}
+
+// Independently re-verifies that the Discord user who authorized this
+// browser session actually owns guildId, using Discord's own API -- never
+// trusting the client-submitted guildId alone. Closes mentat#327 (the
+// /setup/register endpoint previously called upsertGuild() with zero
+// ownership check at all, letting any caller who merely knew a target
+// guild's id -- not secret -- silently hijack its registration).
+async function verifyGuildOwnership(accessToken, guildId, fetchImpl = fetch) {
+  if (typeof accessToken !== "string" || accessToken.length === 0) {
+    throw new Error("Missing Discord access token.");
+  }
+  const guildsRes = await fetchImpl(DISCORD_GUILDS_URL, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  if (!guildsRes.ok) throw new Error("Could not verify Discord guild ownership.");
+  const guilds = await guildsRes.json();
+  if (!Array.isArray(guilds)) throw new Error("Could not verify Discord guild ownership.");
+  const owned = guilds.some((g) => g && g.id === guildId && g.owner === true);
+  if (!owned) throw new Error("You do not own this Discord server.");
+}
 
 // findRoleTierConflict: separation of duties (issue #238, matching Core's
 // tier1-upstream design) -- a single Discord role ID may never be mapped to
@@ -130,10 +191,10 @@ function alertRelayToken(env = process.env) {
 // the real name server-side from the same Discord OAuth token the flow
 // already holds. Best-effort: any failure falls back to "Unknown" rather
 // than blocking registration (the name is display-only).
-async function resolveGuildName(accessToken, guildId) {
+async function resolveGuildName(accessToken, guildId, fetchImpl = fetch) {
   if (!accessToken || !guildId) return "Unknown";
   try {
-    const guildsRes = await fetch("https://discord.com/api/v10/users/@me/guilds", {
+    const guildsRes = await fetchImpl(DISCORD_GUILDS_URL, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     if (!guildsRes.ok) return "Unknown";
@@ -148,6 +209,8 @@ async function resolveGuildName(accessToken, guildId) {
 export function createSetupServer(config) {
   const app = express();
   const db = createDatabase(config.dbPath);
+  const fetchImpl = config.fetchImpl || fetch;
+  const lookupImpl = config.lookupImpl; // undefined -> consoleUrlValidation's own real-DNS default
   
   // Resolve public directory relative to this file's location
   const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -448,6 +511,28 @@ export function createSetupServer(config) {
           "Server, console URL, and adapter token are all required. Use your browser's Back button to return to the form — your entries are preserved.");
       }
 
+      // mentat#327: independently re-verify Discord guild ownership using
+      // the submitted access token, exactly as /api/consoles/register does
+      // -- never trust the client-submitted guildId alone. The <select> at
+      // /oauth/callback is a UI affordance only, not a security boundary.
+      try {
+        await verifyGuildOwnership(req.body.accessToken, guildId, fetchImpl);
+      } catch (err) {
+        return errorPage(res, 403, "Ownership Verification Failed",
+          `${err.message} Use your browser's Back button and select a server you actually own.`);
+      }
+
+      // mentat#328: reject a consoleUrl that resolves to a private,
+      // loopback, or link-local address before it's ever persisted --
+      // otherwise any Discord user who owns a free guild could point this
+      // shared, multi-tenant bot's outbound requests at internal network
+      // addresses (SSRF-as-a-service).
+      try {
+        await validateConsoleUrl(consoleUrl, lookupImpl ? { lookupImpl } : undefined);
+      } catch (err) {
+        return errorPage(res, 400, "Invalid Console URL", err.message);
+      }
+
       // #213/U4's original lockout scenario ("no Admin or Owner mapping ->
       // nobody could administer the bot") is now structurally impossible:
       // owner-tier access always belongs to the real Discord guild owner
@@ -467,7 +552,7 @@ export function createSetupServer(config) {
       // Issue #195: resolve the real guild name server-side (the form's
       // <select> submits only the id). Skipped when no OAuth token is
       // present (e.g. API/test callers) — falls back to "Unknown".
-      const guildName = await resolveGuildName(req.body.accessToken, guildId);
+      const guildName = await resolveGuildName(req.body.accessToken, guildId, fetchImpl);
 
       upsertGuild(db, {
         guildId,
@@ -553,7 +638,12 @@ export function createSetupServer(config) {
       // Issue #198: redirect with the guild id ONLY — the success page
       // looks the stored name up from the DB, so no attacker-chosen (or
       // double-decoded) display text ever rides the query string.
-      res.redirect(`/setup/success?guildId=${encodeURIComponent(guildId)}`);
+      // mentat#330: also carry a single-use handoff token, so
+      // /setup/success can't be used to enumerate any registered guild's
+      // real name/stats-sharing status by an unauthenticated caller who
+      // merely knows its guildId.
+      const successToken = issueSetupSuccessToken(guildId);
+      res.redirect(`/setup/success?guildId=${encodeURIComponent(guildId)}&token=${successToken}`);
     } catch (err) {
       // #214/U7: styled error page for the browser flow, not raw JSON.
       // mentat#333: err.message was previously shown verbatim on this
@@ -572,10 +662,15 @@ export function createSetupServer(config) {
    // decodeURIComponent() on a value Express had already percent-decoded
    // (URIError → 500 for any guild name containing a literal '%').
    app.get("/setup/success", (req, res) => {
-     const { guildId } = req.query;
-     const guild = guildId ? getGuild(db, guildId) : null;
+     const { guildId, token } = req.query;
+     // mentat#330: only the browser that just completed /setup/register
+     // (holding the single-use token from its own redirect) sees the real
+     // guild name/stats-sharing status -- anyone else gets a generic page,
+     // not an unauthenticated enumeration oracle keyed on a guessable guildId.
+     const authorized = guildId ? consumeSetupSuccessToken(guildId, token) : false;
+     const guild = authorized ? getGuild(db, guildId) : null;
      const displayName = guild?.guild_name || "Your server";
-     const statsSharing = guildId ? getGuildStatsSharingStatus(db, guildId) : { enabled: false };
+     const statsSharing = authorized ? getGuildStatsSharingStatus(db, guildId) : { enabled: false };
 
      const body = `
        <div class="success-page">
