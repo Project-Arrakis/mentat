@@ -121,7 +121,7 @@ export async function handleAutoInviteCallback(
   }
 
   const confirmationId = randomBytes(16).toString("hex");
-  createPendingOwnerConfirmation({
+  const { supersededConfirmationId } = createPendingOwnerConfirmation({
     confirmationId,
     guildId,
     guildName: verification.matchedGuild.name,
@@ -130,7 +130,7 @@ export async function handleAutoInviteCallback(
     ownerId: verification.discordUserId
   });
 
-  logInfo("auto_invite.pending_owner_confirmation_staged", { guildId, confirmationId });
+  logInfo("auto_invite.pending_owner_confirmation_staged", { guildId, confirmationId, supersededConfirmationId });
 
   return {
     ok: true,
@@ -138,6 +138,11 @@ export async function handleAutoInviteCallback(
     guildId,
     guildName: verification.matchedGuild.name,
     confirmationId,
+    // mentat#346 Layer 2 audit finding: createPendingOwnerConfirmation()
+    // now supersedes any existing pending entry for this guildId (at most
+    // one at a time) -- the caller must also cancel that superseded
+    // entry's ACTIVE TIMER, which lives in ownerConfirmation.js, not here.
+    supersededConfirmationId,
     // mentat#343 Phase 2: the route handler needs these to trigger the
     // owner-confirmation DM (ownerId to know who to DM, consoleUrl to show
     // in the DM's copy) -- neither is present in Discord's own redirect

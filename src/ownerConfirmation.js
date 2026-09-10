@@ -131,7 +131,22 @@ async function handleOwnerConfirmationTimeout(client, confirmationId) {
 // available via /confirm-connection rather than treating it as a hard
 // failure -- the pending record itself doesn't care how the owner responds.
 // Always schedules the active timeout regardless of DM outcome.
-export async function notifyOwnerOfPendingConfirmation(client, { confirmationId, guildId, guildName, consoleUrl, ownerId }) {
+export async function notifyOwnerOfPendingConfirmation(client, { confirmationId, guildId, guildName, consoleUrl, ownerId, supersededConfirmationId }) {
+  // mentat#346 Layer 2 audit finding: createPendingOwnerConfirmation()
+  // now supersedes any existing pending DB entry for this guildId, but
+  // that alone doesn't stop the OLD entry's already-scheduled timer (a
+  // separate, module-local setTimeout keyed by the OLD confirmationId) --
+  // left running, it would still fire later, find its own (now-deleted)
+  // DB entry gone, and -- worse, if the guild had meanwhile been
+  // legitimately confirmed via THIS new flow -- have no way to know that
+  // and would previously have needed no explicit cancellation to cause
+  // real harm via a Deny click on the stale DM. Cancelling it here,
+  // synchronously, before scheduling the new one, closes that window.
+  if (supersededConfirmationId) {
+    clearActiveTimer(supersededConfirmationId);
+    logInfo("auto_invite.superseded_pending_confirmation", { guildId, supersededConfirmationId, newConfirmationId: confirmationId });
+  }
+
   const embed = buildConfirmationEmbed({ consoleUrl, guildName });
   const row = buildConfirmationRow(confirmationId);
 
@@ -181,6 +196,17 @@ export async function resolveConfirmation(client, db, confirmationId, { requesti
     return { outcome: "denied" };
   }
 
+  // Layer 2 audit finding (mentat#346): explicit allowlist, not "anything
+  // that isn't deny." Both current callers only ever pass "confirm" or
+  // "deny" -- this isn't reachable today -- but an inverted-logic trap
+  // (a future caller, or a malformed customId segment, silently treated
+  // as a confirm instead of being rejected) is exactly the class of bug
+  // this org's Requirement 20 exists to catch before it ships, not after.
+  if (action !== "confirm") {
+    logError("auto_invite.unexpected_confirmation_action", new Error(`Unexpected action: ${String(action)}`), { guildId: entry.guild_id, confirmationId });
+    return { outcome: "invalid_action" };
+  }
+
   const liveOwnerId = client.guilds?.cache?.get(entry.guild_id)?.ownerId;
   if (liveOwnerId !== entry.owner_id) {
     clearActiveTimer(confirmationId);
@@ -228,7 +254,7 @@ export async function handleOwnerConfirmationButtonInteraction(interaction, db) 
     owner_changed: buildOwnerChangedEmbed(),
     denied: buildDeniedEmbed(),
     confirmed: result.outcome === "confirmed" ? buildConfirmedEmbed({ guildName: result.guildName }) : undefined
-  }[result.outcome];
+  }[result.outcome] || buildExpiredEmbed();
 
   if (result.outcome === "not_yours") {
     await interaction.reply({ embeds: [embedFor], ephemeral: true });
@@ -265,7 +291,7 @@ export async function handleConfirmConnectionCommand(interaction, db) {
     not_yours: buildNotYoursEmbed(),
     owner_changed: buildOwnerChangedEmbed(),
     confirmed: result.outcome === "confirmed" ? buildConfirmedEmbed({ guildName: result.guildName }) : undefined
-  }[result.outcome];
+  }[result.outcome] || buildExpiredEmbed();
 
   await interaction.reply({ embeds: [embedFor], ephemeral: result.outcome !== "confirmed" });
   return true;

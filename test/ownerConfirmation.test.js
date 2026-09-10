@@ -343,3 +343,107 @@ test("handleOwnerConfirmationButtonInteraction from a non-owner uses reply(), no
   assert.equal(fakeInteraction.replies.length, 1, "a non-owner's click must get an ephemeral reply()");
   assert.equal(fakeInteraction.updates.length, 0, "must NOT update() the shared prompt -- that would alter what the real owner sees");
 });
+
+// ─── Layer 2 audit finding: a retried auto-invite flow for the same guild
+// must not leave a stale duplicate confirmation whose later timeout/deny
+// can kick a guild the SECOND flow legitimately confirmed ────────────────
+
+test("createPendingOwnerConfirmation supersedes an existing pending entry for the same guildId -- at most one at a time", async () => {
+  const { createPendingOwnerConfirmation, getPendingOwnerConfirmation: getEntry } = await import("../src/database.js");
+  const first = createPendingOwnerConfirmation({
+    confirmationId: "first-attempt",
+    guildId: GUILD_ID,
+    guildName: "Real Guild",
+    consoleUrl: "https://console.test",
+    adapterToken: "adapter-token-1",
+    ownerId: REAL_OWNER_ID
+  });
+  assert.equal(first.supersededConfirmationId, undefined, "the very first attempt supersedes nothing");
+
+  const second = createPendingOwnerConfirmation({
+    confirmationId: "second-attempt",
+    guildId: GUILD_ID,
+    guildName: "Real Guild",
+    consoleUrl: "https://console.test",
+    adapterToken: "adapter-token-2",
+    ownerId: REAL_OWNER_ID
+  });
+  assert.equal(second.supersededConfirmationId, "first-attempt", "the retry must report which entry it superseded");
+  assert.equal(getEntry("first-attempt"), undefined, "the superseded entry's DB record must be gone");
+  assert.notEqual(getEntry("second-attempt"), undefined);
+});
+
+test("end-to-end: confirming via a SECOND (retried) auto-invite attempt cancels the FIRST attempt's active timer -- the stale entry's timeout no longer fires and cannot kick the now-active guild", async () => {
+  process.env.AUTO_INVITE_OWNER_CONFIRMATION_TIMEOUT_MS = "30";
+  try {
+    const db = fakeDb();
+    const client = fakeClient();
+
+    // First attempt: DM sent, timer armed, but the owner never responds
+    // (e.g. the DM was missed).
+    const first = createPendingOwnerConfirmation({
+      confirmationId: "retry-first",
+      guildId: GUILD_ID,
+      guildName: "Real Guild",
+      consoleUrl: "https://console.test",
+      adapterToken: "adapter-token-1",
+      ownerId: REAL_OWNER_ID
+    });
+    await notifyOwnerOfPendingConfirmation(client, {
+      confirmationId: "retry-first",
+      guildId: GUILD_ID,
+      guildName: "Real Guild",
+      consoleUrl: "https://console.test",
+      ownerId: REAL_OWNER_ID,
+      supersededConfirmationId: first.supersededConfirmationId
+    });
+
+    // Second attempt (the retry): createPendingOwnerConfirmation() itself
+    // supersedes the first DB entry; the route-level caller (autoInvite.js
+    // + setupServer.js in production) passes the returned
+    // supersededConfirmationId through to notifyOwnerOfPendingConfirmation,
+    // which is what actually cancels the first attempt's timer.
+    const second = createPendingOwnerConfirmation({
+      confirmationId: "retry-second",
+      guildId: GUILD_ID,
+      guildName: "Real Guild",
+      consoleUrl: "https://console.test",
+      adapterToken: "adapter-token-2",
+      ownerId: REAL_OWNER_ID
+    });
+    await notifyOwnerOfPendingConfirmation(client, {
+      confirmationId: "retry-second",
+      guildId: GUILD_ID,
+      guildName: "Real Guild",
+      consoleUrl: "https://console.test",
+      ownerId: REAL_OWNER_ID,
+      supersededConfirmationId: second.supersededConfirmationId
+    });
+
+    // The owner confirms via the SECOND (most recent) flow.
+    const result = await resolveConfirmation(client, db, "retry-second", { requestingUserId: REAL_OWNER_ID, action: "confirm" });
+    assert.equal(result.outcome, "confirmed");
+
+    // Wait past both attempts' timeout windows. Before the fix, the FIRST
+    // attempt's still-armed timer would fire here, find nothing to delete
+    // (its own entry is already gone), but STILL best-effort leave the
+    // guild -- destroying the connection the second flow just established.
+    await new Promise((resolve) => setTimeout(resolve, 90));
+
+    const stored = getGuild(db, GUILD_ID);
+    assert.equal(stored?.status, "active", "the legitimately confirmed guild must still be active");
+    assert.deepEqual(client._leftGuilds, [], "the superseded first attempt's timer must never fire and leave the guild");
+  } finally {
+    delete process.env.AUTO_INVITE_OWNER_CONFIRMATION_TIMEOUT_MS;
+  }
+});
+
+test("resolveConfirmation rejects an unexpected action value explicitly rather than silently falling through to confirm", async () => {
+  const db = fakeDb();
+  const confirmationId = stagePending();
+  const client = fakeClient();
+
+  const result = await resolveConfirmation(client, db, confirmationId, { requestingUserId: REAL_OWNER_ID, action: "something-unexpected" });
+  assert.equal(result.outcome, "invalid_action");
+  assert.equal(getGuild(db, GUILD_ID), undefined, "an unrecognized action must never reach upsertGuild()");
+});

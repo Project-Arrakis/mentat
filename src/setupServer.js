@@ -941,7 +941,8 @@ export function createSetupServer(config) {
           guildId: result.guildId,
           guildName: result.guildName,
           consoleUrl: result.consoleUrl,
-          ownerId: result.ownerId
+          ownerId: result.ownerId,
+          supersededConfirmationId: result.supersededConfirmationId
         }).catch((err) => {
           logError("auto_invite.notify_owner_failed", err, { guildId: result.guildId });
         });
