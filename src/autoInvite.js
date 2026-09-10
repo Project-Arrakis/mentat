@@ -137,6 +137,12 @@ export async function handleAutoInviteCallback(
     state,
     guildId,
     guildName: verification.matchedGuild.name,
-    confirmationId
+    confirmationId,
+    // mentat#343 Phase 2: the route handler needs these to trigger the
+    // owner-confirmation DM (ownerId to know who to DM, consoleUrl to show
+    // in the DM's copy) -- neither is present in Discord's own redirect
+    // query string, so they must come from here, not req.query.
+    ownerId: verification.discordUserId,
+    consoleUrl: session.console_url
   };
 }

@@ -14,6 +14,7 @@ import { createSteamLinkServer } from "./steamLinkServer.js";
 import { handleGuildDelete } from "./onboarding.js";
 import { startStatsPusher } from "./statsPusher.js";
 import { handleWriteButtonInteraction } from "./writeConfirmation.js";
+import { handleOwnerConfirmationButtonInteraction, handleConfirmConnectionCommand } from "./ownerConfirmation.js";
 import { isEncryptionConfigured, checkSecretFilePermissions } from "./secretsCrypto.js";
 import { proxySharedSecret } from "./proxyAuth.js";
 
@@ -140,7 +141,12 @@ if (config.multiTenant) {
     discordClientSecret: config.discord.clientSecret,
     baseUrl: config.baseUrl,
     oauthRedirectUri: config.oauthRedirectUri,
-    autoInviteRedirectUri: config.autoInviteRedirectUri
+    autoInviteRedirectUri: config.autoInviteRedirectUri,
+    // mentat#343 Phase 2: createSetupServer() previously never received the
+    // live discord.js Client (createSteamLinkServer() below already does,
+    // for its own, unrelated reason) -- the owner-confirmation gate's DM
+    // step needs it to actually message the verified guild owner.
+    discordClient: client
   });
   const setupPort = config.setupPort || 3100;
   setupApp.listen(setupPort, () => {
@@ -281,11 +287,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isButton?.()) {
       const handled = await handleWriteButtonInteraction(interaction);
       if (handled) return;
+      // mentat#343 Phase 2: the "autoinvite:confirm:"/"autoinvite:deny:"
+      // buttons anticipated in the comment above (added when this fall-
+      // through was fixed) now have a real handler -- exactly the shape
+      // that comment predicted.
+      const ownerConfirmationHandled = await handleOwnerConfirmationButtonInteraction(interaction, db);
+      if (ownerConfirmationHandled) return;
       // Falls through to the isMessageComponent?.() branch below, which
       // already correctly no-ops for the one other known component today
       // (the Steam-link Link-style button, which Discord never sends an
       // interaction event for at all) -- and is the obvious place a future
       // handler for a new customId prefix should be added.
+    }
+    // mentat#343 Phase 2: /confirm-connection is a separate top-level slash
+    // command (not a "dune" subcommand), so it must be checked BEFORE
+    // executeDuneCommand() below -- that function only ever handles
+    // interaction.commandName === "dune" and silently returns false for
+    // anything else (its own, already-established convention).
+    if (interaction.isChatInputCommand?.() && interaction.commandName === "confirm-connection") {
+      await handleConfirmConnectionCommand(interaction, db);
+      return;
     }
     // Closes a previously-total gap: this handler used to only ever check
     // isChatInputCommand?.() inside executeDuneCommand() and silently fall

@@ -751,6 +751,25 @@ export function deletePendingOwnerConfirmation(confirmationId) {
   pendingOwnerConfirmations.delete(confirmationId);
 }
 
+// findPendingOwnerConfirmationByGuildId: the /confirm-connection slash
+// command (mentat#343 Phase 2) is run inside a guild and has no
+// confirmationId to look up by -- only the guildId the command was
+// invoked in. This store is capacity-capped at 1000 entries (see
+// MAX_PENDING_OWNER_CONFIRMATIONS above), so a linear scan here is cheap
+// and bounded; not worth a second guildId-keyed index for a Map this
+// small. Applies the same inline expiry recheck as getPendingOwnerConfirmation()
+// so an expired-but-not-yet-swept entry is never matched.
+export function findPendingOwnerConfirmationByGuildId(guildId) {
+  const cutoff = Date.now() - OWNER_CONFIRMATION_MAX_AGE_MS;
+  for (const [confirmationId, entry] of pendingOwnerConfirmations) {
+    if (entry.guild_id !== guildId) continue;
+    if (entry.createdAtMs < cutoff) continue;
+    const { createdAtMs, ...publicShape } = entry;
+    return publicShape;
+  }
+  return undefined;
+}
+
 export function getAllGuilds(db) {
   return db.prepare("SELECT * FROM guilds").all();
 }

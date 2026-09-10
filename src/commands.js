@@ -1,4 +1,5 @@
 import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
+import { buildConfirmConnectionCommand } from "./ownerConfirmation.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -192,7 +193,11 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
 }
 
 export function commandDefinitions({ includeWriteGroup = false } = {}) {
-  return [buildDuneCommand({ includeWriteGroup }).toJSON()];
+  // mentat#343 Phase 2: /confirm-connection is a separate top-level command
+  // (not a "dune" subcommand) -- the slash-command fallback for the
+  // hosted-bot auto-invite owner-confirmation gate, for when the verified
+  // owner's DMs are closed to non-friends.
+  return [buildDuneCommand({ includeWriteGroup }).toJSON(), buildConfirmConnectionCommand().toJSON()];
 }
 
 // #211: single definition (was duplicated inline at two dispatch sites).
