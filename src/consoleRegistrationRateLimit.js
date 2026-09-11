@@ -29,10 +29,29 @@ const GLOBAL_MAX_ATTEMPTS = 120;
 const GLOBAL_WINDOW_MS = 60 * 1000;
 const GLOBAL_BLOCK_MS = 30 * 1000;
 
+// Phase 2b (dune-awakening-selfhost-docker#876, design doc §13): a SEPARATE
+// bucket for GET /api/consoles/auto-invite/confirmation-status, deliberately
+// not sharing globalAttempts above. Layer 2 audit finding: that bucket is
+// sized to bound one-shot calls (/auto-invite/start, /register), each
+// costing real outbound Discord API traffic -- but Core's wizard polls this
+// status route repeatedly (every ~10s for up to ~20 minutes PER pending
+// confirmation) by design. Sharing the 120/min bucket would let sustained
+// legitimate polling from even one or two in-flight confirmations consume
+// most of the budget sized for real registration attempts, causing an
+// unrelated operator's brand-new /auto-invite/start call to get a spurious
+// 429. Sized generously for a purely in-memory Map.get() with real,
+// multi-tenant concurrent polling in mind (up to ~100 confirmations polling
+// concurrently at the wizard's own 10-second interval), not for bounding
+// expensive outbound calls the way the registration bucket is.
+const CONFIRMATION_STATUS_MAX_ATTEMPTS = 600;
+const CONFIRMATION_STATUS_WINDOW_MS = 60 * 1000;
+const CONFIRMATION_STATUS_BLOCK_MS = 30 * 1000;
+
 const GLOBAL_KEY = "__global__";
 
 let perUserAttempts = new Map();
 let globalAttempts = new Map();
+let confirmationStatusAttempts = new Map();
 let now = () => Date.now();
 
 let perUserMax = PER_USER_MAX_ATTEMPTS;
@@ -41,16 +60,23 @@ let perUserBlock = PER_USER_BLOCK_MS;
 let globalMax = GLOBAL_MAX_ATTEMPTS;
 let globalWindow = GLOBAL_WINDOW_MS;
 let globalBlock = GLOBAL_BLOCK_MS;
+let confirmationStatusMax = CONFIRMATION_STATUS_MAX_ATTEMPTS;
+let confirmationStatusWindow = CONFIRMATION_STATUS_WINDOW_MS;
+let confirmationStatusBlock = CONFIRMATION_STATUS_BLOCK_MS;
 
 export function resetConsoleRegistrationRateLimiterForTests(options = {}) {
   perUserAttempts = new Map();
   globalAttempts = new Map();
+  confirmationStatusAttempts = new Map();
   perUserMax = options.perUserMax ?? PER_USER_MAX_ATTEMPTS;
   perUserWindow = options.perUserWindow ?? PER_USER_WINDOW_MS;
   perUserBlock = options.perUserBlock ?? PER_USER_BLOCK_MS;
   globalMax = options.globalMax ?? GLOBAL_MAX_ATTEMPTS;
   globalWindow = options.globalWindow ?? GLOBAL_WINDOW_MS;
   globalBlock = options.globalBlock ?? GLOBAL_BLOCK_MS;
+  confirmationStatusMax = options.confirmationStatusMax ?? CONFIRMATION_STATUS_MAX_ATTEMPTS;
+  confirmationStatusWindow = options.confirmationStatusWindow ?? CONFIRMATION_STATUS_WINDOW_MS;
+  confirmationStatusBlock = options.confirmationStatusBlock ?? CONFIRMATION_STATUS_BLOCK_MS;
   now = options.now ?? (() => Date.now());
 }
 
@@ -101,4 +127,13 @@ export function recordGlobalConsoleRegistrationAttempt() {
 export function recordUserConsoleRegistrationAttempt(discordUserId) {
   const timestamp = now();
   return recordBucket(perUserAttempts, String(discordUserId || ""), timestamp, perUserWindow, perUserMax, perUserBlock);
+}
+
+// recordGlobalConfirmationStatusAttempt: the poll-specific bucket described
+// above -- deliberately separate from recordGlobalConsoleRegistrationAttempt()
+// so sustained legitimate polling never starves an unrelated operator's
+// one-shot registration attempt.
+export function recordGlobalConfirmationStatusAttempt() {
+  const timestamp = now();
+  return recordBucket(confirmationStatusAttempts, GLOBAL_KEY, timestamp, confirmationStatusWindow, confirmationStatusMax, confirmationStatusBlock);
 }

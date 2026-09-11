@@ -178,12 +178,21 @@ test("happy path: /start then /callback stages a pending owner confirmation and 
       assert.equal(fields.ok, "true");
       assert.equal(fields.guildName, "Real Guild");
       assert.equal(fields.state, state);
-      // confirmationId is deliberately NOT part of the signed redirect
-      // payload (design doc §4.1/§4.4) -- it's DM'd server-side to the
-      // verified owner only, never exposed to the browser, which would
-      // otherwise let an observer of this redirect forge a confirm/deny
-      // link for a guild they don't own.
-      assert.equal(fields.confirmationId, undefined);
+      // Phase 2b (dune-awakening-selfhost-docker#876, design doc §13, issue
+      // #890): confirmationId now IS deliberately part of the signed
+      // redirect payload, reversing this test's own original assertion --
+      // Core's wizard needs it client-side to poll
+      // /api/consoles/auto-invite/confirmation-status while showing
+      // "waiting for owner." Re-verified before making this change that it
+      // does NOT reopen the "forge a confirm/deny link" risk this test
+      // used to guard against: the only state-changing path,
+      // resolveConfirmation(), is reachable exclusively through a genuine
+      // Discord button interaction or the /confirm-connection slash
+      // command -- both require Discord's own interaction verification and
+      // a real Discord user ID matching the verified owner. Knowing
+      // confirmationId alone grants no write capability; see the sibling
+      // test below asserting exactly that property still holds.
+      assert.ok(fields.confirmationId && fields.confirmationId.length > 0, "confirmationId must now be present on a successful callback");
       assert.ok(fields.sig && fields.sig.length > 0, "the redirect must be signed");
 
       // The app's own in-memory DB is a separate instance per createSetupServer()
@@ -195,6 +204,94 @@ test("happy path: /start then /callback stages a pending owner confirmation and 
       const { readFile } = await import("node:fs/promises");
       const src = await readFile(new URL("../src/autoInvite.js", import.meta.url), "utf8");
       assert.doesNotMatch(src, /import\s*\{[^}]*upsertGuild/, "Phase 1's autoInvite.js must never import upsertGuild -- if it's never imported, it structurally cannot be called; that write is the owner-confirmation gate's job, a later phase");
+    });
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  }
+});
+
+// ─── Phase 2b (dune-awakening-selfhost-docker#876, design doc §13, issue
+// #890): confirmationId is now exposed to the browser -- this guards the
+// exact property the original (now-reversed) "never expose it" test used
+// to protect: possessing confirmationId alone must never grant any write
+// capability. There is no HTTP route (this repo, past or present) that
+// accepts a bare confirmationId to perform a state-changing action -- the
+// new /confirmation-status route below is read-only by construction. ────
+
+test("no HTTP route accepts a bare confirmationId to perform a write -- confirmation-status is read-only, and resolveConfirmation() is unreachable except via a real Discord interaction", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = PROXY_SECRET;
+  try {
+    await withAutoInviteApp({}, async (base) => {
+      const startRes = await startSession(base);
+      const { state } = await startRes.json();
+      const fields = await callbackRedirectFields(base, `code=real-code&state=${state}&guild_id=111111111111111111`);
+
+      // Structural check: resolveConfirmation (the only function that can
+      // ever call upsertGuild()/tryLeaveGuild() for this flow) is not
+      // imported by setupServer.js at all -- it's only reachable through
+      // ownerConfirmation.js's own Discord-interaction handlers, which
+      // this Express app never exposes as an HTTP route.
+      const { readFile } = await import("node:fs/promises");
+      const src = await readFile(new URL("../src/setupServer.js", import.meta.url), "utf8");
+      assert.doesNotMatch(src, /import\s*\{[^}]*resolveConfirmation/, "setupServer.js must never import resolveConfirmation -- confirm/deny must only ever be reachable through a real Discord interaction, never a bare HTTP call keyed on confirmationId");
+
+      // The only HTTP route that accepts confirmationId at all is the new
+      // read-only status poll -- confirm it never mutates state: calling
+      // it repeatedly with the real confirmationId must keep returning
+      // "pending" (no owner-confirmation gate exists in this test's mocked
+      // discord.js client, so it can never transition on its own), proving
+      // the GET has no side effect.
+      const statusRes1 = await fetch(`${base}/api/consoles/auto-invite/confirmation-status?confirmationId=${fields.confirmationId}`, {
+        headers: { "x-mentat-proxy-secret": PROXY_SECRET }
+      });
+      const statusRes2 = await fetch(`${base}/api/consoles/auto-invite/confirmation-status?confirmationId=${fields.confirmationId}`, {
+        headers: { "x-mentat-proxy-secret": PROXY_SECRET }
+      });
+      assert.equal(statusRes1.status, 200);
+      const body1 = await statusRes1.json();
+      const body2 = await statusRes2.json();
+      assert.equal(body1.status, "pending");
+      assert.deepEqual(body1, body2, "polling status must be idempotent -- a GET must never itself change the outcome");
+    });
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  }
+});
+
+// ─── GET /api/consoles/auto-invite/confirmation-status (issue #876/§13) ──
+
+test("GET /confirmation-status is REJECTED (403) when MENTAT_PROXY_SHARED_SECRET is not configured -- fail-closed, matching /auto-invite/start's own posture", async () => {
+  delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  await withAutoInviteApp({}, async (base) => {
+    const res = await fetch(`${base}/api/consoles/auto-invite/confirmation-status?confirmationId=anything`);
+    assert.equal(res.status, 403);
+  });
+});
+
+test("GET /confirmation-status returns not_found for a confirmationId that never existed", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = PROXY_SECRET;
+  try {
+    await withAutoInviteApp({}, async (base) => {
+      const res = await fetch(`${base}/api/consoles/auto-invite/confirmation-status?confirmationId=never-existed`, {
+        headers: { "x-mentat-proxy-secret": PROXY_SECRET }
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body, { status: "not_found" });
+    });
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  }
+});
+
+test("GET /confirmation-status requires the confirmationId query param", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = PROXY_SECRET;
+  try {
+    await withAutoInviteApp({}, async (base) => {
+      const res = await fetch(`${base}/api/consoles/auto-invite/confirmation-status`, {
+        headers: { "x-mentat-proxy-secret": PROXY_SECRET }
+      });
+      assert.equal(res.status, 400);
     });
   } finally {
     delete process.env.MENTAT_PROXY_SHARED_SECRET;
@@ -330,6 +427,34 @@ test("global rate limit on /auto-invite/start returns 429 with Retry-After once 
       const second = await startSession(base);
       assert.equal(second.status, 429);
       assert.ok(second.headers.get("retry-after"));
+    });
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+    resetConsoleRegistrationRateLimiterForTests({});
+  }
+});
+
+// Layer 2 audit finding (issue found on PR #356's own diff, dune-awakening-selfhost-docker#886):
+// /confirmation-status must NOT share /auto-invite/start's rate-limit
+// bucket -- Core's wizard is expected to poll it repeatedly for the full
+// owner-confirmation window, and sharing the bucket sized for one-shot
+// registration calls would let sustained legitimate polling starve an
+// unrelated operator's brand-new /auto-invite/start attempt.
+test("exhausting the /confirmation-status rate limit does NOT block a subsequent /auto-invite/start call -- the two routes use separate buckets", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = PROXY_SECRET;
+  resetConsoleRegistrationRateLimiterForTests({ confirmationStatusMax: 2, globalMax: 2 });
+  try {
+    await withAutoInviteApp({}, async (base) => {
+      const headers = { "x-mentat-proxy-secret": PROXY_SECRET };
+      const poll1 = await fetch(`${base}/api/consoles/auto-invite/confirmation-status?confirmationId=x`, { headers });
+      assert.equal(poll1.status, 200);
+      const poll2 = await fetch(`${base}/api/consoles/auto-invite/confirmation-status?confirmationId=x`, { headers });
+      assert.equal(poll2.status, 429, "the confirmation-status bucket itself must still enforce its own limit");
+
+      // /auto-invite/start must be entirely unaffected -- it has its own,
+      // separate bucket, not yet touched by any of the polls above.
+      const startRes = await startSession(base);
+      assert.equal(startRes.status, 200, "exhausting the poll bucket must not consume or block the registration bucket");
     });
   } finally {
     delete process.env.MENTAT_PROXY_SHARED_SECRET;

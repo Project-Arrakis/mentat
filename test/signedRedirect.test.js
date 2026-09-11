@@ -67,7 +67,8 @@ test("key derivation: the derived key is a fixed function of the shared secret +
     guildName: signed.guildName,
     reason: signed.reason,
     reclaimed: signed.reclaimed,
-    exp: signed.exp
+    exp: signed.exp,
+    confirmationId: signed.confirmationId
   });
   const recomputed = createHmac("sha256", expectedKey).update(payload).digest("hex");
   assert.equal(signed.sig, recomputed, "the exact derivation formula must be SHA-256(sharedSecret + context), reproducible independently");
@@ -82,6 +83,21 @@ test("ok/reclaimed are always real booleans in the signed payload, reason/guildN
   assert.equal(signed.guildName, "");
   assert.equal(signed.reason, "expired");
   assert.equal(typeof signed.exp, "number");
+});
+
+// Phase 2b (dune-awakening-selfhost-docker#876, design doc §13, issue #889):
+// confirmationId must follow the exact same "always present, defaults to
+// empty string, never undefined" discipline as guildName/reason -- an
+// omitted key on either the ok:true or ok:false payload would reopen a
+// #862-class canonicalization mismatch between mentat's signer and
+// mentat-link's verifier.
+test("confirmationId defaults to empty string rather than undefined on an ok:false payload, and is present on ok:true", () => {
+  const failure = signAutoInviteRedirect({ state: "s1", ok: false, reason: "expired" }, { sharedSecret: SHARED_SECRET });
+  assert.equal(failure.confirmationId, "");
+  assert.notEqual(Object.prototype.hasOwnProperty.call(failure, "confirmationId"), false, "confirmationId key must exist, not be omitted");
+
+  const success = signAutoInviteRedirect({ state: "s1", ok: true, guildName: "Real Guild", confirmationId: "abc123" }, { sharedSecret: SHARED_SECRET });
+  assert.equal(success.confirmationId, "abc123");
 });
 
 test("exp is set roughly 2 minutes in the future", () => {

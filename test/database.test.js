@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
-import { createDatabase, getGuild, getGuildStatus, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, deleteOauthSession, saveStatsSnapshot, getStatsSnapshot, getGuildFaction, setGuildFaction, verifyGuildStatsPushSecret, setGuildStatsSharingSecret, clearGuildStatsSharingSecret, getGuildStatsSharingStatus, upsertGuildStatsSnapshot, getActiveGuildStatsAggregate, isValidStatsPushValue, rollbackSchemaV7ToV6, _resetEphemeralStateForTests } from "../src/database.js";
+import { createDatabase, getGuild, getGuildStatus, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, deleteOauthSession, saveStatsSnapshot, getStatsSnapshot, getGuildFaction, setGuildFaction, verifyGuildStatsPushSecret, setGuildStatsSharingSecret, clearGuildStatsSharingSecret, getGuildStatsSharingStatus, upsertGuildStatsSnapshot, getActiveGuildStatsAggregate, isValidStatsPushValue, rollbackSchemaV7ToV6, _resetEphemeralStateForTests, createPendingOwnerConfirmation, getPendingOwnerConfirmation, resolvePendingOwnerConfirmation, getPendingOwnerConfirmationStatus, findPendingOwnerConfirmationByGuildId } from "../src/database.js";
 import { _resetKeyCacheForTests, _resetKEKCacheForTests, decryptWithDEK } from "../src/secretsCrypto.js";
 
 const VALID_KEY_HEX = "c".repeat(64);
@@ -813,4 +813,140 @@ test("getActiveGuildStatsAggregate reports zero contributing_guilds (not a crash
   const aggregate = getActiveGuildStatsAggregate(db);
   assert.equal(aggregate.contributing_guilds, 0);
   assert.equal(aggregate.players_online, 0);
+});
+
+// ─── pendingOwnerConfirmations lifecycle (dune-awakening-selfhost-docker#876,
+// design doc §13, issues #883/#886/#887) ────────────────────────────────────
+
+test("getPendingOwnerConfirmationStatus returns not_found for a confirmationId that never existed", () => {
+  assert.deepEqual(getPendingOwnerConfirmationStatus("never-existed"), { status: "not_found" });
+});
+
+test("getPendingOwnerConfirmationStatus returns pending for a genuinely-staged, unresolved entry -- and never exposes adapterToken", () => {
+  createPendingOwnerConfirmation({ confirmationId: "c1", guildId: "g1", guildName: "Real Guild", consoleUrl: "https://console.test", adapterToken: "adapter-token-secret", ownerId: "owner1" });
+  const status = getPendingOwnerConfirmationStatus("c1");
+  assert.deepEqual(status, { status: "pending" });
+  assert.ok(!("adapterToken" in status) && !("adapter_token" in status), "a pending entry's status response must never include the adapter token");
+});
+
+test("resolvePendingOwnerConfirmation transitions a pending entry to a terminal, stripped record readable by getPendingOwnerConfirmationStatus", () => {
+  createPendingOwnerConfirmation({ confirmationId: "c1", guildId: "g1", guildName: "Real Guild", consoleUrl: "https://console.test", adapterToken: "adapter-token-secret", ownerId: "owner1" });
+  resolvePendingOwnerConfirmation("c1", { status: "confirmed", guildId: "g1", guildName: "Real Guild" });
+  const status = getPendingOwnerConfirmationStatus("c1");
+  assert.deepEqual(status, { status: "confirmed", guildId: "g1", guildName: "Real Guild" });
+  assert.ok(!("adapterToken" in status) && !("adapter_token" in status) && !("ownerId" in status) && !("owner_id" in status), "a terminal record's status response must strip adapterToken/ownerId, never leak them");
+});
+
+// issue #878: the accessor `resolveConfirmation()` and its callers use
+// (getPendingOwnerConfirmation) must treat a terminal record identically to
+// "not found" -- this is the fix for the duplicate-side-effect window a
+// naive shared-accessor implementation would reopen.
+test("getPendingOwnerConfirmation (the resolveConfirmation()-facing accessor) returns undefined for an already-resolved (terminal) entry, not the terminal record", () => {
+  createPendingOwnerConfirmation({ confirmationId: "c1", guildId: "g1", guildName: "Real Guild", consoleUrl: "https://console.test", adapterToken: "adapter-token-secret", ownerId: "owner1" });
+  resolvePendingOwnerConfirmation("c1", { status: "confirmed", guildId: "g1", guildName: "Real Guild" });
+  assert.equal(getPendingOwnerConfirmation("c1"), undefined, "a duplicate/replayed interaction for an already-resolved confirmationId must see 'not found', never the terminal record -- otherwise resolveConfirmation() could re-run a side effect");
+});
+
+test("findPendingOwnerConfirmationByGuildId (the /confirm-connection slash-command accessor) also never matches a terminal entry", () => {
+  createPendingOwnerConfirmation({ confirmationId: "c1", guildId: "g1", guildName: "Real Guild", consoleUrl: "https://console.test", adapterToken: "adapter-token-secret", ownerId: "owner1" });
+  resolvePendingOwnerConfirmation("c1", { status: "confirmed", guildId: "g1", guildName: "Real Guild" });
+  assert.equal(findPendingOwnerConfirmationByGuildId("g1"), undefined);
+});
+
+test("a terminal record is retained within its 5-minute grace window and genuinely gone (not_found) after it", () => {
+  const originalNow = Date.now;
+  try {
+    let fixedNow = 1_000_000_000_000;
+    Date.now = () => fixedNow;
+    createPendingOwnerConfirmation({ confirmationId: "c1", guildId: "g1", guildName: "Real Guild", consoleUrl: "https://console.test", adapterToken: "adapter-token-secret", ownerId: "owner1" });
+    resolvePendingOwnerConfirmation("c1", { status: "confirmed", guildId: "g1", guildName: "Real Guild" });
+
+    fixedNow += 4 * 60 * 1000; // 4 minutes later -- still within the 5-minute grace window
+    assert.deepEqual(getPendingOwnerConfirmationStatus("c1"), { status: "confirmed", guildId: "g1", guildName: "Real Guild" }, "must still be observable within the grace window");
+
+    fixedNow += 2 * 60 * 1000; // 6 minutes total -- past the 5-minute grace window
+    assert.deepEqual(getPendingOwnerConfirmationStatus("c1"), { status: "not_found" }, "must be gone once the grace window has passed");
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test("a terminal record's grace window is measured from resolvedAtMs, not the original createdAtMs -- resolving late in the 15-minute pending life does not delete it within seconds", () => {
+  const originalNow = Date.now;
+  try {
+    let fixedNow = 1_000_000_000_000;
+    Date.now = () => fixedNow;
+    createPendingOwnerConfirmation({ confirmationId: "c1", guildId: "g1", guildName: "Real Guild", consoleUrl: "https://console.test", adapterToken: "adapter-token-secret", ownerId: "owner1" });
+
+    fixedNow += 14 * 60 * 1000; // resolve at minute 14 of the 15-minute pending window
+    resolvePendingOwnerConfirmation("c1", { status: "confirmed", guildId: "g1", guildName: "Real Guild" });
+
+    fixedNow += 60 * 1000; // 1 more minute (minute 15 overall) -- would be "expired" under the OLD createdAtMs clock, but only 1 minute into the NEW 5-minute grace window
+    assert.deepEqual(getPendingOwnerConfirmationStatus("c1"), { status: "confirmed", guildId: "g1", guildName: "Real Guild" }, "must use resolvedAtMs for the grace window, not createdAtMs -- a naive implementation would already show not_found here");
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test("createPendingOwnerConfirmation's supersede scan skips a terminal (already-resolved) entry for the same guildId -- a resolved attempt is never a real conflict", () => {
+  createPendingOwnerConfirmation({ confirmationId: "c1", guildId: "g1", guildName: "Real Guild", consoleUrl: "https://console.test", adapterToken: "adapter-token-secret", ownerId: "owner1" });
+  resolvePendingOwnerConfirmation("c1", { status: "confirmed", guildId: "g1", guildName: "Real Guild" });
+
+  const { supersededConfirmationId } = createPendingOwnerConfirmation({ confirmationId: "c2", guildId: "g1", guildName: "Real Guild", consoleUrl: "https://console.test", adapterToken: "adapter-token-secret-2", ownerId: "owner2" });
+  assert.equal(supersededConfirmationId, undefined, "a terminal entry must never be reported as superseded -- it wasn't a real conflict");
+  // The terminal record for c1 must still be independently readable (not
+  // wiped by c2's creation) since it's a different key in the same store.
+  assert.deepEqual(getPendingOwnerConfirmationStatus("c1"), { status: "confirmed", guildId: "g1", guildName: "Real Guild" });
+});
+
+// Layer 2 audit finding: Map.set() on an EXISTING key does not move its
+// position in Map iteration order, so a naive "evict .keys().next().value"
+// eviction policy could pick a just-resolved entry over a genuinely
+// stale one, purely because the resolved entry happened to be CREATED
+// earlier. This directly defeats the feature: Core's next poll for that
+// confirmationId would see not_found instead of the real outcome.
+test("capacity eviction prefers a genuinely stale entry over a just-resolved one, even when the resolved entry was created earlier (Map.set on an existing key does not reorder it)", () => {
+  const originalNow = Date.now;
+  try {
+    let fixedNow = 1_000_000_000_000;
+    Date.now = () => fixedNow;
+
+    // c1 is created FIRST (earliest insertion order AND earliest
+    // createdAtMs) but resolved LAST (most recently, right before hitting
+    // capacity) -- its resolvedAtMs ends up LATER than every filler's own
+    // createdAtMs, so a correct eviction must skip it.
+    createPendingOwnerConfirmation({ confirmationId: "c1", guildId: "g1", guildName: "Guild One", consoleUrl: "https://console.test", adapterToken: "t1", ownerId: "owner1" });
+
+    // Fill up to just under capacity with genuinely stale, still-pending
+    // entries created after c1, each at a distinct, later timestamp.
+    const MAX = 1000;
+    // 1ms increments -- distinct enough to break ties, but total elapsed
+    // time (well under a second for 1000 entries) stays far short of the
+    // 15-minute OWNER_CONFIRMATION_MAX_AGE_MS, so sweepExpiredPendingOwnerConfirmations()
+    // (called at the top of every createPendingOwnerConfirmation()) never
+    // prematurely sweeps c1 or an early filler as "expired" mid-test.
+    for (let i = 0; i < MAX - 1; i++) {
+      fixedNow += 1;
+      createPendingOwnerConfirmation({ confirmationId: `filler-${i}`, guildId: `g-filler-${i}`, guildName: "Filler", consoleUrl: "https://console.test", adapterToken: "t", ownerId: "owner" });
+    }
+
+    // Now resolve c1, at a timestamp LATER than every filler's createdAtMs
+    // -- Map.set() on this EXISTING key does not move its position, so it's
+    // still effectively "first" in iteration order despite being the most
+    // recently-touched entry chronologically.
+    fixedNow += 1;
+    resolvePendingOwnerConfirmation("c1", { status: "confirmed", guildId: "g1", guildName: "Guild One" });
+
+    // One more creation pushes the store over capacity, forcing an eviction.
+    fixedNow += 1;
+    createPendingOwnerConfirmation({ confirmationId: "one-more", guildId: "g-one-more", guildName: "One More", consoleUrl: "https://console.test", adapterToken: "t", ownerId: "owner" });
+
+    assert.deepEqual(
+      getPendingOwnerConfirmationStatus("c1"),
+      { status: "confirmed", guildId: "g1", guildName: "Guild One" },
+      "the just-resolved entry must survive eviction even though it was created earliest -- a naive insertion-order eviction would wrongly delete it here"
+    );
+  } finally {
+    Date.now = originalNow;
+  }
 });

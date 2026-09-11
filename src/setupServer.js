@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { logInfo, logError } from "./logger.js";
 import { requireProxySecret, requireProxySecretFailClosed, proxySecretValidFailClosed } from "./proxyAuth.js";
 import { verifyAndRegisterConsole } from "./consoleRegistration.js";
-import { recordGlobalConsoleRegistrationAttempt } from "./consoleRegistrationRateLimit.js";
+import { recordGlobalConsoleRegistrationAttempt, recordGlobalConfirmationStatusAttempt } from "./consoleRegistrationRateLimit.js";
 import { stageAutoInviteSession, handleAutoInviteCallback } from "./autoInvite.js";
 import { notifyOwnerOfPendingConfirmation } from "./ownerConfirmation.js";
 import { signAutoInviteRedirect } from "./signedRedirect.js";
@@ -24,7 +24,8 @@ import {
   verifyGuildStatsPushSecret,
   upsertGuildStatsSnapshot,
   setGuildStatsSharingSecret,
-  getGuildStatsSharingStatus
+  getGuildStatsSharingStatus,
+  getPendingOwnerConfirmationStatus
 } from "./database.js";
 import { esc } from "./htmlEscape.js";
 import { renderPage, errorPage } from "./setupLayout.js";
@@ -926,7 +927,8 @@ export function createSetupServer(config) {
         ok: result.ok,
         guildName: result.guildName,
         reason: result.reason,
-        reclaimed: false
+        reclaimed: false,
+        confirmationId: result.confirmationId
       });
       const returnUrl = new URL(`${config.autoInviteReturnBaseUrl}/api/consoles/auto-invite/return`);
       for (const [key, value] of Object.entries(signed)) {
@@ -955,6 +957,41 @@ export function createSetupServer(config) {
         return res.status(503).json({ error: "The hosted-bot connection service is temporarily unavailable. Please try again later." });
       }
     }
+  });
+
+  // GET /api/consoles/auto-invite/confirmation-status -- Phase 2b
+  // (dune-awakening-selfhost-docker#876, design doc §13, mentat#355). Poll
+  // target for Core's wizard while it shows "waiting for owner": Core
+  // never learns any other way whether/when the Discord owner actually
+  // confirmed, per this design's own round-4 finding. requireProxySecretFailClosed
+  // matches /auto-invite/start's posture above -- same accepted-risk
+  // framing (proves the request passed through mentat-link, not caller
+  // identity), acceptable here for the same reason: the only party able to
+  // construct a valid poll is one already holding a confirmationId (a
+  // 128-bit random value). Layer 2 audit correction: confirmationId is now
+  // ALSO carried in the signed redirect query string reaching the operator's
+  // browser (issue #890's re-check) -- it can in principle leak via browser
+  // history or an access log, not just "inside a Discord DM." The response
+  // this route returns is still deliberately minimal (status + a guild name/
+  // id, no tokens) even under that broader exposure model, matching this
+  // design's existing "acceptable, low-sensitivity read" framing for
+  // /auto-invite/start. Rate-limited via a DEDICATED bucket (issue #886's
+  // Layer 2 audit finding), NOT the shared /start bucket -- unlike a
+  // one-shot registration call, this route is designed to be polled
+  // repeatedly for the full owner-confirmation window; sharing the bucket
+  // sized for one-shot calls would let sustained legitimate polling starve
+  // an unrelated operator's brand-new /auto-invite/start attempt.
+  app.get("/api/consoles/auto-invite/confirmation-status", requireProxySecretFailClosed(), (req, res) => {
+    const globalCheck = recordGlobalConfirmationStatusAttempt();
+    if (!globalCheck.allowed) {
+      res.set("Retry-After", String(globalCheck.retryAfterSeconds));
+      return res.status(429).json({ error: "rate_limited" });
+    }
+    const confirmationId = typeof req.query?.confirmationId === "string" ? req.query.confirmationId : "";
+    if (!confirmationId) {
+      return res.status(400).json({ error: "confirmationId is required" });
+    }
+    return res.status(200).json(getPendingOwnerConfirmationStatus(confirmationId));
   });
 
   // mentat#343+ Phase 5 (design doc §4.3/§4.4/§4.7): the role-name picker's

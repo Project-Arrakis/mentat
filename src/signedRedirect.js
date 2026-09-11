@@ -44,8 +44,16 @@ function deriveSigningKey(sharedSecret) {
 // the Workers runtime (mentat-link), so as long as both sides build this
 // EXACT object literal (not a dynamically-assembled one), the two
 // canonicalizations are guaranteed byte-identical for the same field values.
-function canonicalPayload({ consoleUrl, state, ok, guildName, reason, reclaimed, exp }) {
-  return JSON.stringify({ consoleUrl, state, ok, guildName, reason, reclaimed, exp });
+// Phase 2b (dune-awakening-selfhost-docker#876, design doc §13, issue #885):
+// `confirmationId` added as an 8th field. Same fixed-key-order object
+// literal discipline as every other field -- do not reorder or make this
+// dynamically assembled. Rollout order matters: mentat-link's verifier
+// must be updated to include this key (tolerant of it being empty) BEFORE
+// this signer starts sending real, non-empty values, or every signed
+// redirect fails verification during the gap between an uncoordinated
+// deploy on either side.
+function canonicalPayload({ consoleUrl, state, ok, guildName, reason, reclaimed, exp, confirmationId }) {
+  return JSON.stringify({ consoleUrl, state, ok, guildName, reason, reclaimed, exp, confirmationId });
 }
 
 // signAutoInviteRedirect: returns the full field set (including the freshly
@@ -89,7 +97,8 @@ export function signAutoInviteRedirect(fields, { sharedSecret = proxySharedSecre
     guildName: fields.guildName || "",
     reason: fields.reason || "",
     reclaimed: Boolean(fields.reclaimed),
-    exp
+    exp,
+    confirmationId: fields.confirmationId || ""
   };
   const canonical = canonicalPayload(payload);
   const key = deriveSigningKey(sharedSecret);

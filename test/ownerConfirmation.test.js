@@ -105,6 +105,45 @@ test("Deny discards the pending record with NO db write, and does not throw even
   assert.deepEqual(client._leftGuilds, [GUILD_ID]);
 });
 
+// Phase 2b (dune-awakening-selfhost-docker#876, design doc §13, issue #878):
+// the core regression test for the duplicate-side-effect window the
+// terminal-record retention change could have reopened. A REAL scenario:
+// Discord redelivers a webhook, or an owner double-clicks Deny a moment
+// after their own Confirm already succeeded, before their client re-renders
+// the message. Without the getPendingOwnerConfirmation() fix (issue #878),
+// this second call would find the now-terminal "confirmed" record and
+// silently call tryLeaveGuild() -- removing the bot from a guild it was
+// just legitimately connected to.
+test("a stale Deny arriving after a successful Confirm does not call tryLeaveGuild() or overwrite the DB write -- issue #878", async () => {
+  const db = fakeDb();
+  const confirmationId = stagePending();
+  const client = fakeClient();
+
+  const first = await resolveConfirmation(client, db, confirmationId, { requestingUserId: REAL_OWNER_ID, action: "confirm" });
+  assert.equal(first.outcome, "confirmed");
+  assert.equal(getGuild(db, GUILD_ID).status, "active");
+
+  const secondDeny = await resolveConfirmation(client, db, confirmationId, { requestingUserId: REAL_OWNER_ID, action: "deny" });
+  assert.equal(secondDeny.outcome, "expired", "a duplicate interaction for an already-resolved confirmationId must be treated as expired, not re-processed");
+  assert.deepEqual(client._leftGuilds, [], "the bot must NOT be removed from the guild by a stale Deny that arrives after a real Confirm already succeeded");
+  assert.equal(getGuild(db, GUILD_ID).status, "active", "the guild's DB row must be untouched by the duplicate interaction");
+});
+
+// Same scenario, reversed: a stale Confirm arriving after a real Deny must
+// not resurrect the connection.
+test("a stale Confirm arriving after a Deny does not write the guild to the DB -- issue #878", async () => {
+  const db = fakeDb();
+  const confirmationId = stagePending();
+  const client = fakeClient();
+
+  const first = await resolveConfirmation(client, db, confirmationId, { requestingUserId: REAL_OWNER_ID, action: "deny" });
+  assert.equal(first.outcome, "denied");
+
+  const secondConfirm = await resolveConfirmation(client, db, confirmationId, { requestingUserId: REAL_OWNER_ID, action: "confirm" });
+  assert.equal(secondConfirm.outcome, "expired");
+  assert.equal(getGuild(db, GUILD_ID), undefined, "a stale Confirm after a real Deny must never write the guild to the DB");
+});
+
 test("a requesting user who is NOT the verified owner is rejected -- the button-click path's own check", async () => {
   const db = fakeDb();
   const confirmationId = stagePending();
