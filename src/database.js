@@ -772,8 +772,28 @@ export function createPendingOwnerConfirmation({ confirmationId, guildId, guildN
   }
 
   if (pendingOwnerConfirmations.size >= MAX_PENDING_OWNER_CONFIRMATIONS) {
-    const oldestId = pendingOwnerConfirmations.keys().next().value;
-    pendingOwnerConfirmations.delete(oldestId);
+    // Layer 2 audit finding: Map.set() on an EXISTING key (which is exactly
+    // what resolvePendingOwnerConfirmation() does) does NOT move that key's
+    // position in iteration order -- so `.keys().next().value` (the naive
+    // "oldest by insertion order" approach) can return a confirmation that
+    // was just resolved moments ago, purely because it happened to be
+    // CREATED early. Evicting it would directly defeat this feature's own
+    // purpose: Core's very next poll for that confirmationId would see
+    // not_found instead of the real "confirmed" outcome. Scan for the
+    // entry with the smallest RELEVANT timestamp instead -- resolvedAtMs
+    // for a terminal entry, createdAtMs for a still-pending one -- so a
+    // genuinely stale entry is evicted regardless of where it sits in Map
+    // iteration order.
+    let oldestId;
+    let oldestTime = Infinity;
+    for (const [id, entry] of pendingOwnerConfirmations) {
+      const relevantTime = entry.status ? entry.resolvedAtMs : entry.createdAtMs;
+      if (relevantTime < oldestTime) {
+        oldestTime = relevantTime;
+        oldestId = id;
+      }
+    }
+    if (oldestId !== undefined) pendingOwnerConfirmations.delete(oldestId);
   }
   pendingOwnerConfirmations.set(confirmationId, {
     confirmation_id: confirmationId,
@@ -820,9 +840,18 @@ export function getPendingOwnerConfirmation(confirmationId) {
 // they've done their job (getPendingOwnerConfirmation() already consumed
 // them via the caller's own local `entry` reference before calling this)
 // and have no further legitimate reason to exist in memory once resolved.
+//
+// Layer 2 audit finding: today's only callers (ownerConfirmation.js) always
+// go through getPendingOwnerConfirmation() first, which already hides a
+// terminal entry -- so a double-call is not reachable YET. That's an
+// accidental guard from the call graph, not a designed one; making this
+// function itself refuse to overwrite an already-terminal entry is a
+// cheap, explicit defense against a future call site skipping that
+// pre-check and silently flipping e.g. "confirmed" back to "denied" with
+// no error.
 export function resolvePendingOwnerConfirmation(confirmationId, { status, guildId, guildName }) {
   const entry = pendingOwnerConfirmations.get(confirmationId);
-  if (!entry) return;
+  if (!entry || entry.status) return;
   pendingOwnerConfirmations.set(confirmationId, {
     confirmation_id: confirmationId,
     status,
@@ -846,10 +875,22 @@ export function getPendingOwnerConfirmationStatus(confirmationId) {
   const entry = pendingOwnerConfirmations.get(confirmationId);
   if (!entry) return { status: "not_found" };
   if (entry.status) {
-    if (Date.now() - entry.resolvedAtMs > OWNER_CONFIRMATION_RESOLVED_GRACE_MS) return { status: "not_found" };
+    if (Date.now() - entry.resolvedAtMs > OWNER_CONFIRMATION_RESOLVED_GRACE_MS) {
+      // Layer 2 audit finding: delete-on-detection here too, matching
+      // getPendingOwnerConfirmation()'s own behavior -- otherwise a
+      // deployment receiving many status polls but few new
+      // createPendingOwnerConfirmation() calls (the only other place
+      // sweepExpiredPendingOwnerConfirmations() runs) could accumulate
+      // expired-but-undeleted entries indefinitely between sweeps.
+      pendingOwnerConfirmations.delete(confirmationId);
+      return { status: "not_found" };
+    }
     return { status: entry.status, guildId: entry.guild_id, guildName: entry.guild_name };
   }
-  if (Date.now() - entry.createdAtMs > OWNER_CONFIRMATION_MAX_AGE_MS) return { status: "not_found" };
+  if (Date.now() - entry.createdAtMs > OWNER_CONFIRMATION_MAX_AGE_MS) {
+    pendingOwnerConfirmations.delete(confirmationId);
+    return { status: "not_found" };
+  }
   return { status: "pending" };
 }
 

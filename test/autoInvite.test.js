@@ -434,6 +434,34 @@ test("global rate limit on /auto-invite/start returns 429 with Retry-After once 
   }
 });
 
+// Layer 2 audit finding (issue found on PR #356's own diff, dune-awakening-selfhost-docker#886):
+// /confirmation-status must NOT share /auto-invite/start's rate-limit
+// bucket -- Core's wizard is expected to poll it repeatedly for the full
+// owner-confirmation window, and sharing the bucket sized for one-shot
+// registration calls would let sustained legitimate polling starve an
+// unrelated operator's brand-new /auto-invite/start attempt.
+test("exhausting the /confirmation-status rate limit does NOT block a subsequent /auto-invite/start call -- the two routes use separate buckets", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = PROXY_SECRET;
+  resetConsoleRegistrationRateLimiterForTests({ confirmationStatusMax: 2, globalMax: 2 });
+  try {
+    await withAutoInviteApp({}, async (base) => {
+      const headers = { "x-mentat-proxy-secret": PROXY_SECRET };
+      const poll1 = await fetch(`${base}/api/consoles/auto-invite/confirmation-status?confirmationId=x`, { headers });
+      assert.equal(poll1.status, 200);
+      const poll2 = await fetch(`${base}/api/consoles/auto-invite/confirmation-status?confirmationId=x`, { headers });
+      assert.equal(poll2.status, 429, "the confirmation-status bucket itself must still enforce its own limit");
+
+      // /auto-invite/start must be entirely unaffected -- it has its own,
+      // separate bucket, not yet touched by any of the polls above.
+      const startRes = await startSession(base);
+      assert.equal(startRes.status, 200, "exhausting the poll bucket must not consume or block the registration bucket");
+    });
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+    resetConsoleRegistrationRateLimiterForTests({});
+  }
+});
+
 // ─── Layer 2 audit finding: a malformed JSON body must not bypass EITHER
 // the fail-closed proxy-secret gate OR the global rate limiter (the exact
 // bug class already fixed once for /api/consoles/register -- see

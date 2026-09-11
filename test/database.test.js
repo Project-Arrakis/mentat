@@ -898,3 +898,55 @@ test("createPendingOwnerConfirmation's supersede scan skips a terminal (already-
   // wiped by c2's creation) since it's a different key in the same store.
   assert.deepEqual(getPendingOwnerConfirmationStatus("c1"), { status: "confirmed", guildId: "g1", guildName: "Real Guild" });
 });
+
+// Layer 2 audit finding: Map.set() on an EXISTING key does not move its
+// position in Map iteration order, so a naive "evict .keys().next().value"
+// eviction policy could pick a just-resolved entry over a genuinely
+// stale one, purely because the resolved entry happened to be CREATED
+// earlier. This directly defeats the feature: Core's next poll for that
+// confirmationId would see not_found instead of the real outcome.
+test("capacity eviction prefers a genuinely stale entry over a just-resolved one, even when the resolved entry was created earlier (Map.set on an existing key does not reorder it)", () => {
+  const originalNow = Date.now;
+  try {
+    let fixedNow = 1_000_000_000_000;
+    Date.now = () => fixedNow;
+
+    // c1 is created FIRST (earliest insertion order AND earliest
+    // createdAtMs) but resolved LAST (most recently, right before hitting
+    // capacity) -- its resolvedAtMs ends up LATER than every filler's own
+    // createdAtMs, so a correct eviction must skip it.
+    createPendingOwnerConfirmation({ confirmationId: "c1", guildId: "g1", guildName: "Guild One", consoleUrl: "https://console.test", adapterToken: "t1", ownerId: "owner1" });
+
+    // Fill up to just under capacity with genuinely stale, still-pending
+    // entries created after c1, each at a distinct, later timestamp.
+    const MAX = 1000;
+    // 1ms increments -- distinct enough to break ties, but total elapsed
+    // time (well under a second for 1000 entries) stays far short of the
+    // 15-minute OWNER_CONFIRMATION_MAX_AGE_MS, so sweepExpiredPendingOwnerConfirmations()
+    // (called at the top of every createPendingOwnerConfirmation()) never
+    // prematurely sweeps c1 or an early filler as "expired" mid-test.
+    for (let i = 0; i < MAX - 1; i++) {
+      fixedNow += 1;
+      createPendingOwnerConfirmation({ confirmationId: `filler-${i}`, guildId: `g-filler-${i}`, guildName: "Filler", consoleUrl: "https://console.test", adapterToken: "t", ownerId: "owner" });
+    }
+
+    // Now resolve c1, at a timestamp LATER than every filler's createdAtMs
+    // -- Map.set() on this EXISTING key does not move its position, so it's
+    // still effectively "first" in iteration order despite being the most
+    // recently-touched entry chronologically.
+    fixedNow += 1;
+    resolvePendingOwnerConfirmation("c1", { status: "confirmed", guildId: "g1", guildName: "Guild One" });
+
+    // One more creation pushes the store over capacity, forcing an eviction.
+    fixedNow += 1;
+    createPendingOwnerConfirmation({ confirmationId: "one-more", guildId: "g-one-more", guildName: "One More", consoleUrl: "https://console.test", adapterToken: "t", ownerId: "owner" });
+
+    assert.deepEqual(
+      getPendingOwnerConfirmationStatus("c1"),
+      { status: "confirmed", guildId: "g1", guildName: "Guild One" },
+      "the just-resolved entry must survive eviction even though it was created earliest -- a naive insertion-order eviction would wrongly delete it here"
+    );
+  } finally {
+    Date.now = originalNow;
+  }
+});
