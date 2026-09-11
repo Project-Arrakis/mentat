@@ -708,14 +708,35 @@ export function deleteAutoInviteSession(state) {
 // can't be reused to probe or forge a pending owner-confirmation record).
 const OWNER_CONFIRMATION_MAX_AGE_MS = 15 * 60 * 1000;
 const MAX_PENDING_OWNER_CONFIRMATIONS = 1000;
+// Phase 2b (dune-awakening-selfhost-docker#876, design doc §13, issue #883):
+// how long a RESOLVED entry is retained (in a terminal, stripped form) after
+// resolveConfirmation() commits, so Core's new confirmation-status poll has
+// a real window to observe the outcome before it's gone. Deliberately a
+// SEPARATE clock from OWNER_CONFIRMATION_MAX_AGE_MS above -- a terminal
+// entry's own resolvedAtMs, not the original createdAtMs, is what this
+// window is measured against. Using createdAtMs instead (the naive
+// approach) would delete a terminal record within seconds instead of this
+// full window, for any confirmation resolved late in its pending life.
+const OWNER_CONFIRMATION_RESOLVED_GRACE_MS = 5 * 60 * 1000;
 
 let pendingOwnerConfirmations = new Map();
 
+// Correctness note (issue #883): this used to assume Map iteration order
+// (== insertion order) also meant "ascending createdAtMs order," letting it
+// break early once discovering a not-yet-expired entry. That assumption no
+// longer holds once RESOLVED entries exist -- an older, still-pending entry
+// can resolve (and start a fresh OWNER_CONFIRMATION_RESOLVED_GRACE_MS clock)
+// AFTER a newer entry was created, so an early break could skip over a
+// genuinely-expired terminal entry sitting later in iteration order. A full
+// scan is the correct fix; the store is capped at MAX_PENDING_OWNER_CONFIRMATIONS
+// (1000) entries, so an uncached linear pass here is cheap and bounded.
 function sweepExpiredPendingOwnerConfirmations() {
-  const cutoff = Date.now() - OWNER_CONFIRMATION_MAX_AGE_MS;
+  const now = Date.now();
   for (const [confirmationId, entry] of pendingOwnerConfirmations) {
-    if (entry.createdAtMs >= cutoff) break;
-    pendingOwnerConfirmations.delete(confirmationId);
+    const expired = entry.status
+      ? now - entry.resolvedAtMs > OWNER_CONFIRMATION_RESOLVED_GRACE_MS
+      : now - entry.createdAtMs > OWNER_CONFIRMATION_MAX_AGE_MS;
+    if (expired) pendingOwnerConfirmations.delete(confirmationId);
   }
 }
 
@@ -733,15 +754,20 @@ function sweepExpiredPendingOwnerConfirmations() {
 // entry's confirmationId (or undefined) so the caller can also cancel that
 // entry's ACTIVE TIMER, which lives in a different module
 // (ownerConfirmation.js) and isn't touched by this function.
+//
+// Phase 2b (issue #887): a RESOLVED entry for the same guildId is never a
+// real conflict -- it already ran its side effect (or explicitly didn't,
+// for deny/timeout) and is only lingering for the poll grace window, so it
+// is deliberately excluded from the supersede scan below (`!entry.status`).
 export function createPendingOwnerConfirmation({ confirmationId, guildId, guildName, consoleUrl, adapterToken, ownerId }) {
   sweepExpiredPendingOwnerConfirmations();
 
   let supersededConfirmationId;
   for (const [existingId, entry] of pendingOwnerConfirmations) {
-    if (entry.guild_id === guildId) {
+    if (!entry.status && entry.guild_id === guildId) {
       supersededConfirmationId = existingId;
       pendingOwnerConfirmations.delete(existingId);
-      break; // invariant: at most one entry per guildId, so at most one match
+      break; // invariant: at most one PENDING entry per guildId, so at most one match
     }
   }
 
@@ -762,9 +788,21 @@ export function createPendingOwnerConfirmation({ confirmationId, guildId, guildN
   return { supersededConfirmationId };
 }
 
+// getPendingOwnerConfirmation: used ONLY by resolveConfirmation() and its
+// callers (the Confirm/Deny button handler, the /confirm-connection slash
+// command) -- every caller of this function must keep behaving exactly as
+// it does today. Phase 2b (issue #878): a RESOLVED (terminal) entry MUST be
+// treated identically to "not found" here, the same as a genuinely-deleted
+// one always was -- otherwise a replayed/duplicated Discord interaction
+// (webhook redelivery, a double-clicked button before the client re-renders)
+// arriving after a real resolution could re-run resolveConfirmation()'s
+// confirm/deny side effect a second time (e.g. a stale Deny landing after a
+// legitimate Confirm silently removing the bot from a guild it was just
+// connected to). Use getPendingOwnerConfirmationStatus() below for the new
+// poll route -- that is the only reader allowed to see a terminal entry.
 export function getPendingOwnerConfirmation(confirmationId) {
   const entry = pendingOwnerConfirmations.get(confirmationId);
-  if (!entry) return undefined;
+  if (!entry || entry.status) return undefined;
   if (entry.createdAtMs < Date.now() - OWNER_CONFIRMATION_MAX_AGE_MS) {
     pendingOwnerConfirmations.delete(confirmationId);
     return undefined;
@@ -773,8 +811,46 @@ export function getPendingOwnerConfirmation(confirmationId) {
   return publicShape;
 }
 
-export function deletePendingOwnerConfirmation(confirmationId) {
-  pendingOwnerConfirmations.delete(confirmationId);
+// resolvePendingOwnerConfirmation: replaces the old deletePendingOwnerConfirmation()
+// at every terminal path in ownerConfirmation.js (confirm, deny, owner-changed,
+// timeout) -- issue #876/§13.2. Updates the entry IN PLACE to a stripped,
+// terminal-status record instead of deleting it outright, so Core's new
+// confirmation-status poll has a real (grace-window-bounded) chance to
+// observe the outcome. `adapterToken`/`ownerId` are deliberately dropped --
+// they've done their job (getPendingOwnerConfirmation() already consumed
+// them via the caller's own local `entry` reference before calling this)
+// and have no further legitimate reason to exist in memory once resolved.
+export function resolvePendingOwnerConfirmation(confirmationId, { status, guildId, guildName }) {
+  const entry = pendingOwnerConfirmations.get(confirmationId);
+  if (!entry) return;
+  pendingOwnerConfirmations.set(confirmationId, {
+    confirmation_id: confirmationId,
+    status,
+    guild_id: guildId,
+    guild_name: guildName,
+    resolvedAtMs: Date.now()
+  });
+}
+
+// getPendingOwnerConfirmationStatus: the ONLY reader allowed to see a
+// terminal (resolved) entry -- backs the new GET /api/consoles/auto-invite/
+// confirmation-status route (issue #876/§13.3). Deliberately returns an
+// explicit, minimal allowlist shape, never a spread of the raw entry
+// (issue #886) -- a genuinely-pending entry still holds `adapter_token`,
+// which must never reach this response. A confirmationId that never
+// existed and one that's past its grace window are deliberately
+// indistinguishable ("not_found") -- matching this design's existing
+// "don't over-promise specificity to an unauthenticated-by-identity caller"
+// posture from /auto-invite/start's own auth model.
+export function getPendingOwnerConfirmationStatus(confirmationId) {
+  const entry = pendingOwnerConfirmations.get(confirmationId);
+  if (!entry) return { status: "not_found" };
+  if (entry.status) {
+    if (Date.now() - entry.resolvedAtMs > OWNER_CONFIRMATION_RESOLVED_GRACE_MS) return { status: "not_found" };
+    return { status: entry.status, guildId: entry.guild_id, guildName: entry.guild_name };
+  }
+  if (Date.now() - entry.createdAtMs > OWNER_CONFIRMATION_MAX_AGE_MS) return { status: "not_found" };
+  return { status: "pending" };
 }
 
 // findPendingOwnerConfirmationByGuildId: the /confirm-connection slash
@@ -784,10 +860,13 @@ export function deletePendingOwnerConfirmation(confirmationId) {
 // MAX_PENDING_OWNER_CONFIRMATIONS above), so a linear scan here is cheap
 // and bounded; not worth a second guildId-keyed index for a Map this
 // small. Applies the same inline expiry recheck as getPendingOwnerConfirmation()
-// so an expired-but-not-yet-swept entry is never matched.
+// so an expired-but-not-yet-swept entry is never matched. Phase 2b
+// (issue #878, same reasoning as getPendingOwnerConfirmation() above): a
+// RESOLVED (terminal) entry must never match here either.
 export function findPendingOwnerConfirmationByGuildId(guildId) {
   const cutoff = Date.now() - OWNER_CONFIRMATION_MAX_AGE_MS;
   for (const [confirmationId, entry] of pendingOwnerConfirmations) {
+    if (entry.status) continue;
     if (entry.guild_id !== guildId) continue;
     if (entry.createdAtMs < cutoff) continue;
     const { createdAtMs, ...publicShape } = entry;

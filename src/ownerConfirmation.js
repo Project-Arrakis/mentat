@@ -22,7 +22,7 @@
 // effort leave-guild), not just silent lazy expiry the next time something
 // happens to read the entry.
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder } from "discord.js";
-import { getPendingOwnerConfirmation, deletePendingOwnerConfirmation, findPendingOwnerConfirmationByGuildId, upsertGuild } from "./database.js";
+import { getPendingOwnerConfirmation, resolvePendingOwnerConfirmation, findPendingOwnerConfirmationByGuildId, upsertGuild } from "./database.js";
 import { duneEmbed } from "./embedFormat.js";
 import { logInfo, logError } from "./logger.js";
 
@@ -119,7 +119,7 @@ async function handleOwnerConfirmationTimeout(client, confirmationId) {
   activeTimers.delete(confirmationId);
   const entry = getPendingOwnerConfirmation(confirmationId);
   if (!entry) return; // already confirmed/denied -- nothing to do
-  deletePendingOwnerConfirmation(confirmationId);
+  resolvePendingOwnerConfirmation(confirmationId, { status: "timed_out", guildId: entry.guild_id, guildName: entry.guild_name });
   logInfo("auto_invite.owner_confirmation_timeout", { guildId: entry.guild_id, ownerId: entry.owner_id, confirmationId });
   await tryLeaveGuild(client, entry.guild_id);
 }
@@ -190,7 +190,7 @@ export async function resolveConfirmation(client, db, confirmationId, { requesti
 
   if (action === "deny") {
     clearActiveTimer(confirmationId);
-    deletePendingOwnerConfirmation(confirmationId);
+    resolvePendingOwnerConfirmation(confirmationId, { status: "denied", guildId: entry.guild_id, guildName: entry.guild_name });
     logInfo("auto_invite.owner_denied", { guildId: entry.guild_id, ownerId: entry.owner_id, confirmationId });
     await tryLeaveGuild(client, entry.guild_id);
     return { outcome: "denied" };
@@ -210,7 +210,7 @@ export async function resolveConfirmation(client, db, confirmationId, { requesti
   const liveOwnerId = client.guilds?.cache?.get(entry.guild_id)?.ownerId;
   if (liveOwnerId !== entry.owner_id) {
     clearActiveTimer(confirmationId);
-    deletePendingOwnerConfirmation(confirmationId);
+    resolvePendingOwnerConfirmation(confirmationId, { status: "owner_changed", guildId: entry.guild_id, guildName: entry.guild_name });
     logInfo("auto_invite.owner_mismatch_at_confirm", {
       guildId: entry.guild_id,
       originalOwnerId: entry.owner_id,
@@ -221,7 +221,7 @@ export async function resolveConfirmation(client, db, confirmationId, { requesti
   }
 
   clearActiveTimer(confirmationId);
-  deletePendingOwnerConfirmation(confirmationId);
+  resolvePendingOwnerConfirmation(confirmationId, { status: "confirmed", guildId: entry.guild_id, guildName: entry.guild_name });
   upsertGuild(db, {
     guildId: entry.guild_id,
     guildName: entry.guild_name,

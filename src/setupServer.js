@@ -24,7 +24,8 @@ import {
   verifyGuildStatsPushSecret,
   upsertGuildStatsSnapshot,
   setGuildStatsSharingSecret,
-  getGuildStatsSharingStatus
+  getGuildStatsSharingStatus,
+  getPendingOwnerConfirmationStatus
 } from "./database.js";
 import { esc } from "./htmlEscape.js";
 import { renderPage, errorPage } from "./setupLayout.js";
@@ -926,7 +927,8 @@ export function createSetupServer(config) {
         ok: result.ok,
         guildName: result.guildName,
         reason: result.reason,
-        reclaimed: false
+        reclaimed: false,
+        confirmationId: result.confirmationId
       });
       const returnUrl = new URL(`${config.autoInviteReturnBaseUrl}/api/consoles/auto-invite/return`);
       for (const [key, value] of Object.entries(signed)) {
@@ -955,6 +957,33 @@ export function createSetupServer(config) {
         return res.status(503).json({ error: "The hosted-bot connection service is temporarily unavailable. Please try again later." });
       }
     }
+  });
+
+  // GET /api/consoles/auto-invite/confirmation-status -- Phase 2b
+  // (dune-awakening-selfhost-docker#876, design doc §13, mentat#355). Poll
+  // target for Core's wizard while it shows "waiting for owner": Core
+  // never learns any other way whether/when the Discord owner actually
+  // confirmed, per this design's own round-4 finding. requireProxySecretFailClosed
+  // matches /auto-invite/start's posture above -- same accepted-risk
+  // framing (proves the request passed through mentat-link, not caller
+  // identity), acceptable here for the same reason: the only party able to
+  // construct a valid poll is one already holding a confirmationId (a
+  // 128-bit random value, never broadcast anywhere reachable by an
+  // unrelated party). Rate-limited via the same global bucket as /start
+  // (issue #886) -- unlike a one-shot call, a poll is designed to be hit
+  // repeatedly and cheaply, and costs nothing to abuse with garbage IDs if
+  // left unbounded.
+  app.get("/api/consoles/auto-invite/confirmation-status", requireProxySecretFailClosed(), (req, res) => {
+    const globalCheck = recordGlobalConsoleRegistrationAttempt();
+    if (!globalCheck.allowed) {
+      res.set("Retry-After", String(globalCheck.retryAfterSeconds));
+      return res.status(429).json({ error: "rate_limited" });
+    }
+    const confirmationId = typeof req.query?.confirmationId === "string" ? req.query.confirmationId : "";
+    if (!confirmationId) {
+      return res.status(400).json({ error: "confirmationId is required" });
+    }
+    return res.status(200).json(getPendingOwnerConfirmationStatus(confirmationId));
   });
 
   // mentat#343+ Phase 5 (design doc §4.3/§4.4/§4.7): the role-name picker's
