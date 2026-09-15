@@ -208,7 +208,12 @@ async function buildPlan(guild, existingRoles) {
   if (guild.name !== NEW_GUILD_NAME) {
     plan.push({ type: "rename-guild", from: guild.name, to: NEW_GUILD_NAME });
   }
-  if (guild.verificationLevel !== GuildVerificationLevel.High) {
+  // Never propose a downgrade: the plan doc's own target ("High") turned out to be lower than
+  // what the live guild already had set (Very High) when this was first run against it
+  // (2026-09-15, meta#66) -- operator decision was to keep the stricter existing setting, not
+  // loosen it to match a doc value written without knowing the live state. Only ever proposes
+  // raising the level to High, never lowering an already-stricter setting.
+  if (guild.verificationLevel < GuildVerificationLevel.High) {
     plan.push({ type: "set-verification-level", from: guild.verificationLevel, to: "High" });
   }
 
