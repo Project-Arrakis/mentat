@@ -38,6 +38,14 @@ access, and container privileges after the change.
 
 What remains incomplete, deferred, or out of scope.
 
+## Architecture Doc Impact
+
+If this PR touches `src/rbac.js`, `src/commands.js`, `src/adapterClient.js`,
+`src/writeCommands.js`, or `package.json`'s dependencies: does
+`docs/architecture.md` need updating? `npm run docs:check-architecture-drift`
+(part of `npm run check`) catches some of this mechanically, but not
+everything — state explicitly either way.
+
 ## Sources
 
 Official docs, upstream source material, or evidence used to make the change.
