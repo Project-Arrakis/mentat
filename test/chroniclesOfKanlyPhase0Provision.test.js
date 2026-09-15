@@ -75,6 +75,21 @@ test("planCategoriesAndChannels does not re-plan a channel that already exists u
   assert.ok(!plan.some((item) => item.type === "create-text-channel" && item.name === "welcome"));
 });
 
+test("planCategoriesAndChannels still plans a channel when a same-named channel exists under an unrelated (or no) parent -- real bug found live 2026-09-15", () => {
+  // welcome/announcements/bot-commands all collided with legacy channels
+  // sharing the same name under a pre-existing category, silently skipping
+  // the new channel this plan wanted. A same-named channel elsewhere must
+  // never count as "already exists" for this plan slot.
+  const existingChannels = [
+    { type: ChannelType.GuildCategory, name: "📜 Arrival", id: "cat-1" },
+    { type: ChannelType.GuildText, name: "welcome", id: "legacy-welcome", parentId: "some-other-category" },
+    { type: ChannelType.GuildText, name: "the-writ", id: "orphan-the-writ", parentId: null }
+  ];
+  const plan = planCategoriesAndChannels(existingChannels);
+  assert.ok(plan.some((item) => item.type === "create-text-channel" && item.name === "welcome"));
+  assert.ok(plan.some((item) => item.type === "create-text-channel" && item.name === "the-writ"));
+});
+
 test("planCategoriesAndChannels is fully idempotent once everything exists", () => {
   const existingChannels = [];
   for (const [index, category] of CATEGORIES.entries()) {

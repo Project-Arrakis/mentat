@@ -176,7 +176,15 @@ export function planCategoriesAndChannels(existingChannels) {
       plan.push({ type: "create-category", name: category.name, lockedTo: category.lockedTo || null });
     }
     for (const channel of category.channels) {
-      const existingChannel = existingChannels.find((c) => c.type === ChannelType.GuildText && c.name === channel.name && (!existingCategory || c.parentId === existingCategory.id));
+      // Requires an exact category match -- never falls back to matching by
+      // name alone. Real bug found live (2026-09-15): the old, lenient
+      // "!existingCategory || parentId matches" check treated an unrelated
+      // pre-existing channel that merely shared a name (welcome,
+      // announcements, bot-commands all collided with legacy SERVER INFO
+      // channels) as "already exists," silently skipping the new one this
+      // plan actually wanted -- three separate real channels were missed
+      // this way before being caught and manually reconciled.
+      const existingChannel = existingChannels.find((c) => c.type === ChannelType.GuildText && c.name === channel.name && Boolean(existingCategory) && c.parentId === existingCategory.id);
       if (!existingChannel) {
         plan.push({
           type: "create-text-channel",
