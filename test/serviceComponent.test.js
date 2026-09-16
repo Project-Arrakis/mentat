@@ -4,8 +4,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createDatabase } from "../src/database.js";
-import { setDutyStatus } from "../src/serviceChannels.js";
-import { buildServiceStatusEmbed } from "../src/serviceComponent.js";
+import { setDutyStatus, setServiceChannel, isOnDuty } from "../src/serviceChannels.js";
+import { buildServiceStatusEmbed, handleServiceButtonInteraction } from "../src/serviceComponent.js";
+import { updateGuildSettings, upsertGuild } from "../src/database.js";
 
 function fakeDb() { return createDatabase(":memory:"); }
 const GUILD_ID = "111111111111111111";
@@ -33,4 +34,116 @@ test("buildServiceStatusEmbed returns exactly 3 buttons: On Duty, Off Duty, Appl
   assert.equal(buttons.length, 3);
   const customIds = buttons.map(b => b.data.custom_id);
   assert.deepEqual(customIds, ["service:onduty:water-seller", "service:offduty:water-seller", "service:apply:water-seller"]);
+});
+
+function stageService(db, overrides = {}) {
+  // A real deployment only ever provisions a service channel for an
+  // already-registered guild -- a guild_settings row (needed by
+  // toggleGenericOnDutyRole's getGuildSettings/updateGuildSettings calls)
+  // is created as a side effect of upsertGuild(), matching how a guild
+  // actually comes to exist in this bot.
+  upsertGuild(db, { guildId: GUILD_ID, guildName: "Test Guild", consoleUrl: "https://console.test", adapterToken: "token", status: "active" });
+  setServiceChannel(db, GUILD_ID, "water-seller", {
+    channelId: "chan-1", roleId: "role-water-seller", reviewChannelId: "review-1", requiresReview: true, ...overrides
+  });
+}
+
+function fakeChannel(sent = []) {
+  return {
+    isTextBased: () => true,
+    send: async (payload) => { const id = `msg-${sent.length + 1}`; sent.push({ id, payload }); return { id }; },
+    messages: { fetch: async () => { throw new Error("not found"); } }
+  };
+}
+
+function fakeClient(sent = []) {
+  return { channels: { fetch: async () => fakeChannel(sent) } };
+}
+
+test("handleServiceButtonInteraction returns false for a customId it doesn't own", async () => {
+  const db = fakeDb();
+  const fakeInteraction = { isButton: () => true, customId: "write:confirm:something" };
+  const handled = await handleServiceButtonInteraction(fakeInteraction, db, fakeClient());
+  assert.equal(handled, false);
+});
+
+test("onduty without the role is rejected ephemerally, no DB write, and names the fix", async () => {
+  const db = fakeDb();
+  stageService(db);
+  const replies = [];
+  const fakeInteraction = {
+    isButton: () => true,
+    customId: "service:onduty:water-seller",
+    user: { id: "user-1" },
+    guildId: GUILD_ID,
+    member: { roles: { cache: { keys: () => [][Symbol.iterator]() } } },
+    reply: async (payload) => { replies.push(payload); }
+  };
+  const handled = await handleServiceButtonInteraction(fakeInteraction, db, fakeClient());
+  assert.equal(handled, true);
+  assert.equal(replies.length, 1);
+  assert.ok(replies[0].ephemeral);
+  assert.match(replies[0].content, /Apply/);
+  assert.equal(isOnDuty(db, GUILD_ID, "water-seller", "user-1"), false);
+});
+
+test("onduty with the role writes service_duty_status, grants the generic On Duty role if configured, and refreshes the pinned embed", async () => {
+  const db = fakeDb();
+  stageService(db);
+  updateGuildSettings(db, GUILD_ID, { on_duty_role_id: "generic-on-duty-role" });
+  const added = [];
+  const sent = [];
+  const fakeInteraction = {
+    isButton: () => true,
+    customId: "service:onduty:water-seller",
+    user: { id: "user-1" },
+    guildId: GUILD_ID,
+    member: { roles: { cache: { keys: () => ["role-water-seller"][Symbol.iterator]() }, add: async (roleId) => added.push(roleId) } },
+    reply: async () => {}
+  };
+  const client = fakeClient(sent);
+  const handled = await handleServiceButtonInteraction(fakeInteraction, db, client);
+  assert.equal(handled, true);
+  assert.equal(isOnDuty(db, GUILD_ID, "water-seller", "user-1"), true);
+  assert.deepEqual(added, ["generic-on-duty-role"]);
+  assert.equal(sent.length, 1, "must post/refresh the pinned status message");
+});
+
+test("offduty clears service_duty_status and removes the generic On Duty role", async () => {
+  const db = fakeDb();
+  stageService(db);
+  updateGuildSettings(db, GUILD_ID, { on_duty_role_id: "generic-on-duty-role" });
+  setDutyStatus(db, GUILD_ID, "water-seller", "user-1");
+  const removed = [];
+  const sent = [];
+  const fakeInteraction = {
+    isButton: () => true,
+    customId: "service:offduty:water-seller",
+    user: { id: "user-1" },
+    guildId: GUILD_ID,
+    member: { roles: { cache: { keys: () => ["role-water-seller"][Symbol.iterator]() }, remove: async (roleId) => removed.push(roleId) } },
+    reply: async () => {}
+  };
+  const client = fakeClient(sent);
+  const handled = await handleServiceButtonInteraction(fakeInteraction, db, client);
+  assert.equal(handled, true);
+  assert.equal(isOnDuty(db, GUILD_ID, "water-seller", "user-1"), false);
+  assert.deepEqual(removed, ["generic-on-duty-role"]);
+});
+
+test("onduty when on_duty_role_id is unset (default '') skips the generic-role toggle without error", async () => {
+  const db = fakeDb();
+  stageService(db);
+  const sent = [];
+  const fakeInteraction = {
+    isButton: () => true,
+    customId: "service:onduty:water-seller",
+    user: { id: "user-1" },
+    guildId: GUILD_ID,
+    member: { roles: { cache: { keys: () => ["role-water-seller"][Symbol.iterator]() }, add: async () => { throw new Error("must not be called"); } } },
+    reply: async () => {}
+  };
+  const client = fakeClient(sent);
+  const handled = await handleServiceButtonInteraction(fakeInteraction, db, client);
+  assert.equal(handled, true);
 });

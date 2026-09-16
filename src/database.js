@@ -57,7 +57,12 @@ CREATE TABLE IF NOT EXISTS guild_settings (
   announcements_channel TEXT NOT NULL DEFAULT '',
   cooldown_ms INTEGER NOT NULL DEFAULT 5000,
   admin_cooldown_ms INTEGER NOT NULL DEFAULT 1000,
-  faction TEXT NOT NULL DEFAULT '' CHECK(faction IN ('', 'atreides', 'harkonnen', 'fremen'))
+  faction TEXT NOT NULL DEFAULT '' CHECK(faction IN ('', 'atreides', 'harkonnen', 'fremen')),
+  -- on_duty_role_id (schema v9, mentat#372): the guild's single generic
+  -- On Duty role, granted/removed alongside a per-service duty toggle --
+  -- present here for a fresh install; the guarded ALTER TABLE below
+  -- reaches an existing v8 install the same way v5->v6 did for faction.
+  on_duty_role_id TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_guild_roles_guild ON guild_roles(guild_id);

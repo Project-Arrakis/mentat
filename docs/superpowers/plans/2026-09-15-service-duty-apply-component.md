@@ -144,7 +144,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_service_applications_pending
 -- in-game state depends on it.
 ```
 
-Add the `ALTER TABLE` migration block (`guild_settings.on_duty_role_id` is a new column on a pre-existing table — `CREATE TABLE IF NOT EXISTS` alone won't reach an existing install, exactly like the v5→v6 `guilds` column additions). Insert this block right before the final `if (currentVersion && currentVersion.version < SCHEMA_VERSION) {` block near the end of `createDatabase()`:
+**Also update the existing `guild_settings` `CREATE TABLE IF NOT EXISTS` block itself** (found near the top of `SCHEMA`, already has a `faction` column) to add `on_duty_role_id TEXT NOT NULL DEFAULT ''` as its own new column, right after `faction`. This is required, not optional, even though the ALTER TABLE step below also adds this column: `CREATE TABLE IF NOT EXISTS` only ever fires for a genuinely fresh database (no existing `schema_version` row), which skips every guarded `ALTER TABLE` migration block entirely (those only run when `currentVersion` is truthy) — the exact same reason `faction` itself already appears in both the base `CREATE TABLE` and its own v5→v6 `ALTER TABLE` block. Skipping this step means a fresh install never gets the column at all, only an upgraded one — found the hard way via a real `SQLITE_ERROR: no such column: on_duty_role_id` failure against a fresh `:memory:` database while executing Task 6. **Do not write a backtick anywhere inside a SQL comment in this file** — a stray `` ` `` inside a `--` comment prematurely closes the enclosing JS template literal and breaks every line after it with a real `SyntaxError` (this exact mistake was made and caught while writing this plan's own implementation, and is also documented as a recurring trap in this repo's own commit history for this file).
+
+Add the `ALTER TABLE` migration block (`guild_settings.on_duty_role_id` is a new column on a pre-existing table — the `CREATE TABLE IF NOT EXISTS` addition above only helps a *fresh* install; an *existing* v8 install needs this guarded `ALTER TABLE` too, exactly like the v5→v6 `guilds` column additions). Insert this block right before the final `if (currentVersion && currentVersion.version < SCHEMA_VERSION) {` block near the end of `createDatabase()`:
 
 ```javascript
   // v8->v9 (mentat#372): guild_settings.on_duty_role_id is a new column
@@ -704,9 +706,17 @@ Append to `test/serviceComponent.test.js`:
 ```javascript
 import { setServiceChannel } from "../src/serviceChannels.js";
 import { handleServiceButtonInteraction } from "../src/serviceComponent.js";
-import { updateGuildSettings } from "../src/database.js";
+import { updateGuildSettings, upsertGuild } from "../src/database.js";
 
 function stageService(db, overrides = {}) {
+  // A guild_settings row (needed by toggleGenericOnDutyRole's
+  // getGuildSettings/updateGuildSettings calls) only exists as a side
+  // effect of upsertGuild() -- found the hard way while executing this
+  // task: updateGuildSettings() silently no-ops (0 rows affected) with
+  // no error when no such row exists yet, so skipping this call makes
+  // the generic-role-toggle assertions fail with an empty array instead
+  // of a clear signal.
+  upsertGuild(db, { guildId: GUILD_ID, guildName: "Test Guild", consoleUrl: "https://console.test", adapterToken: "token", status: "active" });
   setServiceChannel(db, GUILD_ID, "water-seller", {
     channelId: "chan-1", roleId: "role-water-seller", reviewChannelId: "review-1", requiresReview: true, ...overrides
   });
