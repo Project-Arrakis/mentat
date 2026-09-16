@@ -212,3 +212,10 @@ test("formatCoriolisEmbed renders the seed and a Discord relative/full timestamp
   assert.match(embed.toJSON().description, new RegExp(`<t:${expectedUnix}:R>`));
   assert.match(embed.toJSON().description, new RegExp(`<t:${expectedUnix}:F>`));
 });
+
+test("formatCoriolisEmbed shows the unknown state (not a broken <t:NaN:...> string) when nextCycleAt is malformed", () => {
+  const embed = formatCoriolisEmbed({ ok: true, seed: "2", nextCycleAt: "not-a-real-date" });
+  const description = embed.toJSON().description;
+  assert.match(description, /Not yet known/);
+  assert.doesNotMatch(description, /NaN/);
+});

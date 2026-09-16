@@ -4,15 +4,28 @@ import { getLiveMessage, setLiveMessage } from "./database.js";
 // infrastructure. Nothing in this bot did this before -- confirmed by
 // direct exploration (no messages.edit/stored-message-ID pattern anywhere
 // in src/*.js) -- so this is new shared code, not an extension of an
-// existing pattern. Built here (the Coriolis countdown, the simplest real
-// consumer) so mentat#369 (Landsraad tracker) and mentat#372 (duty status
-// embeds) can reuse it instead of each inventing their own copy.
+// existing pattern. Built here so mentat#369 (Landsraad tracker) and
+// mentat#372 (duty status embeds) can reuse it instead of each inventing
+// their own copy. NOT wired to any live caller yet as of this commit --
+// see this repo's CHANGELOG.md entry for #370; /dune server coriolis
+// itself uses a plain one-shot reply, not this utility, since its
+// countdown is fully client-side-rendered via Discord's own <t:UNIX:R>
+// and needs no server-side refresh loop at all.
 //
 // Looks up a previously-posted message by a stable (guildId, messageKey)
 // pair and edits it in place; falls back to posting a fresh message (and
 // recording its ID) if none exists yet, or if the recorded message/channel
 // is gone (deleted by a moderator, channel removed, etc.) -- a live status
 // display should never hard-fail just because its last post disappeared.
+//
+// Layer 3 Security-hat finding (2026-09-16): `messageKey` becomes a SQLite
+// primary-key component (parameterized, no injection risk) but is trusted
+// entirely by this function -- callers MUST pass a fixed, code-defined key
+// (e.g. "coriolis", "landsraad"), never anything derived from user or
+// channel input, or two different guilds'/channels' features could
+// collide on the same row (one feature's message pointer silently
+// overwriting another's). Whoever wires mentat#369/#372 into this
+// function must keep messageKey an enum of hardcoded feature names.
 export async function postOrEditLiveMessage({ client, db, guildId, channelId, messageKey, content }) {
   const existing = getLiveMessage(db, guildId, messageKey);
   if (existing) {

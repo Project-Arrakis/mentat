@@ -720,14 +720,19 @@ export function formatServicesDetailEmbed(payload) {
 // need a live-edited embed just to stay accurate as time passes even
 // between our own refresh cycles.
 export function formatCoriolisEmbed(payload) {
-  if (payload?.ok !== true || !payload?.seed || !payload?.nextCycleAt) {
+  const nextCycleUnix = Math.floor(new Date(payload?.nextCycleAt).getTime() / 1000);
+  // Layer 3 UI/UX hat finding: a malformed/unparseable nextCycleAt (a Core
+  // contract violation, but this formatter must not trust that never
+  // happens) would otherwise silently render literal, broken
+  // "<t:NaN:R> (<t:NaN:F>)" text to the user instead of a clear unknown
+  // state -- guarded here, not just against seed/nextCycleAt being absent.
+  if (payload?.ok !== true || !payload?.seed || !payload?.nextCycleAt || !Number.isFinite(nextCycleUnix)) {
     return duneEmbed({
       title: "🌪️ Coriolis Storm",
       color: "warning",
       description: "❔ **Not yet known** — the storm seed/cycle hasn't been observed since the server's last restart."
     });
   }
-  const nextCycleUnix = Math.floor(new Date(payload.nextCycleAt).getTime() / 1000);
   return duneEmbed({
     title: "🌪️ Coriolis Storm",
     color: "spice",
