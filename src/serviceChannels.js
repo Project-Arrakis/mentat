@@ -50,3 +50,59 @@ export function listOnDuty(db, guildId, serviceKey) {
   return db.prepare("SELECT * FROM service_duty_status WHERE guild_id = ? AND service_key = ? ORDER BY started_at ASC")
     .all(guildId, serviceKey);
 }
+
+export function getPendingApplication(db, guildId, serviceKey, applicantId) {
+  return db.prepare(`
+    SELECT * FROM service_applications
+    WHERE guild_id = ? AND service_key = ? AND applicant_id = ? AND status = 'pending'
+  `).get(guildId, serviceKey, applicantId);
+}
+
+export function getApplication(db, applicationId) {
+  return db.prepare("SELECT * FROM service_applications WHERE id = ?").get(applicationId);
+}
+
+// createApplication: the pre-check via getPendingApplication() (done by
+// the caller in serviceComponent.js before ever showing the modal) is a
+// fast, friendly first line -- this function's own try/catch around the
+// INSERT is the real, authoritative guard, since
+// idx_service_applications_pending is a UNIQUE partial index. Two
+// near-simultaneous calls for the same guild+service+applicant will have
+// exactly one succeed and one land here with a caught constraint
+// violation, translated to a typed result instead of throwing a raw
+// SQLITE_CONSTRAINT_UNIQUE at the caller.
+export function createApplication(db, { guildId, serviceKey, applicantId, characterName, proofLink }) {
+  try {
+    const result = db.prepare(`
+      INSERT INTO service_applications (guild_id, service_key, applicant_id, character_name, proof_link)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(guildId, serviceKey, applicantId, characterName, proofLink || null);
+    return { ok: true, application: getApplication(db, result.lastInsertRowid) };
+  } catch (error) {
+    if (error?.code === "SQLITE_CONSTRAINT_UNIQUE") {
+      return { ok: false, reason: "already_pending" };
+    }
+    throw error;
+  }
+}
+
+export function setApplicationReviewMessage(db, applicationId, reviewMessageId) {
+  db.prepare("UPDATE service_applications SET review_message_id = ? WHERE id = ?").run(reviewMessageId, applicationId);
+}
+
+// resolveApplication: guildId is REQUIRED and part of the WHERE clause --
+// never key only on applicationId, since mentat is confirmed
+// multi-tenant. Returns null, not a thrown error, for a wrong-guild or
+// nonexistent applicationId -- the caller treats null the same as
+// "application not found," never leaking whether a differently-scoped
+// row exists.
+export function resolveApplication(db, guildId, applicationId, { status, reviewedBy }) {
+  const existing = db.prepare("SELECT * FROM service_applications WHERE id = ? AND guild_id = ?").get(applicationId, guildId);
+  if (!existing) return null;
+  db.prepare(`
+    UPDATE service_applications
+    SET status = ?, reviewed_by = ?, reviewed_at = datetime('now')
+    WHERE id = ?
+  `).run(status, reviewedBy, applicationId);
+  return getApplication(db, applicationId);
+}
