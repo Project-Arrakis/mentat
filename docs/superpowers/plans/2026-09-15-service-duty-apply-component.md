@@ -45,7 +45,7 @@ test("createDatabase migrates a v8 database to v9, adding service tables and gui
   try {
     let db = createDatabase(dbPath);
     db.prepare("UPDATE schema_version SET version = 8").run();
-    upsertGuild(db, "g1", "Test Guild", "https://console.test", "token", "active");
+    upsertGuild(db, { guildId: "g1", guildName: "Test Guild", consoleUrl: "https://console.test", adapterToken: "token", status: "active" });
     db.close();
 
     db = createDatabase(dbPath);

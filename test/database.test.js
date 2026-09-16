@@ -178,10 +178,11 @@ test("schema v4: key_versions, secret_keys, and secret_access_log tables exist o
   // removed in v7), v6 added stats_push_secret/guild_stats_snapshot
   // (mentat#276), v7 hardened the schema (removed six tables entirely --
   // see database.js's "Schema hardening (v7)" comment), v8 added
-  // live_messages (mentat#370). This test's own name still says "v4"
-  // since it's specifically about the v4-era KEK/DEK tables, which are
-  // unaffected and still present.
-  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 8);
+  // live_messages (mentat#370), v9 added the service_* tables
+  // (mentat#372). This test's own name still says "v4" since it's
+  // specifically about the v4-era KEK/DEK tables, which are unaffected
+  // and still present.
+  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 9);
 });
 
 test("real age/KEK: upsertGuild/getGuild round-trip using a real KEK produces v2 ciphertext and a secret_keys row", { skip: !ageAvailable() && "age binary not installed" }, () => {
@@ -377,7 +378,7 @@ test("real age/KEK: two guilds' adapter_token rows use independent DEKs (comprom
 // on-disk database matching the pre-v6 schema, then re-opens it through
 // createDatabase() to exercise the actual upgrade path an existing
 // operator hits.
-test("schema v5 install upgrades straight to v7: gains the guilds columns from v6 and lands on the current version", () => {
+test("schema v5 install upgrades straight to v9: gains the guilds columns from v6 and lands on the current version", () => {
   const dir = mkdtempSync(join(tmpdir(), "acp-db-migration-"));
   const dbPath = join(dir, "acp.db");
   try {
@@ -409,7 +410,7 @@ test("schema v5 install upgrades straight to v7: gains the guilds columns from v
 
     assert.equal(
       db.prepare("SELECT version FROM schema_version").get().version,
-      8,
+      9,
       "schema_version must land on the current version after migration"
     );
 
@@ -472,7 +473,7 @@ test("schema v6->v7 hardening migration: drops all six removed tables and preser
 
     const db = createDatabase(dbPath);
 
-    assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 8);
+    assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 9);
 
     const tableNames = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name);
     for (const removed of ["player_links", "guild_member_activity", "oauth_sessions", "bot_stats", "stats_snapshot", "guild_stats_snapshot"]) {
@@ -514,10 +515,11 @@ test("schema v7->v6 rollback: recreates all six tables with the pre-v7 shape and
 
     // Forward migration (the real path, not a hand-built v7 fixture) --
     // this is the exact database a v7 upgrade produces, plus v8's
-    // additive live_messages table (mentat#370) since createDatabase()
-    // always migrates all the way to the current SCHEMA_VERSION.
+    // additive live_messages table (mentat#370) and v9's additive
+    // service_* tables (mentat#372) since createDatabase() always
+    // migrates all the way to the current SCHEMA_VERSION.
     const migrated = createDatabase(dbPath);
-    assert.equal(migrated.prepare("SELECT version FROM schema_version").get().version, 8);
+    assert.equal(migrated.prepare("SELECT version FROM schema_version").get().version, 9);
     migrated.close();
 
     // Now roll it back, as an operator downgrading to pre-v7 code would.
@@ -995,4 +997,33 @@ test("deleteLiveMessage removes the row so a later getLiveMessage returns undefi
   setLiveMessage(db, "guild-1", "coriolis", "channel-1", "message-1");
   deleteLiveMessage(db, "guild-1", "coriolis");
   assert.equal(getLiveMessage(db, "guild-1", "coriolis"), undefined);
+});
+
+// service_channels / service_duty_status / service_applications (schema
+// v9, mentat#372): the generalized duty/apply button component. See
+// docs/design/service-duty-apply-component-l1-design-2026-09-15.md.
+test("createDatabase migrates a v8 database to v9, adding service tables and guild_settings.on_duty_role_id without touching existing data", () => {
+  const dir = mkdtempSync(join(tmpdir(), "acp-db-service-migration-"));
+  const dbPath = join(dir, "acp.db");
+  try {
+    let db = createDatabase(dbPath);
+    db.prepare("UPDATE schema_version SET version = 8").run();
+    upsertGuild(db, { guildId: "g1", guildName: "Test Guild", consoleUrl: "https://console.test", adapterToken: "token", status: "active" });
+    db.close();
+
+    db = createDatabase(dbPath);
+    const version = db.prepare("SELECT version FROM schema_version LIMIT 1").get();
+    assert.equal(version.version, 9);
+
+    assert.deepEqual(db.prepare("SELECT * FROM service_channels").all(), []);
+    assert.deepEqual(db.prepare("SELECT * FROM service_duty_status").all(), []);
+    assert.deepEqual(db.prepare("SELECT * FROM service_applications").all(), []);
+
+    const settings = db.prepare("SELECT * FROM guild_settings WHERE guild_id = ?").get("g1");
+    assert.equal(settings.on_duty_role_id, "");
+
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
