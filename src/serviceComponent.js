@@ -9,6 +9,7 @@ import { listOnDuty, getServiceChannel, setDutyStatus, clearDutyStatus, getPendi
 import { getGuildSettings } from "./database.js";
 import { postOrEditLiveMessage } from "./liveMessage.js";
 import { extractRoleIds, isAdminActor } from "./commands.js";
+import { logError } from "./logger.js";
 
 export function buildServiceStatusEmbed(db, guildId, serviceKey, serviceDisplayName) {
   const onDuty = listOnDuty(db, guildId, serviceKey);
@@ -44,10 +45,20 @@ async function refreshServiceStatusMessage({ client, db, guildId, serviceChannel
 async function toggleGenericOnDutyRole(interaction, db, guildId, grant) {
   const settings = getGuildSettings(db, guildId);
   if (!settings?.on_duty_role_id) return; // Not configured -- optional infra, skip silently.
-  if (grant) {
-    await interaction.member.roles.add(settings.on_duty_role_id);
-  } else {
-    await interaction.member.roles.remove(settings.on_duty_role_id);
+  try {
+    if (grant) {
+      await interaction.member.roles.add(settings.on_duty_role_id);
+    } else {
+      await interaction.member.roles.remove(settings.on_duty_role_id);
+    }
+  } catch {
+    // /code-review high finding: the caller's service_duty_status write
+    // already committed by the time this runs -- a role mutation failure
+    // (missing permission, role positioned above the bot's own) must not
+    // throw out of handleServiceButtonInteraction and skip the pinned-
+    // embed refresh and the user's confirmation reply. This is
+    // best-effort infra (same posture as the "not configured" no-op
+    // above), not the source of truth for on-duty state.
   }
 }
 
@@ -74,6 +85,14 @@ export async function handleServiceButtonInteraction(interaction, db, client, co
       });
       return true;
     }
+    // /code-review high finding: role mutation + a channel fetch + a
+    // message fetch/edit (inside refreshServiceStatusMessage) all happen
+    // before any reply -- under real Discord API latency this can
+    // exceed the ~3s interaction-ack deadline, making the final reply()
+    // throw "Unknown interaction" even though the toggle itself already
+    // succeeded. Deferring immediately removes that deadline; editReply()
+    // below isn't time-bound the same way.
+    await interaction.deferReply({ ephemeral: true });
     if (action === "onduty") {
       setDutyStatus(db, guildId, serviceKey, interaction.user.id);
       await toggleGenericOnDutyRole(interaction, db, guildId, true);
@@ -82,7 +101,7 @@ export async function handleServiceButtonInteraction(interaction, db, client, co
       await toggleGenericOnDutyRole(interaction, db, guildId, false);
     }
     await refreshServiceStatusMessage({ client, db, guildId, serviceChannel, serviceKey });
-    await interaction.reply({ content: action === "onduty" ? "You're now on duty." : "You're now off duty.", ephemeral: true });
+    await interaction.editReply({ content: action === "onduty" ? "You're now on duty." : "You're now off duty." });
     return true;
   }
 
@@ -138,6 +157,19 @@ export async function handleServiceButtonInteraction(interaction, db, client, co
       await interaction.reply({ content: `This application was already ${resolved.status}.`, ephemeral: true });
       return true;
     }
+
+    // /code-review high finding: this branch's success path never
+    // acknowledged the interaction at all (no reply/update/deferUpdate),
+    // so Discord showed "This interaction failed" on every single
+    // Approve/Deny click even though the action fully succeeded.
+    // deferUpdate() acknowledges without producing new visible content --
+    // the actual message update still happens via the plain REST
+    // reviewMessage.edit() call below, which isn't bound by the
+    // interaction-response deadline once deferred. Placed here, after
+    // the not-found/already-resolved early returns above (which use a
+    // real interaction.reply() instead -- calling deferUpdate() first
+    // would make those reply() calls throw "already acknowledged").
+    await interaction.deferUpdate();
 
     const serviceChannel = getServiceChannel(db, guildId, resolved.service_key);
     let roleGrantFailed = false;
@@ -199,7 +231,24 @@ export async function handleServiceModalSubmit(interaction, db, client) {
     return true;
   }
 
+  // /code-review high finding: unlike the apply-button handler's
+  // serviceChannel?.role_id optional chaining, this dereferenced
+  // serviceChannel.review_channel_id unguarded -- a stale/inconsistent
+  // DB state (e.g. a restored backup) would throw here AFTER
+  // createApplication() already committed the row, leaving the
+  // applicant with no "submitted" confirmation and staff with no review
+  // post to act on. The application already exists either way; tell the
+  // applicant it was received and log the inconsistency for staff to
+  // investigate, rather than letting a TypeError propagate.
   const serviceChannel = getServiceChannel(db, guildId, serviceKey);
+  if (!serviceChannel) {
+    logError("service_component.modal_submit_no_service_channel", new Error("no service_channels row"), { guildId, serviceKey, applicationId: result.application.id });
+    await interaction.reply({
+      content: "Your application was recorded, but this service isn't fully configured right now -- please contact staff directly.",
+      ephemeral: true
+    });
+    return true;
+  }
   const reviewEmbed = duneEmbed({
     title: `New Application: ${serviceKey}`,
     fields: [
@@ -210,7 +259,12 @@ export async function handleServiceModalSubmit(interaction, db, client) {
       // applicant-controlled label over an applicant-controlled URL
       // would let a malicious applicant phish staff reviewers with a
       // deceptive display label.
-      { name: "Proof Link", value: proofLink ? `\`${proofLink}\`` : "(none provided)" }
+      // /code-review high finding: a raw backtick in proofLink could break
+      // out of the code span and re-enable the exact masked-link phishing
+      // vector this field exists to prevent -- strip backticks (a
+      // legitimate proof link/text never needs one) rather than trust the
+      // wrapping alone.
+      { name: "Proof Link", value: proofLink ? `\`${String(proofLink).replace(/`/g, "'")}\`` : "(none provided)" }
     ]
   });
   const approveDenyRow = new ActionRowBuilder().addComponents(
@@ -218,9 +272,20 @@ export async function handleServiceModalSubmit(interaction, db, client) {
     new ButtonBuilder().setCustomId(`service:deny:${result.application.id}`).setLabel("Deny").setStyle(ButtonStyle.Danger)
   );
 
-  const reviewChannel = await client.channels.fetch(serviceChannel.review_channel_id);
-  const reviewMessage = await reviewChannel.send({ embeds: [reviewEmbed], components: [approveDenyRow] });
-  setApplicationReviewMessage(db, result.application.id, reviewMessage.id);
+  // /code-review high finding: an unguarded fetch/send here (channel
+  // deleted, bot lacks permission, non-text channel) would throw after
+  // createApplication() already committed -- the applicant would never
+  // see the "submitted" reply even though their application exists.
+  // The DB row is the source of truth regardless; log the failure for
+  // staff to notice a review post never went out, same posture as the
+  // approve/deny handler's own guarded review-message fetch/edit.
+  try {
+    const reviewChannel = await client.channels.fetch(serviceChannel.review_channel_id);
+    const reviewMessage = await reviewChannel.send({ embeds: [reviewEmbed], components: [approveDenyRow] });
+    setApplicationReviewMessage(db, result.application.id, reviewMessage.id);
+  } catch (error) {
+    logError("service_component.modal_submit_review_post_failed", error, { guildId, serviceKey, applicationId: result.application.id, reviewChannelId: serviceChannel.review_channel_id });
+  }
 
   await interaction.reply({
     content: "Your application has been submitted. You'll be notified by DM once it's reviewed.",

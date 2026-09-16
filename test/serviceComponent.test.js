@@ -99,7 +99,9 @@ test("onduty with the role writes service_duty_status, grants the generic On Dut
     user: { id: "user-1" },
     guildId: GUILD_ID,
     member: { roles: { cache: { keys: () => ["role-water-seller"][Symbol.iterator]() }, add: async (roleId) => added.push(roleId) } },
-    reply: async () => {}
+    reply: async () => {},
+    deferReply: async () => {},
+    editReply: async () => {}
   };
   const client = fakeClient(sent);
   const handled = await handleServiceButtonInteraction(fakeInteraction, db, client);
@@ -122,7 +124,9 @@ test("offduty clears service_duty_status and removes the generic On Duty role", 
     user: { id: "user-1" },
     guildId: GUILD_ID,
     member: { roles: { cache: { keys: () => ["role-water-seller"][Symbol.iterator]() }, remove: async (roleId) => removed.push(roleId) } },
-    reply: async () => {}
+    reply: async () => {},
+    deferReply: async () => {},
+    editReply: async () => {}
   };
   const client = fakeClient(sent);
   const handled = await handleServiceButtonInteraction(fakeInteraction, db, client);
@@ -141,7 +145,9 @@ test("onduty when on_duty_role_id is unset (default '') skips the generic-role t
     user: { id: "user-1" },
     guildId: GUILD_ID,
     member: { roles: { cache: { keys: () => ["role-water-seller"][Symbol.iterator]() }, add: async () => { throw new Error("must not be called"); } } },
-    reply: async () => {}
+    reply: async () => {},
+    deferReply: async () => {},
+    editReply: async () => {}
   };
   const client = fakeClient(sent);
   const handled = await handleServiceButtonInteraction(fakeInteraction, db, client);
@@ -320,7 +326,8 @@ test("admin Approve grants the role, marks approved, edits the review message, b
     guildId: GUILD_ID,
     member: { roles: { cache: { keys: () => ["admin-role"][Symbol.iterator]() } } },
     client,
-    reply: async () => {}
+    reply: async () => {},
+    deferUpdate: async () => {}
   };
   const handled = await handleServiceButtonInteraction(fakeInteraction, db, client, fakeConfig());
   assert.equal(handled, true);
@@ -374,7 +381,7 @@ test("a second Approve/Deny click on an already-resolved application short-circu
 
   // First click: resolves for real.
   const replies1 = [];
-  await handleServiceButtonInteraction({ ...baseInteraction, user: { id: "admin-1" }, reply: async (p) => replies1.push(p) }, db, client, fakeConfig());
+  await handleServiceButtonInteraction({ ...baseInteraction, user: { id: "admin-1" }, reply: async (p) => replies1.push(p), deferUpdate: async () => {} }, db, client, fakeConfig());
   assert.equal(getApplication(db, application.id).status, "approved");
   assert.equal(granted.length, 1);
   assert.equal(dmsSent.length, 1);

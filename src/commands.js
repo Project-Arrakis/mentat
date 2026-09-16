@@ -992,11 +992,11 @@ async function executeServiceSetup({ interaction, db, guildId }) {
   let roleId = interaction.options.getString("role");
   let reviewChannelId = interaction.options.getString("applications-channel");
 
-  if (!roleId) {
-    const role = await interaction.guild.roles.create({ name: serviceKey });
-    roleId = role.id;
-  }
-
+  // /code-review high finding: validate applications-channel BEFORE
+  // creating a role -- the original order created the Discord role
+  // first, so a validation failure below left an orphaned, unrecorded
+  // role (and a retry created a duplicate). Validation now runs first,
+  // so a thrown error here leaves no side effect at all.
   if (!reviewChannelId) {
     const existing = listServiceChannels(db, guildId)[0];
     if (!existing) {
@@ -1008,6 +1008,11 @@ async function executeServiceSetup({ interaction, db, guildId }) {
       throw new Error("applications-channel is required the first time this command is run for this guild -- pass it explicitly.");
     }
     reviewChannelId = existing.review_channel_id;
+  }
+
+  if (!roleId) {
+    const role = await interaction.guild.roles.create({ name: serviceKey });
+    roleId = role.id;
   }
 
   setServiceChannel(db, guildId, serviceKey, { channelId, roleId, reviewChannelId, requiresReview: true });

@@ -800,13 +800,17 @@ test("admin:service-setup reuses the prior applications-channel when the argumen
   assert.equal(row.review_channel_id, "review-1", "must reuse the guild's already-configured applications channel");
 });
 
-test("admin:service-setup fails with a clear error when applications-channel is omitted and no prior service_channels row exists for the guild", async () => {
+test("admin:service-setup fails with a clear error when applications-channel is omitted and no prior service_channels row exists for the guild, without creating an orphaned role", async () => {
   const db = createDatabase(":memory:");
-  const { interaction } = fakeServiceSetupInteraction({ applicationsChannel: null, userId: "admin-setup-3" });
+  const { interaction, created } = fakeServiceSetupInteraction({ applicationsChannel: null, userId: "admin-setup-3" });
   let edited;
   interaction.editReply = async (payload) => { edited = payload; };
   const handled = await executeDuneCommand(interaction, {}, fakeConfigForAdmin(), db);
   assert.equal(handled, true);
   const description = edited?.embeds?.[0]?.data?.description || "";
   assert.match(description, /applications-channel is required/);
+  // /code-review high finding: this validation must run BEFORE role
+  // creation, or a retry after fixing the missing argument creates a
+  // duplicate role alongside the orphaned first one.
+  assert.equal(created.length, 0, "no role should be created when applications-channel validation fails");
 });

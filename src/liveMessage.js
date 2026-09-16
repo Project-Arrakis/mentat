@@ -26,9 +26,20 @@ import { getLiveMessage, setLiveMessage } from "./database.js";
 // collide on the same row (one feature's message pointer silently
 // overwriting another's). Whoever wires mentat#369/#372 into this
 // function must keep messageKey an enum of hardcoded feature names.
+// /code-review high finding, mentat#372 (this function's first real,
+// non-test caller): if a `live_messages` row exists but its stored
+// channel_id differs from the caller's channelId argument -- e.g. an
+// operator relocated a service channel via a second /dune admin
+// service-setup call with a different `channel` -- this used to
+// unconditionally edit the OLD channel's message and return its
+// channelId, silently ignoring the caller's request to move it. The
+// DB registry (service_channels.channel_id) would then say the new
+// channel while the real pinned message stayed in the old one forever.
+// A channelId mismatch is now treated the same as a stale/deleted
+// pointer: fall through and post fresh in the requested channel.
 export async function postOrEditLiveMessage({ client, db, guildId, channelId, messageKey, content }) {
   const existing = getLiveMessage(db, guildId, messageKey);
-  if (existing) {
+  if (existing && existing.channel_id === channelId) {
     try {
       const channel = await client.channels.fetch(existing.channel_id);
       if (channel?.isTextBased?.()) {
