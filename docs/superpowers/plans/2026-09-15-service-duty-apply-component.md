@@ -1115,9 +1115,16 @@ test("handleServiceModalSubmit creates the application, posts to the review chan
   assert.equal(pending.review_message_id, "review-msg-1");
 
   assert.equal(sentToReview.length, 1);
-  const postedText = JSON.stringify(sentToReview[0]);
-  assert.ok(!postedText.includes("[legit]("), "proof_link must never be rendered as markdown link syntax");
-  assert.ok(postedText.includes("https://phish.test") || postedText.includes("legit"), "the raw text must still be visible to reviewers, just not as a clickable masked link");
+  // Structural check, not a substring search: found the hard way while
+  // executing this task -- the raw "[legit](...)" text is expected to
+  // still be PRESENT (staff need to see it), so a substring search for
+  // its absence can never pass. The real defense is that it's wrapped in
+  // a backtick code span, which Discord renders as literal monospace
+  // text instead of parsing it as a clickable masked link -- assert that
+  // wrapping directly.
+  const proofField = sentToReview[0].embeds[0].data.fields.find(f => f.name === "Proof Link");
+  assert.ok(proofField, "review embed must have a Proof Link field");
+  assert.equal(proofField.value, "`[legit](https://phish.test)`", "proof_link must be wrapped in a backtick code span, defanging any markdown link syntax it contains");
 });
 
 test("handleServiceModalSubmit rejects a race-losing duplicate submission with a friendly message, not a raw DB error", async () => {

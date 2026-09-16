@@ -5,7 +5,7 @@
 // why each piece of this file is shaped the way it is.
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
 import { duneEmbed } from "./embedFormat.js";
-import { listOnDuty, getServiceChannel, setDutyStatus, clearDutyStatus, getPendingApplication } from "./serviceChannels.js";
+import { listOnDuty, getServiceChannel, setDutyStatus, clearDutyStatus, getPendingApplication, createApplication, setApplicationReviewMessage } from "./serviceChannels.js";
 import { getGuildSettings } from "./database.js";
 import { postOrEditLiveMessage } from "./liveMessage.js";
 import { extractRoleIds } from "./commands.js";
@@ -114,4 +114,53 @@ export async function handleServiceButtonInteraction(interaction, db, client, co
   }
 
   return false;
+}
+
+export async function handleServiceModalSubmit(interaction, db, client) {
+  if (!interaction?.isModalSubmit?.()) return false;
+  const parts = String(interaction.customId || "").split(":");
+  if (parts[0] !== "service" || parts[1] !== "applymodal") return false;
+  const serviceKey = parts[2];
+  const guildId = interaction.guildId;
+
+  const characterName = interaction.fields.getTextInputValue("characterName");
+  const proofLink = interaction.fields.getTextInputValue("proofLink") || null;
+
+  const result = createApplication(db, {
+    guildId, serviceKey, applicantId: interaction.user.id, characterName, proofLink
+  });
+
+  if (!result.ok) {
+    await interaction.reply({ content: "You already have a pending application.", ephemeral: true });
+    return true;
+  }
+
+  const serviceChannel = getServiceChannel(db, guildId, serviceKey);
+  const reviewEmbed = duneEmbed({
+    title: `New Application: ${serviceKey}`,
+    fields: [
+      { name: "Applicant", value: `<@${interaction.user.id}>` },
+      { name: "Character Name", value: characterName },
+      // proof_link is rendered as a plain-text/code-block field -- NEVER
+      // interpolated into markdown link syntax ([label](url)) -- an
+      // applicant-controlled label over an applicant-controlled URL
+      // would let a malicious applicant phish staff reviewers with a
+      // deceptive display label.
+      { name: "Proof Link", value: proofLink ? `\`${proofLink}\`` : "(none provided)" }
+    ]
+  });
+  const approveDenyRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`service:approve:${result.application.id}`).setLabel("Approve").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`service:deny:${result.application.id}`).setLabel("Deny").setStyle(ButtonStyle.Danger)
+  );
+
+  const reviewChannel = await client.channels.fetch(serviceChannel.review_channel_id);
+  const reviewMessage = await reviewChannel.send({ embeds: [reviewEmbed], components: [approveDenyRow] });
+  setApplicationReviewMessage(db, result.application.id, reviewMessage.id);
+
+  await interaction.reply({
+    content: "Your application has been submitted. You'll be notified by DM once it's reviewed.",
+    ephemeral: true
+  });
+  return true;
 }

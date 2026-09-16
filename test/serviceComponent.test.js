@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createDatabase } from "../src/database.js";
 import { setDutyStatus, setServiceChannel, isOnDuty } from "../src/serviceChannels.js";
-import { buildServiceStatusEmbed, handleServiceButtonInteraction } from "../src/serviceComponent.js";
+import { buildServiceStatusEmbed, handleServiceButtonInteraction, handleServiceModalSubmit } from "../src/serviceComponent.js";
 import { updateGuildSettings, upsertGuild } from "../src/database.js";
 
 function fakeDb() { return createDatabase(":memory:"); }
@@ -207,4 +207,69 @@ test("apply with no role and no pending application shows the modal with the rig
   assert.equal(handled, true);
   assert.equal(shownModals.length, 1);
   assert.equal(shownModals[0].data.custom_id, "service:applymodal:water-seller");
+});
+
+function fakeModalInteraction({ serviceKey = "water-seller", characterName = "Muad'Dib", proofLink = "https://example.test", userId = "user-1" } = {}) {
+  return {
+    isModalSubmit: () => true,
+    customId: `service:applymodal:${serviceKey}`,
+    guildId: GUILD_ID,
+    user: { id: userId },
+    fields: {
+      getTextInputValue: (id) => (id === "characterName" ? characterName : proofLink)
+    },
+    replied: false,
+    reply: async function (payload) { this.replied = true; this._reply = payload; }
+  };
+}
+
+test("handleServiceModalSubmit returns false for a customId it doesn't own", async () => {
+  const db = fakeDb();
+  const handled = await handleServiceModalSubmit({ isModalSubmit: () => true, customId: "other:thing:x" }, db, fakeClient());
+  assert.equal(handled, false);
+});
+
+test("handleServiceModalSubmit creates the application, posts to the review channel with proof_link as plain text (never markdown-link syntax), and acknowledges the applicant", async () => {
+  const db = fakeDb();
+  stageService(db);
+  const sentToReview = [];
+  const reviewChannel = {
+    isTextBased: () => true,
+    send: async (payload) => { sentToReview.push(payload); return { id: "review-msg-1" }; }
+  };
+  const client = { channels: { fetch: async (id) => (id === "review-1" ? reviewChannel : fakeChannel()) } };
+  const interaction = fakeModalInteraction({ proofLink: "[legit](https://phish.test)" });
+  const handled = await handleServiceModalSubmit(interaction, db, client);
+  assert.equal(handled, true);
+  assert.equal(interaction.replied, true);
+  assert.match(interaction._reply.content, /DM/i);
+
+  const { getPendingApplication } = await import("../src/serviceChannels.js");
+  const pending = getPendingApplication(db, GUILD_ID, "water-seller", "user-1");
+  assert.ok(pending);
+  assert.equal(pending.review_message_id, "review-msg-1");
+
+  assert.equal(sentToReview.length, 1);
+  // Structural check, not a substring search: the raw proof_link text
+  // (including its literal "[legit](...)" characters) is expected to
+  // still be present -- staff need to see it -- the actual defense is
+  // that it's wrapped in a backtick code span, which Discord renders as
+  // literal monospace text rather than parsing as a clickable masked
+  // link. A substring search for the absence of "[legit](" can never
+  // pass while the raw text is preserved (which it must be), so assert
+  // the wrapping directly instead.
+  const proofField = sentToReview[0].embeds[0].data.fields.find(f => f.name === "Proof Link");
+  assert.ok(proofField, "review embed must have a Proof Link field");
+  assert.equal(proofField.value, "`[legit](https://phish.test)`", "proof_link must be wrapped in a backtick code span, defanging any markdown link syntax it contains");
+});
+
+test("handleServiceModalSubmit rejects a race-losing duplicate submission with a friendly message, not a raw DB error", async () => {
+  const db = fakeDb();
+  stageService(db);
+  const { createApplication } = await import("../src/serviceChannels.js");
+  createApplication(db, { guildId: GUILD_ID, serviceKey: "water-seller", applicantId: "user-1", characterName: "X", proofLink: null });
+  const interaction = fakeModalInteraction();
+  const handled = await handleServiceModalSubmit(interaction, db, fakeClient());
+  assert.equal(handled, true);
+  assert.match(interaction._reply.content, /pending/i);
 });
