@@ -15,6 +15,7 @@ import { handleGuildDelete } from "./onboarding.js";
 import { startStatsPusher } from "./statsPusher.js";
 import { handleWriteButtonInteraction } from "./writeConfirmation.js";
 import { handleOwnerConfirmationButtonInteraction, handleConfirmConnectionCommand } from "./ownerConfirmation.js";
+import { handleServiceButtonInteraction, handleServiceModalSubmit } from "./serviceComponent.js";
 import { isEncryptionConfigured, checkSecretFilePermissions } from "./secretsCrypto.js";
 import { proxySharedSecret } from "./proxyAuth.js";
 
@@ -294,11 +295,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // that comment predicted.
       const ownerConfirmationHandled = await handleOwnerConfirmationButtonInteraction(interaction, db);
       if (ownerConfirmationHandled) return;
+      // mentat#372: the "service:"-prefixed On Duty/Off Duty/Apply/
+      // Approve/Deny buttons anticipated in the comment above.
+      const serviceButtonHandled = await handleServiceButtonInteraction(interaction, db, interaction.client, config);
+      if (serviceButtonHandled) return;
       // Falls through to the isMessageComponent?.() branch below, which
       // already correctly no-ops for the one other known component today
       // (the Steam-link Link-style button, which Discord never sends an
       // interaction event for at all) -- and is the obvious place a future
       // handler for a new customId prefix should be added.
+    }
+    // mentat#372: this bot's first-ever ModalSubmitInteraction branch.
+    // Must be checked here, before the isMessageComponent?.() catch-all
+    // below and before executeDuneCommand() at the bottom -- a modal
+    // submission is neither a button nor a chat-input command, and would
+    // otherwise reach neither dispatch path and silently no-op.
+    if (interaction.isModalSubmit?.()) {
+      await handleServiceModalSubmit(interaction, db, interaction.client);
+      return;
     }
     // mentat#343 Phase 2: /confirm-connection is a separate top-level slash
     // command (not a "dune" subcommand), so it must be checked BEFORE
