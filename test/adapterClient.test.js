@@ -270,7 +270,8 @@ test("every known route is classified into exactly one of the four route tables 
     "guild-grants-disable", "guild-grants-default", "guild-faction-summary",
     "player-inventory-v2",
     "players-accounts-link-steam", "players-link-verify",
-    "players-accounts-list", "players-accounts-unlink"
+    "players-accounts-list", "players-accounts-unlink",
+    "coriolis"
   ];
 
   assert.equal(whole.size, LIVE_ROUTES.size + PLANNED_ROUTES.size + UNMERGED_ROUTES.size + MISSING_ROUTES.size,

@@ -21,6 +21,9 @@ export class AdapterHttpError extends Error {
 // { ok: true, result: {...} } data.
 export const LIVE_ROUTES = new Set([
   "health", "status", "readiness", "services", "population",
+  // coriolis (mentat#370, dune-awakening-selfhost-docker#942): real, live,
+  // public-tier route -- verified directly against Core's own merged PR.
+  "coriolis",
   "version", "servers", "ports", "db",
   "logs", "map-state",
   "ops-activity", "ops-combat", "ops-resources", "ops-economy",
@@ -251,6 +254,7 @@ export class AdapterClient {
 
   health(actor, guildId) { return this.request("health", actor, undefined, guildId); }
   status(actor, diagnostic = false, guildId) { return this.request("status", actor, diagnostic ? { diagnostic: true } : undefined, guildId); }
+  coriolis(actor, guildId) { return this.request("coriolis", actor, undefined, guildId); }
   readiness(actor, diagnostic = false, guildId) { return this.request("readiness", actor, diagnostic ? { diagnostic: true } : undefined, guildId); }
   services(actor, guildId) { return this.request("services", actor, undefined, guildId); }
   population(actor, guildId) { return this.request("population", actor, undefined, guildId); }

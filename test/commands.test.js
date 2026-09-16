@@ -69,7 +69,7 @@ test("buildDuneCommand includes write group only when enabled", () => {
 // subcommands (readiness-detail, services-detail, maintenance) -- all
 // registered and dispatchable, so `/dune help` was hiding commands from
 // users. It must now mirror buildDuneCommand()'s full non-write surface.
-test("helpPayload mirrors the full registered command surface (55 non-write commands)", () => {
+test("helpPayload mirrors the full registered command surface (57 non-write commands)", () => {
   const registered = new Set();
   for (const group of buildDuneCommand({ includeWriteGroup: false }).toJSON().options) {
     for (const sub of group.options || []) {
@@ -454,6 +454,21 @@ test("executeDuneCommand handles server:summary through the status route", async
   });
   assert.deepEqual(seenActor, { userId: "u1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], guildOwnerId: undefined });
   assert.ok(edited?.embeds?.[0]?.data?.title, "summary embed has title");
+});
+
+test("executeDuneCommand handles server:coriolis through the coriolis route", async () => {
+  let seenActor, edited;
+  const interaction = mockInteraction("server", "coriolis", { user: { id: "u1" }, roles: ["role-a"] });
+  interaction.deferReply = async () => { };
+  interaction.editReply = async (r) => { edited = r; };
+  const client = { coriolis: async (actor) => { seenActor = actor; return { ok: true, seed: "2", nextCycleAt: "2026-09-20T05:00:00.000Z" }; } };
+
+  await executeDuneCommand(interaction, client, {
+    discord: { defaultEphemeral: true, rbac: { mode: "restricted", commandRoleIds: { "server:coriolis": ["role-a"] } } }
+  });
+  assert.equal(seenActor.userId, "u1");
+  assert.ok(edited?.embeds?.[0]?.data?.title, "coriolis embed has title");
+  assert.match(edited.embeds[0].data.description, /\*\*2\*\*/);
 });
 
 test("executeDuneCommand routes player:storage scope=owned to playerStorage", async () => {

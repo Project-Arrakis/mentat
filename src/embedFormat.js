@@ -714,6 +714,32 @@ export function formatServicesDetailEmbed(payload) {
   });
 }
 
+// formatCoriolisEmbed (mentat#370): Discord natively renders <t:UNIX:R>/
+// <t:UNIX:F> as a live, client-side-updating relative timestamp -- reused
+// here instead of computing "X hours remaining" ourselves, which would
+// need a live-edited embed just to stay accurate as time passes even
+// between our own refresh cycles.
+export function formatCoriolisEmbed(payload) {
+  const nextCycleUnix = Math.floor(new Date(payload?.nextCycleAt).getTime() / 1000);
+  // Layer 3 UI/UX hat finding: a malformed/unparseable nextCycleAt (a Core
+  // contract violation, but this formatter must not trust that never
+  // happens) would otherwise silently render literal, broken
+  // "<t:NaN:R> (<t:NaN:F>)" text to the user instead of a clear unknown
+  // state -- guarded here, not just against seed/nextCycleAt being absent.
+  if (payload?.ok !== true || !payload?.seed || !payload?.nextCycleAt || !Number.isFinite(nextCycleUnix)) {
+    return duneEmbed({
+      title: "🌪️ Coriolis Storm",
+      color: "warning",
+      description: "❔ **Not yet known** — the storm seed/cycle hasn't been observed since the server's last restart."
+    });
+  }
+  return duneEmbed({
+    title: "🌪️ Coriolis Storm",
+    color: "spice",
+    description: `Current seed: **${payload.seed}**\nNext cycle: <t:${nextCycleUnix}:R> (<t:${nextCycleUnix}:F>)`
+  });
+}
+
 export function formatMaintenanceEmbed(payload) {
   // Route provenance for "maintenance" is unverified against upstream main
   // (see adapterClient.js maintenance() comment); a false/missing "ok" must
