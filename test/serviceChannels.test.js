@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createDatabase } from "../src/database.js";
-import { getServiceChannel, setServiceChannel, listServiceChannels } from "../src/serviceChannels.js";
+import { getServiceChannel, setServiceChannel, listServiceChannels, setDutyStatus, clearDutyStatus, listOnDuty, isOnDuty } from "../src/serviceChannels.js";
 
 function fakeDb() {
   return createDatabase(":memory:");
@@ -45,4 +45,35 @@ test("listServiceChannels returns every service for a guild, none for another gu
   const rows = listServiceChannels(db, GUILD_ID);
   assert.equal(rows.length, 2);
   assert.deepEqual(rows.map(r => r.service_key).sort(), ["smuggler", "water-seller"]);
+});
+
+test("setDutyStatus then isOnDuty/listOnDuty reflect the new row", () => {
+  const db = fakeDb();
+  setDutyStatus(db, GUILD_ID, "water-seller", "user-1");
+  assert.equal(isOnDuty(db, GUILD_ID, "water-seller", "user-1"), true);
+  assert.equal(isOnDuty(db, GUILD_ID, "water-seller", "user-2"), false);
+  assert.deepEqual(listOnDuty(db, GUILD_ID, "water-seller").map(r => r.user_id), ["user-1"]);
+});
+
+test("setDutyStatus is idempotent -- calling it twice for the same user doesn't duplicate", () => {
+  const db = fakeDb();
+  setDutyStatus(db, GUILD_ID, "water-seller", "user-1");
+  setDutyStatus(db, GUILD_ID, "water-seller", "user-1");
+  assert.equal(listOnDuty(db, GUILD_ID, "water-seller").length, 1);
+});
+
+test("clearDutyStatus removes the row", () => {
+  const db = fakeDb();
+  setDutyStatus(db, GUILD_ID, "water-seller", "user-1");
+  clearDutyStatus(db, GUILD_ID, "water-seller", "user-1");
+  assert.equal(isOnDuty(db, GUILD_ID, "water-seller", "user-1"), false);
+  assert.deepEqual(listOnDuty(db, GUILD_ID, "water-seller"), []);
+});
+
+test("listOnDuty scopes by service_key -- a duty row for a different service doesn't leak in", () => {
+  const db = fakeDb();
+  setDutyStatus(db, GUILD_ID, "water-seller", "user-1");
+  setDutyStatus(db, GUILD_ID, "smuggler", "user-1");
+  assert.equal(listOnDuty(db, GUILD_ID, "water-seller").length, 1);
+  assert.equal(listOnDuty(db, GUILD_ID, "smuggler").length, 1);
 });

@@ -28,3 +28,25 @@ export function setServiceStatusMessageId(db, guildId, serviceKey, statusMessage
   db.prepare("UPDATE service_channels SET status_message_id = ? WHERE guild_id = ? AND service_key = ?")
     .run(statusMessageId, guildId, serviceKey);
 }
+
+export function setDutyStatus(db, guildId, serviceKey, userId) {
+  db.prepare(`
+    INSERT OR IGNORE INTO service_duty_status (guild_id, service_key, user_id)
+    VALUES (?, ?, ?)
+  `).run(guildId, serviceKey, userId);
+}
+
+export function clearDutyStatus(db, guildId, serviceKey, userId) {
+  db.prepare("DELETE FROM service_duty_status WHERE guild_id = ? AND service_key = ? AND user_id = ?")
+    .run(guildId, serviceKey, userId);
+}
+
+export function isOnDuty(db, guildId, serviceKey, userId) {
+  return !!db.prepare("SELECT 1 FROM service_duty_status WHERE guild_id = ? AND service_key = ? AND user_id = ?")
+    .get(guildId, serviceKey, userId);
+}
+
+export function listOnDuty(db, guildId, serviceKey) {
+  return db.prepare("SELECT * FROM service_duty_status WHERE guild_id = ? AND service_key = ? ORDER BY started_at ASC")
+    .all(guildId, serviceKey);
+}
