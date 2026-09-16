@@ -3,7 +3,7 @@ import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { encryptWithDEK, decryptWithDEK, activeKeyVersion, constantTimeStringsEqual } from "./secretsCrypto.js";
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -57,7 +57,12 @@ CREATE TABLE IF NOT EXISTS guild_settings (
   announcements_channel TEXT NOT NULL DEFAULT '',
   cooldown_ms INTEGER NOT NULL DEFAULT 5000,
   admin_cooldown_ms INTEGER NOT NULL DEFAULT 1000,
-  faction TEXT NOT NULL DEFAULT '' CHECK(faction IN ('', 'atreides', 'harkonnen', 'fremen'))
+  faction TEXT NOT NULL DEFAULT '' CHECK(faction IN ('', 'atreides', 'harkonnen', 'fremen')),
+  -- on_duty_role_id (schema v9, mentat#372): the guild's single generic
+  -- On Duty role, granted/removed alongside a per-service duty toggle --
+  -- present here for a fresh install; the guarded ALTER TABLE below
+  -- reaches an existing v8 install the same way v5->v6 did for faction.
+  on_duty_role_id TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_guild_roles_guild ON guild_roles(guild_id);
@@ -140,6 +145,70 @@ CREATE TABLE IF NOT EXISTS live_messages (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (guild_id, message_key)
 );
+
+-- service_channels / service_duty_status / service_applications
+-- (schema v9, mentat#372): the generalized On Duty/Off Duty/Apply
+-- button component backing every Chronicles of Kanly service channel.
+-- See docs/design/service-duty-apply-component-l1-design-2026-09-15.md
+-- for the full design and its Layer 1 audit findings register
+-- (mentat#372 issue comments).
+CREATE TABLE IF NOT EXISTS service_channels (
+  guild_id TEXT NOT NULL,
+  service_key TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  role_id TEXT NOT NULL,
+  review_channel_id TEXT NOT NULL,
+  status_message_id TEXT,
+  requires_review INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (guild_id, service_key)
+);
+-- Rollback: plain DROP TABLE IF EXISTS service_channels. No FK; losing
+-- rows means every service channel loses its registry entry and must
+-- be re-provisioned via /dune admin service-setup -- acceptable, no
+-- in-game state depends on it.
+
+CREATE TABLE IF NOT EXISTS service_duty_status (
+  guild_id TEXT NOT NULL,
+  service_key TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  started_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (guild_id, service_key, user_id)
+);
+-- Rollback: plain DROP TABLE IF EXISTS service_duty_status. No FK;
+-- losing rows means every on-duty member appears off-duty until they
+-- re-toggle -- acceptable, no persistent consequence beyond a stale
+-- roster display.
+
+CREATE TABLE IF NOT EXISTS service_applications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  service_key TEXT NOT NULL,
+  applicant_id TEXT NOT NULL,
+  character_name TEXT NOT NULL,
+  proof_link TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  review_message_id TEXT,
+  reviewed_by TEXT,
+  reviewed_at TEXT,
+  reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+-- The UNIQUE partial index is the real, authoritative guard against a
+-- duplicate pending application (Layer 1 Architect/DBA/QA hats, all
+-- three independently caught the earlier draft's missing UNIQUE
+-- keyword) -- see createApplication() in serviceChannels.js, which
+-- MUST catch this constraint's violation, not just rely on a
+-- pre-check. Verified directly against the real installed
+-- better-sqlite3: violating this raises error.code ===
+-- "SQLITE_CONSTRAINT_UNIQUE".
+CREATE UNIQUE INDEX IF NOT EXISTS idx_service_applications_pending
+  ON service_applications (guild_id, service_key, applicant_id)
+  WHERE status = 'pending';
+-- Rollback: plain DROP TABLE IF EXISTS service_applications (drops the
+-- index with it). No FK; losing rows means in-flight applications
+-- disappear and applicants would need to re-apply -- acceptable, no
+-- in-game state depends on it.
 `;
 
 // ── Schema hardening (v7): what's NOT in the schema above, and why ──────
@@ -262,6 +331,23 @@ export function createDatabase(dbPath = "./data/acp.db") {
     }
   }
 
+  // v8->v9 (mentat#372): guild_settings.on_duty_role_id is a new column
+  // on a pre-existing table -- SCHEMA's own CREATE TABLE IF NOT EXISTS
+  // is a no-op for any operator upgrading from an earlier version, so
+  // without this explicit ALTER TABLE step the column would silently
+  // never reach an existing install (same reasoning as the v5->v6
+  // guilds columns above). service_channels/service_duty_status/
+  // service_applications are all brand-new tables and need no
+  // migration here -- SCHEMA's CREATE TABLE IF NOT EXISTS already
+  // handles them correctly for both fresh and upgraded installs.
+  if (currentVersion && currentVersion.version < 9) {
+    try {
+      db.prepare("ALTER TABLE guild_settings ADD COLUMN on_duty_role_id TEXT NOT NULL DEFAULT ''").run();
+    } catch {
+      // Column may already exist from a previous migration attempt.
+    }
+  }
+
   if (currentVersion && currentVersion.version < SCHEMA_VERSION) {
     // v3->v4, v4->v5 are purely additive (stats_snapshot, key_versions/
     // secret_keys/secret_access_log, guild_member_activity, all via
@@ -274,9 +360,12 @@ export function createDatabase(dbPath = "./data/acp.db") {
     // on their next write, exactly like the v0(plaintext)->v1 migration
     // this same pattern already established (see reencrypt-secrets.js
     // for the equivalent bulk-upgrade tool for that earlier transition).
-    // v7->v8 (mentat#370) is also purely additive (live_messages, via
-    // CREATE TABLE IF NOT EXISTS above) -- same no-op-for-existing-rows
-    // shape as v3->v5, no ALTER/DROP involved.
+    // v7->v8 (mentat#370) is purely additive (live_messages, via CREATE
+    // TABLE IF NOT EXISTS above) -- same no-op-for-existing-rows shape
+    // as v3->v5, no ALTER/DROP involved. v8->v9 (mentat#372) is
+    // additive (three new tables) plus one guarded ALTER TABLE
+    // (guild_settings.on_duty_role_id), handled in the block
+    // immediately above.
     db.prepare("UPDATE schema_version SET version = ?").run(SCHEMA_VERSION);
   }
 

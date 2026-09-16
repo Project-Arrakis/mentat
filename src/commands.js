@@ -7,6 +7,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgVersion = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")).version;
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter, canBroadcast } from "./broadcast.js";
+import { setServiceChannel, listServiceChannels, setServiceStatusMessageId } from "./serviceChannels.js";
+import { buildServiceStatusEmbed } from "./serviceComponent.js";
+import { postOrEditLiveMessage } from "./liveMessage.js";
 import { formatError, formatPayload, redactSecrets } from "./format.js";
 import { logInfo, logError } from "./logger.js";
 import { resolveCompatEnv } from "./compatEnv.js";
@@ -147,7 +150,12 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("events").setDescription("Show recent server incidents and events."))
       .addSubcommand((c) => c.setName("roles").setDescription("Show configured admin/player roles, with current Discord role names."))
       .addSubcommand((c) => c.setName("broadcast").setDescription("Send a message to all in-game players (moderator+).")
-        .addStringOption((o) => o.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500))))
+        .addStringOption((o) => o.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500)))
+      .addSubcommand((c) => c.setName("service-setup").setDescription("Provision a service channel's duty/apply component (mentat#372).")
+        .addStringOption((o) => o.setName("service-key").setDescription("Short key, e.g. water-seller").setRequired(true))
+        .addStringOption((o) => o.setName("channel").setDescription("Channel ID for the service's pinned status embed").setRequired(true))
+        .addStringOption((o) => o.setName("role").setDescription("Role ID to gate this service (created if omitted)").setRequired(false))
+        .addStringOption((o) => o.setName("applications-channel").setDescription("Channel ID for staff application review (required on a guild's first call)").setRequired(false))))
 
     // ── infra group ──
     .addSubcommandGroup((g) => g.setName("infra").setDescription("Infrastructure: version, ports, servers, database.")
@@ -602,6 +610,9 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       } else {
         payload = redactSecrets(result);
       }
+    } else if (key === "admin:service-setup") {
+      if (!isAdminActor(interaction, config, db, guildId)) throw new Error("Service setup requires admin or owner role.");
+      payload = await executeServiceSetup({ interaction, db, guildId });
     }
     // ── infra group ──
     else if (key === "infra:version") {
@@ -967,6 +978,68 @@ function rolesConfigPayload(interaction, config, db = null, guildId = null) {
   };
 }
 
+// admin:service-setup (mentat#372): provisions a service channel's
+// duty/apply component end-to-end -- creates the role if omitted,
+// writes the service_channels registry row, posts and pins the pinned
+// status embed. reviewChannelId is a per-guild value passed explicitly
+// (or reused from an already-configured service in this guild), never
+// a process-global env var -- mentat is confirmed multi-tenant
+// (docs/multi-tenant-design.md), and a global env var here would leak
+// one guild's applications into another's review channel.
+async function executeServiceSetup({ interaction, db, guildId }) {
+  const serviceKey = interaction.options.getString("service-key");
+  const channelId = interaction.options.getString("channel");
+  let roleId = interaction.options.getString("role");
+  let reviewChannelId = interaction.options.getString("applications-channel");
+
+  // /code-review high finding: validate applications-channel BEFORE
+  // creating a role -- the original order created the Discord role
+  // first, so a validation failure below left an orphaned, unrecorded
+  // role (and a retry created a duplicate). Validation now runs first,
+  // so a thrown error here leaves no side effect at all.
+  if (!reviewChannelId) {
+    const existing = listServiceChannels(db, guildId)[0];
+    if (!existing) {
+      // Thrown, not returned as {ok:false} -- consistent with every other
+      // admin:* error path in this function (isAdminActor above), which
+      // this function's own top-level try/catch turns into a normal
+      // interaction.editReply() error embed via sendError(), never a raw
+      // exception reaching the caller.
+      throw new Error("applications-channel is required the first time this command is run for this guild -- pass it explicitly.");
+    }
+    reviewChannelId = existing.review_channel_id;
+  }
+
+  if (!roleId) {
+    const role = await interaction.guild.roles.create({ name: serviceKey });
+    roleId = role.id;
+  }
+
+  setServiceChannel(db, guildId, serviceKey, { channelId, roleId, reviewChannelId, requiresReview: true });
+
+  // Reuses #370's shared "post once, edit in place" infrastructure, per
+  // the L1 design (docs/design/service-duty-apply-component-l1-design-2026-09-15.md
+  // §6) -- a raw channel.send() here (an earlier draft's real bug, caught
+  // by the Layer 2 Architect-hat audit) would post a message this
+  // function never records in live_messages, so the very first On/Off
+  // Duty toggle's refreshServiceStatusMessage() -> postOrEditLiveMessage()
+  // call would find no existing row and post a SECOND message, silently
+  // orphaning this one (still pinned, frozen at its initial empty state)
+  // while the real live one goes unpinned.
+  const { embeds, components } = buildServiceStatusEmbed(db, guildId, serviceKey, serviceKey);
+  const { channelId: postedChannelId, messageId } = await postOrEditLiveMessage({
+    client: interaction.client, db, guildId, channelId,
+    messageKey: `service:duty:${serviceKey}`,
+    content: { embeds, components }
+  });
+  const channel = await interaction.client.channels.fetch(postedChannelId);
+  const message = await channel.messages.fetch(messageId);
+  await message.pin();
+  setServiceStatusMessageId(db, guildId, serviceKey, messageId);
+
+  return { ok: true, serviceKey, channelId, roleId, reviewChannelId, statusMessageId: messageId };
+}
+
 // ── Helpers ──
 export function isAdminActor(interaction, config, db = null, guildId = null) {
   // Real guild owner always passes (never via a role -- issue #238).
@@ -1151,6 +1224,7 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "admin:roles", desc: "Show configured admin/player roles with current names.", role: "admin" },
     { name: "admin:broadcast", desc: "Send a message to all players.", role: "admin" },
     { name: "admin:sync-commands", desc: "Check Core's command catalog for drift against the bot's registry.", role: "admin" },
+    { name: "admin:service-setup", desc: "Provision a service channel's duty/apply component.", role: "admin" },
     // ── infra ──
     { name: "infra:version", desc: "Dune stack version.", role: "player" },
     { name: "infra:servers", desc: "List game servers.", role: "player" },
@@ -1419,7 +1493,8 @@ export function getCommandRegistry() {
         { name: "events", desc: "Recent server incidents and alerts", role: "admin" },
         { name: "roles", desc: "Show configured Discord role mappings", role: "admin" },
         { name: "broadcast <msg>", desc: "Send a message to all in-game players", role: "moderator" },
-        { name: "sync-commands", desc: "Check Core's command catalog for drift", role: "admin" }
+        { name: "sync-commands", desc: "Check Core's command catalog for drift", role: "admin" },
+        { name: "service-setup <service-key> <channel> [role] [applications-channel]", desc: "Provision a service channel's duty/apply component", role: "admin" }
       ]
     },
     {
