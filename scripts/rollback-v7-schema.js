@@ -46,9 +46,17 @@ export function runRollback(dbPath, { dryRun = false } = {}) {
     db.close();
     throw new Error(`${dbPath} has no schema_version row -- refusing to guess this database's state.`);
   }
-  if (before.version !== 7) {
+  // Accept v7 and any later version, not only exactly 7: v8 (mentat#370,
+  // live_messages) is purely additive on top of v7's hardened shape --
+  // the six tables this script recreates were already dropped at v7 and
+  // stay dropped through v8, so the rollback itself is identical either
+  // way. A future purely-additive bump should keep working here without
+  // needing this check edited again; a version *below* 7 means the
+  // six-tables-drop never happened yet, which is exactly the one case
+  // this script is not built to handle (nothing to roll back).
+  if (before.version < 7) {
     db.close();
-    throw new Error(`${dbPath} is at schema_version ${before.version}, not 7 -- this script only rolls back a v7 database to v6.`);
+    throw new Error(`${dbPath} is at schema_version ${before.version}, older than 7 -- this script only rolls back a database that has already been through the v6->v7 hardening migration.`);
   }
 
   if (dryRun) {

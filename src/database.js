@@ -3,7 +3,7 @@ import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { encryptWithDEK, decryptWithDEK, activeKeyVersion, constantTimeStringsEqual } from "./secretsCrypto.js";
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -122,6 +122,24 @@ CREATE TABLE IF NOT EXISTS secret_access_log (
 
 CREATE INDEX IF NOT EXISTS idx_secret_access_log_row ON secret_access_log(table_name, row_key, column_name);
 CREATE INDEX IF NOT EXISTS idx_secret_access_log_created ON secret_access_log(created_at);
+
+-- live_messages (schema v8, mentat#370): shared "bot edits its own message
+-- in place" infrastructure -- lets a feature (Coriolis countdown, and later
+-- the Landsraad tracker/#the-atlas) look up a previously-posted message by
+-- a stable key and edit it in place instead of posting a duplicate every
+-- refresh. Purely additive (CREATE TABLE IF NOT EXISTS); rollback for this
+-- one table alone, if ever needed, is a plain DROP TABLE IF EXISTS
+-- live_messages -- no other table references it (no FK), and losing its
+-- rows only means the next refresh posts a fresh message instead of
+-- editing an old one, not a data-loss concern for anything else.
+CREATE TABLE IF NOT EXISTS live_messages (
+  guild_id TEXT NOT NULL,
+  message_key TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (guild_id, message_key)
+);
 `;
 
 // ── Schema hardening (v7): what's NOT in the schema above, and why ──────
@@ -256,6 +274,9 @@ export function createDatabase(dbPath = "./data/acp.db") {
     // on their next write, exactly like the v0(plaintext)->v1 migration
     // this same pattern already established (see reencrypt-secrets.js
     // for the equivalent bulk-upgrade tool for that earlier transition).
+    // v7->v8 (mentat#370) is also purely additive (live_messages, via
+    // CREATE TABLE IF NOT EXISTS above) -- same no-op-for-existing-rows
+    // shape as v3->v5, no ALTER/DROP involved.
     db.prepare("UPDATE schema_version SET version = ?").run(SCHEMA_VERSION);
   }
 
@@ -504,6 +525,27 @@ export function updateGuildSettings(db, guildId, settings) {
 
 export function getGuildRoles(db, guildId) {
   return db.prepare("SELECT * FROM guild_roles WHERE guild_id = ?").all(guildId);
+}
+
+// live_messages accessors (schema v8, mentat#370): see liveMessage.js for
+// the "post once, edit in place" logic these back.
+export function getLiveMessage(db, guildId, messageKey) {
+  return db.prepare("SELECT * FROM live_messages WHERE guild_id = ? AND message_key = ?").get(guildId, messageKey);
+}
+
+export function setLiveMessage(db, guildId, messageKey, channelId, messageId) {
+  db.prepare(`
+    INSERT INTO live_messages (guild_id, message_key, channel_id, message_id, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+    ON CONFLICT (guild_id, message_key) DO UPDATE SET
+      channel_id = excluded.channel_id,
+      message_id = excluded.message_id,
+      updated_at = excluded.updated_at
+  `).run(guildId, messageKey, channelId, messageId);
+}
+
+export function deleteLiveMessage(db, guildId, messageKey) {
+  db.prepare("DELETE FROM live_messages WHERE guild_id = ? AND message_key = ?").run(guildId, messageKey);
 }
 
 export function addGuildRole(db, guildId, roleType, roleId) {

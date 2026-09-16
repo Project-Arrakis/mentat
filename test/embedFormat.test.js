@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatRolesEmbed, formatSetupEmbed } from "../src/embedFormat.js";
+import { formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatRolesEmbed, formatSetupEmbed, formatCoriolisEmbed } from "../src/embedFormat.js";
 
 // ─── Real bug, found via a live user report (2026-07-26/27) ────────────────
 //
@@ -192,4 +192,23 @@ test("formatSetupEmbed's self-host description states the same permissions value
     embed.description.includes(`Permissions:** \`${permsInUrl}\``),
     `description must state Permissions: \`${permsInUrl}\` to match the actual invite URL, not a stale hardcoded value`
   );
+});
+
+// formatCoriolisEmbed (mentat#370)
+test("formatCoriolisEmbed shows an unknown state when the seed/cycle hasn't been observed yet", () => {
+  const embed = formatCoriolisEmbed({ ok: true, seed: null, nextCycleAt: null });
+  assert.match(embed.toJSON().description, /Not yet known/);
+});
+
+test("formatCoriolisEmbed shows an unknown state when ok is not true", () => {
+  const embed = formatCoriolisEmbed({ ok: false });
+  assert.match(embed.toJSON().description, /Not yet known/);
+});
+
+test("formatCoriolisEmbed renders the seed and a Discord relative/full timestamp pair when resolved", () => {
+  const embed = formatCoriolisEmbed({ ok: true, seed: "2", nextCycleAt: "2026-09-20T05:00:00.000Z" });
+  const expectedUnix = Math.floor(new Date("2026-09-20T05:00:00.000Z").getTime() / 1000);
+  assert.match(embed.toJSON().description, /\*\*2\*\*/);
+  assert.match(embed.toJSON().description, new RegExp(`<t:${expectedUnix}:R>`));
+  assert.match(embed.toJSON().description, new RegExp(`<t:${expectedUnix}:F>`));
 });

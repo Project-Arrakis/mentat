@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
-import { createDatabase, getGuild, getGuildStatus, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, deleteOauthSession, saveStatsSnapshot, getStatsSnapshot, getGuildFaction, setGuildFaction, verifyGuildStatsPushSecret, setGuildStatsSharingSecret, clearGuildStatsSharingSecret, getGuildStatsSharingStatus, upsertGuildStatsSnapshot, getActiveGuildStatsAggregate, isValidStatsPushValue, rollbackSchemaV7ToV6, _resetEphemeralStateForTests, createPendingOwnerConfirmation, getPendingOwnerConfirmation, resolvePendingOwnerConfirmation, getPendingOwnerConfirmationStatus, findPendingOwnerConfirmationByGuildId } from "../src/database.js";
+import { createDatabase, getGuild, getGuildStatus, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, deleteOauthSession, saveStatsSnapshot, getStatsSnapshot, getGuildFaction, setGuildFaction, verifyGuildStatsPushSecret, setGuildStatsSharingSecret, clearGuildStatsSharingSecret, getGuildStatsSharingStatus, upsertGuildStatsSnapshot, getActiveGuildStatsAggregate, isValidStatsPushValue, rollbackSchemaV7ToV6, _resetEphemeralStateForTests, createPendingOwnerConfirmation, getPendingOwnerConfirmation, resolvePendingOwnerConfirmation, getPendingOwnerConfirmationStatus, findPendingOwnerConfirmationByGuildId, getLiveMessage, setLiveMessage, deleteLiveMessage } from "../src/database.js";
 import { _resetKeyCacheForTests, _resetKEKCacheForTests, decryptWithDEK } from "../src/secretsCrypto.js";
 
 const VALID_KEY_HEX = "c".repeat(64);
@@ -174,13 +174,14 @@ test("schema v4: key_versions, secret_keys, and secret_access_log tables exist o
   assert.ok(tableNames.includes("key_versions"));
   assert.ok(tableNames.includes("secret_keys"));
   assert.ok(tableNames.includes("secret_access_log"));
-  // 7, not 4 -- schema v5 added guild_member_activity (mentat#251, since
+  // 8, not 4 -- schema v5 added guild_member_activity (mentat#251, since
   // removed in v7), v6 added stats_push_secret/guild_stats_snapshot
   // (mentat#276), v7 hardened the schema (removed six tables entirely --
-  // see database.js's "Schema hardening (v7)" comment). This test's own
-  // name still says "v4" since it's specifically about the v4-era
-  // KEK/DEK tables, which are unaffected and still present.
-  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 7);
+  // see database.js's "Schema hardening (v7)" comment), v8 added
+  // live_messages (mentat#370). This test's own name still says "v4"
+  // since it's specifically about the v4-era KEK/DEK tables, which are
+  // unaffected and still present.
+  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 8);
 });
 
 test("real age/KEK: upsertGuild/getGuild round-trip using a real KEK produces v2 ciphertext and a secret_keys row", { skip: !ageAvailable() && "age binary not installed" }, () => {
@@ -408,7 +409,7 @@ test("schema v5 install upgrades straight to v7: gains the guilds columns from v
 
     assert.equal(
       db.prepare("SELECT version FROM schema_version").get().version,
-      7,
+      8,
       "schema_version must land on the current version after migration"
     );
 
@@ -471,7 +472,7 @@ test("schema v6->v7 hardening migration: drops all six removed tables and preser
 
     const db = createDatabase(dbPath);
 
-    assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 7);
+    assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 8);
 
     const tableNames = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name);
     for (const removed of ["player_links", "guild_member_activity", "oauth_sessions", "bot_stats", "stats_snapshot", "guild_stats_snapshot"]) {
@@ -512,9 +513,11 @@ test("schema v7->v6 rollback: recreates all six tables with the pre-v7 shape and
     legacyDb.close();
 
     // Forward migration (the real path, not a hand-built v7 fixture) --
-    // this is the exact database a v7 upgrade produces.
+    // this is the exact database a v7 upgrade produces, plus v8's
+    // additive live_messages table (mentat#370) since createDatabase()
+    // always migrates all the way to the current SCHEMA_VERSION.
     const migrated = createDatabase(dbPath);
-    assert.equal(migrated.prepare("SELECT version FROM schema_version").get().version, 7);
+    assert.equal(migrated.prepare("SELECT version FROM schema_version").get().version, 8);
     migrated.close();
 
     // Now roll it back, as an operator downgrading to pre-v7 code would.
@@ -949,4 +952,47 @@ test("capacity eviction prefers a genuinely stale entry over a just-resolved one
   } finally {
     Date.now = originalNow;
   }
+});
+
+// live_messages accessors (schema v8, mentat#370) -- back liveMessage.js's
+// "post once, edit in place" logic.
+test("getLiveMessage returns undefined when nothing has been recorded yet", () => {
+  const db = createDatabase(":memory:");
+  assert.equal(getLiveMessage(db, "guild-1", "coriolis"), undefined);
+});
+
+test("setLiveMessage then getLiveMessage round-trips channel/message IDs", () => {
+  const db = createDatabase(":memory:");
+  setLiveMessage(db, "guild-1", "coriolis", "channel-1", "message-1");
+  const row = getLiveMessage(db, "guild-1", "coriolis");
+  assert.equal(row.channel_id, "channel-1");
+  assert.equal(row.message_id, "message-1");
+});
+
+test("setLiveMessage on an existing (guildId, messageKey) overwrites in place, not a second row", () => {
+  const db = createDatabase(":memory:");
+  setLiveMessage(db, "guild-1", "coriolis", "channel-1", "message-1");
+  setLiveMessage(db, "guild-1", "coriolis", "channel-2", "message-2");
+  const row = getLiveMessage(db, "guild-1", "coriolis");
+  assert.equal(row.channel_id, "channel-2");
+  assert.equal(row.message_id, "message-2");
+  const count = db.prepare("SELECT count(*) as c FROM live_messages WHERE guild_id = ? AND message_key = ?").get("guild-1", "coriolis").c;
+  assert.equal(count, 1, "must UPSERT, not accumulate a duplicate row per call");
+});
+
+test("live_messages is scoped per (guildId, messageKey) -- different guilds/keys never collide", () => {
+  const db = createDatabase(":memory:");
+  setLiveMessage(db, "guild-1", "coriolis", "channel-1", "message-1");
+  setLiveMessage(db, "guild-2", "coriolis", "channel-2", "message-2");
+  setLiveMessage(db, "guild-1", "landsraad", "channel-3", "message-3");
+  assert.equal(getLiveMessage(db, "guild-1", "coriolis").message_id, "message-1");
+  assert.equal(getLiveMessage(db, "guild-2", "coriolis").message_id, "message-2");
+  assert.equal(getLiveMessage(db, "guild-1", "landsraad").message_id, "message-3");
+});
+
+test("deleteLiveMessage removes the row so a later getLiveMessage returns undefined again", () => {
+  const db = createDatabase(":memory:");
+  setLiveMessage(db, "guild-1", "coriolis", "channel-1", "message-1");
+  deleteLiveMessage(db, "guild-1", "coriolis");
+  assert.equal(getLiveMessage(db, "guild-1", "coriolis"), undefined);
 });

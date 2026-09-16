@@ -15,6 +15,13 @@ const UPSTREAM_CONTRACT = Object.freeze({
     path: "/api/integrations/discord/status",
     fixture: "status.json"
   },
+  // coriolis (mentat#370, dune-awakening-selfhost-docker#942): public-tier
+  // farm-wide Coriolis storm seed + next-cycle timing.
+  coriolis: {
+    method: "POST",
+    path: "/api/integrations/discord/world/coriolis",
+    fixture: "status.json"
+  },
   readiness: {
     method: "POST",
     path: "/api/integrations/discord/readiness",
