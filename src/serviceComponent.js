@@ -5,10 +5,10 @@
 // why each piece of this file is shaped the way it is.
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
 import { duneEmbed } from "./embedFormat.js";
-import { listOnDuty, getServiceChannel, setDutyStatus, clearDutyStatus, getPendingApplication, createApplication, setApplicationReviewMessage } from "./serviceChannels.js";
+import { listOnDuty, getServiceChannel, setDutyStatus, clearDutyStatus, getPendingApplication, createApplication, setApplicationReviewMessage, resolveApplication } from "./serviceChannels.js";
 import { getGuildSettings } from "./database.js";
 import { postOrEditLiveMessage } from "./liveMessage.js";
-import { extractRoleIds } from "./commands.js";
+import { extractRoleIds, isAdminActor } from "./commands.js";
 
 export function buildServiceStatusEmbed(db, guildId, serviceKey, serviceDisplayName) {
   const onDuty = listOnDuty(db, guildId, serviceKey);
@@ -110,6 +110,63 @@ export async function handleServiceButtonInteraction(interaction, db, client, co
         )
       );
     await interaction.showModal(modal);
+    return true;
+  }
+
+  if (action === "approve" || action === "deny") {
+    if (!isAdminActor(interaction, config, db, guildId)) {
+      await interaction.reply({ content: "You are not authorized to review applications.", ephemeral: true });
+      return true;
+    }
+
+    const applicationId = Number(identifier);
+    // The guild_id !== interaction.guildId check happens inside
+    // resolveApplication() itself -- it returns null for a cross-guild
+    // or nonexistent ID, and we treat that the same way (never leak
+    // whether a differently-scoped row exists) -- there's no need to
+    // pre-fetch the application separately here.
+    const status = action === "approve" ? "approved" : "denied";
+    const resolved = resolveApplication(db, guildId, applicationId, { status, reviewedBy: interaction.user.id });
+    if (!resolved) {
+      await interaction.reply({ content: "That application could not be found.", ephemeral: true });
+      return true;
+    }
+
+    const serviceChannel = getServiceChannel(db, guildId, resolved.service_key);
+    let roleGrantFailed = false;
+    if (action === "approve") {
+      try {
+        const guild = await interaction.client?.guilds?.fetch?.(guildId) ?? { members: { fetch: async () => { throw new Error("no guild"); } } };
+        const member = await guild.members.fetch(resolved.applicant_id);
+        await member.roles.add(serviceChannel.role_id);
+      } catch {
+        roleGrantFailed = true;
+      }
+    }
+
+    // Edit the review message to remove the buttons and show the outcome.
+    try {
+      const reviewChannel = await client.channels.fetch(serviceChannel.review_channel_id);
+      const reviewMessage = await reviewChannel.messages.fetch(resolved.review_message_id);
+      const outcomeLine = action === "approve"
+        ? (roleGrantFailed
+          ? `Approved by <@${interaction.user.id}> — role grant FAILED, add \`@${serviceChannel.role_id}\` manually`
+          : `Approved by <@${interaction.user.id}>`)
+        : `Denied by <@${interaction.user.id}>`;
+      await reviewMessage.edit({ content: outcomeLine, embeds: [], components: [] });
+    } catch {
+      // Stale/deleted review message -- the DB mutation above already
+      // happened and is the source of truth; don't throw.
+    }
+
+    // Best-effort DM -- never blocks the transaction above.
+    try {
+      const applicantUser = await interaction.client.users.fetch(resolved.applicant_id);
+      await applicantUser.send({ content: `Your \`${resolved.service_key}\` application was ${status}.` });
+    } catch {
+      // DMs closed or user unreachable -- swallow, per design.
+    }
+
     return true;
   }
 

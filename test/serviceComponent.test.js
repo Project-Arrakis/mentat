@@ -273,3 +273,78 @@ test("handleServiceModalSubmit rejects a race-losing duplicate submission with a
   assert.equal(handled, true);
   assert.match(interaction._reply.content, /pending/i);
 });
+
+function fakeConfig() {
+  return { multiTenant: false, discord: { rbac: { adminRoleIds: ["admin-role"] } } };
+}
+
+test("non-admin clicking Approve/Deny gets an explicit ephemeral rejection, no mutation", async () => {
+  const db = fakeDb();
+  stageService(db);
+  const { createApplication, getApplication } = await import("../src/serviceChannels.js");
+  const { application } = createApplication(db, { guildId: GUILD_ID, serviceKey: "water-seller", applicantId: "applicant-1", characterName: "A", proofLink: null });
+  const replies = [];
+  const fakeInteraction = {
+    isButton: () => true,
+    customId: `service:approve:${application.id}`,
+    user: { id: "not-an-admin" },
+    guildId: GUILD_ID,
+    member: { roles: { cache: { keys: () => [][Symbol.iterator]() } } },
+    reply: async (payload) => replies.push(payload)
+  };
+  const handled = await handleServiceButtonInteraction(fakeInteraction, db, fakeClient(), fakeConfig());
+  assert.equal(handled, true);
+  assert.match(replies[0].content, /not authorized/i);
+  assert.equal(getApplication(db, application.id).status, "pending");
+});
+
+test("admin Approve grants the role, marks approved, edits the review message, best-effort DMs the applicant", async () => {
+  const db = fakeDb();
+  stageService(db);
+  const { createApplication, getApplication, setApplicationReviewMessage } = await import("../src/serviceChannels.js");
+  const { application } = createApplication(db, { guildId: GUILD_ID, serviceKey: "water-seller", applicantId: "applicant-1", characterName: "A", proofLink: null });
+  setApplicationReviewMessage(db, application.id, "review-msg-1");
+  const granted = [];
+  const dmsSent = [];
+  const edits = [];
+  const reviewChannel = { isTextBased: () => true, messages: { fetch: async () => ({ edit: async (payload) => edits.push(payload) }) } };
+  const client = {
+    channels: { fetch: async (id) => (id === "review-1" ? reviewChannel : fakeChannel()) },
+    users: { fetch: async (id) => ({ id, send: async (payload) => dmsSent.push({ id, payload }) }) },
+    guilds: { fetch: async () => ({ members: { fetch: async () => ({ roles: { add: async (roleId) => granted.push(roleId) } }) } }) }
+  };
+  const fakeInteraction = {
+    isButton: () => true,
+    customId: `service:approve:${application.id}`,
+    user: { id: "admin-1" },
+    guildId: GUILD_ID,
+    member: { roles: { cache: { keys: () => ["admin-role"][Symbol.iterator]() } } },
+    client,
+    reply: async () => {}
+  };
+  const handled = await handleServiceButtonInteraction(fakeInteraction, db, client, fakeConfig());
+  assert.equal(handled, true);
+  assert.deepEqual(granted, ["role-water-seller"]);
+  assert.equal(getApplication(db, application.id).status, "approved");
+  assert.equal(edits.length, 1);
+  assert.equal(dmsSent.length, 1);
+});
+
+test("Approve/Deny for an application from a different guild is rejected -- cross-tenant guard", async () => {
+  const db = fakeDb();
+  stageService(db);
+  const { createApplication, getApplication } = await import("../src/serviceChannels.js");
+  const { application } = createApplication(db, { guildId: "other-guild", serviceKey: "water-seller", applicantId: "applicant-1", characterName: "A", proofLink: null });
+  const replies = [];
+  const fakeInteraction = {
+    isButton: () => true,
+    customId: `service:approve:${application.id}`,
+    user: { id: "admin-1" },
+    guildId: GUILD_ID, // different guild than the application's own guild_id
+    member: { roles: { cache: { keys: () => ["admin-role"][Symbol.iterator]() } } },
+    reply: async (payload) => replies.push(payload)
+  };
+  const handled = await handleServiceButtonInteraction(fakeInteraction, db, fakeClient(), fakeConfig());
+  assert.equal(handled, true);
+  assert.equal(getApplication(db, application.id).status, "pending");
+});
