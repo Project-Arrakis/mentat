@@ -1531,12 +1531,21 @@ Add to `test/commands.test.js`, using this file's existing `mockInteraction(grou
 import { createDatabase } from "../src/database.js";
 import { getServiceChannel } from "../src/serviceChannels.js";
 
-function fakeServiceSetupInteraction({ serviceKey = "water-seller", channel = "chan-1", role = null, applicationsChannel = null, roles = ["admin-role"] } = {}) {
+// userId varies per call -- each test needs a distinct actor since
+// applyCooldown()'s per-(userId, commandName) gate runs BEFORE dispatch
+// ever reaches isAdminActor. Found the hard way: every test defaulting
+// to the same "admin-1" id meant the 2nd+ call in file/execution order
+// got rejected with a generic "Please wait 1s..." cooldown message
+// instead of exercising what that test actually meant to verify --
+// this surfaces ONLY when tests run together (each passes fine run in
+// isolation), so don't skip re-running the whole group after writing
+// these tests.
+function fakeServiceSetupInteraction({ serviceKey = "water-seller", channel = "chan-1", role = null, applicationsChannel = null, roles = ["admin-role"], userId = "admin-1" } = {}) {
   const created = [];
   const sentMessages = [];
   const pinned = [];
   const interaction = mockInteraction("admin", "service-setup", {
-    user: { id: "admin-1" },
+    user: { id: userId },
     roles,
     options: mockOptions("admin", "service-setup", {
       getString: (name) => ({
@@ -1564,15 +1573,19 @@ function fakeServiceSetupInteraction({ serviceKey = "water-seller", channel = "c
 }
 
 function fakeConfigForAdmin({ multiTenant = false } = {}) {
+  // adminRoleIds MUST be nested under discord.rbac, not discord directly
+  // -- isAdminActor()'s non-multiTenant path reads
+  // config.discord.rbac.adminRoleIds; the wrong nesting silently makes
+  // every admin check fail, found the hard way.
   return {
     multiTenant,
-    discord: { defaultEphemeral: true, rbac: { mode: "open" }, adminRoleIds: ["admin-role"] }
+    discord: { defaultEphemeral: true, rbac: { mode: "open", adminRoleIds: ["admin-role"] } }
   };
 }
 
 test("admin:service-setup creates the role if missing, writes the registry row, posts and pins the status embed", async () => {
   const db = createDatabase(":memory:");
-  const { interaction, created, sentMessages, pinned } = fakeServiceSetupInteraction({ applicationsChannel: "review-1" });
+  const { interaction, created, sentMessages, pinned } = fakeServiceSetupInteraction({ applicationsChannel: "review-1", userId: "admin-setup-1" });
   const handled = await executeDuneCommand(interaction, {}, fakeConfigForAdmin(), db);
   assert.equal(handled, true);
   assert.equal(created.length, 1, "must create a role since none was passed");
@@ -1592,7 +1605,7 @@ test("admin:service-setup is blocked for a non-admin caller", async () => {
   // this file follows this same pattern (confirmed by reading the catch
   // block directly), so assert against the edited reply, not a throw.
   const db = createDatabase(":memory:");
-  const { interaction } = fakeServiceSetupInteraction({ applicationsChannel: "review-1", roles: [] });
+  const { interaction } = fakeServiceSetupInteraction({ applicationsChannel: "review-1", roles: [], userId: "non-admin-1" });
   let edited;
   interaction.editReply = async (payload) => { edited = payload; };
   const handled = await executeDuneCommand(interaction, {}, fakeConfigForAdmin(), db);
@@ -1603,10 +1616,10 @@ test("admin:service-setup is blocked for a non-admin caller", async () => {
 
 test("admin:service-setup reuses the prior applications-channel when the argument is omitted on a guild's second invocation", async () => {
   const db = createDatabase(":memory:");
-  const first = fakeServiceSetupInteraction({ serviceKey: "water-seller", channel: "chan-1", applicationsChannel: "review-1" });
+  const first = fakeServiceSetupInteraction({ serviceKey: "water-seller", channel: "chan-1", applicationsChannel: "review-1", userId: "admin-setup-2a" });
   await executeDuneCommand(first.interaction, {}, fakeConfigForAdmin(), db);
 
-  const second = fakeServiceSetupInteraction({ serviceKey: "smuggler", channel: "chan-2", applicationsChannel: null });
+  const second = fakeServiceSetupInteraction({ serviceKey: "smuggler", channel: "chan-2", applicationsChannel: null, userId: "admin-setup-2b" });
   await executeDuneCommand(second.interaction, {}, fakeConfigForAdmin(), db);
 
   const row = getServiceChannel(db, second.interaction.guildId, "smuggler");
@@ -1619,7 +1632,7 @@ test("admin:service-setup fails with a clear error when applications-channel is 
   // payload, for consistency with every other admin:* error path in this
   // function (Step 3 below).
   const db = createDatabase(":memory:");
-  const { interaction } = fakeServiceSetupInteraction({ applicationsChannel: null });
+  const { interaction } = fakeServiceSetupInteraction({ applicationsChannel: null, userId: "admin-setup-3" });
   let edited;
   interaction.editReply = async (payload) => { edited = payload; };
   const handled = await executeDuneCommand(interaction, {}, fakeConfigForAdmin(), db);

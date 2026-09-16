@@ -144,6 +144,7 @@ of them.
 | `/dune admin events` | Admins | Recent server incidents and alerts |
 | `/dune admin roles` | Admins | Show configured admin/player roles, with current Discord role names |
 | `/dune admin broadcast` | Mods+ | Send a message to all in-game players |
+| `/dune admin service-setup` | Admins | Provision a service channel's duty/apply component |
 
 ### 🖥️ `infra` — Infrastructure
 

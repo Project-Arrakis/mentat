@@ -15,6 +15,7 @@ import {
   statusSummaryPayload
 } from "../src/commands.js";
 import { createDatabase, upsertGuild, addGuildRole, updateGuildSettings } from "../src/database.js";
+import { getServiceChannel } from "../src/serviceChannels.js";
 
 const packageVersion = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8")
@@ -69,7 +70,7 @@ test("buildDuneCommand includes write group only when enabled", () => {
 // subcommands (readiness-detail, services-detail, maintenance) -- all
 // registered and dispatchable, so `/dune help` was hiding commands from
 // users. It must now mirror buildDuneCommand()'s full non-write surface.
-test("helpPayload mirrors the full registered command surface (57 non-write commands)", () => {
+test("helpPayload mirrors the full registered command surface (58 non-write commands)", () => {
   const registered = new Set();
   for (const group of buildDuneCommand({ includeWriteGroup: false }).toJSON().options) {
     for (const sub of group.options || []) {
@@ -702,4 +703,104 @@ test("infra commands are RBAC-gated through fallback observer/admin", async () =
   });
   assert.ok(edited?.embeds?.[0]?.data?.title, "infra:version embed has title");
   assert.equal(seenActor.userId, "u1", "actor context sent to adapter");
+});
+
+// admin:service-setup (mentat#372)
+// userId varies per call -- each test uses a distinct actor so
+// applyCooldown()'s per-(userId, commandName) gate (checked before
+// dispatch even reaches isAdminActor) never rejects a second call in
+// the same test run with a generic cooldown message instead of
+// exercising what each test actually means to verify. Found the hard
+// way: every admin:service-setup test defaulted to the same "admin-1"
+// id, and the 2nd+ test in file order got "Please wait 1s..." instead
+// of its real assertion target.
+function fakeServiceSetupInteraction({ serviceKey = "water-seller", channel = "chan-1", role = null, applicationsChannel = null, roles = ["admin-role"], userId = "admin-1" } = {}) {
+  const created = [];
+  const sentMessages = [];
+  const pinned = [];
+  const interaction = mockInteraction("admin", "service-setup", {
+    user: { id: userId },
+    roles,
+    options: mockOptions("admin", "service-setup", {
+      getString: (name) => ({
+        "service-key": serviceKey,
+        channel,
+        role,
+        "applications-channel": applicationsChannel
+      })[name] || null
+    })
+  });
+  interaction.guild = {
+    roles: { create: async ({ name }) => { const id = `role-${name}`; created.push(id); return { id }; } }
+  };
+  interaction.client = {
+    channels: {
+      fetch: async () => ({
+        send: async (payload) => {
+          sentMessages.push(payload);
+          return { id: "status-msg-1", pin: async () => pinned.push("status-msg-1") };
+        }
+      })
+    }
+  };
+  return { interaction, created, sentMessages, pinned };
+}
+
+function fakeConfigForAdmin() {
+  // isAdminActor()'s non-multiTenant path reads config.discord.rbac.adminRoleIds
+  // -- found the hard way while executing this task: an earlier draft put
+  // adminRoleIds directly on config.discord instead of nested under .rbac,
+  // silently making every admin check fail.
+  return {
+    multiTenant: false,
+    discord: { defaultEphemeral: true, rbac: { mode: "open", adminRoleIds: ["admin-role"] } }
+  };
+}
+
+test("admin:service-setup creates the role if missing, writes the registry row, posts and pins the status embed", async () => {
+  const db = createDatabase(":memory:");
+  const { interaction, created, sentMessages, pinned } = fakeServiceSetupInteraction({ applicationsChannel: "review-1", userId: "admin-setup-1" });
+  const handled = await executeDuneCommand(interaction, {}, fakeConfigForAdmin(), db);
+  assert.equal(handled, true);
+  assert.equal(created.length, 1, "must create a role since none was passed");
+  const row = getServiceChannel(db, interaction.guildId, "water-seller");
+  assert.equal(row.channel_id, "chan-1");
+  assert.equal(row.role_id, created[0]);
+  assert.equal(row.review_channel_id, "review-1");
+  assert.equal(sentMessages.length, 1);
+  assert.deepEqual(pinned, ["status-msg-1"]);
+});
+
+test("admin:service-setup is blocked for a non-admin caller", async () => {
+  const db = createDatabase(":memory:");
+  const { interaction } = fakeServiceSetupInteraction({ applicationsChannel: "review-1", roles: [], userId: "non-admin-1" });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  const handled = await executeDuneCommand(interaction, {}, fakeConfigForAdmin(), db);
+  assert.equal(handled, true);
+  const description = edited?.embeds?.[0]?.data?.description || "";
+  assert.match(description, /admin or owner role/);
+});
+
+test("admin:service-setup reuses the prior applications-channel when the argument is omitted on a guild's second invocation", async () => {
+  const db = createDatabase(":memory:");
+  const first = fakeServiceSetupInteraction({ serviceKey: "water-seller", channel: "chan-1", applicationsChannel: "review-1", userId: "admin-setup-2a" });
+  await executeDuneCommand(first.interaction, {}, fakeConfigForAdmin(), db);
+
+  const second = fakeServiceSetupInteraction({ serviceKey: "smuggler", channel: "chan-2", applicationsChannel: null, userId: "admin-setup-2b" });
+  await executeDuneCommand(second.interaction, {}, fakeConfigForAdmin(), db);
+
+  const row = getServiceChannel(db, second.interaction.guildId, "smuggler");
+  assert.equal(row.review_channel_id, "review-1", "must reuse the guild's already-configured applications channel");
+});
+
+test("admin:service-setup fails with a clear error when applications-channel is omitted and no prior service_channels row exists for the guild", async () => {
+  const db = createDatabase(":memory:");
+  const { interaction } = fakeServiceSetupInteraction({ applicationsChannel: null, userId: "admin-setup-3" });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  const handled = await executeDuneCommand(interaction, {}, fakeConfigForAdmin(), db);
+  assert.equal(handled, true);
+  const description = edited?.embeds?.[0]?.data?.description || "";
+  assert.match(description, /applications-channel is required/);
 });
