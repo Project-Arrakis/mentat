@@ -147,3 +147,64 @@ test("onduty when on_duty_role_id is unset (default '') skips the generic-role t
   const handled = await handleServiceButtonInteraction(fakeInteraction, db, client);
   assert.equal(handled, true);
 });
+
+test("apply when the user already holds the role is rejected ephemerally before any modal is shown", async () => {
+  const db = fakeDb();
+  stageService(db);
+  const replies = [];
+  const shownModals = [];
+  const fakeInteraction = {
+    isButton: () => true,
+    customId: "service:apply:water-seller",
+    user: { id: "user-1" },
+    guildId: GUILD_ID,
+    member: { roles: { cache: { keys: () => ["role-water-seller"][Symbol.iterator]() } } },
+    reply: async (payload) => replies.push(payload),
+    showModal: async (modal) => shownModals.push(modal)
+  };
+  const handled = await handleServiceButtonInteraction(fakeInteraction, db, fakeClient());
+  assert.equal(handled, true);
+  assert.equal(shownModals.length, 0);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0].content, /already/i);
+});
+
+test("apply with an existing pending application is rejected ephemerally, no modal shown", async () => {
+  const db = fakeDb();
+  stageService(db);
+  const { createApplication } = await import("../src/serviceChannels.js");
+  createApplication(db, { guildId: GUILD_ID, serviceKey: "water-seller", applicantId: "user-1", characterName: "A", proofLink: null });
+  const replies = [];
+  const shownModals = [];
+  const fakeInteraction = {
+    isButton: () => true,
+    customId: "service:apply:water-seller",
+    user: { id: "user-1" },
+    guildId: GUILD_ID,
+    member: { roles: { cache: { keys: () => [][Symbol.iterator]() } } },
+    reply: async (payload) => replies.push(payload),
+    showModal: async (modal) => shownModals.push(modal)
+  };
+  const handled = await handleServiceButtonInteraction(fakeInteraction, db, fakeClient());
+  assert.equal(handled, true);
+  assert.equal(shownModals.length, 0);
+  assert.match(replies[0].content, /pending/i);
+});
+
+test("apply with no role and no pending application shows the modal with the right customId", async () => {
+  const db = fakeDb();
+  stageService(db);
+  const shownModals = [];
+  const fakeInteraction = {
+    isButton: () => true,
+    customId: "service:apply:water-seller",
+    user: { id: "user-1" },
+    guildId: GUILD_ID,
+    member: { roles: { cache: { keys: () => [][Symbol.iterator]() } } },
+    showModal: async (modal) => shownModals.push(modal)
+  };
+  const handled = await handleServiceButtonInteraction(fakeInteraction, db, fakeClient());
+  assert.equal(handled, true);
+  assert.equal(shownModals.length, 1);
+  assert.equal(shownModals[0].data.custom_id, "service:applymodal:water-seller");
+});

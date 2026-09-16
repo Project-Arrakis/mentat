@@ -3,9 +3,9 @@
 // docs/design/service-duty-apply-component-l1-design-2026-09-15.md and
 // the Layer 1 audit findings register (mentat#372 issue comments) for
 // why each piece of this file is shaped the way it is.
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
 import { duneEmbed } from "./embedFormat.js";
-import { listOnDuty, getServiceChannel, setDutyStatus, clearDutyStatus } from "./serviceChannels.js";
+import { listOnDuty, getServiceChannel, setDutyStatus, clearDutyStatus, getPendingApplication } from "./serviceChannels.js";
 import { getGuildSettings } from "./database.js";
 import { postOrEditLiveMessage } from "./liveMessage.js";
 import { extractRoleIds } from "./commands.js";
@@ -83,6 +83,33 @@ export async function handleServiceButtonInteraction(interaction, db, client, co
     }
     await refreshServiceStatusMessage({ client, db, guildId, serviceChannel, serviceKey });
     await interaction.reply({ content: action === "onduty" ? "You're now on duty." : "You're now off duty.", ephemeral: true });
+    return true;
+  }
+
+  if (action === "apply") {
+    const serviceKey = identifier;
+    const serviceChannel = getServiceChannel(db, guildId, serviceKey);
+    const hasRole = extractRoleIds(interaction).includes(serviceChannel?.role_id);
+    if (hasRole) {
+      await interaction.reply({ content: `You're already a \`${serviceKey}\`.`, ephemeral: true });
+      return true;
+    }
+    if (getPendingApplication(db, guildId, serviceKey, interaction.user.id)) {
+      await interaction.reply({ content: "You already have a pending application.", ephemeral: true });
+      return true;
+    }
+    const modal = new ModalBuilder()
+      .setCustomId(`service:applymodal:${serviceKey}`)
+      .setTitle(`Apply: ${serviceKey}`)
+      .addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("characterName").setLabel("Character Name").setStyle(TextInputStyle.Short).setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("proofLink").setLabel("Proof Link (optional)").setStyle(TextInputStyle.Paragraph).setRequired(false)
+        )
+      );
+    await interaction.showModal(modal);
     return true;
   }
 
