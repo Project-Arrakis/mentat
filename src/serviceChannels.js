@@ -96,13 +96,29 @@ export function setApplicationReviewMessage(db, applicationId, reviewMessageId) 
 // nonexistent applicationId -- the caller treats null the same as
 // "application not found," never leaking whether a differently-scoped
 // row exists.
+// Layer 2 Architect-hat finding: the original version unconditionally
+// overwrote status/reviewed_by/reviewed_at with no guard against a
+// double-click or two admins racing the same Approve/Deny -- both would
+// pass the "not found" check and both would run the full role-grant +
+// review-message-edit + DM side effects, potentially producing a
+// "denied" DM after an "approved" one. The UPDATE's own
+// `AND status = 'pending'` clause is the real, race-safe guard (mirrors
+// createApplication()'s UNIQUE-index pattern); `alreadyResolved: true`
+// on the returned object tells the caller to short-circuit before any
+// side effect, rather than silently redoing them.
 export function resolveApplication(db, guildId, applicationId, { status, reviewedBy }) {
   const existing = db.prepare("SELECT * FROM service_applications WHERE id = ? AND guild_id = ?").get(applicationId, guildId);
   if (!existing) return null;
-  db.prepare(`
+  if (existing.status !== "pending") {
+    return { ...existing, alreadyResolved: true };
+  }
+  const result = db.prepare(`
     UPDATE service_applications
     SET status = ?, reviewed_by = ?, reviewed_at = datetime('now')
-    WHERE id = ?
+    WHERE id = ? AND status = 'pending'
   `).run(status, reviewedBy, applicationId);
+  if (result.changes === 0) {
+    return { ...getApplication(db, applicationId), alreadyResolved: true };
+  }
   return getApplication(db, applicationId);
 }

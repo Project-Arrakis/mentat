@@ -736,9 +736,15 @@ function fakeServiceSetupInteraction({ serviceKey = "water-seller", channel = "c
   interaction.client = {
     channels: {
       fetch: async () => ({
+        isTextBased: () => true,
         send: async (payload) => {
           sentMessages.push(payload);
           return { id: "status-msg-1", pin: async () => pinned.push("status-msg-1") };
+        },
+        messages: {
+          // Supports executeServiceSetup's pin step, which re-fetches the
+          // message postOrEditLiveMessage() just posted before pinning it.
+          fetch: async (id) => ({ id, pin: async () => pinned.push(id) })
         }
       })
     }

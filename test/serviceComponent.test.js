@@ -348,3 +348,45 @@ test("Approve/Deny for an application from a different guild is rejected -- cros
   assert.equal(handled, true);
   assert.equal(getApplication(db, application.id).status, "pending");
 });
+
+test("a second Approve/Deny click on an already-resolved application short-circuits before any role-grant/DM/message-edit side effect", async () => {
+  const db = fakeDb();
+  stageService(db);
+  const { createApplication, getApplication, setApplicationReviewMessage } = await import("../src/serviceChannels.js");
+  const { application } = createApplication(db, { guildId: GUILD_ID, serviceKey: "water-seller", applicantId: "applicant-1", characterName: "A", proofLink: null });
+  setApplicationReviewMessage(db, application.id, "review-msg-1");
+  const granted = [];
+  const dmsSent = [];
+  const edits = [];
+  const reviewChannel = { isTextBased: () => true, messages: { fetch: async () => ({ edit: async (payload) => edits.push(payload) }) } };
+  const client = {
+    channels: { fetch: async (id) => (id === "review-1" ? reviewChannel : fakeChannel()) },
+    users: { fetch: async (id) => ({ id, send: async (payload) => dmsSent.push({ id, payload }) }) },
+    guilds: { fetch: async () => ({ members: { fetch: async () => ({ roles: { add: async (roleId) => granted.push(roleId) } }) } }) }
+  };
+  const baseInteraction = {
+    isButton: () => true,
+    customId: `service:approve:${application.id}`,
+    guildId: GUILD_ID,
+    member: { roles: { cache: { keys: () => ["admin-role"][Symbol.iterator]() } } },
+    client
+  };
+
+  // First click: resolves for real.
+  const replies1 = [];
+  await handleServiceButtonInteraction({ ...baseInteraction, user: { id: "admin-1" }, reply: async (p) => replies1.push(p) }, db, client, fakeConfig());
+  assert.equal(getApplication(db, application.id).status, "approved");
+  assert.equal(granted.length, 1);
+  assert.equal(dmsSent.length, 1);
+
+  // Second click (a double-click, or a different admin racing the first):
+  // must short-circuit, never re-run any side effect.
+  const replies2 = [];
+  const handled = await handleServiceButtonInteraction({ ...baseInteraction, user: { id: "admin-2" }, reply: async (p) => replies2.push(p) }, db, client, fakeConfig());
+  assert.equal(handled, true);
+  assert.match(replies2[0].content, /already approved/i);
+  assert.equal(granted.length, 1, "role must not be granted a second time");
+  assert.equal(dmsSent.length, 1, "applicant must not be DMed a second time");
+  assert.equal(edits.length, 1, "the review message must not be edited a second time");
+  assert.equal(getApplication(db, application.id).reviewed_by, "admin-1", "the original reviewer must not be overwritten");
+});

@@ -128,3 +128,14 @@ test("resolveApplication returns null for an application belonging to a differen
   assert.equal(resolved, null);
   assert.equal(getApplication(db, application.id).status, "pending");
 });
+
+test("resolveApplication on an already-resolved application marks alreadyResolved and does not overwrite the prior decision -- race/double-click guard", () => {
+  const db = fakeDb();
+  const { application } = createApplication(db, { guildId: GUILD_ID, serviceKey: "water-seller", applicantId: "user-1", characterName: "A", proofLink: null });
+  const first = resolveApplication(db, GUILD_ID, application.id, { status: "approved", reviewedBy: "admin-1" });
+  assert.equal(first.alreadyResolved, undefined, "the real first resolution must not be flagged");
+  const second = resolveApplication(db, GUILD_ID, application.id, { status: "denied", reviewedBy: "admin-2" });
+  assert.equal(second.alreadyResolved, true);
+  assert.equal(second.status, "approved", "the original decision must survive, not be overwritten by the racing second call");
+  assert.equal(second.reviewed_by, "admin-1");
+});

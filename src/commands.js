@@ -7,8 +7,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgVersion = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")).version;
 import { checkCooldown, applyCooldown, cooldownStats } from "./cooldown.js";
 import { executeBroadcast, sendBroadcastToAdapter, canBroadcast } from "./broadcast.js";
-import { setServiceChannel, listServiceChannels } from "./serviceChannels.js";
+import { setServiceChannel, listServiceChannels, setServiceStatusMessageId } from "./serviceChannels.js";
 import { buildServiceStatusEmbed } from "./serviceComponent.js";
+import { postOrEditLiveMessage } from "./liveMessage.js";
 import { formatError, formatPayload, redactSecrets } from "./format.js";
 import { logInfo, logError } from "./logger.js";
 import { resolveCompatEnv } from "./compatEnv.js";
@@ -1011,12 +1012,27 @@ async function executeServiceSetup({ interaction, db, guildId }) {
 
   setServiceChannel(db, guildId, serviceKey, { channelId, roleId, reviewChannelId, requiresReview: true });
 
+  // Reuses #370's shared "post once, edit in place" infrastructure, per
+  // the L1 design (docs/design/service-duty-apply-component-l1-design-2026-09-15.md
+  // §6) -- a raw channel.send() here (an earlier draft's real bug, caught
+  // by the Layer 2 Architect-hat audit) would post a message this
+  // function never records in live_messages, so the very first On/Off
+  // Duty toggle's refreshServiceStatusMessage() -> postOrEditLiveMessage()
+  // call would find no existing row and post a SECOND message, silently
+  // orphaning this one (still pinned, frozen at its initial empty state)
+  // while the real live one goes unpinned.
   const { embeds, components } = buildServiceStatusEmbed(db, guildId, serviceKey, serviceKey);
-  const channel = await interaction.client.channels.fetch(channelId);
-  const message = await channel.send({ embeds, components });
+  const { channelId: postedChannelId, messageId } = await postOrEditLiveMessage({
+    client: interaction.client, db, guildId, channelId,
+    messageKey: `service:duty:${serviceKey}`,
+    content: { embeds, components }
+  });
+  const channel = await interaction.client.channels.fetch(postedChannelId);
+  const message = await channel.messages.fetch(messageId);
   await message.pin();
+  setServiceStatusMessageId(db, guildId, serviceKey, messageId);
 
-  return { ok: true, serviceKey, channelId, roleId, reviewChannelId, statusMessageId: message.id };
+  return { ok: true, serviceKey, channelId, roleId, reviewChannelId, statusMessageId: messageId };
 }
 
 // ── Helpers ──

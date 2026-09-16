@@ -69,7 +69,7 @@ export async function handleServiceButtonInteraction(interaction, db, client, co
     const hasRole = extractRoleIds(interaction).includes(serviceChannel?.role_id);
     if (!hasRole) {
       await interaction.reply({
-        content: `You need the \`${serviceKey}\` role first — click Apply below.`,
+        content: `You need the <@&${serviceChannel?.role_id}> role first — click Apply below.`,
         ephemeral: true
       });
       return true;
@@ -91,7 +91,7 @@ export async function handleServiceButtonInteraction(interaction, db, client, co
     const serviceChannel = getServiceChannel(db, guildId, serviceKey);
     const hasRole = extractRoleIds(interaction).includes(serviceChannel?.role_id);
     if (hasRole) {
-      await interaction.reply({ content: `You're already a \`${serviceKey}\`.`, ephemeral: true });
+      await interaction.reply({ content: `You're already <@&${serviceChannel?.role_id}>.`, ephemeral: true });
       return true;
     }
     if (getPendingApplication(db, guildId, serviceKey, interaction.user.id)) {
@@ -131,6 +131,13 @@ export async function handleServiceButtonInteraction(interaction, db, client, co
       await interaction.reply({ content: "That application could not be found.", ephemeral: true });
       return true;
     }
+    if (resolved.alreadyResolved) {
+      // A double-click or a race with another admin -- the row is
+      // already in a final state; never re-run role-grant/DM/message-edit
+      // side effects a second time.
+      await interaction.reply({ content: `This application was already ${resolved.status}.`, ephemeral: true });
+      return true;
+    }
 
     const serviceChannel = getServiceChannel(db, guildId, resolved.service_key);
     let roleGrantFailed = false;
@@ -150,7 +157,7 @@ export async function handleServiceButtonInteraction(interaction, db, client, co
       const reviewMessage = await reviewChannel.messages.fetch(resolved.review_message_id);
       const outcomeLine = action === "approve"
         ? (roleGrantFailed
-          ? `Approved by <@${interaction.user.id}> — role grant FAILED, add \`@${serviceChannel.role_id}\` manually`
+          ? `Approved by <@${interaction.user.id}> — role grant FAILED, add <@&${serviceChannel.role_id}> manually`
           : `Approved by <@${interaction.user.id}>`)
         : `Denied by <@${interaction.user.id}>`;
       await reviewMessage.edit({ content: outcomeLine, embeds: [], components: [] });
