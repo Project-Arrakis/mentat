@@ -22,6 +22,13 @@ const UPSTREAM_CONTRACT = Object.freeze({
     path: "/api/integrations/discord/world/coriolis",
     fixture: "status.json"
   },
+  // atlas (mentat#376, dune-awakening-selfhost-docker#938): public-tier
+  // per-sietch PvP/PvE + live sandstorm status + the Coriolis cycle.
+  atlas: {
+    method: "POST",
+    path: "/api/integrations/discord/world/atlas",
+    fixture: "status.json"
+  },
   readiness: {
     method: "POST",
     path: "/api/integrations/discord/readiness",

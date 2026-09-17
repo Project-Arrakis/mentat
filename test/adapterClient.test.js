@@ -271,7 +271,7 @@ test("every known route is classified into exactly one of the four route tables 
     "player-inventory-v2",
     "players-accounts-link-steam", "players-link-verify",
     "players-accounts-list", "players-accounts-unlink",
-    "coriolis"
+    "coriolis", "atlas"
   ];
 
   assert.equal(whole.size, LIVE_ROUTES.size + PLANNED_ROUTES.size + UNMERGED_ROUTES.size + MISSING_ROUTES.size,

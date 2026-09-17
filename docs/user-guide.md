@@ -50,6 +50,7 @@ Select one, then choose a command from within that group.
 | `/dune server services-detail` | Detailed service state with logs |
 | `/dune server maintenance` | Shows the current maintenance note or window (read-only) |
 | `/dune server coriolis` | Shows the current Coriolis storm seed and next-cycle countdown |
+| `/dune server atlas` | Shows per-sietch PvP/PvE and live sandstorm status |
 
 > **Admin Tip:** Add `diagnostic:true` to `/dune server status` or
 > `/dune server readiness` for detailed technical output (admin only).

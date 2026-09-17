@@ -740,6 +740,53 @@ export function formatCoriolisEmbed(payload) {
   });
 }
 
+// formatAtlasEmbed (mentat#376, dune-awakening-selfhost-docker#938):
+// #the-atlas -- per-sietch PvP/PvE + live sandstorm status, plus the
+// farm-wide Coriolis cycle. Sandworm/storm-cadence config is deliberately
+// not included yet (Core issue #938's own fast-follow note); do not add
+// fields for it here without a matching payload field to read.
+function atlasCombatLabel(combatState) {
+  if (combatState === "PVP") return "⚔️ PvP";
+  if (combatState === "PVE") return "🕊️ PvE";
+  if (combatState === "CONFLICT") return "⚡ Conflict";
+  return "❔ Unknown";
+}
+
+function atlasSietchLine(sietch) {
+  const name = sietch.serverDisplayName || `Partition ${sietch.partitionId}`;
+  const combat = atlasCombatLabel(sietch.combatState);
+  const storm = sietch.sandstormActive ? " · 🌪️ **Storm active**" : "";
+  return `**${name}** — ${combat}${storm}`;
+}
+
+export function formatAtlasEmbed(payload) {
+  if (payload?.ok !== true) {
+    return duneEmbed({
+      title: "📜 The Atlas",
+      color: "warning",
+      description: "❔ **Not yet known** — sietch data hasn't been observed since the server's last restart."
+    });
+  }
+  const hagga = Array.isArray(payload?.sietches?.HaggaBasin) ? payload.sietches.HaggaBasin : [];
+  const deepDesert = Array.isArray(payload?.sietches?.DeepDesert) ? payload.sietches.DeepDesert : [];
+  const nextCycleUnix = Math.floor(new Date(payload?.coriolisNextCycleAt).getTime() / 1000);
+  const coriolisLine = payload?.coriolisSeed && Number.isFinite(nextCycleUnix)
+    ? `🌪️ Coriolis seed **${payload.coriolisSeed}** — next cycle <t:${nextCycleUnix}:R>`
+    : "🌪️ Coriolis cycle not yet known.";
+
+  const fields = [];
+  if (hagga.length) fields.push({ name: "Hagga Basin", value: hagga.map(atlasSietchLine).join("\n"), inline: false });
+  if (deepDesert.length) fields.push({ name: "The Deep Desert", value: deepDesert.map(atlasSietchLine).join("\n"), inline: false });
+  if (!fields.length) fields.push({ name: "Sietches", value: "No sietches are currently reporting.", inline: false });
+
+  return duneEmbed({
+    title: "📜 The Atlas",
+    color: "spice",
+    description: coriolisLine,
+    fields
+  });
+}
+
 export function formatMaintenanceEmbed(payload) {
   // Route provenance for "maintenance" is unverified against upstream main
   // (see adapterClient.js maintenance() comment); a false/missing "ok" must
