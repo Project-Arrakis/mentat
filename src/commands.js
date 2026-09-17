@@ -12,7 +12,7 @@ import { logInfo, logError } from "./logger.js";
 import { resolveCompatEnv } from "./compatEnv.js";
 import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegistryMetadata } from "./registryLoader.js";
 import { countSubcommands } from "./catalogTransform.js";
-import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed } from "./embedFormat.js";
+import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { writesEnabled, canWrite, writeRoleIds } from "./writes.js";
@@ -62,7 +62,8 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("services").setDescription("Show service container state."))
       .addSubcommand((c) => c.setName("services-detail").setDescription("Show detailed service state with logs."))
       .addSubcommand((c) => c.setName("maintenance").setDescription("Show current maintenance note or window (read-only)."))
-      .addSubcommand((c) => c.setName("coriolis").setDescription("Show the current Coriolis storm seed and next-cycle countdown.")))
+      .addSubcommand((c) => c.setName("coriolis").setDescription("Show the current Coriolis storm seed and next-cycle countdown."))
+      .addSubcommand((c) => c.setName("atlas").setDescription("Show per-sietch PvP/PvE and live sandstorm status.")))
 
     // ── data group ──
     // inventory/storage/find moved to player (2026-07-26) -- these are
@@ -374,6 +375,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = await adapterClient.maintenance(actor, guildId);
     } else if (key === "server:coriolis") {
       payload = await adapterClient.coriolis(actor, guildId);
+    } else if (key === "server:atlas") {
+      payload = await adapterClient.atlas(actor, guildId);
     }
     // ── data group ──
     else if (key === "data:population") {
@@ -676,6 +679,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatMaintenanceEmbed(payload);
     } else if (subcommand === "coriolis") {
       embed = formatCoriolisEmbed(payload);
+    } else if (subcommand === "atlas") {
+      embed = formatAtlasEmbed(payload);
     } else if (subcommand === "population") {
       embed = formatPopulationEmbed(payload);
     } else if (subcommand === "backups") {
@@ -1099,6 +1104,7 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "server:services-detail", desc: "Show detailed service state with logs.", role: "player" },
     { name: "server:maintenance", desc: "Show current maintenance note or window (read-only).", role: "player" },
     { name: "server:coriolis", desc: "Show the current Coriolis storm seed and next-cycle countdown.", role: "player" },
+    { name: "server:atlas", desc: "Show per-sietch PvP/PvE and live sandstorm status.", role: "player" },
     // ── data ──
     { name: "data:population", desc: "Show aggregate player count.", role: "player" },
     { name: "data:backups", desc: "List recent backup metadata.", role: "player" },
@@ -1346,7 +1352,8 @@ export function getCommandRegistry() {
         { name: "services", desc: "Show service container state", role: "player" },
         { name: "services-detail", desc: "Show detailed service state with logs", role: "player" },
         { name: "maintenance", desc: "Show maintenance mode status (read-only)", role: "player" },
-        { name: "coriolis", desc: "Show the current Coriolis storm seed and next-cycle countdown", role: "player" }
+        { name: "coriolis", desc: "Show the current Coriolis storm seed and next-cycle countdown", role: "player" },
+        { name: "atlas", desc: "Show per-sietch PvP/PvE and live sandstorm status", role: "player" }
       ]
     },
     {

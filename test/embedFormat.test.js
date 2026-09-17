@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatRolesEmbed, formatSetupEmbed, formatCoriolisEmbed } from "../src/embedFormat.js";
+import { formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatRolesEmbed, formatSetupEmbed, formatCoriolisEmbed, formatAtlasEmbed } from "../src/embedFormat.js";
 
 // ─── Real bug, found via a live user report (2026-07-26/27) ────────────────
 //
@@ -218,4 +218,45 @@ test("formatCoriolisEmbed shows the unknown state (not a broken <t:NaN:...> stri
   const description = embed.toJSON().description;
   assert.match(description, /Not yet known/);
   assert.doesNotMatch(description, /NaN/);
+});
+
+// formatAtlasEmbed (mentat#376, dune-awakening-selfhost-docker#938)
+test("formatAtlasEmbed shows an unknown state when ok is not true", () => {
+  const embed = formatAtlasEmbed({ ok: false });
+  assert.match(embed.toJSON().description, /Not yet known/);
+});
+
+test("formatAtlasEmbed lists Hagga Basin and Deep Desert sietches as separate fields", () => {
+  const embed = formatAtlasEmbed({
+    ok: true,
+    coriolisSeed: "cor-6",
+    coriolisNextCycleAt: "2026-09-22T11:00:00.000Z",
+    sietches: {
+      HaggaBasin: [
+        { partitionId: "1", serverDisplayName: "Sietch Zahir", combatState: "PVE", sandstormActive: false },
+        { partitionId: "37", serverDisplayName: "Sietch Kadir", combatState: "PVP", sandstormActive: true }
+      ],
+      DeepDesert: [
+        { partitionId: "8", serverDisplayName: null, combatState: "UNKNOWN", sandstormActive: false }
+      ]
+    }
+  });
+  const json = embed.toJSON();
+  const expectedUnix = Math.floor(new Date("2026-09-22T11:00:00.000Z").getTime() / 1000);
+  assert.match(json.description, new RegExp(`<t:${expectedUnix}:R>`));
+  assert.match(json.description, /cor-6/);
+  const hagga = json.fields.find((field) => field.name === "Hagga Basin");
+  assert.match(hagga.value, /Sietch Zahir.*🕊️ PvE/);
+  assert.match(hagga.value, /Sietch Kadir.*⚔️ PvP.*Storm active/);
+  const deepDesert = json.fields.find((field) => field.name === "The Deep Desert");
+  assert.match(deepDesert.value, /Partition 8/);
+});
+
+test("formatAtlasEmbed reports no sietches reporting instead of an empty field when both maps are empty", () => {
+  const embed = formatAtlasEmbed({ ok: true, coriolisSeed: null, coriolisNextCycleAt: null, sietches: { HaggaBasin: [], DeepDesert: [] } });
+  const json = embed.toJSON();
+  // duneEmbed appends its own flavor-quote field after any data fields --
+  // this asserts the one real data field, not the total field count.
+  assert.match(json.fields[0].value, /No sietches are currently reporting/);
+  assert.match(json.description, /Coriolis cycle not yet known/);
 });

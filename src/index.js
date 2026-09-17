@@ -8,6 +8,7 @@ import { startHealthState } from "./healthState.js";
 import { logError, logInfo } from "./logger.js";
 import { startScheduler, startDailyDigest } from "./scheduler.js";
 import { alertSubscriber } from "./notifications.js";
+import { atlasRefresher } from "./atlasRefresh.js";
 import { createDatabase, getGuild, getGuildRoles, getGuildSettings } from "./database.js";
 import { createSetupServer } from "./setupServer.js";
 import { createSteamLinkServer } from "./steamLinkServer.js";
@@ -132,6 +133,7 @@ let scheduler = { active: false, stop() {} };
 let announcementBridge = { active: false, stop() {} };
 let alerts = { active: false, stop() {} };
 let dailyDigest = { active: false, stop() {} };
+let atlasRefresh = { active: false, stop() {} };
 let statsPusher = { active: false, stop() {} };
 
 if (config.multiTenant) {
@@ -245,6 +247,30 @@ client.once(Events.ClientReady, (readyClient) => {
     });
   }
 
+  // #the-atlas (mentat#376, dune-awakening-selfhost-docker#938): the first
+  // real caller of liveMessage.js's postOrEditLiveMessage() -- requires a
+  // real db (multi-tenant mode; confirmed the live deployment already runs
+  // with ACP_MULTI_TENANT=true), since single-tenant mode has no local
+  // SQLite instance to record the message pointer in.
+  const atlasChannelId = process.env.DUNE_ATLAS_CHANNEL_ID;
+  if (atlasChannelId && db) {
+    const atlasIntervalMs = Number.parseInt(process.env.DUNE_ATLAS_INTERVAL_MS || "600000", 10) || 600000;
+    const refresher = atlasRefresher({
+      adapterClient,
+      client,
+      db,
+      channelId: atlasChannelId,
+      onError: (error) => logError("atlas.refresh.failed", error)
+    });
+    void refresher.refresh();
+    const atlasTimer = setInterval(() => refresher.refresh(), atlasIntervalMs);
+    atlasTimer.unref?.();
+    atlasRefresh = { active: true, stop() { clearInterval(atlasTimer); } };
+    logInfo("atlas.refresh.started", { channel: atlasChannelId, intervalMs: atlasIntervalMs });
+  } else if (atlasChannelId && !db) {
+    logError("atlas.refresh.failed", new Error("DUNE_ATLAS_CHANNEL_ID is set but multi-tenant mode (with a local database) is required for the self-refreshing atlas message."));
+  }
+
   const digestChannelId = process.env.DUNE_DIGEST_CHANNEL_ID || alertChannelId;
   if (digestChannelId) {
     const digestHour = Number.parseInt(process.env.DUNE_DIGEST_HOUR || "8", 10) || 8;
@@ -351,6 +377,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     announcementBridge.stop();
     alerts.stop();
     dailyDigest.stop();
+    atlasRefresh.stop();
     statsPusher.stop();
     if (db) db.close();
     await client.destroy();
