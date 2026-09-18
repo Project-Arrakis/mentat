@@ -762,12 +762,25 @@ function atlasCombatLabel(combatState) {
 // not the raw (meaningless-to-players) partition ID itself. Scales the
 // same way at any count: 4 Deep Desert instances sort by partition ID and
 // number 1-4 in that order.
+// Real operator request (2026-09-18): show what's configured differently
+// from default -- a global section (worldModifiers), and, per sietch, only
+// a genuine override vs. whatever's already established globally (Core's
+// readModifiersByScope() already excludes a value every sietch shares
+// because it's set globally -- this formatter trusts that, it doesn't
+// re-diff against defaults itself).
+function atlasModifiersSuffix(modifiers) {
+  const entries = Object.entries(modifiers || {});
+  if (!entries.length) return "";
+  return ` · 🔧 ${entries.map(([label, value]) => `${label}: ${value}`).join(", ")}`;
+}
+
 function atlasSietchLine(sietch, instanceOrdinal) {
   const name = sietch.serverDisplayName || `Partition ${sietch.partitionId}`;
   const instance = instanceOrdinal ? ` (Instance ${instanceOrdinal})` : "";
   const combat = atlasCombatLabel(sietch.combatState);
   const storm = sietch.sandstormActive ? " · 🌪️ **Storm active**" : "";
-  return `**${name}**${instance} — ${combat}${storm}`;
+  const modifiers = atlasModifiersSuffix(sietch.modifiers);
+  return `**${name}**${instance} — ${combat}${storm}${modifiers}`;
 }
 
 function sortByPartitionIdAscending(sietches) {
@@ -790,12 +803,23 @@ export function formatAtlasEmbed(payload) {
     : "🌪️ Coriolis cycle not yet known.";
 
   const fields = [];
+  const worldModifierEntries = Object.entries(payload?.worldModifiers || {});
+  if (worldModifierEntries.length) {
+    fields.push({
+      name: "World Modifiers",
+      value: worldModifierEntries.map(([label, value]) => `**${label}:** ${value}`).join("\n"),
+      inline: false
+    });
+  }
   if (hagga.length) fields.push({ name: "Hagga Basin", value: hagga.map((sietch) => atlasSietchLine(sietch)).join("\n"), inline: false });
   if (deepDesert.length) {
     const ordered = sortByPartitionIdAscending(deepDesert);
     fields.push({ name: "The Deep Desert", value: ordered.map((sietch, index) => atlasSietchLine(sietch, index + 1)).join("\n"), inline: false });
   }
-  if (!fields.length) fields.push({ name: "Sietches", value: "No sietches are currently reporting.", inline: false });
+  // Checked against hagga/deepDesert directly, not fields.length -- the new
+  // World Modifiers field above can make fields non-empty even when
+  // genuinely no sietches are reporting.
+  if (!hagga.length && !deepDesert.length) fields.push({ name: "Sietches", value: "No sietches are currently reporting.", inline: false });
 
   return duneEmbed({
     title: "📜 The Atlas",

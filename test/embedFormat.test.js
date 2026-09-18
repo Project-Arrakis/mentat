@@ -310,3 +310,58 @@ test("formatAtlasEmbed reports no sietches reporting instead of an empty field w
   assert.match(json.fields[0].value, /No sietches are currently reporting/);
   assert.match(json.description, /Coriolis cycle not yet known/);
 });
+
+// worldModifiers / per-sietch modifiers (real operator request, 2026-09-18)
+test("formatAtlasEmbed shows a World Modifiers field before the sietch fields when non-default global settings exist", () => {
+  const embed = formatAtlasEmbed({
+    ok: true,
+    coriolisSeed: null,
+    coriolisNextCycleAt: null,
+    worldModifiers: { "Mining Output": "2x", "PvP Resource Output": "3x" },
+    sietches: { HaggaBasin: [{ partitionId: "1", serverDisplayName: "Sietch Kadir", combatState: "PVP", sandstormActive: false }], DeepDesert: [] }
+  });
+  const json = embed.toJSON();
+  assert.equal(json.fields[0].name, "World Modifiers");
+  assert.match(json.fields[0].value, /\*\*Mining Output:\*\* 2x/);
+  assert.match(json.fields[0].value, /\*\*PvP Resource Output:\*\* 3x/);
+  assert.equal(json.fields[1].name, "Hagga Basin");
+});
+
+test("formatAtlasEmbed omits the World Modifiers field entirely when nothing is non-default", () => {
+  const embed = formatAtlasEmbed({
+    ok: true, coriolisSeed: null, coriolisNextCycleAt: null, worldModifiers: {},
+    sietches: { HaggaBasin: [{ partitionId: "1", serverDisplayName: "Sietch Kadir", combatState: "PVP", sandstormActive: false }], DeepDesert: [] }
+  });
+  const json = embed.toJSON();
+  assert.equal(json.fields.find((f) => f.name === "World Modifiers"), undefined);
+});
+
+test("formatAtlasEmbed appends a sietch's own modifier overrides inline, but not for a sietch with none", () => {
+  const embed = formatAtlasEmbed({
+    ok: true,
+    coriolisSeed: null,
+    coriolisNextCycleAt: null,
+    sietches: {
+      HaggaBasin: [
+        { partitionId: "1", serverDisplayName: "Sietch Kadir", combatState: "PVP", sandstormActive: false, modifiers: { "PvP Resource Output": "5x" } },
+        { partitionId: "37", serverDisplayName: "Sietch Zahir", combatState: "PVE", sandstormActive: false, modifiers: {} }
+      ],
+      DeepDesert: []
+    }
+  });
+  const hagga = embed.toJSON().fields.find((f) => f.name === "Hagga Basin").value;
+  const lines = hagga.split("\n");
+  assert.match(lines[0], /Sietch Kadir\*\* — ⚔️ PvP · 🔧 PvP Resource Output: 5x/);
+  assert.doesNotMatch(lines[1], /🔧/);
+});
+
+test("formatAtlasEmbed still reports \"no sietches reporting\" even when World Modifiers has content", () => {
+  const embed = formatAtlasEmbed({
+    ok: true, coriolisSeed: null, coriolisNextCycleAt: null,
+    worldModifiers: { "Mining Output": "2x" },
+    sietches: { HaggaBasin: [], DeepDesert: [] }
+  });
+  const json = embed.toJSON();
+  assert.equal(json.fields[0].name, "World Modifiers");
+  assert.match(json.fields[1].value, /No sietches are currently reporting/);
+});
