@@ -27,10 +27,25 @@ test("atlasRefresher posts a fresh atlas embed and records it under the channel'
   const db = createDatabase(":memory:");
   const channel = fakeChannel({ id: "channel-1", guildId: "guild-1" });
   const client = fakeClient({ "channel-1": channel });
-  const adapterClient = { atlas: async () => ({ ok: true, coriolisSeed: "cor-6", coriolisNextCycleAt: null, sietches: { HaggaBasin: [], DeepDesert: [] } }) };
+  const seenCalls = [];
+  const adapterClient = {
+    atlas: async (actor, guildId) => {
+      seenCalls.push({ actor, guildId });
+      return { ok: true, coriolisSeed: "cor-6", coriolisNextCycleAt: null, sietches: { HaggaBasin: [], DeepDesert: [] } };
+    }
+  };
 
   const refresher = atlasRefresher({ adapterClient, client, db, channelId: "channel-1" });
   await refresher.refresh();
+
+  // Real bug, caught live on first deploy (2026-09-18): the channel's real
+  // guildId MUST be passed as AdapterClient.atlas()'s own second argument,
+  // not just embedded in the actor object -- request() resolves each
+  // guild's Core base URL from that second argument specifically, falling
+  // back to a literal placeholder host (causing every refresh to fail with
+  // a generic "fetch failed") when it's omitted.
+  assert.equal(seenCalls[0].guildId, "guild-1");
+  assert.equal(seenCalls[0].actor.guildId, "guild-1");
 
   assert.equal(channel._sent.length, 1);
   assert.ok(channel._sent[0].embeds?.[0], "must send a Discord embed, not a plain string");
