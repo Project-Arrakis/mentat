@@ -752,11 +752,20 @@ function atlasCombatLabel(combatState) {
   return "❔ Unknown";
 }
 
+// Real operator request (2026-09-18): the plain display name alone doesn't
+// disambiguate which physical instance/partition is which (e.g. two
+// same-named "Deep Desert PvE"/"Deep Desert PvP" dynamic instances) --
+// always show the instance/partition number. When there's no real
+// serverDisplayName, the fallback name is already "Partition <id>" (see
+// atlasSietchLine below), so it's shown once, not duplicated as
+// "Partition 37 (Instance 37)".
 function atlasSietchLine(sietch) {
-  const name = sietch.serverDisplayName || `Partition ${sietch.partitionId}`;
+  const hasRealName = Boolean(sietch.serverDisplayName);
+  const name = hasRealName ? sietch.serverDisplayName : `Partition ${sietch.partitionId}`;
+  const instance = hasRealName ? ` (Instance ${sietch.partitionId})` : "";
   const combat = atlasCombatLabel(sietch.combatState);
   const storm = sietch.sandstormActive ? " · 🌪️ **Storm active**" : "";
-  return `**${name}** — ${combat}${storm}`;
+  return `**${name}**${instance} — ${combat}${storm}`;
 }
 
 export function formatAtlasEmbed(payload) {

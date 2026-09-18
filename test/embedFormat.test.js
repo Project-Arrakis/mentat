@@ -246,10 +246,16 @@ test("formatAtlasEmbed lists Hagga Basin and Deep Desert sietches as separate fi
   assert.match(json.description, new RegExp(`<t:${expectedUnix}:R>`));
   assert.match(json.description, /cor-6/);
   const hagga = json.fields.find((field) => field.name === "Hagga Basin");
-  assert.match(hagga.value, /Sietch Zahir.*🕊️ PvE/);
-  assert.match(hagga.value, /Sietch Kadir.*⚔️ PvP.*Storm active/);
+  // Real operator request (2026-09-18): show the instance/partition number
+  // alongside a real display name, so same-named instances (e.g. two "Deep
+  // Desert PvE" dynamic instances) are distinguishable.
+  assert.match(hagga.value, /Sietch Zahir\*\* \(Instance 1\).*🕊️ PvE/);
+  assert.match(hagga.value, /Sietch Kadir\*\* \(Instance 37\).*⚔️ PvP.*Storm active/);
   const deepDesert = json.fields.find((field) => field.name === "The Deep Desert");
-  assert.match(deepDesert.value, /Partition 8/);
+  // No real display name -- falls back to "Partition 8" and must NOT
+  // duplicate the number as "Partition 8 (Instance 8)".
+  assert.match(deepDesert.value, /\*\*Partition 8\*\* —/);
+  assert.doesNotMatch(deepDesert.value, /Instance 8/);
 });
 
 test("formatAtlasEmbed reports no sietches reporting instead of an empty field when both maps are empty", () => {
