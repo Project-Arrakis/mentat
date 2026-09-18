@@ -246,10 +246,60 @@ test("formatAtlasEmbed lists Hagga Basin and Deep Desert sietches as separate fi
   assert.match(json.description, new RegExp(`<t:${expectedUnix}:R>`));
   assert.match(json.description, /cor-6/);
   const hagga = json.fields.find((field) => field.name === "Hagga Basin");
-  assert.match(hagga.value, /Sietch Zahir.*🕊️ PvE/);
-  assert.match(hagga.value, /Sietch Kadir.*⚔️ PvP.*Storm active/);
+  // Real operator request (2026-09-18, refined same day): Hagga Basin
+  // sietches already have unique real names -- no "(Instance N)" here.
+  assert.match(hagga.value, /Sietch Zahir\*\* —.*🕊️ PvE/);
+  assert.match(hagga.value, /Sietch Kadir\*\* —.*⚔️ PvP.*Storm active/);
+  assert.doesNotMatch(hagga.value, /Instance/);
   const deepDesert = json.fields.find((field) => field.name === "The Deep Desert");
-  assert.match(deepDesert.value, /Partition 8/);
+  // Deep Desert always gets an ordinal, even with only one instance --
+  // it's not known in advance whether more will appear later.
+  assert.match(deepDesert.value, /\*\*Partition 8\*\* \(Instance 1\) —/);
+});
+
+test("formatAtlasEmbed numbers Deep Desert instances as a sequential ordinal, sorted by partition ID ascending, not the raw partition ID", () => {
+  const embed = formatAtlasEmbed({
+    ok: true,
+    coriolisSeed: "cor-6",
+    coriolisNextCycleAt: null,
+    sietches: {
+      HaggaBasin: [],
+      // Deliberately out of order and using real-looking display names, to
+      // prove sorting (not input order) drives the ordinal, and that a real
+      // name still gets an ordinal (unlike Hagga Basin).
+      DeepDesert: [
+        { partitionId: "36", serverDisplayName: "Deep Desert PvP", combatState: "PVP", sandstormActive: false },
+        { partitionId: "8", serverDisplayName: "Deep Desert PvE", combatState: "PVE", sandstormActive: false }
+      ]
+    }
+  });
+  const value = embed.toJSON().fields.find((field) => field.name === "The Deep Desert").value;
+  const lines = value.split("\n");
+  assert.match(lines[0], /Deep Desert PvE\*\* \(Instance 1\)/);
+  assert.match(lines[1], /Deep Desert PvP\*\* \(Instance 2\)/);
+});
+
+test("formatAtlasEmbed's Deep Desert ordinal scales to more than 2 instances, still sorted by partition ID", () => {
+  const embed = formatAtlasEmbed({
+    ok: true,
+    coriolisSeed: null,
+    coriolisNextCycleAt: null,
+    sietches: {
+      HaggaBasin: [],
+      DeepDesert: [
+        { partitionId: "50", serverDisplayName: null, combatState: "PVE", sandstormActive: false },
+        { partitionId: "8", serverDisplayName: null, combatState: "PVE", sandstormActive: false },
+        { partitionId: "36", serverDisplayName: null, combatState: "PVP", sandstormActive: false },
+        { partitionId: "9", serverDisplayName: null, combatState: "PVP", sandstormActive: false }
+      ]
+    }
+  });
+  const value = embed.toJSON().fields.find((field) => field.name === "The Deep Desert").value;
+  const lines = value.split("\n");
+  assert.match(lines[0], /Partition 8\*\* \(Instance 1\)/);
+  assert.match(lines[1], /Partition 9\*\* \(Instance 2\)/);
+  assert.match(lines[2], /Partition 36\*\* \(Instance 3\)/);
+  assert.match(lines[3], /Partition 50\*\* \(Instance 4\)/);
 });
 
 test("formatAtlasEmbed reports no sietches reporting instead of an empty field when both maps are empty", () => {

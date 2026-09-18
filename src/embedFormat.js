@@ -752,11 +752,26 @@ function atlasCombatLabel(combatState) {
   return "❔ Unknown";
 }
 
-function atlasSietchLine(sietch) {
+// Real operator request (2026-09-18, refined same day after first landing
+// with a raw partition-id shown for every sietch): Hagga Basin sietches
+// already have unique real names (Kadir/Zahir/etc.) and need no further
+// disambiguation. Deep Desert's dynamic instances don't have that -- two
+// instances can render as identically-named "Deep Desert PvE"/"Deep Desert
+// PvP" -- so ONLY Deep Desert gets an instance number, and it's a
+// sequential ordinal (1, 2, 3...) from sorting by partition ID ascending,
+// not the raw (meaningless-to-players) partition ID itself. Scales the
+// same way at any count: 4 Deep Desert instances sort by partition ID and
+// number 1-4 in that order.
+function atlasSietchLine(sietch, instanceOrdinal) {
   const name = sietch.serverDisplayName || `Partition ${sietch.partitionId}`;
+  const instance = instanceOrdinal ? ` (Instance ${instanceOrdinal})` : "";
   const combat = atlasCombatLabel(sietch.combatState);
   const storm = sietch.sandstormActive ? " · 🌪️ **Storm active**" : "";
-  return `**${name}** — ${combat}${storm}`;
+  return `**${name}**${instance} — ${combat}${storm}`;
+}
+
+function sortByPartitionIdAscending(sietches) {
+  return [...sietches].sort((a, b) => Number(a.partitionId) - Number(b.partitionId));
 }
 
 export function formatAtlasEmbed(payload) {
@@ -775,8 +790,11 @@ export function formatAtlasEmbed(payload) {
     : "🌪️ Coriolis cycle not yet known.";
 
   const fields = [];
-  if (hagga.length) fields.push({ name: "Hagga Basin", value: hagga.map(atlasSietchLine).join("\n"), inline: false });
-  if (deepDesert.length) fields.push({ name: "The Deep Desert", value: deepDesert.map(atlasSietchLine).join("\n"), inline: false });
+  if (hagga.length) fields.push({ name: "Hagga Basin", value: hagga.map((sietch) => atlasSietchLine(sietch)).join("\n"), inline: false });
+  if (deepDesert.length) {
+    const ordered = sortByPartitionIdAscending(deepDesert);
+    fields.push({ name: "The Deep Desert", value: ordered.map((sietch, index) => atlasSietchLine(sietch, index + 1)).join("\n"), inline: false });
+  }
   if (!fields.length) fields.push({ name: "Sietches", value: "No sietches are currently reporting.", inline: false });
 
   return duneEmbed({
