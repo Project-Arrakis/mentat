@@ -113,8 +113,7 @@ evidentiary weight as the rest of this document's operator-confirmed steps:
 | `https://mentat-link.darkdante.org/oauth/callback` | Mentat Link setup portal's Discord OAuth (bot dashboard/config login) | `mentat-link` `functions/oauth/callback.js` → proxied to bot's `/oauth/callback` (port 3100) |
 | `https://mentat-link.darkdante.org/steam-link/callback` | Steam account linking | `mentat-link` `functions/steam-link/[[path]].js` → proxied to bot's Steam-link server (port 3101) |
 | `https://mentat-link.darkdante.org/api/consoles/auto-invite/callback` | Hosted-bot auto-invite flow (the G1/G2 one-click invite this Application backs — see `dune-awakening-selfhost-docker`'s hosted-bot-auto-invite-and-role-picker design, PR #738) | `mentat-link` `functions/api/consoles/auto-invite/callback.js` → proxied to `mentat-backend.darkdante.org` |
-| `https://console.darkdante.org/api/auth/discord/callback` | Core web console's own Discord OAuth login (prod, dune-prod2) | Core `console/api/src/server.js` (`/api/auth/discord/callback`) |
-| `https://console-dev.darkdante.org/api/auth/discord/callback` | Core web console's own Discord OAuth login (dev) | same handler, dev host |
+| `https://<operator's admin console hostname>/api/auth/discord/callback` (prod + dev) | Core web console's own Discord OAuth login | Core `console/api/src/server.js` (`/api/auth/discord/callback`) |
 
 Note this list does **not** include `mentat-link.darkdante.org/atrium` —
 Atrium's OAuth redirect is registered on a *different* Discord Application
