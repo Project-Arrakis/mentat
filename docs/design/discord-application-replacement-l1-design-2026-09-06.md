@@ -94,6 +94,33 @@ Roles/permissions for the new application inside the actual guild are addressed 
 - [x] CHANGELOG entry added for the Application ID change (§6) — done (mentat#278)
 - [x] Incident record (`compliance/evidence/incidents/2026-09-06-discord-bot-token-chat-exposure.md`) updated with actual rotation/verification timestamps — done (mentat#278); **not closed** — its own Status line explains why (old-token audit-log check still outstanding)
 
+### 7.1 Registered OAuth redirect URIs (confirmed by operator, 2026-09-21)
+
+This closes the last open unknown from `dune-awakening-selfhost-docker`#854
+("register the redirect_uri on Sahir Venn's Discord Application in the
+Developer Portal — blocking, cannot be automated"), which this document's §6
+deliberately scoped out as "a separate config change against whichever
+application is live at the time." The operator confirmed #854 done directly
+(see the `hosted-selfhosted-completion-plan-status` memory) and, on request,
+supplied the complete current list of redirect URIs registered on this
+Application (`client_id 1546203607807041697`) in the Developer Portal. Not
+independently re-verified against the Portal itself (no API access to it from
+this session) — recorded here as operator-supplied ground truth, same
+evidentiary weight as the rest of this document's operator-confirmed steps:
+
+| Redirect URI | Flow | Handler |
+|---|---|---|
+| `https://mentat-link.darkdante.org/oauth/callback` | Mentat Link setup portal's Discord OAuth (bot dashboard/config login) | `mentat-link` `functions/oauth/callback.js` → proxied to bot's `/oauth/callback` (port 3100) |
+| `https://mentat-link.darkdante.org/steam-link/callback` | Steam account linking | `mentat-link` `functions/steam-link/[[path]].js` → proxied to bot's Steam-link server (port 3101) |
+| `https://mentat-link.darkdante.org/api/consoles/auto-invite/callback` | Hosted-bot auto-invite flow (the G1/G2 one-click invite this Application backs — see `dune-awakening-selfhost-docker`'s hosted-bot-auto-invite-and-role-picker design, PR #738) | `mentat-link` `functions/api/consoles/auto-invite/callback.js` → proxied to `mentat-backend.darkdante.org` |
+| `https://console.darkdante.org/api/auth/discord/callback` | Core web console's own Discord OAuth login (prod, dune-prod2) | Core `console/api/src/server.js` (`/api/auth/discord/callback`) |
+| `https://console-dev.darkdante.org/api/auth/discord/callback` | Core web console's own Discord OAuth login (dev) | same handler, dev host |
+
+Note this list does **not** include `mentat-link.darkdante.org/atrium` —
+Atrium's OAuth redirect is registered on a *different* Discord Application
+(Atrium's own, unrelated to Sahir Venn) and is tracked separately as
+`mentat-link#80`, still open as of this writing.
+
 ## 8. Eight-Hats Layer 1 audit — findings register and STRIDE table
 
 Four parallel dispatches (8 hats total) against revision 1 of this document. All CRITICAL/HIGH findings resolved inline above (marked `[R2]`); MEDIUM/LOW resolved inline where cheap, otherwise deferred in §6 with a named owner.
