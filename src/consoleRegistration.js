@@ -7,6 +7,7 @@
 // applied to the actual authorization decision, not just a display name.
 import { upsertGuild } from "./database.js";
 import { recordGlobalConsoleRegistrationAttempt, recordUserConsoleRegistrationAttempt } from "./consoleRegistrationRateLimit.js";
+import { validateConsoleUrl } from "./consoleUrlValidation.js";
 import { logInfo, logError } from "./logger.js";
 
 const SNOWFLAKE_PATTERN = /^\d{17,19}$/;
@@ -151,6 +152,23 @@ export async function verifyAndRegisterConsole(db, { guildId, discordAccessToken
 
   const verification = await verifyGuildOwnership({ guildId, discordAccessToken }, opts);
   if (!verification.ok) return verification;
+
+  // mentat#328: reject a consoleUrl that resolves to a private, loopback,
+  // link-local, or metadata address before it's ever persisted -- this
+  // exact SSRF gap was already closed for the old /setup portal path
+  // (setupServer.js's own #328 comment) but was missed here, the function
+  // BOTH the legacy /api/consoles/register endpoint AND the newer
+  // auto-invite design's owner-confirmation commit reuse. Deliberately
+  // placed after the ownership check, not before: an unowned/malformed
+  // request should never spend a real DNS lookup, matching the existing
+  // "cheap checks before any network call" ordering verifyGuildOwnership
+  // itself already follows.
+  try {
+    await validateConsoleUrl(consoleUrl, opts.lookupImpl ? { lookupImpl: opts.lookupImpl } : undefined);
+  } catch (err) {
+    logInfo("console_registration.invalid_console_url", { guildId, reason: err.message });
+    return { ok: false, reason: "invalid_console_url", message: err.message };
+  }
 
   upsertGuild(db, {
     guildId,

@@ -791,8 +791,16 @@ export function createSetupServer(config) {
       // ensures a malformed-body request still falls through to the normal
       // validation/rate-limit path instead of short-circuiting past it.
       const { guildId, discordAccessToken, consoleUrl, adapterToken } = req.body || {};
-      const result = await verifyAndRegisterConsole(db, { guildId, discordAccessToken, consoleUrl, adapterToken });
+      const result = await verifyAndRegisterConsole(db, { guildId, discordAccessToken, consoleUrl, adapterToken }, { lookupImpl: config.lookupImpl });
       if (!result.ok) {
+        // mentat#328: an invalid_console_url rejection is a 400 (the
+        // request itself is malformed/unsafe), never a 403 -- unlike every
+        // other rejection reason here, it says nothing about whether the
+        // caller actually owns the guild, so the generic ownership-failure
+        // copy below would be actively misleading.
+        if (result.reason === "invalid_console_url") {
+          return res.status(400).json({ error: result.message });
+        }
         const status = result.reason === "rate_limited" ? 429 : result.reason === "discord_unreachable" ? 502 : 403;
         // Minor finding (Layer 3 integration review): match the existing
         // Retry-After precedent 2 routes up (/api/stats/push, above) and in
@@ -840,7 +848,17 @@ export function createSetupServer(config) {
         return res.status(400).json({ error: "adapterToken is required" });
       }
 
-      const state = stageAutoInviteSession({ consoleUrl, adapterToken });
+      // mentat#328: reject a consoleUrl that resolves to a private,
+      // loopback, or link-local/metadata address before it's ever staged --
+      // matching the identical check the old /setup portal path already
+      // has (see that route's own #328 comment). validateConsoleUrl()
+      // throws with a caller-safe message on rejection.
+      let state;
+      try {
+        state = await stageAutoInviteSession({ consoleUrl, adapterToken }, { lookupImpl: config.lookupImpl });
+      } catch (err) {
+        return res.status(400).json({ error: err.message });
+      }
       return res.status(200).json({ state });
     } catch (err) {
       logError("auto_invite.start_route_error", err, {});
