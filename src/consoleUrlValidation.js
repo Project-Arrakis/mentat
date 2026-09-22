@@ -7,11 +7,16 @@
 // account" is a sufficient bar to turn mentat's own host into an SSRF proxy
 // against its own internal network or any other address it can reach.
 //
-// This check runs at registration time. It does not defend against DNS
-// rebinding between registration and later use — a hostname that resolves
-// to a public IP now could be repointed at a private address later. Treat
-// this as the first layer, not a complete guarantee; request-time
-// revalidation in adapterClient.js is a valuable follow-up, not yet done.
+// This check runs at registration time -- the first layer, not the only
+// one. mentat#393: a hostname that resolves to a public IP at registration
+// could be repointed at a private address later (DNS rebinding), so
+// adapterClient.js's secureFetchDispatcher.js ALSO revalidates on every
+// single outbound connection, at actual connect time, reusing
+// isDisallowedIP() below as the single source of truth for "what counts as
+// a disallowed destination" -- see that file's own comment for why a
+// connect-time hook (not a periodic re-check before each fetch) is what
+// actually closes the rebinding window instead of just shrinking it to one
+// DNS TTL.
 
 import dns from "node:dns/promises";
 import net from "node:net";
@@ -45,7 +50,11 @@ function isDisallowedIPv6(ip) {
   return false;
 }
 
-function isDisallowedIP(ip) {
+// Exported (mentat#393) so secureFetchDispatcher.js's connect-time guard
+// checks the exact same disallowed-address logic this file's own
+// registration-time check does, rather than a second, independently
+// maintained copy that could silently drift out of sync with this one.
+export function isDisallowedIP(ip) {
   const family = net.isIP(ip);
   if (family === 4) return isDisallowedIPv4(ip);
   if (family === 6) return isDisallowedIPv6(ip);

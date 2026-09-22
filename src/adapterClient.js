@@ -1,4 +1,5 @@
 import { signedHeaders } from "./actorSignature.js";
+import { getDefaultSecureDispatcher } from "./secureFetchDispatcher.js";
 
 export class AdapterHttpError extends Error {
   constructor(message, { status, route, body }) {
@@ -241,11 +242,18 @@ export function getLatencyHistory() {
 }
 
 export class AdapterClient {
-  constructor(config, { fetchImpl = globalThis.fetch, getGuildConfig = null } = {}) {
+  // `dispatcher` (mentat#393) is injectable, same DI reasoning as
+  // fetchImpl/getGuildConfig -- production always uses the real default
+  // (real DNS, the actual disallowed-address check), but a test needs to
+  // supply a fake resolver to exercise a real local server without it
+  // being rejected as loopback the same way a real attacker's request to
+  // 127.0.0.1 would be.
+  constructor(config, { fetchImpl = globalThis.fetch, getGuildConfig = null, dispatcher = getDefaultSecureDispatcher() } = {}) {
     if (typeof fetchImpl !== "function") throw new Error("Fetch is unavailable in this runtime.");
     this.config = config;
     this.fetchImpl = fetchImpl;
     this.getGuildConfig = getGuildConfig;
+    this.dispatcher = dispatcher;
   }
 
   _resolveConfig(guildId) {
@@ -413,7 +421,12 @@ export class AdapterClient {
         accept: "application/json",
         authorization: `Bearer ${cfg.adapter.token}`
       };
-      const options = { method, headers, signal: controller.signal };
+      // mentat#393: revalidates the destination address at actual connect
+      // time, every request -- closes the DNS-rebinding gap
+      // consoleUrlValidation.js's one-time, registration-time check can't
+      // close on its own. Harmless when this.fetchImpl is a test mock that
+      // ignores unrecognized init fields (every existing test's mock does).
+      const options = { method, headers, signal: controller.signal, dispatcher: this.dispatcher };
 
       if (method === "POST") {
         headers["content-type"] = "application/json";
