@@ -723,7 +723,9 @@ Expected: FAIL.
 
 `[Audit fix: UI/UX, CRITICAL, round 2]` Every actor payload sent to Core in this task (and in Task 5) must be built via this real, already-correct, already-used helper — never a hand-built, incomplete object (an earlier draft of this plan used `{ userId, username, guildOwnerId }`, missing `roleIds`/`channelId`/`guildId`, fields `actorSignature.js`'s real HMAC signing needs). It currently lives in `commands.js`, which this task's own `writeHandler.js` is imported BY (`commands.js` → `writeHandler.js`) — importing it back from `commands.js` here would be circular. `rbac.js` is this codebase's own already-established fix for exactly this shape of problem (both `writes.js` and `commands.js` already import from it).
 
-Cut `actorFromInteraction`'s real function body (`src/commands.js`, currently ~line 793) into `src/rbac.js`, and replace its old location with a re-export: `export { actorFromInteraction } from "./rbac.js";` (so every existing caller in `commands.js` keeps working unchanged). Run `node --test test/commands.test.js` to confirm the move didn't break anything.
+`[Audit fix: Architect/QA, MEDIUM round 4]` — found only by actually assembling this move and running it: `actorFromInteraction`'s real body (`src/commands.js:793`) calls `extractRoleIds(interaction)` (`src/commands.js:885`, exported but otherwise private to that file). Moving only `actorFromInteraction` and leaving `extractRoleIds` behind in `commands.js` reintroduces the exact circular import this step exists to avoid (`rbac.js`'s own module header explicitly states it "must NOT import commands.js"). This codebase already has established precedent for this exact situation: `src/writes.js` keeps its own private copy of `extractRoleIds` (`writes.js:132`) rather than importing `commands.js`'s — do the same here.
+
+Cut `actorFromInteraction`'s real function body (`src/commands.js`, currently ~line 793) into `src/rbac.js`. It calls `extractRoleIds(interaction)` — copy that function's body (`src/commands.js:885`) into `rbac.js` too, as a private (non-exported) helper, matching `writes.js`'s existing precedent rather than importing it from `commands.js`. Leave `commands.js`'s own `extractRoleIds` export untouched (other real callers there still use it) — this creates a third private copy of the same small function, joining `writes.js`'s existing one, which is an accepted, already-established pattern in this codebase for breaking exactly this class of circular import, not a new problem. Replace `actorFromInteraction`'s old location in `commands.js` with a re-export: `export { actorFromInteraction } from "./rbac.js";` (so every existing caller in `commands.js` keeps working unchanged). Run `node --test test/commands.test.js` to confirm the move didn't break anything.
 
 - [ ] **Step 7: Rewrite `handleWriteCommand` to call Core for real, with the host-operator gate for self-update, the preserved legacy stub branch, and audit events throughout**
 
@@ -1636,10 +1638,20 @@ SERVICE_NAME="${SERVICE_NAME:-acp-bot.service}"
 # `_FILE` secret-handling convention (Requirement 24).
 DISCORD_WEBHOOK_URL_FILE="${DISCORD_WEBHOOK_URL_FILE:-}"
 DISCORD_WEBHOOK_URL=""
-if [ -n "$DISCORD_WEBHOOK_URL_FILE" ] && [ -f "$DISCORD_WEBHOOK_URL_FILE" ]; then
-  DISCORD_WEBHOOK_URL="$(cat "$DISCORD_WEBHOOK_URL_FILE")"
+if [ -n "$DISCORD_WEBHOOK_URL_FILE" ]; then
+  # [Audit fix: Security, MEDIUM round 4] A trap, not just an inline rm/rmdir
+  # right after reading -- if this script exits/is killed at ANY point
+  # before reaching the explicit cleanup below (a bug in an earlier line,
+  # a signal), the 0600 secret file would otherwise be orphaned on disk
+  # indefinitely with no reaper. Registered before the file is even read,
+  # so it covers the read step itself failing too.
+  trap 'rm -f "$DISCORD_WEBHOOK_URL_FILE" 2>/dev/null; rmdir "$(dirname "$DISCORD_WEBHOOK_URL_FILE")" 2>/dev/null || true' EXIT
+  if [ -f "$DISCORD_WEBHOOK_URL_FILE" ]; then
+    DISCORD_WEBHOOK_URL="$(cat "$DISCORD_WEBHOOK_URL_FILE")"
+  fi
   rm -f "$DISCORD_WEBHOOK_URL_FILE"
   rmdir "$(dirname "$DISCORD_WEBHOOK_URL_FILE")" 2>/dev/null || true
+  trap - EXIT
 fi
 MARKER_FILE="$WORK_DIR/runtime/self-update-pending.json"
 
@@ -1746,6 +1758,26 @@ test("runSelfUpdate: falls back to a plain detached spawn when systemd-run is un
   assert.equal(result.pid, 54321);
   __resetHasCommandImplForTests();
 });
+
+// [Audit fix: Security, MEDIUM round 4] If self-update.sh never actually
+// starts (spawnImpl throws synchronously here, or the OS can't find the
+// binary), self-update.sh's own trap-based cleanup never runs -- proves
+// runSelfUpdate() itself cleans up the 0600 webhook secret file in that
+// case, rather than orphaning it on disk.
+test("runSelfUpdate: cleans up the webhook temp file if spawning self-update.sh fails synchronously", async () => {
+  let capturedWebhookFile = null;
+  __setSpawnImplForTests((command, args, options) => {
+    capturedWebhookFile = options.env.DISCORD_WEBHOOK_URL_FILE;
+    throw new Error("spawn ENOENT");
+  });
+  __setHasCommandImplForTests(() => true);
+
+  assert.throws(() => runSelfUpdate({ interactionToken: "tok3", applicationId: "app", channelId: "chan" }), /ENOENT/);
+
+  assert.ok(capturedWebhookFile, "the test must have actually captured a real file path before the throw");
+  assert.throws(() => readFileSync(capturedWebhookFile, "utf8"), /ENOENT/, "the webhook temp file must be deleted after a synchronous spawn failure");
+  __resetHasCommandImplForTests();
+});
 ```
 
 - [ ] **Step 10: Run to verify it fails**
@@ -1757,7 +1789,7 @@ Expected: FAIL — module doesn't exist.
 
 ```js
 import { spawn as realSpawn, execFileSync } from "node:child_process";
-import { openSync, mkdtempSync, writeFileSync } from "node:fs";
+import { openSync, mkdtempSync, writeFileSync, unlinkSync, rmdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1813,35 +1845,62 @@ export function runSelfUpdate({ interactionToken, applicationId, channelId }) {
   // to a short-lived, 0600 temp file and pass only that file's PATH
   // (never sensitive) via --setenv/env -- matching this codebase's own
   // established _FILE secret-handling convention (Requirement 24).
+  // [Audit fix: Architect, LOW round 4] Deliberately under OS tmpdir(),
+  // NOT $WORK_DIR/runtime/ (where the deploy lock and the self-update
+  // marker file live) -- those two need repo-relative, predictable paths
+  // because the marker specifically must survive a process restart and be
+  // found again at a known location by the NEW process. This file's
+  // entire lifetime is from this line to self-update.sh reading and
+  // deleting it moments later, before any restart happens -- it has no
+  // reason to live inside the deployed repo tree at all.
   const webhookFile = join(mkdtempSync(join(tmpdir(), "mentat-self-update-")), "webhook-url");
   writeFileSync(webhookFile, webhookUrl, { mode: 0o600 });
   const env = { ...process.env, DISCORD_WEBHOOK_URL_FILE: webhookFile };
 
+  // [Audit fix: Security, MEDIUM round 4] self-update.sh's own trap-based
+  // cleanup (scripts/self-update.sh) only runs if that script actually
+  // starts executing. If spawnImpl throws synchronously (e.g. the "bash"
+  // or "systemd-run" binary is missing) or the spawned process fails to
+  // launch at all (an async "error" event -- e.g. ENOENT, or systemd-run
+  // rejected by polkit before ever invoking bash), self-update.sh never
+  // runs and never reaches its own cleanup -- the 0600 secret file would
+  // otherwise be orphaned indefinitely with no reaper.
+  function cleanupWebhookFileQuietly() {
+    try { unlinkSync(webhookFile); } catch { /* already gone or never existed */ }
+    try { rmdirSync(dirname(webhookFile)); } catch { /* not empty or already gone */ }
+  }
+
   const useSystemdRun = hasCommandImpl("systemd-run");
   let child;
-  if (useSystemdRun) {
-    // systemd-run --scope: escapes acp-bot.service's own cgroup (see
-    // scripts/self-update.sh's header for why this matters -- KillMode=
-    // control-group would otherwise kill this script in the same signal
-    // that kills the process it's restarting). --setenv carries only the
-    // temp-file PATH into the spawned scope's real environment, not the
-    // secret itself.
-    child = spawnImpl("systemd-run", ["--uid", String(process.getuid?.() ?? "bot"), "--scope", `--setenv=DISCORD_WEBHOOK_URL_FILE=${webhookFile}`, "--", "bash", scriptPath], {
-      stdio: ["ignore", logFd, logFd],
-      env
-    });
-  } else {
-    console.warn("writeSelfUpdate: systemd-run is unavailable -- falling back to a plain detached spawn. The fast-path webhook report-back in scripts/self-update.sh may be lost if this process is killed alongside the bot during its own restart; the startup marker-file check (src/index.js) is the fallback reporting path for this case.");
-    // A plain, directly-spawned child inherits `env` normally (no D-Bus
-    // hop), so this path already worked correctly even before this fix --
-    // kept on the same file-based convention for consistency, not because
-    // it was broken here too.
-    child = spawnImpl("bash", [scriptPath], {
-      stdio: ["ignore", logFd, logFd],
-      env,
-      detached: true
-    });
+  try {
+    if (useSystemdRun) {
+      // systemd-run --scope: escapes acp-bot.service's own cgroup (see
+      // scripts/self-update.sh's header for why this matters -- KillMode=
+      // control-group would otherwise kill this script in the same signal
+      // that kills the process it's restarting). --setenv carries only the
+      // temp-file PATH into the spawned scope's real environment, not the
+      // secret itself.
+      child = spawnImpl("systemd-run", ["--uid", String(process.getuid?.() ?? "bot"), "--scope", `--setenv=DISCORD_WEBHOOK_URL_FILE=${webhookFile}`, "--", "bash", scriptPath], {
+        stdio: ["ignore", logFd, logFd],
+        env
+      });
+    } else {
+      console.warn("writeSelfUpdate: systemd-run is unavailable -- falling back to a plain detached spawn. The fast-path webhook report-back in scripts/self-update.sh may be lost if this process is killed alongside the bot during its own restart; the startup marker-file check (src/index.js) is the fallback reporting path for this case.");
+      // A plain, directly-spawned child inherits `env` normally (no D-Bus
+      // hop), so this path already worked correctly even before this fix --
+      // kept on the same file-based convention for consistency, not because
+      // it was broken here too.
+      child = spawnImpl("bash", [scriptPath], {
+        stdio: ["ignore", logFd, logFd],
+        env,
+        detached: true
+      });
+    }
+  } catch (error) {
+    cleanupWebhookFileQuietly();
+    throw error;
   }
+  child.on?.("error", cleanupWebhookFileQuietly);
   child.unref?.();
   return { pid: child.pid, logPath };
 }
@@ -1993,6 +2052,25 @@ test("buildDuneCommand: the legacy 'write' group no longer registers the 3 super
   }
   assert.equal(writeSubcommands.size, 9);
 });
+
+// [Audit fix: Architect, MEDIUM round 4] There are now THREE
+// independently-maintained sources of "the 9 legacy write-group names":
+// `LEGACY_WRITE_STUBS` (src/writeHandler.js), the real hand-written
+// `.addSubcommand(...)` calls in commands.js's write group builder, and
+// the hardcoded list in the test immediately above -- none of which were
+// ever programmatically compared. A future edit to any ONE of them (a
+// rename, an add, a removal) could pass all three test suites in
+// isolation while `findLegacyWriteStub`'s name lookup silently breaks
+// (dead code, or "Unknown write command" for a real Discord subcommand).
+// This test cross-checks the first two directly against each other.
+test("buildDuneCommand: the registered write-group names and LEGACY_WRITE_STUBS's names are exactly the same set", async () => {
+  const { LEGACY_WRITE_STUBS } = await import("../src/writeHandler.js");
+  const built = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+  const registeredGroups = new Map(built.options.filter((o) => o.type === 2).map((g) => [g.name, g]));
+  const writeSubcommands = new Set(registeredGroups.get("write").options.map((s) => s.name));
+  const legacyStubNames = new Set(LEGACY_WRITE_STUBS.map((s) => s.name));
+  assert.deepEqual([...writeSubcommands].sort(), [...legacyStubNames].sort(), "commands.js's write group and writeHandler.js's LEGACY_WRITE_STUBS have drifted apart");
+});
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -2067,7 +2145,7 @@ Apply the same conversion (expression body → block body, existing chain preser
 
 **Merge into the existing `server` group builder** the same way — convert its expression body to a block body identically, preserve its existing subcommand chain verbatim, then append `addWriteSubcommands(g, "server");` and `return g;`.
 
-**Remove the 3 superseded subcommands from the existing `write` group builder** `[Audit fix: Security, MEDIUM round 3]` — per the design doc's own explicit principle (line 149: "`operations:restart-service` is removed from `WRITE_COMMANDS`, not kept as a second command... shipping two command names for one action is a real, avoidable source of confusion, not a feature"), applied consistently to all 3 subcommands that now have a real new home, not just `restart`: find the existing `write` group builder's `.addSubcommand((s) => s.setName("backup")...)`, `.addSubcommand((s) => s.setName("restart")...)`, and `.addSubcommand((s) => s.setName("update")...)` calls (matching `src/writeHandler.js`'s real, current `WRITE_COMMANDS` entries of the same names) and delete exactly those 3 `.addSubcommand(...)` calls from the chain, leaving the other 9 (`maintenance-note`, `maintenance-window`, `alert-channel`, `alert-threshold`, `digest-schedule`, `post-schedule`, `add-channel`, `remove-channel`, `cache`) untouched — these 9 are exactly `LEGACY_WRITE_STUBS` (Task 4 Step 7). After this change the `write` group has 9 subcommands, not 12; `restart-service` now lives only at `/dune server restart-service`, `create-backup`/`trigger-update` only at `/dune operations create-backup`/`/dune operations trigger-update`.
+**Remove the 3 superseded subcommands from the existing `write` group builder** `[Audit fix: Security, MEDIUM round 3]` — per the design doc's own explicit principle (line 149: "`operations:restart-service` is removed from `WRITE_COMMANDS`, not kept as a second command... shipping two command names for one action is a real, avoidable source of confusion, not a feature"), applied consistently to all 3 subcommands that now have a real new home, not just `restart`: find the existing `write` group builder's three `.addSubcommand(...)` calls whose `.setName(...)` is `"backup"`, `"restart"`, and `"update"` respectively (the real file's callback parameter is named `c`, not `s` — match by the literal subcommand name passed to `.setName(...)`, not the lambda parameter identifier) — matching `src/writeHandler.js`'s real, current `WRITE_COMMANDS` entries of the same names — and delete exactly those 3 `.addSubcommand(...)` calls from the chain, leaving the other 9 (`maintenance-note`, `maintenance-window`, `alert-channel`, `alert-threshold`, `digest-schedule`, `post-schedule`, `add-channel`, `remove-channel`, `cache`) untouched — these 9 are exactly `LEGACY_WRITE_STUBS` (Task 4 Step 7). After this change the `write` group has 9 subcommands, not 12; `restart-service` now lives only at `/dune server restart-service`, `create-backup`/`trigger-update` only at `/dune operations create-backup`/`/dune operations trigger-update`.
 
 **Add the 6 genuinely-new groups** — after the existing `if (includeWriteGroup) { ... }` block (which stays, now covering the 9 remaining legacy stub commands after the removal above), add:
 
