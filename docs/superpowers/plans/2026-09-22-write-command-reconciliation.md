@@ -431,19 +431,39 @@ test("mapWriteError: maps every one of the 12 real Core write-bridge error codes
   // 12 distinct codes (one row bundles stale_actor_signature/
   // invalid_actor_signature) -- this test's case list already covers all
   // 12; only the surrounding prose's stale "10" count needed fixing.
+  //
+  // [Audit fix: QA, MEDIUM round 3] Several rows' MOCK Core message text
+  // happened to already satisfy that row's own expectedPattern
+  // (nonce_not_found's mock literally said "expired"; second_confirmation_
+  // required's mock literally said "second"; etc.) -- meaning the
+  // assertion would still pass even if the corresponding MESSAGES table
+  // entry in writeErrorMapping.js were deleted entirely and the code fell
+  // through to the generic fallback (which just echoes Core's raw
+  // message). That doesn't prove the MESSAGES lookup is what produced the
+  // match. Every mock message below for a row with a real (non-null)
+  // MESSAGES entry is now deliberately generic/unrelated wording, so a
+  // pass can only happen if the real MESSAGES[code] text is what's
+  // actually returned. `invalid_parameters` is the one deliberate
+  // exception -- its MESSAGES entry is `null` (pass-through by design),
+  // so its mock message intentionally *is* what's expected back verbatim.
   const cases = [
-    ["writes_disabled", "Write operations are not enabled.", 403, /disabled/i],
-    ["not_authorized", "Discord actor is not authorized.", 403, /permission/i],
-    ["unknown_write_action", "Unknown write action: x", 400, /not available/i],
+    ["writes_disabled", "core says nope", 403, /disabled/i],
+    ["not_authorized", "core says denied", 403, /permission/i],
+    // [Audit fix: QA round 3, found by actually RUNNING this test against
+    // the real code, not just reading it] The real MESSAGES text says
+    // "isn't available", not "not available" -- the original pattern
+    // never matched it and this row was silently broken from the start,
+    // regardless of any tautology question. Caught only by execution.
+    ["unknown_write_action", "core says huh", 400, /isn't available/i],
     ["invalid_parameters", "bad params", 400, /bad params/i],
-    ["nonce_not_found", "Confirmation expired or was already used.", 410, /expired/i],
-    ["nonce_actor_mismatch", "This confirmation was not issued to you.", 403, /wasn't issued to you|not issued to you/i],
-    ["nonce_action_mismatch", "action mismatch", 409, /internal error|action does not match|mismatch/i],
-    ["second_confirmation_required", "second confirmation needed", 202, /second/i],
-    ["second_confirmation_same_actor", "different admin required", 403, /different administrator/i],
-    ["stale_actor_signature", "Your role info expired.", 403, /role info expired|run the command again/i],
-    ["invalid_actor_signature", "bad signature", 403, /could not be verified|run the command again/i],
-    ["write_backend_unavailable", "backend down", 503, /temporarily unavailable/i]
+    ["nonce_not_found", "core says gone", 410, /expired/i],
+    ["nonce_actor_mismatch", "core says nope-2", 403, /wasn't issued to you|not issued to you/i],
+    ["nonce_action_mismatch", "core says wrong-action", 409, /internal error|action does not match|mismatch/i],
+    ["second_confirmation_required", "core says wait", 202, /second/i],
+    ["second_confirmation_same_actor", "core says no-same-actor", 403, /different administrator/i],
+    ["stale_actor_signature", "core says old", 403, /role info expired|run the command again/i],
+    ["invalid_actor_signature", "core says bad-sig", 403, /could not be verified|run the command again/i],
+    ["write_backend_unavailable", "core says down", 503, /temporarily unavailable/i]
   ];
   for (const [code, message, status, expectedPattern] of cases) {
     const result = mapWriteError(coreError(status, code, message));
@@ -663,6 +683,35 @@ test("handleWriteCommand: bot.self-update is disabled entirely when DUNE_BOT_OPE
   });
   assert.equal(result.ok, false);
 });
+
+// [Audit fix: Security, MEDIUM round 3] Proves the 9 remaining legacy
+// group="write" stub subcommands still work exactly as they always have
+// -- never routed into findWriteAction (which has no "write"-group
+// entries) and never reaching adapterClient at all.
+test("handleWriteCommand: a legacy group='write' stub subcommand (e.g. maintenance-note) still returns the scaffolded status, never calling adapterClient", async () => {
+  const config = { discord: { writes: { enabled: true } } };
+  const adapterClient = fakeAdapterClient({});
+  let previewCalled = false;
+  adapterClient.writePreview = async () => { previewCalled = true; return {}; };
+  const result = await handleWriteCommand({
+    subcommand: "maintenance-note", group: "write",
+    interaction: { ...fakeOwnerInteraction(), options: { getString: (name) => (name === "note" ? "test note" : null), getInteger: () => null, getNumber: () => null } },
+    adapterClient, config
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.needsConfirmation, true);
+  assert.equal(result.status, "pending-upstream");
+  assert.equal(previewCalled, false, "a legacy stub subcommand must never call adapterClient.writePreview()");
+});
+
+test("handleWriteCommand: group='write' subcommand names superseded by a real command (e.g. 'restart') are NOT in LEGACY_WRITE_STUBS", async () => {
+  const { LEGACY_WRITE_STUBS } = await import("../src/writeHandler.js");
+  const supersededNames = new Set(["backup", "restart", "update"]);
+  for (const stub of LEGACY_WRITE_STUBS) {
+    assert.ok(!supersededNames.has(stub.name), `${stub.name} was superseded by a real command and must be removed from both LEGACY_WRITE_STUBS and commands.js's write group (Task 7 Step 3)`);
+  }
+  assert.equal(LEGACY_WRITE_STUBS.length, 9);
+});
 ```
 
 - [ ] **Step 6: Run to verify it fails**
@@ -676,19 +725,61 @@ Expected: FAIL.
 
 Cut `actorFromInteraction`'s real function body (`src/commands.js`, currently ~line 793) into `src/rbac.js`, and replace its old location with a re-export: `export { actorFromInteraction } from "./rbac.js";` (so every existing caller in `commands.js` keeps working unchanged). Run `node --test test/commands.test.js` to confirm the move didn't break anything.
 
-- [ ] **Step 7: Rewrite `handleWriteCommand` to call Core for real, with the host-operator gate for self-update and audit events throughout**
+- [ ] **Step 7: Rewrite `handleWriteCommand` to call Core for real, with the host-operator gate for self-update, the preserved legacy stub branch, and audit events throughout**
+
+`[Audit fix: Security, MEDIUM round 3]` A Round 3 re-verification found that Revision 1/2/3's full-body replacement of `writeHandler.js` silently deleted the entire `WRITE_COMMANDS` lookup and stub-response logic, with nothing put in its place for `group === "write"` — contradicting the design doc's own explicit statement (section 2, "Accepted, undocumented-until-now architectural gap") that the 12 legacy entries "keep their existing hand-written... builder untouched." Task 7 still leaves the real `commands.js` `write` group registered (per its own Step 3 text), so every one of those 12 subcommands would silently start returning `"Unknown write command: write X"` instead of either their intended scaffolded-stub response (9 of them) or working correctly under their new, real location (3 of them: `restart`→`/dune server restart-service`, `backup`→`/dune operations create-backup`, `update`→`/dune operations trigger-update`). Fixed two ways, together: (a) below, `LEGACY_WRITE_STUBS` restores the exact pre-existing stub behavior for the 9 subcommands with no real backing feature yet, verbatim from the real, current `src/writeHandler.js`; (b) Task 7 Step 3 (below) removes the 3 superseded subcommand names from the real `write` group builder, per the design doc's own explicit "removed, not kept as a second command" principle (design doc line 149) — extended consistently to `backup`/`update`, not just `restart`, since all three now have a real, non-duplicate new home.
 
 Replace `src/writeHandler.js`'s body:
 
 ```js
 import { randomUUID } from "node:crypto";
-import { writesEnabled, canWrite, writeAuditEvent } from "./writes.js";
+import { writesEnabled, canWrite, requireConfirmation, generateIdempotencyKey, writeAuditEvent } from "./writes.js";
 import { findWriteAction, WRITE_ACTIONS } from "./writeActions.js";
 import { mapWriteError } from "./writeErrorMapping.js";
-import { buildConfirmationEmbed, buildConfirmationRow, registerRealPendingConfirmation, confirmationTimeoutMs, pendingConfirmationCount } from "./writeConfirmation.js";
+import { buildConfirmationEmbed, buildConfirmationRow, registerRealPendingConfirmation, confirmationTimeoutMs, pendingConfirmationCount, createPendingConfirmation, writeTimeoutAuditEvent } from "./writeConfirmation.js";
 import { actorFromInteraction } from "./rbac.js";
 
 export { WRITE_ACTIONS };
+
+// [Audit fix: Security, MEDIUM round 3] The 9 remaining WRITE_COMMANDS
+// entries with no real backing feature anywhere (design doc section 2) --
+// copied verbatim from the real, current src/writeHandler.js, MINUS the 3
+// entries superseded by a real new command elsewhere ("backup", "restart",
+// "update" -- see Task 7 Step 3, which removes exactly these 3 from the
+// real commands.js "write" group builder). These keep returning the exact
+// same "scaffolded, awaiting upstream contract" response they always have
+// -- this design does not touch their behavior at all, only where the
+// code that produces it lives.
+export const LEGACY_WRITE_STUBS = Object.freeze([
+  { group: "write", name: "maintenance-note", action: "maintenance:set-note", risk: "low", tier: "admin",
+    desc: "Set a maintenance note for operators.", params: [{ name: "note", type: "string", desc: "Maintenance note text", required: true, maxLength: 500 }] },
+  { group: "write", name: "maintenance-window", action: "maintenance:set-window", risk: "low", tier: "admin",
+    desc: "Set a maintenance window.", params: [
+      { name: "start", type: "string", desc: "Start time (ISO 8601)", required: true },
+      { name: "duration", type: "integer", desc: "Duration in minutes", required: true, min: 1, max: 1440 }] },
+  { group: "write", name: "alert-channel", action: "notifications:set-alert-channel", risk: "low", tier: "admin",
+    desc: "Set the alert channel for readiness/service notifications.", params: [{ name: "channel", type: "string", desc: "Discord channel ID", required: true }] },
+  { group: "write", name: "alert-threshold", action: "notifications:set-threshold", risk: "medium", tier: "admin",
+    desc: "Set alert thresholds.", params: [
+      { name: "metric", type: "string", desc: "Metric (readiness/services/population)", required: true },
+      { name: "condition", type: "string", desc: "Condition (lt/gt/eq)", required: true },
+      { name: "value", type: "integer", desc: "Threshold value", required: true }] },
+  { group: "write", name: "digest-schedule", action: "notifications:set-digest-schedule", risk: "low", tier: "admin",
+    desc: "Set the digest schedule interval.", params: [{ name: "minutes", type: "integer", desc: "Interval in minutes", required: true, min: 5, max: 1440 }] },
+  { group: "write", name: "post-schedule", action: "schedule:set-post-schedule", risk: "low", tier: "admin",
+    desc: "Set the scheduled post type.", params: [{ name: "type", type: "string", desc: "status/status-summary/readiness/services/none", required: true }] },
+  { group: "write", name: "add-channel", action: "schedule:add-channel", risk: "medium", tier: "admin",
+    desc: "Add a channel for scheduled posts.", params: [{ name: "channel", type: "string", desc: "Discord channel ID", required: true }] },
+  { group: "write", name: "remove-channel", action: "schedule:remove-channel", risk: "medium", tier: "admin",
+    desc: "Remove a channel from scheduled posts.", params: [{ name: "channel", type: "string", desc: "Discord channel ID", required: true }] },
+  { group: "write", name: "cache", action: "operations:clear-cache", risk: "medium", tier: "owner",
+    desc: "Clear server caches.", params: [{ name: "type", type: "string", desc: "Cache type (steam/maps/derived)", required: true }] }
+]);
+
+function findLegacyWriteStub(group, subcommand) {
+  if (group !== "write") return null;
+  return LEGACY_WRITE_STUBS.find((c) => c.name === subcommand) || null;
+}
 
 function collectParams(def, interaction) {
   const params = {};
@@ -703,6 +794,49 @@ function collectParams(def, interaction) {
 export async function handleWriteCommand({ group, subcommand, interaction, adapterClient, config, guildId = null, db = null }) {
   if (!writesEnabled(config)) {
     return { ok: false, error: "Write commands are disabled. Set DUNE_DISCORD_WRITES_ENABLED=true.", disabled: true };
+  }
+
+  // Legacy stub path, checked BEFORE findWriteAction: the 9 remaining
+  // maintenance/notifications/schedule/clear-cache entries are group
+  // "write" specifically, which findWriteAction (Task 3's real-action
+  // table) never resolves -- WRITE_ACTIONS has no "write"-group entries at
+  // all. Preserves the exact pre-existing behavior (createPendingConfirmation,
+  // no kind field -- distinguishing it from registerRealPendingConfirmation's
+  // "real"/"self-update" entries in Task 5's confirm-button dispatch).
+  const legacyDef = findLegacyWriteStub(group, subcommand);
+  if (legacyDef) {
+    if (!canWrite(interaction, config, legacyDef.tier, db, guildId)) {
+      const requiresOwner = legacyDef.tier === "owner";
+      return {
+        ok: false,
+        error: requiresOwner
+          ? "Not authorized for write operations. This action requires owner-tier access, which belongs only to this Discord server's real owner."
+          : "Not authorized for write operations. Requires admin-tier access (a mapped Admin role, or the real Discord server owner)."
+      };
+    }
+    const idempotencyKey = generateIdempotencyKey();
+    const confirmation = requireConfirmation({ action: legacyDef.action, target: legacyDef.tier, risk: legacyDef.risk });
+    const { embed, row } = createPendingConfirmation({
+      idempotencyKey,
+      action: legacyDef.action,
+      tier: legacyDef.tier,
+      risk: legacyDef.risk,
+      userId: interaction?.user?.id,
+      onTimeout: (entry) => console.log(JSON.stringify(writeTimeoutAuditEvent(entry, idempotencyKey)))
+    });
+    return {
+      ok: true,
+      action: legacyDef.action,
+      tier: legacyDef.tier,
+      risk: legacyDef.risk,
+      idempotencyKey,
+      needsConfirmation: true,
+      confirmationMessage: confirmation.message,
+      confirmationEmbed: embed,
+      confirmationRow: row,
+      status: "pending-upstream",
+      message: "Write command scaffolded. Awaiting upstream write-adapter contract implementation."
+    };
   }
 
   const def = findWriteAction(group, subcommand);
@@ -798,13 +932,24 @@ In `src/writeConfirmation.js`, add near the existing `createPendingConfirmation`
 // the legacy stub flow, previously had no expiry timer at all -- an
 // unclicked one sat in the shared Map forever. Every kind now gets a
 // scheduled cleanup, matching the legacy flow's own existing pattern.
-export function registerRealPendingConfirmation({ nonce, action, tier, userId, expiresAt, confirmPhrase, kind }) {
+//
+// [Audit fix: UI/UX, CRITICAL round 3] This signature previously did NOT
+// destructure or store `secondConfirmationPending` at all -- Task 5 Step 3
+// calls this SAME function with `secondConfirmationPending: true` when
+// re-registering after Core's 202, but a plain object-destructuring
+// parameter silently drops any property not named here. The stored entry
+// never actually carried the flag, `entry.secondConfirmationPending` read
+// `undefined` forever, and the entire ownership-gate exception in Task 5
+// Step 3 (which branches on exactly that field) could never fire -- a
+// FOURTH structural reason a second admin could never complete a dual
+// confirmation, on top of the three Round 2 already found and fixed.
+export function registerRealPendingConfirmation({ nonce, action, tier, userId, expiresAt, confirmPhrase, kind, secondConfirmationPending = false }) {
   if (typeof userId !== "string" || userId.length === 0) {
     throw new Error("registerRealPendingConfirmation: userId is required.");
   }
   const timer = setTimeout(() => { pendingConfirmations.delete(nonce); }, Math.max(0, expiresAt - Date.now()));
   timer.unref?.();
-  pendingConfirmations.set(nonce, { action, tier, userId, expiresAt, confirmPhrase, kind, timer, isReal: true });
+  pendingConfirmations.set(nonce, { action, tier, userId, expiresAt, confirmPhrase, kind, timer, isReal: true, secondConfirmationPending });
   return nonce;
 }
 ```
@@ -952,6 +1097,28 @@ test("handleWriteButtonInteraction: a customId key containing a colon is not tru
   const handled = await handleWriteButtonInteraction(interaction, adapterClient);
   assert.equal(handled, true);
 });
+
+// [Audit fix: Security/Architect, MEDIUM round 3] A legacy stub entry
+// (created via the pre-existing createPendingConfirmation(), which never
+// sets a `kind` field -- unlike registerRealPendingConfirmation()'s
+// "real"/"self-update" entries) must confirm into the same scaffolded
+// response it always has, and must NEVER reach adapterClient.writeExecute
+// with a bogus, non-Core action name.
+test("handleWriteButtonInteraction: a legacy stub confirmation (no kind field) reports the scaffolded status, never calling adapterClient", async () => {
+  resetPendingConfirmations();
+  // createPendingConfirmation must already be imported at the top of this
+  // test file -- it's the pre-existing legacy registration function this
+  // suite tested before this plan; not new to Task 5.
+  createPendingConfirmation({ idempotencyKey: "n6", action: "maintenance:set-note", tier: "admin", risk: "low", userId: "u1", onTimeout: () => {} });
+  let executeCalled = false;
+  const adapterClient = { writeExecute: async () => { executeCalled = true; return { ok: true }; } };
+  const updates = [];
+  const interaction = { isButton: () => true, customId: "write:confirm:n6", user: { id: "u1" }, update: async (p) => updates.push(p) };
+  const handled = await handleWriteButtonInteraction(interaction, adapterClient);
+  assert.equal(handled, true);
+  assert.equal(executeCalled, false, "a legacy stub entry must never reach adapterClient.writeExecute");
+  assert.match(JSON.stringify(updates[0]), /not executed|scaffolded|awaiting upstream/i);
+});
 ```
 
 - [ ] **Step 2: Run to verify they fail**
@@ -1009,7 +1176,23 @@ Replace the `if (action === "confirm") { ... }` block with (note: `actor` is now
 ```js
   if (action === "confirm") {
     const isSelfUpdate = entry.action === "bot.self-update";
+    // [Audit fix: Security/Architect, MEDIUM round 3] entries created by
+    // the OLD, untouched createPendingConfirmation() (writeHandler.js's
+    // restored LEGACY_WRITE_STUBS branch, Task 4 Step 7) carry no `kind`
+    // field at all -- only registerRealPendingConfirmation() (real/
+    // self-update paths) sets one. Without this check, a legacy stub's
+    // confirm click would fall through to the "real" branch below and
+    // call adapterClient.writeExecute() with a bogus, never-registered
+    // Core action name (e.g. "maintenance:set-note"), producing a
+    // confusing Core-side error instead of the intended, harmless
+    // scaffolded response this subcommand has always returned.
+    const isLegacyStub = !entry.kind;
     clearPendingConfirmation(idempotencyKey);
+
+    if (isLegacyStub) {
+      await interaction.update({ embeds: [buildScaffoldedEmbed({ action: entry.action })], components: [] });
+      return true;
+    }
 
     if (isSelfUpdate) {
       const { runSelfUpdate } = await import("./writeSelfUpdate.js");
@@ -1106,7 +1289,7 @@ colon-safe customId parsing (Layer 1 Security/QA MEDIUM finding)."
 - Test: `test/deploy-hook.bats` (must stay green), new `test/self-update.bats`, `test/writeSelfUpdate.test.js`, `test/config.test.js` (new env var)
 
 **Interfaces:**
-- Produces: `deploy_core::sync_test_install_restart(work_dir, service_name)` (bash) — acquires `runtime/deploy.lock`, returns 0 on full success, non-zero on any guardrail failure, **never restarts if it returns non-zero**, releases the lock on any exit path (`trap ... EXIT`). `runSelfUpdate({ interactionToken, applicationId, channelId })` (`src/writeSelfUpdate.js`) — writes a pending-marker file, spawns `scripts/self-update.sh` via `systemd-run --scope` (escaping the bot's own cgroup) with the webhook URL passed via `env`, not `argv`.
+- Produces: `deploy_core::sync_test_install_restart(work_dir, service_name)` (bash) — acquires `runtime/deploy.lock`, returns 0 on full success, non-zero on any guardrail failure, **never restarts if it returns non-zero**, releases the lock on any exit path (`trap ... EXIT`). `runSelfUpdate({ interactionToken, applicationId, channelId })` (`src/writeSelfUpdate.js`) — writes a pending-marker file, spawns `scripts/self-update.sh` via `systemd-run --scope` (escaping the bot's own cgroup) with the webhook URL written to a short-lived 0600 temp file, only that file's path passed via `--setenv`/`env` (never the URL itself, and never via `argv`).
 
 - [ ] **Step 1: Write the failing bats test for the extracted library, actually observing restart behavior**
 
@@ -1216,6 +1399,39 @@ EOF
   run deploy_core::sync_test_install_restart "$WORK_DIR" "$SERVICE_NAME"
   [ "$status" -ne 0 ]
 }
+
+@test "deploy_core::webhook_report keeps the webhook URL out of curl's argv entirely, using a -K config file instead" {
+  # [Audit fix: QA, MEDIUM round 3] Round 3 found the curl-argv-leak fix
+  # (Round 2) had zero test coverage anywhere -- neither self-update.sh
+  # (no sourceable structure to test) nor this file exercised it. Extracting
+  # the function into deploy-core.sh (Step 3) makes this test possible.
+  cat > "$FAKE_BIN/curl" <<'EOF'
+#!/usr/bin/env bash
+echo "curl $*" >> "$FAKE_BIN_LOG"
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = "-K" ]; then
+    cp "$arg" "$FAKE_CURL_CONFIG_CAPTURE"
+  fi
+  prev="$arg"
+done
+exit 0
+EOF
+  chmod +x "$FAKE_BIN/curl"
+  export FAKE_CURL_CONFIG_CAPTURE="$WORK_DIR/captured-curl-config"
+  export DISCORD_WEBHOOK_URL="https://discord.com/api/v10/webhooks/app123/super-secret-token-456"
+
+  run deploy_core::webhook_report "test message"
+  [ "$status" -eq 0 ]
+
+  # The secret URL must never appear in curl's own argv (what ps/proc would show).
+  run grep -c "super-secret-token-456" "$FAKE_BIN_LOG"
+  [ "$output" -eq 0 ]
+  # But it must genuinely have reached curl -- via the -K config file's content.
+  [ -f "$FAKE_CURL_CONFIG_CAPTURE" ]
+  run grep -c "super-secret-token-456" "$FAKE_CURL_CONFIG_CAPTURE"
+  [ "$output" -eq 1 ]
+}
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -1299,6 +1515,41 @@ deploy_core::sync_test_install_restart() {
 
   return 0
 }
+
+# [Audit fix: QA, MEDIUM round 3] Extracted here (rather than left as a
+# private function inside scripts/self-update.sh) specifically so it can
+# be sourced and tested directly by test/self-update.bats -- self-update.sh
+# itself has no sourceable-without-executing structure (it runs the real
+# deploy pipeline at its own top level), so a function defined only there
+# had no test coverage at all for the curl-argv-leak fix (see report()'s
+# own history: [Audit fix: Security/Cloud-Security, HIGH round 2]). Reads
+# DISCORD_WEBHOOK_URL from the CALLER's environment (bash functions see
+# the caller's global variables dynamically, not lexically) -- self-update.sh
+# sets it before sourcing this file and calling this function.
+deploy_core::webhook_report() {
+  local message="$1"
+  if [ -n "${DISCORD_WEBHOOK_URL:-}" ]; then
+    # The webhook URL embeds a bearer-style interaction token -- passing it
+    # as a curl argv element would put it in `ps auxww`/`/proc/<pid>/cmdline`
+    # for the life of the curl child process. Kept out of argv entirely via
+    # a curl config file (`-K`), which curl reads directly.
+    local curl_config
+    curl_config="$(mktemp)"
+    chmod 600 "$curl_config"
+    {
+      printf 'url = "%s"\n' "$DISCORD_WEBHOOK_URL"
+      printf 'silent\n'
+      printf 'show-error\n'
+      printf 'max-time = 10\n'
+      printf 'request = "POST"\n'
+      printf 'header = "Content-Type: application/json"\n'
+    } > "$curl_config"
+    curl -K "$curl_config" \
+      -d "$(printf '{"content":%s}' "$(printf '%s' "$message" | node -e 'process.stdout.write(JSON.stringify(require("fs").readFileSync(0,"utf8")))')")" \
+      >/dev/null 2>&1 || true
+    rm -f "$curl_config"
+  fi
+}
 ```
 
 - [ ] **Step 4: Run to verify the new tests pass**
@@ -1370,58 +1621,49 @@ set -u
 
 WORK_DIR="${WORK_DIR:-/home/bot/arrakis-control-panel}"
 SERVICE_NAME="${SERVICE_NAME:-acp-bot.service}"
-# Webhook URL is read from the environment, never argv (Layer 1
-# Security/Cloud-Security finding: an argv-passed secret is visible via
-# `ps auxww`/`/proc/<pid>/cmdline` to any local process for this script's
-# lifetime; an env var requires owning the process or root to read).
-DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
+# [Audit fix: Security, HIGH round 3] The webhook URL is read from a
+# short-lived 0600 temp file, not directly from the environment. `systemd-run`
+# (writeSelfUpdate.js's primary, non-fallback path) submits the unit to the
+# systemd MANAGER over D-Bus -- an env var set on the systemd-run CLIENT
+# process (Node's own `spawn(..., { env })`) never actually reaches the
+# scope it creates; only `--setenv=KEY=VALUE` on systemd-run's own argv
+# does, and putting the secret itself there would leak it via
+# `ps auxww`/`/proc/<pid>/cmdline` for systemd-run's own (client) process
+# lifetime -- the exact leak this design already closed for curl (see
+# deploy_core::webhook_report() in lib/deploy-core.sh). Passing only a
+# temp file PATH via --setenv/env is safe
+# (a path isn't sensitive) and matches this codebase's own established
+# `_FILE` secret-handling convention (Requirement 24).
+DISCORD_WEBHOOK_URL_FILE="${DISCORD_WEBHOOK_URL_FILE:-}"
+DISCORD_WEBHOOK_URL=""
+if [ -n "$DISCORD_WEBHOOK_URL_FILE" ] && [ -f "$DISCORD_WEBHOOK_URL_FILE" ]; then
+  DISCORD_WEBHOOK_URL="$(cat "$DISCORD_WEBHOOK_URL_FILE")"
+  rm -f "$DISCORD_WEBHOOK_URL_FILE"
+  rmdir "$(dirname "$DISCORD_WEBHOOK_URL_FILE")" 2>/dev/null || true
+fi
 MARKER_FILE="$WORK_DIR/runtime/self-update-pending.json"
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/deploy-core.sh"
 
-report() {
-  local message="$1"
-  if [ -n "$DISCORD_WEBHOOK_URL" ]; then
-    # [Audit fix: Security/Cloud-Security, HIGH round 2] The webhook URL
-    # embeds the interaction token -- passing it as a curl argv element
-    # (even after moving it from this script's own argv to env, per the
-    # header comment above) still puts it in `ps auxww`/`/proc/<pid>/
-    # cmdline` for the life of the curl child process specifically. Moved
-    # one level deeper: the URL now lives only in a curl config file
-    # (`-K`), which curl reads directly rather than receiving as an argv
-    # string.
-    local curl_config
-    curl_config="$(mktemp)"
-    chmod 600 "$curl_config"
-    {
-      printf 'url = "%s"\n' "$DISCORD_WEBHOOK_URL"
-      printf 'silent\n'
-      printf 'show-error\n'
-      printf 'max-time = 10\n'
-      printf 'request = "POST"\n'
-      printf 'header = "Content-Type: application/json"\n'
-    } > "$curl_config"
-    curl -K "$curl_config" \
-      -d "$(printf '{"content":%s}' "$(printf '%s' "$message" | node -e 'process.stdout.write(JSON.stringify(require("fs").readFileSync(0,"utf8")))')")" \
-      >/dev/null 2>&1 || true
-    rm -f "$curl_config"
-  fi
-}
+# report()'s implementation moved to deploy_core::webhook_report()
+# (scripts/lib/deploy-core.sh, Step 3) so it can be sourced and tested
+# directly by test/self-update.bats -- this script has no
+# sourceable-without-executing structure of its own.
 
 # Written BEFORE the restart, so the NEW process (started by
 # deploy_core's own systemctl restart) can find it on its own startup and
 # report success itself -- a second, independent reporting layer that
-# survives even if THIS script's own webhook post (above) is killed
+# survives even if THIS script's own webhook post (below) is killed
 # alongside the old process despite the systemd-run escape (belt and
 # braces, not a single point of failure).
 mkdir -p "$(dirname "$MARKER_FILE")"
-node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify({ webhookUrl: process.env.DISCORD_WEBHOOK_URL || '', triggeredAt: Date.now() }))" "$MARKER_FILE"
+DISCORD_WEBHOOK_URL="$DISCORD_WEBHOOK_URL" node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify({ webhookUrl: process.env.DISCORD_WEBHOOK_URL || '', triggeredAt: Date.now() }))" "$MARKER_FILE"
 
 if deploy_core::sync_test_install_restart "$WORK_DIR" "$SERVICE_NAME"; then
-  report "✅ Self-update complete. \`$(cd "$WORK_DIR" && git log --oneline -1)\` is now live."
+  deploy_core::webhook_report "✅ Self-update complete. \`$(cd "$WORK_DIR" && git log --oneline -1)\` is now live."
 else
   rm -f "$MARKER_FILE" # deploy_core already returns non-zero for either a failed test gate OR a failed post-restart health check -- either way, no confirmed-good new process exists for the marker to describe
-  report "🛑 Self-update aborted or failed -- either the test gate failed (previous code is still running) or the restarted process did not come up healthy. Check the self-update log on the host for details."
+  deploy_core::webhook_report "🛑 Self-update aborted or failed -- either the test gate failed (previous code is still running) or the restarted process did not come up healthy. Check the self-update log on the host for details."
   exit 1
 fi
 ```
@@ -1433,9 +1675,17 @@ Create `test/writeSelfUpdate.test.js`:
 ```js
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { runSelfUpdate, __setSpawnImplForTests, __setHasCommandImplForTests, __resetHasCommandImplForTests } from "../src/writeSelfUpdate.js";
 
-test("runSelfUpdate: invokes systemd-run with the webhook URL in env, never argv", async () => {
+// [Audit fix: Security, HIGH round 3] systemd-run submits the unit to the
+// systemd MANAGER over D-Bus -- Node's own spawn(..., { env }) only
+// affects the systemd-run CLIENT process, never the scope it creates. The
+// webhook URL itself must never appear in systemd-run's own argv either
+// (that would leak it via ps/proc for systemd-run's own process lifetime).
+// The real fix: write the URL to a short-lived 0600 temp file and pass
+// only that file's PATH via --setenv -- this test proves both halves.
+test("runSelfUpdate: invokes systemd-run with --setenv=DISCORD_WEBHOOK_URL_FILE=<path>, never the URL itself in argv or in options.env directly", async () => {
   let capturedCommand = null;
   let capturedArgs = null;
   let capturedOptions = null;
@@ -1452,11 +1702,14 @@ test("runSelfUpdate: invokes systemd-run with the webhook URL in env, never argv
   assert.equal(capturedCommand, "systemd-run");
   assert.ok(Array.isArray(capturedArgs));
   assert.ok(capturedArgs.some((a) => a === "--scope"));
-  // The webhook URL (built from applicationId/interactionToken) must not
-  // appear anywhere in argv -- only in options.env.
+  const setenvArg = capturedArgs.find((a) => a.startsWith("--setenv=DISCORD_WEBHOOK_URL_FILE="));
+  assert.ok(setenvArg, "must pass the webhook-url file path via --setenv so it actually reaches the spawned scope");
   const argvString = capturedArgs.join(" ");
-  assert.ok(!argvString.includes("tok"), "the interaction token must not appear in argv");
-  assert.equal(capturedOptions.env.DISCORD_WEBHOOK_URL.includes("tok"), true, "the webhook URL must be passed via env");
+  assert.ok(!argvString.includes("tok"), "the interaction token must not appear anywhere in argv, including inside --setenv");
+  assert.equal(capturedOptions.env.DISCORD_WEBHOOK_URL, undefined, "the raw URL must never be set directly as an env var passed to systemd-run's own argv-visible --setenv mechanism");
+  const filePath = setenvArg.slice("--setenv=DISCORD_WEBHOOK_URL_FILE=".length);
+  const fileContent = readFileSync(filePath, "utf8");
+  assert.ok(fileContent.includes("tok"), "the real webhook URL must be recoverable from the temp file the path points at");
   assert.equal(result.pid, 12345);
   __resetHasCommandImplForTests();
 });
@@ -1465,7 +1718,7 @@ test("runSelfUpdate: invokes systemd-run with the webhook URL in env, never argv
 // systemd-run-unavailable fallback (plain detached spawn), but no round-1
 // code actually implemented it. This test proves the fallback path is
 // real, not just documented.
-test("runSelfUpdate: falls back to a plain detached spawn when systemd-run is unavailable", async () => {
+test("runSelfUpdate: falls back to a plain detached spawn when systemd-run is unavailable, still using the file-based webhook URL convention", async () => {
   let capturedCommand = null;
   let capturedArgs = null;
   let capturedOptions = null;
@@ -1483,7 +1736,13 @@ test("runSelfUpdate: falls back to a plain detached spawn when systemd-run is un
   assert.ok(Array.isArray(capturedArgs));
   assert.ok(!capturedArgs.some((a) => a === "systemd-run"));
   assert.equal(capturedOptions.detached, true);
-  assert.equal(capturedOptions.env.DISCORD_WEBHOOK_URL.includes("tok2"), true);
+  // The plain-spawn fallback is a direct child (no D-Bus hop), so passing
+  // the file path via env (not the raw URL -- same file-based convention
+  // as the systemd-run path, for consistency) is sufficient here too.
+  const filePath = capturedOptions.env.DISCORD_WEBHOOK_URL_FILE;
+  assert.ok(filePath, "must pass the webhook-url file path via env");
+  const fileContent = readFileSync(filePath, "utf8");
+  assert.ok(fileContent.includes("tok2"));
   assert.equal(result.pid, 54321);
   __resetHasCommandImplForTests();
 });
@@ -1498,7 +1757,8 @@ Expected: FAIL — module doesn't exist.
 
 ```js
 import { spawn as realSpawn, execFileSync } from "node:child_process";
-import { openSync } from "node:fs";
+import { openSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -1539,7 +1799,23 @@ export function runSelfUpdate({ interactionToken, applicationId, channelId }) {
   const webhookUrl = applicationId && interactionToken
     ? `https://discord.com/api/v10/webhooks/${applicationId}/${interactionToken}`
     : "";
-  const env = { ...process.env, DISCORD_WEBHOOK_URL: webhookUrl };
+
+  // [Audit fix: Security, HIGH round 3] `systemd-run` submits the unit to
+  // the systemd MANAGER over D-Bus -- an env var set on the spawn() call
+  // below only affects the systemd-run CLIENT process itself, never the
+  // scope it creates, so a plain `env: { DISCORD_WEBHOOK_URL }` would
+  // never actually reach self-update.sh on this path. The correct
+  // mechanism is `--setenv=KEY=VALUE` on systemd-run's own argv -- but
+  // putting the raw URL (which embeds a bearer-style interaction token)
+  // there would leak it via `ps auxww`/`/proc/<pid>/cmdline` for
+  // systemd-run's own process lifetime, the exact leak already closed for
+  // curl (see scripts/self-update.sh's report()). Instead: write the URL
+  // to a short-lived, 0600 temp file and pass only that file's PATH
+  // (never sensitive) via --setenv/env -- matching this codebase's own
+  // established _FILE secret-handling convention (Requirement 24).
+  const webhookFile = join(mkdtempSync(join(tmpdir(), "mentat-self-update-")), "webhook-url");
+  writeFileSync(webhookFile, webhookUrl, { mode: 0o600 });
+  const env = { ...process.env, DISCORD_WEBHOOK_URL_FILE: webhookFile };
 
   const useSystemdRun = hasCommandImpl("systemd-run");
   let child;
@@ -1547,13 +1823,19 @@ export function runSelfUpdate({ interactionToken, applicationId, channelId }) {
     // systemd-run --scope: escapes acp-bot.service's own cgroup (see
     // scripts/self-update.sh's header for why this matters -- KillMode=
     // control-group would otherwise kill this script in the same signal
-    // that kills the process it's restarting).
-    child = spawnImpl("systemd-run", ["--uid", String(process.getuid?.() ?? "bot"), "--scope", "--", "bash", scriptPath], {
+    // that kills the process it's restarting). --setenv carries only the
+    // temp-file PATH into the spawned scope's real environment, not the
+    // secret itself.
+    child = spawnImpl("systemd-run", ["--uid", String(process.getuid?.() ?? "bot"), "--scope", `--setenv=DISCORD_WEBHOOK_URL_FILE=${webhookFile}`, "--", "bash", scriptPath], {
       stdio: ["ignore", logFd, logFd],
       env
     });
   } else {
     console.warn("writeSelfUpdate: systemd-run is unavailable -- falling back to a plain detached spawn. The fast-path webhook report-back in scripts/self-update.sh may be lost if this process is killed alongside the bot during its own restart; the startup marker-file check (src/index.js) is the fallback reporting path for this case.");
+    // A plain, directly-spawned child inherits `env` normally (no D-Bus
+    // hop), so this path already worked correctly even before this fix --
+    // kept on the same file-based convention for consistency, not because
+    // it was broken here too.
     child = spawnImpl("bash", [scriptPath], {
       stdio: ["ignore", logFd, logFd],
       env,
@@ -1643,7 +1925,7 @@ test design."
 
 **Interfaces:**
 - Consumes: `WRITE_ACTIONS`/`findWriteAction` (Task 3).
-- Produces: `buildDuneCommand()` gains 6 genuinely new top-level subcommand groups (`base`, `map`, `carepackage`, `guild`, `operations`, `bot`) and extends the 2 EXISTING groups (`player`, `server`) with new subcommands, generated mechanically from `WRITE_ACTIONS`. `executeDuneCommand` gains a real dispatch branch routing any `(group, subcommand)` pair `findWriteAction` recognizes to `handleWriteCommand`, regardless of whether that group is new or merged-into-existing.
+- Produces: `buildDuneCommand()` gains 6 genuinely new top-level subcommand groups (`base`, `map`, `carepackage`, `guild`, `operations`, `bot`) and extends the 2 EXISTING groups (`player`, `server`) with new subcommands, generated mechanically from `WRITE_ACTIONS`; the existing `write` group loses its 3 superseded subcommands (`backup`, `restart`, `update`), keeping the 9 that remain genuinely deferred (`LEGACY_WRITE_STUBS`, Task 4). `executeDuneCommand` gains a real dispatch branch routing any `(group, subcommand)` pair `findWriteAction` recognizes to `handleWriteCommand`, regardless of whether that group is new or merged-into-existing.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1692,6 +1974,24 @@ test("executeDuneCommand dispatch: findWriteAction recognizes both a merged grou
   assert.ok(findWriteAction("player", "kick"));
   assert.ok(findWriteAction("base", "refill-generators"));
   assert.equal(findWriteAction("player", "link"), null, "existing read subcommands are not write actions");
+});
+
+// [Audit fix: Security, MEDIUM round 3] The 3 legacy "write" group
+// subcommands superseded by a real new command elsewhere (backup,
+// restart, update) must be removed from the real write group builder, not
+// left as a dead second name for the same action -- per the design doc's
+// own explicit principle (line 149).
+test("buildDuneCommand: the legacy 'write' group no longer registers the 3 superseded subcommand names, but keeps the 9 still-deferred ones", () => {
+  const built = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+  const registeredGroups = new Map(built.options.filter((o) => o.type === 2).map((g) => [g.name, g]));
+  const writeSubcommands = new Set(registeredGroups.get("write").options.map((s) => s.name));
+  for (const superseded of ["backup", "restart", "update"]) {
+    assert.ok(!writeSubcommands.has(superseded), `write:${superseded} is superseded by a real new command and must be removed`);
+  }
+  for (const stillDeferred of ["maintenance-note", "maintenance-window", "alert-channel", "alert-threshold", "digest-schedule", "post-schedule", "add-channel", "remove-channel", "cache"]) {
+    assert.ok(writeSubcommands.has(stillDeferred), `write:${stillDeferred} has no real backing feature yet and must stay registered`);
+  }
+  assert.equal(writeSubcommands.size, 9);
 });
 ```
 
@@ -1767,7 +2067,9 @@ Apply the same conversion (expression body → block body, existing chain preser
 
 **Merge into the existing `server` group builder** the same way — convert its expression body to a block body identically, preserve its existing subcommand chain verbatim, then append `addWriteSubcommands(g, "server");` and `return g;`.
 
-**Add the 6 genuinely-new groups** — after the existing `if (includeWriteGroup) { ... }` block (which stays untouched, covering the 12 legacy stub commands), add:
+**Remove the 3 superseded subcommands from the existing `write` group builder** `[Audit fix: Security, MEDIUM round 3]` — per the design doc's own explicit principle (line 149: "`operations:restart-service` is removed from `WRITE_COMMANDS`, not kept as a second command... shipping two command names for one action is a real, avoidable source of confusion, not a feature"), applied consistently to all 3 subcommands that now have a real new home, not just `restart`: find the existing `write` group builder's `.addSubcommand((s) => s.setName("backup")...)`, `.addSubcommand((s) => s.setName("restart")...)`, and `.addSubcommand((s) => s.setName("update")...)` calls (matching `src/writeHandler.js`'s real, current `WRITE_COMMANDS` entries of the same names) and delete exactly those 3 `.addSubcommand(...)` calls from the chain, leaving the other 9 (`maintenance-note`, `maintenance-window`, `alert-channel`, `alert-threshold`, `digest-schedule`, `post-schedule`, `add-channel`, `remove-channel`, `cache`) untouched — these 9 are exactly `LEGACY_WRITE_STUBS` (Task 4 Step 7). After this change the `write` group has 9 subcommands, not 12; `restart-service` now lives only at `/dune server restart-service`, `create-backup`/`trigger-update` only at `/dune operations create-backup`/`/dune operations trigger-update`.
+
+**Add the 6 genuinely-new groups** — after the existing `if (includeWriteGroup) { ... }` block (which stays, now covering the 9 remaining legacy stub commands after the removal above), add:
 
 ```js
   if (includeWriteGroup) {
