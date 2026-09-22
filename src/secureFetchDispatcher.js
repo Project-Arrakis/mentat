@@ -23,6 +23,25 @@
 // real fetch(), and calling `callback(new Error(...))` causes the fetch
 // itself to reject with a `fetch failed` error carrying that error as
 // `.cause` -- confirmed with a real local HTTP server, not a mock.
+//
+// Layer 2 audit finding (Security Architect hat, second pass): `options.all`
+// being true is NOT structurally guaranteed by undici -- undici's connector
+// delegates to Node's own net.connect()/tls.connect(), which decides
+// `options.all` based on the process-wide `autoSelectFamily` setting
+// (Happy Eyeballs), not anything this module controls. Verified directly:
+// with `net.setDefaultAutoSelectFamily(false)` simulating a flipped global
+// default, `options.all` becomes falsy and this function would previously
+// have replied with an array in single-address mode, which Node rejects
+// outright ("Invalid IP address"). That failed CLOSED (no bypass), but as
+// an unexplained full outage of every adapter request, not a graceful
+// degradation -- and depended on a global Node default this module never
+// asserted. Fixed two ways, defense in depth: (1) `autoSelectFamily: true`
+// is now forced explicitly in createSecureDispatcher()'s connect options,
+// confirmed directly to override the global default and keep `options.all`
+// true regardless of it; (2) createSecureLookup() itself now branches on
+// `options.all` and replies in the correct shape either way, so a future
+// undici/Node change to how `all` gets decided can't silently break this
+// again even if (1) is ever removed.
 
 import dns from "node:dns/promises";
 import { Agent } from "undici";
@@ -47,13 +66,15 @@ export function createSecureLookup(lookupImpl) {
         callback(new Error(`Destination "${hostname}" resolved to a private, loopback, or link-local address.`));
         return;
       }
-      // options.all is always true for a real fetch() through this
-      // dispatcher (verified directly) -- return every address, matching
-      // dns.lookup's own {all:true} callback shape, and let undici's
-      // connector do its normal address selection among them. Every one
-      // of these addresses has already individually passed the check
-      // above, so which one it picks doesn't matter for safety.
-      callback(null, addresses);
+      // Every one of these addresses has already individually passed the
+      // check above, so which shape/which one gets used doesn't matter
+      // for safety -- only for matching what the caller (Node's net
+      // internals) actually asked for.
+      if (options?.all) {
+        callback(null, addresses);
+      } else {
+        callback(null, addresses[0].address, addresses[0].family);
+      }
     }, (err) => {
       callback(err);
     });
@@ -66,7 +87,7 @@ export function createSecureLookup(lookupImpl) {
 // the parameter exists so tests can inject a fake resolver, same reason
 // validateConsoleUrl() takes one.
 export function createSecureDispatcher({ lookupImpl = dns.lookup } = {}) {
-  return new Agent({ connect: { lookup: createSecureLookup(lookupImpl) } });
+  return new Agent({ connect: { autoSelectFamily: true, lookup: createSecureLookup(lookupImpl) } });
 }
 
 // Shared, lazily-created default-config instance -- adapterClient.js calls

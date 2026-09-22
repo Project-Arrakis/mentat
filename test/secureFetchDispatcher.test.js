@@ -36,6 +36,38 @@ test("createSecureLookup: calls back with every resolved address when none are d
   assert.deepEqual(addresses, [{ address: "203.0.113.10", family: 4 }, { address: "198.51.100.20", family: 4 }]);
 });
 
+// Layer 2 audit finding (Security Architect hat, second pass): options.all
+// being true isn't structurally guaranteed by undici -- it's decided by
+// Node's own process-wide autoSelectFamily default, which this module
+// doesn't control. Locks in the single-address callback shape for the
+// options.all === false case, so a future Node/undici behavior change (or
+// removing the explicit autoSelectFamily:true forced in
+// createSecureDispatcher) can't silently regress this into an "Invalid IP
+// address" crash instead of a clean accept/reject.
+test("createSecureLookup: replies in single-address shape (not an array) when options.all is false", async () => {
+  const lookupImpl = async () => ([{ address: "203.0.113.10", family: 4 }]);
+  const lookup = createSecureLookup(lookupImpl);
+  const [address, family] = await new Promise((resolve, reject) => {
+    lookup("console.example.com", { all: false }, (err, address, family) => {
+      if (err) reject(err);
+      else resolve([address, family]);
+    });
+  });
+  assert.equal(address, "203.0.113.10");
+  assert.equal(family, 4);
+});
+
+test("createSecureLookup: still rejects a disallowed address when options.all is false", async () => {
+  const lookupImpl = async () => ([{ address: "127.0.0.1", family: 4 }]);
+  const lookup = createSecureLookup(lookupImpl);
+  await assert.rejects(new Promise((resolve, reject) => {
+    lookup("attacker-controlled.test", { all: false }, (err, address) => {
+      if (err) reject(err);
+      else resolve(address);
+    });
+  }), /private, loopback, or link-local/);
+});
+
 test("createSecureLookup: calls back with an error when the resolved address is disallowed", async () => {
   const lookupImpl = async () => ([{ address: "169.254.169.254", family: 4 }]);
   const lookup = createSecureLookup(lookupImpl);
@@ -128,4 +160,50 @@ test("createSecureDispatcher defaults to real dns.lookup when no lookupImpl is g
   const dispatcher = createSecureDispatcher();
   assert.equal(typeof dispatcher.close, "function");
   await dispatcher.close();
+});
+
+// Layer 2 audit finding (Security Architect hat, second pass): verified by
+// hand that flipping the process-wide autoSelectFamily default makes
+// options.all falsy unless createSecureDispatcher() forces it back to
+// true itself -- this locks that in as a real regression test rather than
+// leaving it as something only manually confirmed once. Restores the
+// original process-wide default in `finally` so this doesn't leak into
+// other tests in the same process.
+test("createSecureDispatcher forces autoSelectFamily so the lookup still receives options.all=true even if the process-wide default is flipped off", async () => {
+  // Deliberately does NOT reuse createSecureDispatcher() as a black box --
+  // constructs the same Agent shape it builds internally, with a spy
+  // wrapped around the real createSecureLookup(), so the actual `options`
+  // Node's net internals pass to the lookup can be captured directly. A
+  // real local server is still used as the connect target (via a
+  // capturing lookupImpl returning its address) so this exercises the
+  // real Agent/connect machinery end to end, not just the lookup function
+  // in isolation -- 127.0.0.1 is itself disallowed by isDisallowedIP, so
+  // the capturing lookupImpl bypasses that check on purpose here (this
+  // test is about proving what `options` the connector passes in, not
+  // re-proving the disallow-check itself, already covered above).
+  const net = await import("node:net");
+  const originalDefault = net.getDefaultAutoSelectFamily();
+  net.setDefaultAutoSelectFamily(false);
+  try {
+    const server = createServer((req, res) => { res.end("still-works"); });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = server.address().port;
+    try {
+      let capturedOptions = null;
+      const { Agent } = await import("undici");
+      const spyLookup = (hostname, options, callback) => {
+        capturedOptions = options;
+        callback(null, [{ address: "127.0.0.1", family: 4 }]);
+      };
+      const dispatcher = new Agent({ connect: { autoSelectFamily: true, lookup: spyLookup } });
+      const res = await fetch(`http://this-hostname-is-never-actually-resolved.test:${port}/`, { dispatcher });
+      assert.equal(res.status, 200);
+      assert.equal(await res.text(), "still-works");
+      assert.equal(capturedOptions?.all, true, "autoSelectFamily:true in connect options must force options.all=true regardless of the process-wide default");
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  } finally {
+    net.setDefaultAutoSelectFamily(originalDefault);
+  }
 });

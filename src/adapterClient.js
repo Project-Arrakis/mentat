@@ -422,9 +422,15 @@ export class AdapterClient {
         authorization: `Bearer ${cfg.adapter.token}`
       };
       // mentat#393: revalidates the destination address at actual connect
-      // time, every request -- closes the DNS-rebinding gap
-      // consoleUrlValidation.js's one-time, registration-time check can't
-      // close on its own. Harmless when this.fetchImpl is a test mock that
+      // time, on every NEW connection (verified: undici pools/reuses an
+      // already-open socket across requests to the same origin without
+      // re-invoking this, but a TCP socket already connected to address X
+      // can never be redirected to a different address by a later DNS
+      // change -- so "revalidate on new connection" is the correct
+      // granularity, not a narrowed version of "revalidate every request")
+      // -- closes the DNS-rebinding gap consoleUrlValidation.js's one-time,
+      // registration-time check can't close on its own. Harmless when
+      // this.fetchImpl is a test mock that
       // ignores unrecognized init fields (every existing test's mock does).
       const options = { method, headers, signal: controller.signal, dispatcher: this.dispatcher };
 
