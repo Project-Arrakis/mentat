@@ -127,11 +127,12 @@ test("rejects a consoleUrl that resolves to a private/internal address -- mentat
 
 // ─── HTTP-level regression tests (fix round 1) ─────────────────────────
 
-async function withRegistrationApp(fn) {
+async function withRegistrationApp(fn, overrides = {}) {
   const app = createSetupServer({
     dbPath: ":memory:",
     discordClientId: "client-id",
-    baseUrl: "http://localhost:3100"
+    baseUrl: "http://localhost:3100",
+    ...overrides
   });
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve, reject) => {
@@ -253,4 +254,40 @@ test("POST /api/consoles/register with Content-Type: application/json and a malf
     assert.equal(second.status, 429, "a malformed-JSON request must itself be rejected as rate-limited once the global bucket is exhausted");
     assert.equal(second.headers.get("retry-after"), "60");
   });
+});
+
+// Layer 2 audit finding (QA hat): setupServer.js:794-803's
+// invalid_console_url -> 400 status-mapping (added by mentat#328) had zero
+// HTTP-level coverage -- every existing #328 test for this route exercised
+// verifyAndRegisterConsole() directly, never proving the ROUTE itself
+// returns 400 (as opposed to falling through to the generic 403 branch two
+// lines below) for this specific reason. Requires a real ownership success
+// to reach the consoleUrl check at all, so this also required forwarding
+// config.fetchImpl into verifyAndRegisterConsole()'s opts (a real, separate
+// small gap fixed in the same commit -- it was already forwarded for the
+// old /setup portal routes in this file, just not this one).
+test("POST /api/consoles/register returns 400 (not 403) for an SSRF-capable consoleUrl, even when Discord ownership genuinely checks out", async () => {
+  resetConsoleRegistrationRateLimiterForTests({});
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/users/@me/guilds")) {
+      return { ok: true, json: async () => ([{ id: "111111111111111111", name: "Real Guild", owner: true }]) };
+    }
+    return { ok: true, json: async () => ({ id: "999999999999999999" }) };
+  };
+  const lookupImpl = async () => ([{ address: "169.254.169.254", family: 4 }]);
+  await withRegistrationApp(async (base) => {
+    const res = await fetch(`${base}/api/consoles/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        guildId: "111111111111111111",
+        discordAccessToken: "tok",
+        consoleUrl: "https://attacker-controlled-hostname.test",
+        adapterToken: "adapter-token"
+      })
+    });
+    assert.equal(res.status, 400, "an SSRF-capable consoleUrl must be rejected with 400, not the generic 403 ownership-failure status");
+    const body = await res.json();
+    assert.match(body.error, /private, loopback, or link-local/);
+  }, { fetchImpl, lookupImpl });
 });

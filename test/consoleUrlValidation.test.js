@@ -55,10 +55,24 @@ test("rejects a literal localhost hostname", async () => {
   await assert.rejects(validateConsoleUrl("https://localhost"), /localhost/);
 });
 
-test("rejects IPv6 loopback and link-local literals", async () => {
-  await assert.rejects(validateConsoleUrl("https://[::1]"));
-  await assert.rejects(validateConsoleUrl("https://[fe80::1]"));
-  await assert.rejects(validateConsoleUrl("https://[fc00::1]"));
+// Layer 2 audit finding (Security Architect hat): this test previously
+// passed for the wrong reason -- URL.hostname keeps the brackets on an
+// IPv6 literal ("[::1]"), which net.isIP() doesn't accept, so the
+// intended literal-IP fast path never fired and these were actually
+// rejected via a real DNS lookup throwing ENOTFOUND, not the loopback/
+// link-local range check. Asserting the specific message (not just
+// `rejects()` with no check) proves the fast path itself is what's
+// rejecting these, not an accidental DNS failure -- and doing it with NO
+// lookupImpl override proves no DNS lookup happens at all for a literal
+// IP, matching the accept-case test below.
+test("rejects IPv6 loopback and link-local literals via the literal-IP fast path, not an accidental DNS failure", async () => {
+  await assert.rejects(validateConsoleUrl("https://[::1]"), /private, loopback, or link-local/);
+  await assert.rejects(validateConsoleUrl("https://[fe80::1]"), /private, loopback, or link-local/);
+  await assert.rejects(validateConsoleUrl("https://[fc00::1]"), /private, loopback, or link-local/);
+});
+
+test("accepts a literal public IPv6 address (regression lock for the bracket-stripping fix)", async () => {
+  await assert.doesNotReject(validateConsoleUrl("https://[2001:db8::1]"));
 });
 
 test("rejects a hostname that resolves to a disallowed address, even though the hostname itself looks innocuous", async () => {

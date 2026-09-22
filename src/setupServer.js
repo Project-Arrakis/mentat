@@ -791,7 +791,15 @@ export function createSetupServer(config) {
       // ensures a malformed-body request still falls through to the normal
       // validation/rate-limit path instead of short-circuiting past it.
       const { guildId, discordAccessToken, consoleUrl, adapterToken } = req.body || {};
-      const result = await verifyAndRegisterConsole(db, { guildId, discordAccessToken, consoleUrl, adapterToken }, { lookupImpl: config.lookupImpl });
+      // Layer 2 audit finding (QA hat): config.fetchImpl wasn't forwarded
+      // here even though it already is for the OLD /setup portal routes in
+      // this same file (see fetchImpl at the top of createSetupServer) --
+      // no production behavior change (config.fetchImpl is never set
+      // outside tests, and an explicit `undefined` still falls through to
+      // verifyGuildOwnership()'s own `fetchImpl = globalThis.fetch`
+      // default), but without this a test could never mock Discord's API
+      // to exercise this route's success/rejection paths end to end.
+      const result = await verifyAndRegisterConsole(db, { guildId, discordAccessToken, consoleUrl, adapterToken }, { lookupImpl: config.lookupImpl, fetchImpl: config.fetchImpl });
       if (!result.ok) {
         // mentat#328: an invalid_console_url rejection is a 400 (the
         // request itself is malformed/unsafe), never a 403 -- unlike every

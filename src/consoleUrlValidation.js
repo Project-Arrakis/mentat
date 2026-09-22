@@ -77,10 +77,22 @@ export async function validateConsoleUrl(consoleUrl, { lookupImpl = dns.lookup }
   }
 
   const hostname = parsed.hostname;
+  // Layer 2 audit finding (Security Architect hat): the WHATWG URL parser's
+  // `.hostname` getter keeps the brackets on a literal IPv6 host
+  // (`"[::1]"`), but `net.isIP()` doesn't accept brackets and returns 0 for
+  // that string — so this fast path never fired for any real IPv6 literal,
+  // silently falling through to the DNS-lookup branch below instead (which
+  // then threw ENOTFOUND against a real resolver, still rejecting the
+  // request, just for the wrong reason, and wrongly rejecting a legitimate
+  // operator whose console is reachable only via a literal public IPv6
+  // address). Stripping the brackets here restores the intended fast path.
+  const unbracketedHostname = hostname.startsWith("[") && hostname.endsWith("]")
+    ? hostname.slice(1, -1)
+    : hostname;
 
   // If the hostname is itself a literal IP, check it directly.
-  if (net.isIP(hostname)) {
-    if (isDisallowedIP(hostname)) {
+  if (net.isIP(unbracketedHostname)) {
+    if (isDisallowedIP(unbracketedHostname)) {
       throw new Error("Console URL must not point at a private, loopback, or link-local address.");
     }
     return;
