@@ -1,7 +1,7 @@
 # Write Command Reconciliation — Wiring mentat to Core's Real Write Bridge
 
 **Date:** 2026-09-22
-**Status:** Layer 1 Design — pending user review before an implementation plan is written (writing-plans skill)
+**Status:** Layer 1 Design — approved for planning (2026-09-22); implementation plan next
 
 ## 1. Background
 
@@ -15,7 +15,7 @@
 - **1** (`operations:restart-service`) maps **exactly** to Core's real `server.restart-service` action.
 - **2** (`operations:create-backup`, `operations:trigger-update` for `type: game`/`type: steamcmd`) map to real Core routes that exist but were never added to `WRITE_ACTION_ROUTES`. **In scope** — added to Core's table as part of this work.
 - **1** (`operations:clear-cache`) has no matching Core route (`/api/server/storage/cleanup-build-cache` is Docker build-cache, an unrelated concept to the "steam/maps/derived" types this action describes). **Deferred**.
-- `operations:trigger-update`'s `type: self` sub-case (bot self-update) has no existing mentat-local trigger mechanism either — verified, no `selfUpdate`-shaped code exists in `mentat/src/`. **Deferred**.
+- `operations:trigger-update`'s `type: self` sub-case (bot self-update) originally had no existing mentat-local trigger mechanism — now **in scope** as its own separate command, `/write bot self-update` (§4a), reusing the existing git-push deploy pipeline's safety guardrails rather than reimplementing them.
 - **21** of Core's 25 real, audited actions have **no** mentat command today. **In scope** — new slash commands for all of them.
 
 **Net new scope: 22 real write actions** get real mentat commands (21 Core moderation actions + `restart-service`), plus **2 new Core-side actions** (`backup.create`, and a game/steamcmd update pair) get added to `WRITE_ACTION_ROUTES` to back `operations:create-backup`/`operations:trigger-update`.
@@ -117,15 +117,30 @@ Grouped by Core's existing namespacing. Path params (`playerId`/`baseId`/`guildI
 | Command | Core action | Tier | Confirm | Params |
 |---|---|---|---|---|
 | `/write operations create-backup` | `backup.create` (new) | owner | — | none. Core's real `/api/backups/create` route (`task(req, res, "backup", "backupCreate", {})`) hardcodes an empty payload today and ignores any body field — `label` is dropped from this command for v1 rather than silently discarded or requiring an unplanned Core route change beyond the 3 additions already scoped in §2. |
-| `/write operations trigger-update` | `updates.apply-game` or `updates.fix-steamcmd` (new), selected by `type` | owner | — | `type` (game/steamcmd only — `self` removed from this command's choices, see §1) |
+| `/write operations trigger-update` | `updates.apply-game` or `updates.fix-steamcmd` (new), selected by `type` | owner | — | `type` (game/steamcmd only — bot self-update is its own separate command, §4a) |
+
+## 4a. Bot self-update — `/write bot self-update` (new, bot-local, no Core call)
+
+**Decision (2026-09-22, operator override):** originally deferred (no mechanism existed), now in scope. This is architecturally distinct from every other command in this design — it never calls Core's write bridge at all. It triggers the bot's own existing git-push deploy pipeline (`scripts/deploy-post-receive.sh`) on demand, without requiring a new `git push`.
+
+**Why reuse the deploy pipeline instead of a new implementation:** `deploy-post-receive.sh` already has reviewed, production-proven safety guardrails — refuses on a dirty working tree, runs the real test suite and aborts on any failure, verifies required files exist, conditionally re-registers Discord slash commands, restarts `acp-bot.service`, then runs a post-restart security smoke test. A new, separate "self-update" implementation would either duplicate all of this (drift risk — two copies of the same safety logic going out of sync, the exact bug class this project has already been bitten by) or, worse, skip it entirely (shipping a broken deploy straight to the live bot with no test gate).
+
+**Design:** extract the reusable steps of `deploy-post-receive.sh` (fetch/reset, test-gate, required-files check, npm install, conditional command re-registration, restart, health check) into a shared script, `scripts/lib/deploy-core.sh`, parameterized by `WORK_DIR`/`SERVICE_NAME` (already variables in the script today). `deploy-post-receive.sh` is refactored to source and call it — no behavior change to the existing git-push deploy path, verified by keeping `test/deploy-hook.bats` green throughout. A new `scripts/self-update.sh` sources the same library and calls the same function, run against the deploy branch's current tip (i.e., "replay the deploy pipeline now" rather than "wait for the next push") — this only does something when a push already landed on `deploy` without a subsequent restart (e.g., a prior deploy that failed the test gate has since been fixed and re-pushed, or a push happened but nobody triggered redeploy) — it can't invent code to deploy that isn't already sitting on the `deploy` ref.
+
+**How the bot invokes it, safely:**
+- Owner tier only (matches the existing `operations:trigger-update` tier judgment).
+- Goes through the same generic confirm-button UI as every other write command for UX consistency, but its "execute" step calls a new local function, `runSelfUpdate()`, never `adapterClient.writeExecute()` — there is no Core action name for this.
+- `runSelfUpdate()` spawns `scripts/self-update.sh` via `child_process.spawn` with an **argument array**, never a template-interpolated shell string (no user-controlled input reaches this call at all — the command takes no parameters — but the discipline is followed regardless, since a future parameter must not create an injection path by accident).
+- Spawned **detached** (`{ detached: true, stdio: ["ignore", logFd, logFd] }`, then `.unref()`): the restart this script triggers kills the current bot process, so the script must survive its own parent's death to finish the job and report back. Output goes to a log file (`runtime/self-update-<timestamp>.log`, git-ignored), not the parent's stdout, since the parent won't be alive to see it.
+- **Reporting back**: the interaction is replied to immediately ("Self-update started — this will restart the bot; I'll confirm success or failure here.") *before* spawning, since the process may not survive long enough to reply after. `scripts/self-update.sh` itself posts the final result (test-gate pass/fail, restart success/failure) directly to Discord via a webhook call (`curl`, using the interaction's stored webhook token/channel — Discord allows a followup message on an interaction token for up to 15 minutes), from the shell script, independent of whether the Node process that spawned it is still alive.
+- If the test gate fails, the script must NOT restart the service — the bot keeps running on its current, known-good code, and the failure (including the actual test output) is what gets posted back.
 
 ## 5. Explicitly deferred (not touched by this design)
 
 - `maintenance:set-note`, `maintenance:set-window`, `notifications:set-alert-channel`, `notifications:set-threshold`, `notifications:set-digest-schedule`, `schedule:set-post-schedule`, `schedule:add-channel`, `schedule:remove-channel` — no real backing feature anywhere; left returning today's stub.
 - `operations:clear-cache` — no matching Core route.
-- `operations:trigger-update`'s `type: self` — no mentat-local self-update mechanism exists yet.
 
-`docs/upstream-write-adapter-rfc.md`'s Status section gets updated in the same PR to record that its "do not implement" gate was explicitly overridden by the operator for the 22-command scope above, while the 3 deferred items above remain genuinely blocked pending their own future design work (not the upstream-contract question this RFC was originally about).
+`docs/upstream-write-adapter-rfc.md`'s Status section gets updated in the same PR to record that its "do not implement" gate was explicitly overridden by the operator for the scope above, while the deferred items remain genuinely blocked pending their own future design work (not the upstream-contract question this RFC was originally about).
 
 ## 6. Testing
 
@@ -133,6 +148,7 @@ Grouped by Core's existing namespacing. Path params (`playerId`/`baseId`/`guildI
 - One dedicated test proving the `server.stop` dual-confirmation UX state machine end-to-end (first click → waiting state → second, different admin's click → success; same admin's second click → rejected client-side).
 - One dedicated test per error-mapping table row (§3), proving each Core error code produces its specific mentat message, not a fallback.
 - The 3 new Core-side actions get their own scoped Layer 2 review before merging (§2).
+- `scripts/lib/deploy-core.sh`'s extraction is verified by keeping the existing `test/deploy-hook.bats` suite green throughout (proves the refactor changed nothing about the real git-push deploy path's behavior), plus new bats coverage for `scripts/self-update.sh` specifically (test-gate failure must not restart the service; test-gate success must). The Node-side `runSelfUpdate()` spawn/reply logic gets its own test with a fake `child_process.spawn` proving detached+unref invocation and the argument-array (never string-interpolated) call shape.
 
 ## 7. Rollout
 
