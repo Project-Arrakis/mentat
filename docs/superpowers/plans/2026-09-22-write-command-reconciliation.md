@@ -2,26 +2,33 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Wire mentat's Discord commands to Core's real write bridge (25 existing actions + 3 new ones), replacing the permanent "awaiting upstream contract" stub with real `write/preview` → confirm → `write/execute` calls, and add a bot self-update command that reuses the existing git-push deploy pipeline's safety guardrails.
+**Revision 2 (2026-09-22), after a Layer 1 eight-hat design audit found 4 CRITICAL and many HIGH/MEDIUM findings against Revision 1.** Every finding is fixed inline below, each marked `[Audit fix: <hat>, <severity>]` at its exact location, not summarized separately — the fix IS the plan text now. A second, narrower re-audit of just the changed sections runs after this revision, before any implementation begins.
 
-**Architecture:** One generic, table-driven command engine (not 27 bespoke handlers): a single write-action table drives both Discord command registration (`commands.js`) and dispatch (`writeHandler.js`), a single confirmation-flow module (`writeConfirmation.js`) calls Core's real `adapterClient.writePreview()`/`writeExecute()` and builds the confirm button from Core's real response, and one error-mapping table turns every one of Core's real error codes into a specific Discord message. Bot self-update is architecturally separate — no Core call, a detached local script reusing the existing deploy pipeline's test-gated safety logic.
+**Goal:** Wire mentat's Discord commands to Core's real write bridge (25 existing actions + 3 new ones), replacing the permanent "awaiting upstream contract" stub with real `write/preview` → confirm → `write/execute` calls, and add a bot self-update command gated by a single, explicit host-operator identity — never by any guild's Discord ownership — that reuses the existing git-push deploy pipeline's safety guardrails.
 
-**Tech Stack:** Node.js, discord.js (`SlashCommandBuilder`, `ButtonBuilder`), `node:test`, bats (for shell script tests), Core's `dune-awakening-selfhost-docker` write bridge (external HTTP dependency via `adapterClient`).
+**Architecture:** One generic, table-driven command engine (not 27 bespoke handlers): a single write-action table drives both Discord command registration (`commands.js`) and dispatch (`writeHandler.js`), a single confirmation-flow module (`writeConfirmation.js`) calls Core's real `adapterClient.writePreview()`/`writeExecute()` and builds the confirm button from Core's real response, and one error-mapping table turns every one of Core's 10 real error codes into a specific Discord message. Bot self-update is architecturally separate — no Core call, gated by a dedicated host-operator identity check (not the generic per-guild tier system, since mentat is multi-tenant and self-update affects the one shared process), with a lock file preventing concurrent deploys and two independent layers of success/failure reporting.
 
-**Spec:** `docs/design/write-command-reconciliation-l1-design-2026-09-22.md`
+**Tech Stack:** Node.js, discord.js (`SlashCommandBuilder`, `ButtonBuilder`), `node:test`, bats (for shell script tests), Core's `dune-awakening-selfhost-docker` write bridge (external HTTP dependency via `adapterClient`), `systemd-run` (for self-update's cgroup escape).
+
+**Spec:** `docs/design/write-command-reconciliation-l1-design-2026-09-22.md` (Revision 2)
 
 ## Global Constraints
 
-- Discord slash commands allow exactly two levels of nesting (command → subcommand group → subcommand). The new command groups (`player`, `base`, `server`, `map`, `carepackage`, `guild`, `bot`) are each their own **top-level subcommand group** under `/dune` (e.g. `/dune player kick`), siblings to the existing `core`/`infra`/`write` groups — never nested under `write`. The `/dune` command's subcommand-group count goes from 9 to 16, still under Discord's 25-group ceiling (verified against the existing code comment documenting this ceiling).
+- Discord slash commands allow exactly two levels of nesting (command → subcommand group → subcommand). `base`, `map`, `carepackage`, `guild`, `operations`, `bot` are genuinely new top-level subcommand groups. **`[Audit fix: Architect, CRITICAL]` `player` and `server` are NOT new groups** — `commands.js` already has live top-level groups with those exact names (read commands: `link`/`verify`/`characters`/`enable`/`disable`/`default`/`unlink`/`faction`/`whoami`/`inventory`/`storage`/`find` under `player`; `health`/`status`/`summary`/`readiness`/`services`/`maintenance`/`coriolis`/`atlas` under `server`). The new write subcommands for these two groups are **merged into the existing groups** — verified no subcommand-name collision (`kick`/`ban`/`unban`/`warn`/`give-item`/`clear-backpack`/`fill-water` for `player`; `restart`/`stop`/`start`/`restart-service` for `server`) against either group's existing subcommand list.
 - The existing `write` group (12 old entries) and its hand-maintained, separately-defined `commands.js` builder are **left untouched** — none of the 8 deferred actions or the removed `operations:restart-service`/`cache` entries are touched by this plan.
-- Every new group's Discord command definition is generated **mechanically from one shared table** (`writeActions.js`, new file) — never hand-duplicated a second time in `commands.js`, avoiding the exact drift risk the existing `write` group already has (its `WRITE_COMMANDS` array and its `commands.js` builder are two independently-hand-maintained copies of the same 12 commands today).
-- Owner-tier and admin-tier checks reuse `canWrite()` from `writes.js` exactly as today — no new authorization mechanism.
+- Every new/merged command's Discord definition is generated **mechanically from one shared table** (`writeActions.js`, new file) — never hand-duplicated a second time in `commands.js`.
+- **`[Audit fix: Architect, CRITICAL]` Dispatch is table-driven, not group-name-driven**: `executeDuneCommand` gains one new branch — `else if (findWriteAction(group, subcommand)) { ... }` — checked before the final "Unknown command" fallback, so both merged-into-existing groups (`player`, `server`) and genuinely-new groups reach `handleWriteCommand` uniformly.
+- Owner-tier and admin-tier checks reuse `canWrite()` from `writes.js` exactly as today — **except `bot.self-update`, which uses a dedicated host-operator identity check and never `canWrite()`** (see Task 6 — mentat is multi-tenant; per-guild "owner" tier is the wrong authorization boundary for an action that restarts the one shared bot process).
 - No new dependency on Core's write bridge beyond what `adapterClient.writePreview()`/`writeExecute()` already expose. `AdapterHttpError` (`src/adapterClient.js`) is the real, existing shape every error-mapping test asserts against: `{ status, route, body: { ok: false, code, error } }`.
-- `child_process.spawn` calls in the self-update path always use an argument array, never a template-interpolated shell string, even though the self-update command takes no user-controlled parameters today.
+- `child_process.spawn` calls in the self-update path always use an argument array, never a template-interpolated shell string. **`[Audit fix: Security/Cloud-Security, HIGH]` The Discord interaction webhook URL (a bearer-style credential) is passed via the child's `env`, never `argv`** — an argv-passed secret is visible to any local process via `ps auxww`/`/proc/<pid>/cmdline` for the child's lifetime; an env var requires owning the process or root to read (`/proc/<pid>/environ`), matching this codebase's own established `_FILE`/env-var secret-handling convention.
+- Every write command's real outcome is recorded via the existing `writeAuditEvent()` (`src/writes.js`) — **`[Audit fix: GRC, HIGH — Repudiation]` this was entirely absent from Revision 1.**
+- Confirm-button `customId` values are parsed with `indexOf`-based extraction, never a naive `split(":")` — **`[Audit fix: Security/QA, MEDIUM]`** a naive split silently truncates any key containing its own colon.
 
 ---
 
 ### Task 1: Core — add `backup.create` and `updates.*` to `WRITE_ACTION_ROUTES`
+
+*(Unchanged from Revision 1 — no audit findings against this task.)*
 
 **Files:**
 - Modify: `console/api/src/integrations/discord/writeActionRoutes.js` (worktree `core-issue215-write-bridge`, branch `issue/215-write-bridge`)
@@ -29,7 +36,7 @@
 - Test: `console/api/test/writeActionRoutes.test.js`, `console/api/test/writeActionMinTier.test.js`
 
 **Interfaces:**
-- Produces: three new `WRITE_ACTION_ROUTES` keys (`backup.create`, `updates.apply-game`, `updates.fix-steamcmd`), each resolvable via the existing `resolveWriteActionRoute(action, params)` and covered by the existing `selfCheckWriteActionRoutes()`/`checkConfirmPhrasesAgainstRealHandlers()` self-checks with zero code changes to those functions (both already iterate the table generically).
+- Produces: three new `WRITE_ACTION_ROUTES` keys (`backup.create`, `updates.apply-game`, `updates.fix-steamcmd`), each resolvable via the existing `resolveWriteActionRoute(action, params)` and covered by the existing `selfCheckWriteActionRoutes()`/`checkConfirmPhrasesAgainstRealHandlers()` self-checks with zero code changes to those functions.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -76,7 +83,7 @@ In `writeActionRoutes.js`, add to `RAW_WRITE_ACTION_ROUTES` (after the `guild.re
   "updates.fix-steamcmd": { method: "POST", path: () => "/api/updates/fix-steamcmd", policyAction: "updates:fix", auditAction: "updates.fix-steamcmd" }
 ```
 
-In `writeActionMinTier.js`, add to `WRITE_ACTION_MIN_TIER` (matching the existing table's shape):
+In `writeActionMinTier.js`, add to `WRITE_ACTION_MIN_TIER`:
 
 ```js
   "backup.create": "owner",
@@ -87,12 +94,12 @@ In `writeActionMinTier.js`, add to `WRITE_ACTION_MIN_TIER` (matching the existin
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd console/api && node --test test/writeActionRoutes.test.js test/writeActionMinTier.test.js`
-Expected: PASS. Also run `node --test test/writeActionRoutes.test.js -- --test-name-pattern="selfCheck"` to confirm the boot self-check still reports zero problems against the real `actions.js` IAM table (it already resolved `backups:create`/`updates:apply`/`updates:fix` as real actions earlier this session — this just confirms the new table entries agree).
+Expected: PASS.
 
 - [ ] **Step 5: Run the full Core test suite**
 
 Run: `cd console/api && node --test`
-Expected: same pass/fail/skip counts as before this change plus 2 new passing tests (no regressions).
+Expected: same pass/fail/skip counts as before this change plus 2 new passing tests.
 
 - [ ] **Step 6: Commit**
 
@@ -104,25 +111,20 @@ Backs mentat's operations:create-backup/trigger-update commands.
 Owner tier, no confirmation phrase (matches server.restart/stop/start's
 existing precedent -- these routes use task(), which has no
 confirmation-phrase mechanism)."
+git push origin issue/215-write-bridge
 ```
-
-Push to the existing `issue/215-write-bridge` branch (PR #1026 is still draft): `git push origin issue/215-write-bridge`.
 
 ---
 
 ### Task 2: mentat — unblock `write-execute`/`write-preview` in `adapterClient.js`
 
+*(Unchanged from Revision 1 — no audit findings against this task.)*
+
 **Files:**
 - Modify: `src/adapterClient.js`
 - Test: existing adapter-client route tests (find via `grep -rl "MISSING_ROUTES" test/`)
 
-**Interfaces:**
-- Consumes: none new.
-- Produces: `isRouteMissing("write-execute")` and `isRouteMissing("write-preview")` now return `false`; `AdapterClient#writePreview`/`#writeExecute` (already defined, lines 292-293) become genuinely callable.
-
 - [ ] **Step 1: Write the failing test**
-
-Find the existing test asserting `MISSING_ROUTES` contents (`grep -rn "write-execute" test/*.js`) and add:
 
 ```js
 test("write-execute and write-preview are no longer MISSING_ROUTES", () => {
@@ -133,28 +135,21 @@ test("write-execute and write-preview are no longer MISSING_ROUTES", () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `node --test test/adapterClient*.test.js` (match the real existing test file name)
-Expected: FAIL — both currently return `true`.
+Run: `node --test test/adapterClient*.test.js`
+Expected: FAIL.
 
 - [ ] **Step 3: Remove the two entries from `MISSING_ROUTES`**
 
-In `src/adapterClient.js`, find:
-
-```js
-export const MISSING_ROUTES = new Set([
-  "write-execute", "write-preview",
-```
-
-Remove `"write-execute", "write-preview",` from this set (keep whatever else is in it). Add a comment immediately above the `MISSING_ROUTES` declaration:
+In `src/adapterClient.js`, remove `"write-execute", "write-preview",` from the `MISSING_ROUTES` set. Add a comment immediately above:
 
 ```js
 // write-execute/write-preview removed 2026-09-22 (operator decision, see
-// docs/design/write-command-reconciliation-l1-design-2026-09-22.md): these
-// routes are real once dune-awakening-selfhost-docker#1026 merges. Gating
-// on DUNE_DISCORD_WRITES_ENABLED (writesEnabled(), writes.js) is the real
+// docs/design/write-command-reconciliation-l1-design-2026-09-22.md and
+// the tracked issue it links): these routes are real once
+// dune-awakening-selfhost-docker#1026 merges. Gating on
+// DUNE_DISCORD_WRITES_ENABLED (writesEnabled(), writes.js) is the real
 // kill switch for this feature going forward, not a version-compatibility
-// flag -- this operator runs Core and the bot together, not against an
-// arbitrary public Core release that may predate these routes.
+// flag.
 ```
 
 - [ ] **Step 4: Run to verify it passes**
@@ -162,10 +157,10 @@ Remove `"write-execute", "write-preview",` from this set (keep whatever else is 
 Run: `node --test test/adapterClient*.test.js`
 Expected: PASS.
 
-- [ ] **Step 5: Run the full mentat test suite**
+- [ ] **Step 5: Run the full mentat suite**
 
 Run: `npm test`
-Expected: no regressions (check for any OTHER test asserting the old `MISSING_ROUTES` contents by name — fix any that explicitly listed `write-execute`/`write-preview` as expected-missing).
+Expected: no regressions (check for any other test asserting the old `MISSING_ROUTES` contents by name).
 
 - [ ] **Step 6: Commit**
 
@@ -178,14 +173,13 @@ git commit -m "feat(write): unblock write-execute/write-preview now that Core's 
 
 ### Task 3: mentat — the write-action table (`src/writeActions.js`, new file)
 
-This is the single source of truth Task 4 (dispatch) and Task 8 (Discord registration) both read from — the mechanical-generation principle from the Global Constraints section.
-
 **Files:**
 - Create: `src/writeActions.js`
 - Test: `test/writeActions.test.js`
 
 **Interfaces:**
-- Produces: `export const WRITE_ACTIONS` (array, one entry per real Core action + `bot.self-update`), each shaped `{ group, name, action, tier, confirmPhrase, params, desc }` where `params` is `[{ name, type, desc, required, maxLength?, minValue?, maxValue? }]` (same shape `WRITE_COMMANDS` already uses, so `writeHandler.js`'s existing per-param validation logic, if any, is reusable). `group` is the real Discord top-level subcommand-group name (`player`, `base`, `server`, `map`, `carepackage`, `guild`, `bot`) — never `"write"`.
+- Produces: `export const WRITE_ACTIONS` (array, **28 entries** — `[Audit fix: QA, CRITICAL]` Revision 1 claimed 27 and its own test asserted 27; the literal table has 7 player + 2 base + 4 server + 4 map + 6 carepackage + 2 guild + 2 operations + 1 bot = 28), each shaped `{ group, name, action, tier, confirmPhrase, params, desc }`. `group` is the real Discord top-level subcommand-group name (`player`, `base`, `server`, `map`, `carepackage`, `guild`, `operations`, `bot`).
+- `bot.self-update`'s `tier` field is the literal string `"host-operator"` — **`[Audit fix: Security, CRITICAL]`** a sentinel value `canWrite()` never grants to any Discord role or guild-ownership check, so a bug that accidentally routed this one action through the generic per-guild tier system fails closed (rejected for everyone), not open. Its real authorization check is a dedicated identity comparison in Task 4, never `canWrite()`.
 - Consumes: nothing.
 
 - [ ] **Step 1: Write the failing test**
@@ -195,8 +189,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { WRITE_ACTIONS } from "../src/writeActions.js";
 
-test("WRITE_ACTIONS: exactly 27 entries (25 Core actions + self-update), no duplicate names within a group", () => {
-  assert.equal(WRITE_ACTIONS.length, 27);
+test("WRITE_ACTIONS: exactly 28 entries (25 Core actions + 2 new Core actions covering 3 sub-cases + self-update), no duplicate names within a group", () => {
+  assert.equal(WRITE_ACTIONS.length, 28);
   const seen = new Set();
   for (const entry of WRITE_ACTIONS) {
     const key = `${entry.group}:${entry.name}`;
@@ -205,18 +199,33 @@ test("WRITE_ACTIONS: exactly 27 entries (25 Core actions + self-update), no dupl
   }
 });
 
-test("WRITE_ACTIONS: every entry has a real Core action name or is bot.self-update", () => {
-  const coreActions = WRITE_ACTIONS.filter((e) => e.action !== "bot.self-update").map((e) => e.action);
-  const expected = [
+test("WRITE_ACTIONS: every entry has a real Core action name, is bot.self-update, or resolves its action dynamically", () => {
+  const staticActions = WRITE_ACTIONS.filter((e) => e.action !== null && e.action !== "bot.self-update").map((e) => e.action);
+  const expectedStatic = [
     "player.kick", "player.ban", "player.unban", "player.warn", "player.give-item", "player.clear-backpack", "player.fill-water",
     "base.refill-generators", "base.refill-water",
     "server.restart", "server.stop", "server.start", "server.restart-service",
     "map.spawn", "map.despawn", "map.respawn", "map.teleport",
     "carepackage.grant", "carepackage.grant-all", "carepackage.enable", "carepackage.disable", "carepackage.scan", "carepackage.history-clear",
     "guild.add", "guild.remove",
-    "backup.create", "updates.apply-game", "updates.fix-steamcmd"
+    "backup.create"
+    // NOTE: "updates.apply-game"/"updates.fix-steamcmd" are intentionally
+    // absent from this static list -- trigger-update's `action` field is
+    // `null` in the table, resolved dynamically via `resolveAction(params)`
+    // (see Step 3). This is exactly the shape Revision 1's own test got
+    // wrong (asserted both update actions as static strings, which the
+    // table as designed cannot produce), caught by the Layer 1 QA hat.
   ];
-  assert.deepEqual([...coreActions].sort(), [...expected].sort());
+  assert.deepEqual([...staticActions].sort(), [...expectedStatic].sort());
+
+  const triggerUpdate = WRITE_ACTIONS.find((e) => e.name === "trigger-update");
+  assert.equal(triggerUpdate.action, null);
+  assert.equal(typeof triggerUpdate.resolveAction, "function");
+  assert.equal(triggerUpdate.resolveAction({ type: "game" }), "updates.apply-game");
+  assert.equal(triggerUpdate.resolveAction({ type: "steamcmd" }), "updates.fix-steamcmd");
+
+  const selfUpdate = WRITE_ACTIONS.find((e) => e.action === "bot.self-update");
+  assert.ok(selfUpdate);
 });
 
 test("WRITE_ACTIONS: server.stop is the only entry requiring dual confirmation", () => {
@@ -225,19 +234,33 @@ test("WRITE_ACTIONS: server.stop is the only entry requiring dual confirmation",
   assert.equal(dualConfirm[0].action, "server.stop");
 });
 
-test("WRITE_ACTIONS: bot.self-update has no confirmPhrase and is owner tier, group bot", () => {
+test("WRITE_ACTIONS: bot.self-update has the host-operator tier sentinel and group bot", () => {
   const entry = WRITE_ACTIONS.find((e) => e.action === "bot.self-update");
-  assert.ok(entry);
   assert.equal(entry.group, "bot");
-  assert.equal(entry.tier, "owner");
+  assert.equal(entry.tier, "host-operator");
+  // No typed confirmPhrase (see writeHandler.js's self-update branch
+  // comment) -- the host-operator identity check is the real gate.
   assert.equal(entry.confirmPhrase, null);
+});
+
+test("WRITE_ACTIONS: no entry uses group 'player' or 'server' with a name that collides with an existing read subcommand", () => {
+  // Regression guard for the Layer 1 Architect hat's CRITICAL finding --
+  // these two groups are MERGED into existing ones, not new siblings.
+  const existingPlayerSubcommands = new Set(["link", "verify", "characters", "enable", "disable", "default", "unlink", "faction", "whoami", "inventory", "storage", "find"]);
+  const existingServerSubcommands = new Set(["health", "status", "summary", "readiness", "services", "maintenance", "coriolis", "atlas"]);
+  for (const entry of WRITE_ACTIONS.filter((e) => e.group === "player")) {
+    assert.ok(!existingPlayerSubcommands.has(entry.name), `player:${entry.name} collides with an existing read subcommand`);
+  }
+  for (const entry of WRITE_ACTIONS.filter((e) => e.group === "server")) {
+    assert.ok(!existingServerSubcommands.has(entry.name), `server:${entry.name} collides with an existing read subcommand`);
+  }
 });
 ```
 
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `node --test test/writeActions.test.js`
-Expected: FAIL — `src/writeActions.js` does not exist (`Cannot find module`).
+Expected: FAIL — `src/writeActions.js` does not exist.
 
 - [ ] **Step 3: Write the table**
 
@@ -247,17 +270,10 @@ Create `src/writeActions.js`:
 // Single source of truth for mentat's real write commands -- both Discord
 // command registration (commands.js) and dispatch (writeHandler.js) read
 // from this table, so the two can never drift the way the old WRITE_COMMANDS
-// array and its separate, hand-duplicated commands.js builder already have
-// (docs/design/write-command-reconciliation-l1-design-2026-09-22.md).
-//
-// `action` is Core's real WRITE_ACTION_ROUTES key for every entry except
-// "bot.self-update", which never calls Core at all (see writeSelfUpdate.js).
-// `group` is the real Discord top-level subcommand-group name -- Discord
-// only allows two levels of nesting (command -> group -> subcommand), so
-// each of these is its own sibling group under /dune, never nested under
-// the existing "write" group.
+// array and its separate, hand-duplicated commands.js builder already have.
 export const WRITE_ACTIONS = Object.freeze([
-  // --- player ---
+  // --- player (merged into the EXISTING "player" subcommand group --
+  // verified no name collision with its read subcommands, see test above) ---
   { group: "player", name: "kick", action: "player.kick", tier: "admin", confirmPhrase: null,
     desc: "Kick a player.", params: [
       { name: "playerId", type: "string", desc: "Player ID (Funcom-style, e.g. Server#4242)", required: true },
@@ -283,13 +299,14 @@ export const WRITE_ACTIONS = Object.freeze([
   { group: "player", name: "fill-water", action: "player.fill-water", tier: "admin", confirmPhrase: null,
     desc: "Refill a player's water.", params: [{ name: "playerId", type: "string", desc: "Player ID", required: true }] },
 
-  // --- base ---
+  // --- base (genuinely new group) ---
   { group: "base", name: "refill-generators", action: "base.refill-generators", tier: "admin", confirmPhrase: null,
     desc: "Refill a base's generators.", params: [{ name: "baseId", type: "integer", desc: "Base ID", required: true }] },
   { group: "base", name: "refill-water", action: "base.refill-water", tier: "admin", confirmPhrase: null,
     desc: "Refill a base's water.", params: [{ name: "baseId", type: "integer", desc: "Base ID", required: true }] },
 
-  // --- server ---
+  // --- server (merged into the EXISTING "server" subcommand group --
+  // verified no name collision with its read subcommands, see test above) ---
   { group: "server", name: "restart", action: "server.restart", tier: "owner", confirmPhrase: null,
     desc: "Restart the game server.", params: [] },
   { group: "server", name: "stop", action: "server.stop", tier: "owner", confirmPhrase: null, requiresDualConfirmation: true,
@@ -300,7 +317,7 @@ export const WRITE_ACTIONS = Object.freeze([
     desc: "Restart a specific game service.", params: [
       { name: "service", type: "string", desc: "Service name (gateway/survival-1/overmap)", required: true }] },
 
-  // --- map ---
+  // --- map (genuinely new group) ---
   { group: "map", name: "spawn", action: "map.spawn", tier: "admin", confirmPhrase: "SPAWN MAP",
     desc: "Spawn a map.", params: [
       { name: "mapName", type: "string", desc: "Map name", required: true },
@@ -317,7 +334,7 @@ export const WRITE_ACTIONS = Object.freeze([
       { name: "z", type: "number", desc: "Z coordinate", required: false },
       { name: "yaw", type: "number", desc: "Yaw", required: false }] },
 
-  // --- carepackage ---
+  // --- carepackage (genuinely new group) ---
   { group: "carepackage", name: "grant", action: "carepackage.grant", tier: "admin", confirmPhrase: "GRANT CARE PACKAGE",
     desc: "Grant a care package to a player.", params: [{ name: "playerId", type: "string", desc: "Player ID", required: true }] },
   { group: "carepackage", name: "grant-all", action: "carepackage.grant-all", tier: "owner", confirmPhrase: "GRANT CARE PACKAGE TO ELIGIBLE PLAYERS",
@@ -331,7 +348,7 @@ export const WRITE_ACTIONS = Object.freeze([
   { group: "carepackage", name: "history-clear", action: "carepackage.history-clear", tier: "owner", confirmPhrase: "CLEAR GRANT HISTORY",
     desc: "Clear care package grant history.", params: [] },
 
-  // --- guild ---
+  // --- guild (genuinely new group) ---
   { group: "guild", name: "add", action: "guild.add", tier: "admin", confirmPhrase: null,
     desc: "Add a player to a guild.", params: [
       { name: "guildId", type: "string", desc: "Guild ID", required: true },
@@ -342,19 +359,17 @@ export const WRITE_ACTIONS = Object.freeze([
       { name: "guildId", type: "string", desc: "Guild ID", required: true },
       { name: "playerId", type: "string", desc: "Player ID", required: true }] },
 
-  // --- operations (backed by Task 1's new Core actions) ---
+  // --- operations (genuinely new group, backed by Task 1's new Core actions) ---
   { group: "operations", name: "create-backup", action: "backup.create", tier: "owner", confirmPhrase: null,
     desc: "Create a database backup.", params: [] },
   { group: "operations", name: "trigger-update", action: null, tier: "owner", confirmPhrase: null,
     desc: "Trigger a game or SteamCMD update.", params: [
       { name: "type", type: "string", desc: "Update type: game or steamcmd", required: true, choices: ["game", "steamcmd"] }],
-    // trigger-update's real Core action depends on `type` -- resolved at
-    // dispatch time in writeHandler.js, not fixed here (see Task 4).
     resolveAction: (params) => (params.type === "steamcmd" ? "updates.fix-steamcmd" : "updates.apply-game") },
 
-  // --- bot (no Core call at all) ---
-  { group: "bot", name: "self-update", action: "bot.self-update", tier: "owner", confirmPhrase: null,
-    desc: "Restart the bot on the latest deployed code (replays the deploy pipeline's test-gated safety checks).", params: [] }
+  // --- bot (genuinely new group; self-update never calls Core -- see writeSelfUpdate.js) ---
+  { group: "bot", name: "self-update", action: "bot.self-update", tier: "host-operator", confirmPhrase: null,
+    desc: "Restart the bot on the latest deployed code (replays the deploy pipeline's test-gated safety checks). Restricted to the configured bot host operator.", params: [] }
 ]);
 
 export function findWriteAction(group, name) {
@@ -365,7 +380,7 @@ export function findWriteAction(group, name) {
 - [ ] **Step 4: Run to verify tests pass**
 
 Run: `node --test test/writeActions.test.js`
-Expected: PASS.
+Expected: PASS — **do not proceed to Task 4 until this genuinely passes.** `[Audit fix: QA, CRITICAL]` Revision 1's own headline tests here were wrong against its own table (an off-by-one count and an assertion shape the table cannot produce) — this is exactly the kind of thing that must be caught by actually running the tests, not assumed correct because the plan says so.
 
 - [ ] **Step 5: Commit**
 
@@ -385,10 +400,10 @@ git commit -m "feat(write): add the single-source-of-truth write-action table"
 - Test: `test/writeHandler.test.js`, `test/writeErrorMapping.test.js`
 
 **Interfaces:**
-- Consumes: `WRITE_ACTIONS`/`findWriteAction` (Task 3), `adapterClient.writePreview(actor, body, guildId)`/`writeExecute(actor, body, guildId)` (existing, `src/adapterClient.js:292-293`), `AdapterHttpError` (existing, `src/adapterClient.js:4`), `canWrite()` (existing, `src/writes.js`).
-- Produces: `mapWriteError(error)` (exported from `writeErrorMapping.js`) — takes an `AdapterHttpError` or any thrown error, returns `{ title, description }` for a Discord embed. `handleWriteCommand()`'s return shape changes: replaces `status: "pending-upstream"` with either a real preview response (`{ ok: true, needsConfirmation: true, nonce, expiresAt, confirmationEmbed, confirmationRow }`) or a real error embed on immediate rejection.
+- Consumes: `WRITE_ACTIONS`/`findWriteAction` (Task 3), `adapterClient.writePreview(actor, body, guildId)`/`writeExecute(actor, body, guildId)` (existing), `AdapterHttpError` (existing), `canWrite()` (existing).
+- Produces: `mapWriteError(error)` (exported from `writeErrorMapping.js`) — returns `{ title, description }` for a Discord embed, covering **all 10** real Core error codes. `handleWriteCommand()`'s return shape changes: replaces `status: "pending-upstream"` with either a real preview response or a real error.
 
-- [ ] **Step 1: Write the failing test for error mapping**
+- [ ] **Step 1: Write the failing test for error mapping — all 10 codes**
 
 Create `test/writeErrorMapping.test.js`:
 
@@ -402,15 +417,23 @@ function coreError(status, code, message) {
   return new AdapterHttpError(`Adapter write-execute returned HTTP ${status}.`, { status, route: "write-execute", body: { ok: false, code, error: message } });
 }
 
-test("mapWriteError: maps every real Core write-bridge error code to a specific message", () => {
+test("mapWriteError: maps every one of the 10 real Core write-bridge error codes to a specific message", () => {
+  // [Audit fix: QA, MEDIUM] Revision 1 only tested 8 of 10 documented
+  // codes, contradicting the design's own "one dedicated test per row"
+  // promise -- unknown_write_action/invalid_parameters and
+  // nonce_action_mismatch/invalid_actor_signature are added here.
   const cases = [
     ["writes_disabled", "Write operations are not enabled.", 403, /disabled/i],
     ["not_authorized", "Discord actor is not authorized.", 403, /permission/i],
+    ["unknown_write_action", "Unknown write action: x", 400, /not available/i],
+    ["invalid_parameters", "bad params", 400, /bad params/i],
     ["nonce_not_found", "Confirmation expired or was already used.", 410, /expired/i],
     ["nonce_actor_mismatch", "This confirmation was not issued to you.", 403, /wasn't issued to you|not issued to you/i],
+    ["nonce_action_mismatch", "action mismatch", 409, /internal error|action does not match|mismatch/i],
     ["second_confirmation_required", "second confirmation needed", 202, /second/i],
     ["second_confirmation_same_actor", "different admin required", 403, /different administrator/i],
     ["stale_actor_signature", "Your role info expired.", 403, /role info expired|run the command again/i],
+    ["invalid_actor_signature", "bad signature", 403, /could not be verified|run the command again/i],
     ["write_backend_unavailable", "backend down", 503, /temporarily unavailable/i]
   ];
   for (const [code, message, status, expectedPattern] of cases) {
@@ -442,18 +465,18 @@ Expected: FAIL — module not found.
 ```js
 // Maps every real error code Core's write/preview and write/execute can
 // return (docs/design/write-command-reconciliation-l1-design-2026-09-22.md
-// section 3) to a specific Discord message -- never a generic "something
-// went wrong" for a code this bot actually knows about.
+// section 3, all 10 codes) to a specific Discord message -- never a
+// generic "something went wrong" for a code this bot actually knows about.
 import { duneEmbed } from "./embedFormat.js";
 
 const MESSAGES = {
   writes_disabled: "Write commands are disabled on this console.",
   not_authorized: "You don't have permission for this action.",
   unknown_write_action: "This command isn't available on the connected Core instance yet.",
-  invalid_parameters: null, // uses the real error string from Core, see below
+  invalid_parameters: null, // uses the real error string from Core
   nonce_not_found: "This confirmation expired. Please run the command again.",
   nonce_actor_mismatch: "This confirmation wasn't issued to you.",
-  nonce_action_mismatch: "Internal error: action mismatch. Please run the command again.",
+  nonce_action_mismatch: "Internal error: the action does not match what was previewed. Please run the command again.",
   second_confirmation_same_actor: "A different administrator must provide the second confirmation.",
   stale_actor_signature: "Your role info expired. Please run the command again.",
   invalid_actor_signature: "Your role info could not be verified. Please run the command again.",
@@ -467,6 +490,11 @@ export function mapWriteError(error) {
     const description = MESSAGES[code] || coreMessage || "Request failed.";
     return { title: "Write Command Failed", description };
   }
+  // [Audit fix: Security, HIGH] Every reply carrying this fallback (raw
+  // Core error text) is ephemeral by design (Task 5) EXCEPT server.stop,
+  // which never reaches this branch (every state it can produce has a
+  // named code above) -- see the design doc's Sanitization note for why
+  // this is an accepted disclosure boundary, not an oversight.
   return { title: "Write Command Failed", description: coreMessage || error?.message || "An unexpected error occurred." };
 }
 
@@ -481,22 +509,23 @@ export function buildWriteErrorEmbed(error) {
 Run: `node --test test/writeErrorMapping.test.js`
 Expected: PASS.
 
-- [ ] **Step 5: Write the failing test for the real dispatch flow**
+- [ ] **Step 5: Write the failing test for the real dispatch flow, including a non-string param**
 
-Create `test/writeHandler.test.js` (or extend the existing one if `writeHandler.test.js` already exists — check first with `ls test/writeHandler*`):
+Create `test/writeHandler.test.js` (check `ls test/writeHandler*` first — extend if one already exists):
 
 ```js
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleWriteCommand } from "../src/writeHandler.js";
 
-function fakeAdapterClient({ previewResult, previewError, executeResult, executeError } = {}) {
+function fakeAdapterClient({ previewResult, previewError, executeResult, executeError, capture } = {}) {
   return {
-    async writePreview(actor, body) {
+    async writePreview(actor, body, guildId) {
+      if (capture) capture.previewCall = { actor, body, guildId };
       if (previewError) throw previewError;
       return previewResult;
     },
-    async writeExecute(actor, body) {
+    async writeExecute(actor, body, guildId) {
       if (executeError) throw executeError;
       return executeResult;
     }
@@ -507,23 +536,32 @@ function fakeOwnerInteraction() {
   return { user: { id: "owner-1" }, member: { roles: new Set() }, guild: { ownerId: "owner-1" } };
 }
 
-test("handleWriteCommand: a real preview success returns needsConfirmation with the real Core nonce/expiresAt, not the old stub", async () => {
+// [Audit fix: QA, MEDIUM] Revision 1's test never asserted the actual
+// request shape sent to Core -- only that the return value threaded
+// through. This uses `capture` to prove the real action/params reach
+// writePreview, directly contradicting the design's own "not a hand-wavy
+// mock" standard if left unchecked.
+test("handleWriteCommand: a real preview success returns needsConfirmation with the real Core nonce/expiresAt, and calls writePreview with the exact real action+params", async () => {
+  const capture = {};
   const adapterClient = fakeAdapterClient({
+    capture,
     previewResult: { ok: true, nonce: "real-nonce-123", expiresAt: Date.now() + 60000, preview: { action: "player.kick", confirmPhrase: null } }
   });
   const config = { discord: { writes: { enabled: true } } };
   const result = await handleWriteCommand({
     subcommand: "kick", group: "player",
-    interaction: { ...fakeOwnerInteraction(), options: { getString: () => "Server#4242" } },
+    interaction: { ...fakeOwnerInteraction(), options: { getString: (name) => (name === "playerId" ? "Server#4242" : null), getInteger: () => null, getNumber: () => null } },
     adapterClient, config
   });
   assert.equal(result.ok, true);
   assert.equal(result.needsConfirmation, true);
   assert.equal(result.nonce, "real-nonce-123");
   assert.ok(!("status" in result) || result.status !== "pending-upstream", "must not return the old stub status");
+  assert.equal(capture.previewCall.body.action, "player.kick");
+  assert.equal(capture.previewCall.body.params.playerId, "Server#4242");
 });
 
-test("handleWriteCommand: a preview rejection (e.g. not_authorized) returns a real error embed, no confirmation offered", async () => {
+test("handleWriteCommand: a preview rejection (e.g. not_authorized) returns a real error, no confirmation offered", async () => {
   const { AdapterHttpError } = await import("../src/adapterClient.js");
   const adapterClient = fakeAdapterClient({
     previewError: new AdapterHttpError("HTTP 403", { status: 403, route: "write-preview", body: { ok: false, code: "not_authorized", error: "nope" } })
@@ -531,30 +569,102 @@ test("handleWriteCommand: a preview rejection (e.g. not_authorized) returns a re
   const config = { discord: { writes: { enabled: true } } };
   const result = await handleWriteCommand({
     subcommand: "kick", group: "player",
-    interaction: { ...fakeOwnerInteraction(), options: { getString: () => "Server#4242" } },
+    interaction: { ...fakeOwnerInteraction(), options: { getString: () => "Server#4242", getInteger: () => null, getNumber: () => null } },
     adapterClient, config
   });
   assert.equal(result.ok, false);
   assert.ok(!result.needsConfirmation);
   assert.match(result.error, /permission/i);
 });
+
+// [Audit fix: QA, HIGH] Revision 1 had zero coverage for non-string
+// params -- every proposed test used player.kick (string-only params).
+// 6 of 28 real commands use integer/number params; this proves
+// collectParams() reads them via the correct accessor, not getString.
+test("handleWriteCommand: integer params (base.refill-generators's baseId) are read via getInteger, not getString", async () => {
+  const capture = {};
+  const adapterClient = fakeAdapterClient({
+    capture,
+    previewResult: { ok: true, nonce: "n", expiresAt: Date.now() + 60000, preview: { action: "base.refill-generators", confirmPhrase: null } }
+  });
+  const config = { discord: { writes: { enabled: true } } };
+  await handleWriteCommand({
+    subcommand: "refill-generators", group: "base",
+    interaction: {
+      ...fakeOwnerInteraction(),
+      options: {
+        getString: () => { throw new Error("must not call getString for an integer param"); },
+        getInteger: (name) => (name === "baseId" ? 42 : null),
+        getNumber: () => null
+      }
+    },
+    adapterClient, config
+  });
+  assert.equal(capture.previewCall.body.params.baseId, 42);
+});
+
+test("handleWriteCommand: number params (map.teleport's x/y/z/yaw) are read via getNumber", async () => {
+  const capture = {};
+  const adapterClient = fakeAdapterClient({
+    capture,
+    previewResult: { ok: true, nonce: "n", expiresAt: Date.now() + 60000, preview: { action: "map.teleport", confirmPhrase: null } }
+  });
+  const config = { discord: { writes: { enabled: true } } };
+  await handleWriteCommand({
+    subcommand: "teleport", group: "map",
+    interaction: {
+      ...fakeOwnerInteraction(),
+      options: {
+        getString: (name) => (name === "playerId" ? "Server#4242" : null),
+        getInteger: () => null,
+        getNumber: (name) => ({ x: 1.5, y: 2.5, z: 3.5, yaw: 90 }[name] ?? null)
+      }
+    },
+    adapterClient, config
+  });
+  assert.equal(capture.previewCall.body.params.x, 1.5);
+  assert.equal(capture.previewCall.body.params.yaw, 90);
+});
+
+test("handleWriteCommand: bot.self-update is rejected for a non-host-operator even at 'owner' Discord tier, and never reaches adapterClient", async () => {
+  const config = { discord: { writes: { enabled: true }, botOperatorUserId: "the-real-operator" } };
+  const adapterClient = fakeAdapterClient({});
+  const result = await handleWriteCommand({
+    subcommand: "self-update", group: "bot",
+    interaction: { ...fakeOwnerInteraction(), user: { id: "some-guild-owner-not-the-operator" }, options: { getString: () => null, getInteger: () => null, getNumber: () => null } },
+    adapterClient, config
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /host operator|not authorized/i);
+});
+
+test("handleWriteCommand: bot.self-update is disabled entirely when DUNE_BOT_OPERATOR_DISCORD_USER_ID is unset", async () => {
+  const config = { discord: { writes: { enabled: true } } }; // no botOperatorUserId
+  const adapterClient = fakeAdapterClient({});
+  const result = await handleWriteCommand({
+    subcommand: "self-update", group: "bot",
+    interaction: { ...fakeOwnerInteraction(), options: { getString: () => null, getInteger: () => null, getNumber: () => null } },
+    adapterClient, config
+  });
+  assert.equal(result.ok, false);
+});
 ```
 
 - [ ] **Step 6: Run to verify it fails**
 
 Run: `node --test test/writeHandler.test.js`
-Expected: FAIL — `handleWriteCommand` still returns the old stub shape and never calls `adapterClient.writePreview`.
+Expected: FAIL.
 
-- [ ] **Step 7: Rewrite `handleWriteCommand` to call Core for real**
+- [ ] **Step 7: Rewrite `handleWriteCommand` to call Core for real, with the host-operator gate for self-update and audit events throughout**
 
-Replace `src/writeHandler.js`'s body (keep the file's existing `import`s for `writesEnabled`/`canWrite`, add new ones):
+Replace `src/writeHandler.js`'s body:
 
 ```js
 import { randomUUID } from "node:crypto";
-import { writesEnabled, canWrite } from "./writes.js";
+import { writesEnabled, canWrite, writeAuditEvent } from "./writes.js";
 import { findWriteAction, WRITE_ACTIONS } from "./writeActions.js";
 import { mapWriteError } from "./writeErrorMapping.js";
-import { buildConfirmationEmbed, buildConfirmationRow, registerRealPendingConfirmation, confirmationTimeoutMs } from "./writeConfirmation.js";
+import { buildConfirmationEmbed, buildConfirmationRow, registerRealPendingConfirmation, confirmationTimeoutMs, pendingConfirmationCount } from "./writeConfirmation.js";
 
 export { WRITE_ACTIONS };
 
@@ -576,6 +686,39 @@ export async function handleWriteCommand({ group, subcommand, interaction, adapt
   const def = findWriteAction(group, subcommand);
   if (!def) return { ok: false, error: `Unknown write command: ${group} ${subcommand}` };
 
+  // bot.self-update: a dedicated host-operator identity check, NEVER
+  // canWrite()'s per-guild tier system. [Audit fix: Security, CRITICAL]
+  // mentat is multi-tenant -- "owner" tier is scoped per-guild, but
+  // self-update restarts the ONE shared bot process serving every tenant.
+  // def.tier is the sentinel "host-operator", which canWrite() can never
+  // grant, so this action is authorized ONLY by this exact check.
+  if (def.action === "bot.self-update") {
+    const operatorId = config?.discord?.botOperatorUserId;
+    if (!operatorId || interaction.user?.id !== operatorId) {
+      return { ok: false, error: "Not authorized. This action is restricted to the configured bot host operator." };
+    }
+    // No typed confirmation phrase: the host-operator identity check above
+    // already narrows this to exactly one person, and the confirm-button
+    // click (Task 5) already requires a second, deliberate action -- a
+    // typed phrase would need a Discord modal (a different interaction
+    // type than every other command's button flow) for marginal benefit
+    // given the identity check already does the real narrowing. Simplified
+    // out during this plan's own self-review rather than half-implemented.
+    writeAuditEvent({ actor: { userId: interaction.user.id }, action: def.action, capability: def.action, idempotencyKey: "n/a", result: "triggered" });
+    const key = randomUUID();
+    const expiresAt = Date.now() + confirmationTimeoutMs();
+    const pendingCount = pendingConfirmationCount();
+    registerRealPendingConfirmation({ nonce: key, action: def.action, tier: def.tier, userId: interaction.user.id, expiresAt, confirmPhrase: def.confirmPhrase, kind: "self-update" });
+    return {
+      ok: true, needsConfirmation: true, action: def.action, tier: def.tier, isSelfUpdate: true,
+      confirmationEmbed: buildConfirmationEmbed({
+        action: def.action, tier: def.tier, risk: "high", expiresAt, confirmPhrase: def.confirmPhrase,
+        extraWarning: pendingCount > 0 ? `${pendingCount} other pending confirmation(s) will be lost.` : null
+      }),
+      confirmationRow: buildConfirmationRow(key)
+    };
+  }
+
   if (!canWrite(interaction, config, def.tier, db, guildId)) {
     const requiresOwner = def.tier === "owner";
     return {
@@ -588,22 +731,6 @@ export async function handleWriteCommand({ group, subcommand, interaction, adapt
 
   const params = collectParams(def, interaction);
   const action = def.resolveAction ? def.resolveAction(params) : def.action;
-
-  // bot.self-update never touches Core at all -- handled entirely in
-  // writeSelfUpdate.js (Task 6), routed here before any adapterClient call.
-  // Uses a random UUID key, never a colon-delimited string: the confirm
-  // button's customId is itself colon-delimited ("write:confirm:<key>"),
-  // and handleWriteButtonInteraction's `[, action, idempotencyKey] = parts`
-  // destructuring would silently truncate a key containing its own colons.
-  if (action === "bot.self-update") {
-    const key = randomUUID();
-    const expiresAt = Date.now() + confirmationTimeoutMs();
-    registerRealPendingConfirmation({ nonce: key, action, tier: def.tier, userId: interaction.user.id, expiresAt });
-    return { ok: true, needsConfirmation: true, action, tier: def.tier, isSelfUpdate: true,
-      confirmationEmbed: buildConfirmationEmbed({ action, tier: def.tier, risk: "high" }),
-      confirmationRow: buildConfirmationRow(key) };
-  }
-
   const actor = { userId: interaction.user?.id, username: interaction.user?.username, guildOwnerId: interaction.guild?.ownerId };
 
   let preview;
@@ -611,12 +738,14 @@ export async function handleWriteCommand({ group, subcommand, interaction, adapt
     preview = await adapterClient.writePreview(actor, { action, params }, guildId);
   } catch (error) {
     const { description } = mapWriteError(error);
+    writeAuditEvent({ actor: { userId: interaction.user.id }, action, capability: action, idempotencyKey: "n/a", result: "preview-rejected", detail: { error: description } });
     return { ok: false, error: description };
   }
 
   const nonce = preview.nonce;
   const expiresAt = preview.expiresAt;
-  registerRealPendingConfirmation({ nonce, action, tier: def.tier, userId: interaction.user.id, expiresAt, confirmPhrase: preview.preview?.confirmPhrase });
+  registerRealPendingConfirmation({ nonce, action, tier: def.tier, userId: interaction.user.id, expiresAt, confirmPhrase: preview.preview?.confirmPhrase, kind: "real" });
+  writeAuditEvent({ actor: { userId: interaction.user.id }, action, capability: action, idempotencyKey: nonce, result: "preview-ok" });
 
   return {
     ok: true,
@@ -625,29 +754,51 @@ export async function handleWriteCommand({ group, subcommand, interaction, adapt
     tier: def.tier,
     nonce,
     expiresAt,
-    confirmationEmbed: buildConfirmationEmbed({ action, tier: def.tier, risk: def.tier === "owner" ? "high" : "medium", expiresAt }),
+    confirmationEmbed: buildConfirmationEmbed({ action, tier: def.tier, risk: def.tier === "owner" ? "high" : "medium", expiresAt, confirmPhrase: preview.preview?.confirmPhrase }),
     confirmationRow: buildConfirmationRow(nonce)
   };
 }
 ```
 
-- [ ] **Step 8: Add `registerRealPendingConfirmation` to `writeConfirmation.js`**
+- [ ] **Step 8: Extend `writeConfirmation.js` — `registerRealPendingConfirmation` with `kind` + a real expiry sweep, and `buildConfirmationEmbed` with the expiry countdown**
 
-In `src/writeConfirmation.js`, add alongside the existing `createPendingConfirmation`/`pendingConfirmations` map (reuse the SAME map — a real Core nonce is just as good a key as the old `idempotencyKey` was):
+In `src/writeConfirmation.js`, add near the existing `createPendingConfirmation`:
 
 ```js
-// Real-flow variant of createPendingConfirmation (issue: write command
-// reconciliation): the confirmation is already registered server-side by
-// Core (the nonce itself IS the server-side confirmation record) -- this
-// only tracks what the BOT needs locally to route the eventual button
-// click back to the right action/tier/actor, keyed by Core's real nonce
-// instead of a bot-generated idempotencyKey.
-export function registerRealPendingConfirmation({ nonce, action, tier, userId, expiresAt, confirmPhrase }) {
+// [Audit fix: Architect, HIGH] Real and self-update confirmations, unlike
+// the legacy stub flow, previously had no expiry timer at all -- an
+// unclicked one sat in the shared Map forever. Every kind now gets a
+// scheduled cleanup, matching the legacy flow's own existing pattern.
+export function registerRealPendingConfirmation({ nonce, action, tier, userId, expiresAt, confirmPhrase, kind }) {
   if (typeof userId !== "string" || userId.length === 0) {
     throw new Error("registerRealPendingConfirmation: userId is required.");
   }
-  pendingConfirmations.set(nonce, { action, tier, userId, expiresAt, confirmPhrase, isReal: true });
+  const timer = setTimeout(() => { pendingConfirmations.delete(nonce); }, Math.max(0, expiresAt - Date.now()));
+  timer.unref?.();
+  pendingConfirmations.set(nonce, { action, tier, userId, expiresAt, confirmPhrase, kind, timer, isReal: true });
   return nonce;
+}
+```
+
+Update `buildConfirmationEmbed` (`[Audit fix: UI/UX, HIGH]` — the design promised a rendered expiry countdown; the real function never accepted or rendered `expiresAt` at all):
+
+```js
+export function buildConfirmationEmbed({ action, tier, risk, target, expiresAt, confirmPhrase, extraWarning }) {
+  const fields = [
+    { name: "Action", value: `\`${action}\``, inline: true },
+    { name: "Tier", value: `\`${tier}\``, inline: true },
+    { name: "Risk", value: `\`${risk}\``, inline: true },
+    ...(target ? [{ name: "Target", value: String(target).slice(0, 1024) }] : []),
+    ...(expiresAt ? [{ name: "Expires", value: `<t:${Math.floor(expiresAt / 1000)}:R>` }] : []),
+    ...(confirmPhrase ? [{ name: "Type to confirm", value: `\`${confirmPhrase}\`` }] : []),
+    ...(extraWarning ? [{ name: "⚠️ Warning", value: extraWarning }] : [])
+  ];
+  return duneEmbed({
+    title: "⚠️ Confirm Write Action",
+    color: "warning",
+    description: "This will be visible to operators. Nothing has been executed yet.",
+    fields
+  });
 }
 ```
 
@@ -659,26 +810,26 @@ Expected: PASS.
 - [ ] **Step 10: Run the full mentat suite**
 
 Run: `npm test`
-Expected: existing `writeConfirmation`/`writeHandler`/`writes` tests that referenced the OLD stub behavior (`buildScaffoldedEmbed`, `status: "pending-upstream"`) will now fail — fix each to assert the new real behavior instead (do not delete coverage, update it; if a test asserted "confirming always shows the scaffolded embed," change it to assert the button click now calls `adapterClient.writeExecute` — see Task 5).
+Expected: existing tests referencing the OLD stub behavior or `buildConfirmationEmbed`'s old parameter shape will fail — fix each to assert the new real behavior.
 
 - [ ] **Step 11: Commit**
 
 ```bash
 git add src/writeHandler.js src/writeConfirmation.js src/writeErrorMapping.js test/writeHandler.test.js test/writeErrorMapping.test.js test/writeConfirmation.test.js
-git commit -m "feat(write): replace the permanent stub with real write/preview calls and error mapping"
+git commit -m "feat(write): replace the permanent stub with real write/preview calls, full error mapping, and the host-operator gate for self-update"
 ```
 
 ---
 
-### Task 5: mentat — wire the confirm button to `write/execute`, including `server.stop`'s dual-confirmation state
+### Task 5: mentat — wire the confirm button to `write/execute`, dual-confirmation, and forced-public visibility
 
 **Files:**
 - Modify: `src/writeConfirmation.js`
 - Test: `test/writeConfirmation.test.js`
 
 **Interfaces:**
-- Consumes: `registerRealPendingConfirmation` (Task 4), `adapterClient.writeExecute` (existing), `mapWriteError` (Task 4).
-- Produces: `handleWriteButtonInteraction(interaction, adapterClient)` — signature changes to accept `adapterClient` (needed to call `writeExecute`); every caller (`grep -rn "handleWriteButtonInteraction" src/`) is updated to pass it.
+- Consumes: `registerRealPendingConfirmation` (Task 4), `adapterClient.writeExecute` (existing), `mapWriteError`/`buildWriteErrorEmbed` (Task 4).
+- Produces: `handleWriteButtonInteraction(interaction, adapterClient)` — accepts `adapterClient`. Every caller (`grep -rn "handleWriteButtonInteraction" src/"`) is updated to pass it and to force `ephemeral: false` on the initial reply for any `requiresDualConfirmation` action.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -687,15 +838,11 @@ Add to `test/writeConfirmation.test.js`:
 ```js
 test("handleWriteButtonInteraction: confirm calls adapterClient.writeExecute with the real nonce and shows success", async () => {
   resetPendingConfirmations();
-  registerRealPendingConfirmation({ nonce: "n1", action: "player.kick", tier: "admin", userId: "u1", expiresAt: Date.now() + 60000 });
+  registerRealPendingConfirmation({ nonce: "n1", action: "player.kick", tier: "admin", userId: "u1", expiresAt: Date.now() + 60000, kind: "real" });
   let executeCalledWith = null;
   const adapterClient = { writeExecute: async (actor, body) => { executeCalledWith = { actor, body }; return { ok: true }; } };
   const updates = [];
-  const interaction = {
-    isButton: () => true, customId: "write:confirm:n1",
-    user: { id: "u1" },
-    update: async (payload) => updates.push(payload)
-  };
+  const interaction = { isButton: () => true, customId: "write:confirm:n1", user: { id: "u1" }, update: async (payload) => updates.push(payload) };
   const handled = await handleWriteButtonInteraction(interaction, adapterClient);
   assert.equal(handled, true);
   assert.equal(executeCalledWith.body.nonce, "n1");
@@ -703,19 +850,25 @@ test("handleWriteButtonInteraction: confirm calls adapterClient.writeExecute wit
   assert.equal(updates.length, 1);
 });
 
-test("handleWriteButtonInteraction: a 202 second_confirmation_required response shows the waiting state, not success/failure", async () => {
+test("handleWriteButtonInteraction: a 202 second_confirmation_required response shows the waiting state, non-ephemeral, with a discoverability instruction", async () => {
   resetPendingConfirmations();
-  registerRealPendingConfirmation({ nonce: "n2", action: "server.stop", tier: "owner", userId: "u1", expiresAt: Date.now() + 300000 });
+  registerRealPendingConfirmation({ nonce: "n2", action: "server.stop", tier: "owner", userId: "u1", expiresAt: Date.now() + 300000, kind: "real" });
   const adapterClient = { writeExecute: async () => ({ ok: true, code: "second_confirmation_required", nonce: "n2", expiresAt: Date.now() + 300000 }) };
   const updates = [];
   const interaction = { isButton: () => true, customId: "write:confirm:n2", user: { id: "u1" }, update: async (p) => updates.push(p) };
   await handleWriteButtonInteraction(interaction, adapterClient);
+  // [Audit fix: UI/UX, CRITICAL] this exact property (ephemeral: false) is
+  // what makes the dual-confirmation mechanism usable at all under this
+  // bot's own default-ephemeral configuration -- must be asserted
+  // directly, not inferred from message content.
+  assert.equal(updates[0].ephemeral, false, "the waiting-state message must be forced non-ephemeral so a second admin can see it");
   assert.match(JSON.stringify(updates[0]), /second|waiting/i);
+  assert.match(JSON.stringify(updates[0]), /run.*\/dune server stop|run this command/i);
 });
 
 test("handleWriteButtonInteraction: writeExecute throwing a mapped error shows the specific error, not a generic failure", async () => {
   resetPendingConfirmations();
-  registerRealPendingConfirmation({ nonce: "n3", action: "player.kick", tier: "admin", userId: "u1", expiresAt: Date.now() + 60000 });
+  registerRealPendingConfirmation({ nonce: "n3", action: "player.kick", tier: "admin", userId: "u1", expiresAt: Date.now() + 60000, kind: "real" });
   const { AdapterHttpError } = await import("../src/adapterClient.js");
   const adapterClient = { writeExecute: async () => { throw new AdapterHttpError("HTTP 410", { status: 410, route: "write-execute", body: { ok: false, code: "nonce_not_found", error: "gone" } }); } };
   const updates = [];
@@ -723,20 +876,48 @@ test("handleWriteButtonInteraction: writeExecute throwing a mapped error shows t
   await handleWriteButtonInteraction(interaction, adapterClient);
   assert.match(JSON.stringify(updates[0]), /expired/i);
 });
+
+test("handleWriteButtonInteraction: a customId key containing a colon is not truncated", async () => {
+  // [Audit fix: Security/QA, MEDIUM] a naive split(":") would silently
+  // truncate this key -- prove the real (indexOf-based) parsing doesn't.
+  resetPendingConfirmations();
+  const keyWithColon = "abc:def-123";
+  registerRealPendingConfirmation({ nonce: keyWithColon, action: "player.kick", tier: "admin", userId: "u1", expiresAt: Date.now() + 60000, kind: "real" });
+  const adapterClient = { writeExecute: async (actor, body) => { assert.equal(body.nonce, keyWithColon); return { ok: true }; } };
+  const interaction = { isButton: () => true, customId: `write:confirm:${keyWithColon}`, user: { id: "u1" }, update: async () => {} };
+  const handled = await handleWriteButtonInteraction(interaction, adapterClient);
+  assert.equal(handled, true);
+});
 ```
 
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `node --test test/writeConfirmation.test.js`
-Expected: FAIL — `handleWriteButtonInteraction` still shows `buildScaffoldedEmbed` unconditionally on confirm.
+Expected: FAIL.
 
-- [ ] **Step 3: Rewrite the confirm branch**
+- [ ] **Step 3: Fix `customId` parsing and rewrite the confirm branch**
 
-In `src/writeConfirmation.js`, replace the `if (action === "confirm") { ... }` block inside `handleWriteButtonInteraction` (keep the function's existing not-yours/expired/cancel handling above it unchanged) with:
+In `src/writeConfirmation.js`, replace the positional-destructure parsing near the top of `handleWriteButtonInteraction`:
+
+```js
+  const raw = String(interaction.customId || "");
+  const firstColon = raw.indexOf(":");
+  const secondColon = firstColon === -1 ? -1 : raw.indexOf(":", firstColon + 1);
+  if (firstColon === -1 || secondColon === -1) return false;
+  const prefix = raw.slice(0, firstColon);
+  const action = raw.slice(firstColon + 1, secondColon);
+  const idempotencyKey = raw.slice(secondColon + 1); // everything after the second colon, verbatim -- may itself contain colons
+  if (prefix !== CUSTOM_ID_PREFIX) return false;
+```
+
+(Remove the old `const parts = ...split(":"); if (parts[0] !== CUSTOM_ID_PREFIX) return false; const [, action, idempotencyKey] = parts;` block this replaces.)
+
+Replace the `if (action === "confirm") { ... }` block with:
 
 ```js
   if (action === "confirm") {
     const isSelfUpdate = entry.action === "bot.self-update";
+    const isDualConfirmSecondCall = entry.kind === "real" && entry.action === "server.stop" && entry.secondConfirmationPending;
     clearPendingConfirmation(idempotencyKey);
 
     if (isSelfUpdate) {
@@ -747,15 +928,17 @@ In `src/writeConfirmation.js`, replace the `if (action === "confirm") { ... }` b
     }
 
     try {
-      const result = await adapterClient.writeExecute(
-        { userId: entry.userId },
-        { nonce: idempotencyKey, action: entry.action }
-      );
+      const result = await adapterClient.writeExecute({ userId: entry.userId }, { nonce: idempotencyKey, action: entry.action });
       if (result?.code === "second_confirmation_required") {
-        registerRealPendingConfirmation({ nonce: idempotencyKey, action: entry.action, tier: entry.tier, userId: entry.userId, expiresAt: result.expiresAt });
+        registerRealPendingConfirmation({ nonce: idempotencyKey, action: entry.action, tier: entry.tier, userId: entry.userId, expiresAt: result.expiresAt, kind: "real" });
+        // [Audit fix: UI/UX, CRITICAL + HIGH] forced non-ephemeral so a
+        // SECOND, DIFFERENT admin can actually see this message, plus an
+        // explicit instruction for a second admin who wasn't watching
+        // this channel to discover the pending action independently.
         await interaction.update({
-          embeds: [duneEmbed({ title: "⏳ Waiting on a Second Administrator", color: "warning", description: "Your confirmation was accepted. A second, different owner-tier admin must now run this command and confirm it too." })],
-          components: [buildConfirmationRow(idempotencyKey)]
+          embeds: [duneEmbed({ title: "⏳ Waiting on a Second Administrator", color: "warning", description: `Your confirmation was accepted. A second, different owner-tier admin must now run \`/dune server stop\` themselves and confirm it too — this message will remain visible, but running the command again also works if this message scrolls out of view.` })],
+          components: [buildConfirmationRow(idempotencyKey)],
+          ephemeral: false
         });
         return true;
       }
@@ -770,46 +953,57 @@ In `src/writeConfirmation.js`, replace the `if (action === "confirm") { ... }` b
   }
 ```
 
-Update the function signature: `export async function handleWriteButtonInteraction(interaction, adapterClient) {`. Add the needed imports at the top of the file: `import { buildWriteErrorEmbed } from "./writeErrorMapping.js";`.
+Add the needed import: `import { buildWriteErrorEmbed } from "./writeErrorMapping.js";`. Update the function signature: `export async function handleWriteButtonInteraction(interaction, adapterClient) {`.
 
-- [ ] **Step 4: Update every caller**
+- [ ] **Step 4: Force non-ephemeral on the INITIAL reply too, for `requiresDualConfirmation` actions**
 
-Run: `grep -rn "handleWriteButtonInteraction(" src/` — for each call site (likely in `src/index.js`'s interaction-handling dispatch), pass the already-in-scope `adapterClient` as the second argument.
+Find where `commands.js` sends the initial write-command reply (the `deferReply`/`editReply` call site around the `group === "write"` / new `findWriteAction` branch). Change it so that when `payload.needsConfirmation && WRITE_ACTIONS`'s matching entry has `requiresDualConfirmation: true`, the reply is sent with `ephemeral: false` instead of `config.discord.defaultEphemeral` — the FIRST admin's own confirmation prompt must also be public, not just the later "waiting on a second admin" state, since a second admin needs to be able to see the whole thread from the start.
 
-- [ ] **Step 5: Run to verify tests pass**
+- [ ] **Step 5: Update every caller of `handleWriteButtonInteraction`**
+
+Run: `grep -rn "handleWriteButtonInteraction(" src/` — pass `adapterClient` (already in scope at the interaction-handling dispatch site) as the second argument everywhere it's called.
+
+- [ ] **Step 6: Run to verify tests pass**
 
 Run: `node --test test/writeConfirmation.test.js`
 Expected: PASS.
 
-- [ ] **Step 6: Run the full mentat suite**
+- [ ] **Step 7: Run the full mentat suite**
 
 Run: `npm test`
-Expected: no regressions elsewhere (confirm the button-interaction dispatch tests for other command groups, if any share this handler, still pass with the new two-argument signature).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/writeConfirmation.js src/index.js test/writeConfirmation.test.js
-git commit -m "feat(write): wire the confirm button to real write/execute, including the stop dual-confirmation state"
+git add src/writeConfirmation.js src/commands.js src/index.js test/writeConfirmation.test.js
+git commit -m "feat(write): wire the confirm button to real write/execute
+
+Includes the stop dual-confirmation state forced non-ephemeral (Layer 1
+UI/UX CRITICAL finding: the bot's own default-ephemeral setting would
+have made the dual-confirmation mechanism invisible to any second admin),
+a discoverability instruction for a second admin arriving later, and
+colon-safe customId parsing (Layer 1 Security/QA MEDIUM finding)."
 ```
 
 ---
 
-### Task 6: mentat — bot self-update (`scripts/lib/deploy-core.sh` extraction + `scripts/self-update.sh` + `src/writeSelfUpdate.js`)
+### Task 6: mentat — bot self-update, gated by host-operator identity, with a deploy lock and two-layer reporting
 
 **Files:**
 - Create: `scripts/lib/deploy-core.sh`
 - Modify: `scripts/deploy-post-receive.sh`
 - Create: `scripts/self-update.sh`
 - Create: `src/writeSelfUpdate.js`
-- Test: `test/deploy-hook.bats` (must stay green, unmodified in intent), new `test/self-update.bats`, `test/writeSelfUpdate.test.js`
+- Modify: `src/config.js` (new `DUNE_BOT_OPERATOR_DISCORD_USER_ID` env var)
+- Modify: `src/index.js` (new-process startup marker-file check)
+- Test: `test/deploy-hook.bats` (must stay green), new `test/self-update.bats`, `test/writeSelfUpdate.test.js`, `test/config.test.js` (new env var)
 
 **Interfaces:**
-- Produces: `deploy_core::sync_test_install_restart(work_dir, service_name)` (bash function, `scripts/lib/deploy-core.sh`) — returns 0 on full success, non-zero (with the specific guardrail's error already echoed) on any failure, and **never restarts the service if it returns non-zero**. `runSelfUpdate({ interactionToken, applicationId, channelId })` (`src/writeSelfUpdate.js`) — spawns `scripts/self-update.sh` detached, returns immediately (does not await completion).
+- Produces: `deploy_core::sync_test_install_restart(work_dir, service_name)` (bash) — acquires `runtime/deploy.lock`, returns 0 on full success, non-zero on any guardrail failure, **never restarts if it returns non-zero**, releases the lock on any exit path (`trap ... EXIT`). `runSelfUpdate({ interactionToken, applicationId, channelId })` (`src/writeSelfUpdate.js`) — writes a pending-marker file, spawns `scripts/self-update.sh` via `systemd-run --scope` (escaping the bot's own cgroup) with the webhook URL passed via `env`, not `argv`.
 
-- [ ] **Step 1: Write the failing bats test for the extracted library**
+- [ ] **Step 1: Write the failing bats test for the extracted library, actually observing restart behavior**
 
-Create `test/self-update.bats` (bats, matching `test/deploy-hook.bats`'s existing style — check that file first for the exact bats setup/helper pattern used):
+Create `test/self-update.bats` (check `test/deploy-hook.bats` first for the real bats setup/helper pattern used):
 
 ```bash
 #!/usr/bin/env bats
@@ -828,25 +1022,63 @@ setup() {
   git add src
   git commit -qm "add required files"
   export SERVICE_NAME="fake-test-service.service"
+
+  # [Audit fix: QA, CRITICAL] Revision 1's tests both passed
+  # --skip-restart, meaning the restart branch was never reached in
+  # EITHER test -- the "never restart on test-gate failure" property was
+  # entirely unobserved. Fixed by putting fake sudo/systemctl scripts on
+  # PATH ahead of the real ones and counting real invocations, instead of
+  # skipping the branch.
+  export FAKE_BIN="$(mktemp -d)"
+  cat > "$FAKE_BIN/sudo" <<'EOF'
+#!/usr/bin/env bash
+echo "sudo $*" >> "$FAKE_BIN_LOG"
+exit 0
+EOF
+  chmod +x "$FAKE_BIN/sudo"
+  cat > "$FAKE_BIN/systemctl" <<'EOF'
+#!/usr/bin/env bash
+echo "systemctl $*" >> "$FAKE_BIN_LOG"
+if [ "$1" = "is-active" ]; then echo "active"; fi
+exit 0
+EOF
+  chmod +x "$FAKE_BIN/systemctl"
+  export FAKE_BIN_LOG="$WORK_DIR/fake-bin.log"
+  export PATH="$FAKE_BIN:$PATH"
+
   source "${BATS_TEST_DIRNAME}/../scripts/lib/deploy-core.sh"
 }
 
 teardown() {
-  rm -rf "$WORK_DIR"
+  rm -rf "$WORK_DIR" "$FAKE_BIN"
 }
 
-@test "deploy_core::sync_test_install_restart returns 0 when tests pass" {
-  run deploy_core::sync_test_install_restart "$WORK_DIR" "$SERVICE_NAME" --skip-restart
+@test "deploy_core::sync_test_install_restart returns 0 and DOES restart when tests pass" {
+  run deploy_core::sync_test_install_restart "$WORK_DIR" "$SERVICE_NAME"
   [ "$status" -eq 0 ]
+  [ -f "$FAKE_BIN_LOG" ]
+  grep -q "systemctl restart $SERVICE_NAME" "$FAKE_BIN_LOG"
 }
 
-@test "deploy_core::sync_test_install_restart returns non-zero and never restarts when the test gate fails" {
+@test "deploy_core::sync_test_install_restart returns non-zero and NEVER restarts when the test gate fails" {
   echo '{"scripts":{"test":"exit 1"}}' > package.json
   git add package.json
   git commit -qm "break tests"
-  run deploy_core::sync_test_install_restart "$WORK_DIR" "$SERVICE_NAME" --skip-restart
+  run deploy_core::sync_test_install_restart "$WORK_DIR" "$SERVICE_NAME"
   [ "$status" -ne 0 ]
   [[ "$output" == *"aborting"* ]]
+  if [ -f "$FAKE_BIN_LOG" ]; then
+    ! grep -q "systemctl restart" "$FAKE_BIN_LOG"
+  fi
+}
+
+@test "deploy_core::sync_test_install_restart refuses a second concurrent call while the lock is held" {
+  (
+    flock -x 200
+    run deploy_core::sync_test_install_restart "$WORK_DIR" "$SERVICE_NAME"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"already in progress"* ]]
+  ) 200>"$WORK_DIR/../deploy.lock" || true
 }
 ```
 
@@ -855,20 +1087,29 @@ teardown() {
 Run: `bats test/self-update.bats`
 Expected: FAIL — `scripts/lib/deploy-core.sh` does not exist.
 
-- [ ] **Step 3: Extract the shared library**
+- [ ] **Step 3: Extract the shared library, with a lock**
 
-Read `scripts/deploy-post-receive.sh` in full first (already read above in this plan's research). Create `scripts/lib/deploy-core.sh` containing a function wrapping the existing script's "Reset to latest / run tests / check required files / npm install / re-register / restart / health check" steps (lines under the `while read` loop, from `# Reset to latest from deploy remote` through the health check), parameterized on `$1` (work dir) and `$2` (service name), with a `--skip-restart` third flag for testability:
+Read `scripts/deploy-post-receive.sh` in full first. Create `scripts/lib/deploy-core.sh`:
 
 ```bash
 #!/usr/bin/env bash
 # Shared deploy logic used by BOTH scripts/deploy-post-receive.sh (the real
 # git-push-triggered hook) and scripts/self-update.sh (Discord-triggered,
 # see src/writeSelfUpdate.js). Extracted so there is exactly one copy of
-# the test-gated safety logic, not two independently-maintainable ones.
+# the test-gated safety logic. Acquires a lock so a concurrent git-push
+# deploy and a Discord-triggered self-update (or two self-update triggers)
+# can never interleave against the same working directory.
 deploy_core::sync_test_install_restart() {
   local work_dir="$1"
   local service_name="$2"
-  local skip_restart="${3:-}"
+  local lock_file="${work_dir}/runtime/deploy.lock"
+
+  mkdir -p "$(dirname "$lock_file")"
+  if ! mkdir "$lock_file" 2>/dev/null; then
+    echo "ERROR: a deploy is already in progress (lock held at $lock_file) -- refusing to run concurrently."
+    return 1
+  fi
+  trap 'rmdir "'"$lock_file"'" 2>/dev/null' EXIT
 
   cd "$work_dir" || { echo "ERROR: cannot cd to $work_dir"; return 1; }
 
@@ -905,29 +1146,27 @@ deploy_core::sync_test_install_restart() {
 
   npm install --omit=dev 2>&1 | tail -3
 
-  if [ "$skip_restart" != "--skip-restart" ]; then
-    echo "Restarting $service_name..."
-    sudo systemctl restart "$service_name" 2>/dev/null || systemctl --user restart "$service_name" 2>/dev/null || true
-    sleep 3
-    if systemctl is-active "$service_name" 2>/dev/null | grep -q active; then
-      echo "Deployment complete -- service is active."
-    else
-      echo "WARNING: service status unclear -- check manually."
-    fi
+  echo "Restarting $service_name..."
+  sudo systemctl restart "$service_name" 2>/dev/null || systemctl --user restart "$service_name" 2>/dev/null || true
+  sleep 3
+  if systemctl is-active "$service_name" 2>/dev/null | grep -q active; then
+    echo "Deployment complete -- service is active."
+  else
+    echo "WARNING: service status unclear -- check manually."
   fi
 
   return 0
 }
 ```
 
-- [ ] **Step 4: Run to verify the new test passes**
+- [ ] **Step 4: Run to verify the new tests pass**
 
 Run: `bats test/self-update.bats`
-Expected: PASS.
+Expected: PASS — this genuinely observes restart behavior now, closing the QA hat's CRITICAL finding.
 
 - [ ] **Step 5: Refactor `deploy-post-receive.sh` to call the shared function**
 
-Replace the body of the `while read` loop's deploy steps (from `git fetch deploy ...` through the health-check block) with:
+Replace the deploy steps in the `while read` loop (from `git fetch deploy ...` through the health-check block) with:
 
 ```bash
   git fetch deploy "$DEPLOY_BRANCH" 2>&1 || { echo "ERROR: git fetch failed"; exit 1; }
@@ -940,52 +1179,92 @@ Replace the body of the `while read` loop's deploy steps (from `git fetch deploy
   fi
 ```
 
-Keep the dirty-tree guard (it's already duplicated intentionally — the hook's own guard runs BEFORE the fetch/reset, the library's runs again defensively before the test suite; both are cheap, keep both), the slash-command re-registration block, and the post-restart security smoke test exactly as they are today — only the block replaced above changes.
+Keep everything else (the pre-existing dirty-tree guard before the fetch, the slash-command re-registration block, and the post-restart security smoke test) exactly as-is.
 
 - [ ] **Step 6: Run the existing deploy-hook test suite to verify no regression**
 
 Run: `bats test/deploy-hook.bats`
-Expected: PASS — same behavior as before the refactor (this is the proof the extraction didn't change the real git-push deploy path).
+Expected: PASS.
 
-- [ ] **Step 7: Write `scripts/self-update.sh`**
+- [ ] **Step 7: Add `DUNE_BOT_OPERATOR_DISCORD_USER_ID` to config**
+
+In `src/config.js`, alongside the existing env-var parsing:
+
+```js
+botOperatorUserId: optionalEnv(env, "DUNE_BOT_OPERATOR_DISCORD_USER_ID") || null,
+```
+
+(Placed under `config.discord`, matching where `handleWriteCommand` reads `config.discord.botOperatorUserId` in Task 4. Check the exact existing `optionalEnv`/`config.discord` shape in `config.js` and match its established pattern rather than inventing a new one.)
+
+Add a test to `test/config.test.js`:
+
+```js
+test("config: botOperatorUserId is null when DUNE_BOT_OPERATOR_DISCORD_USER_ID is unset, set otherwise", () => {
+  const withoutIt = loadConfig({ env: {} });
+  assert.equal(withoutIt.discord.botOperatorUserId, null);
+  const withIt = loadConfig({ env: { DUNE_BOT_OPERATOR_DISCORD_USER_ID: "12345" } });
+  assert.equal(withIt.discord.botOperatorUserId, "12345");
+});
+```
+
+(Match `loadConfig`'s real signature/call convention — check `config.test.js`'s existing tests for the exact pattern before writing this.)
+
+- [ ] **Step 8: Write `scripts/self-update.sh`, with marker-file + systemd-run escape**
 
 ```bash
 #!/usr/bin/env bash
 # Discord-triggered replay of the deploy pipeline (see
 # docs/design/write-command-reconciliation-l1-design-2026-09-22.md section
-# 4a). Invoked by src/writeSelfUpdate.js's runSelfUpdate(), detached from
-# the bot process since the restart this triggers kills its parent.
+# 4a). Invoked by src/writeSelfUpdate.js's runSelfUpdate() via
+# `systemd-run --scope`, so this process (and anything it forks) is NOT a
+# member of acp-bot.service's own cgroup -- KillMode=control-group on that
+# unit would otherwise kill this script in the same signal that kills the
+# process it's restarting, silently breaking the report-back mechanism on
+# the fast, successful path (Layer 1 Network hat finding).
 #
-# Unlike deploy-post-receive.sh, this does NOT fetch/reset from the deploy
-# remote first -- it operates on whatever is already checked out at
-# WORK_DIR (this replays the pipeline on demand; it cannot invent new code
-# to deploy that isn't already there).
+# Does NOT fetch/reset from the deploy remote -- operates on whatever is
+# already checked out at WORK_DIR (see design doc section 4a for why).
 set -u
 
 WORK_DIR="${WORK_DIR:-/home/bot/arrakis-control-panel}"
 SERVICE_NAME="${SERVICE_NAME:-acp-bot.service}"
-DISCORD_WEBHOOK_URL="${1:-}"
+# Webhook URL is read from the environment, never argv (Layer 1
+# Security/Cloud-Security finding: an argv-passed secret is visible via
+# `ps auxww`/`/proc/<pid>/cmdline` to any local process for this script's
+# lifetime; an env var requires owning the process or root to read).
+DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
+MARKER_FILE="$WORK_DIR/runtime/self-update-pending.json"
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/deploy-core.sh"
 
 report() {
   local message="$1"
   if [ -n "$DISCORD_WEBHOOK_URL" ]; then
-    curl -sS -X POST -H "Content-Type: application/json" \
+    curl -sS --max-time 10 -X POST -H "Content-Type: application/json" \
       -d "$(printf '{"content":%s}' "$(printf '%s' "$message" | node -e 'process.stdout.write(JSON.stringify(require("fs").readFileSync(0,"utf8")))')")" \
       "$DISCORD_WEBHOOK_URL" >/dev/null 2>&1 || true
   fi
 }
 
+# Written BEFORE the restart, so the NEW process (started by
+# deploy_core's own systemctl restart) can find it on its own startup and
+# report success itself -- a second, independent reporting layer that
+# survives even if THIS script's own webhook post (above) is killed
+# alongside the old process despite the systemd-run escape (belt and
+# braces, not a single point of failure).
+mkdir -p "$(dirname "$MARKER_FILE")"
+node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify({ webhookUrl: process.env.DISCORD_WEBHOOK_URL || '', triggeredAt: Date.now() }))" "$MARKER_FILE"
+
 if deploy_core::sync_test_install_restart "$WORK_DIR" "$SERVICE_NAME"; then
   report "✅ Self-update complete. \`$(cd "$WORK_DIR" && git log --oneline -1)\` is now live."
 else
+  rm -f "$MARKER_FILE" # no restart happened, nothing for the "new process" to report
   report "🛑 Self-update aborted -- the test gate failed. The bot is still running on its previous code. Check the self-update log on the host for details."
   exit 1
 fi
 ```
 
-- [ ] **Step 8: Write the failing test for `writeSelfUpdate.js`**
+- [ ] **Step 9: Write the failing test for `writeSelfUpdate.js`**
 
 Create `test/writeSelfUpdate.test.js`:
 
@@ -994,7 +1273,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runSelfUpdate, __setSpawnImplForTests } from "../src/writeSelfUpdate.js";
 
-test("runSelfUpdate: spawns self-update.sh detached, with an argument array (never a shell string), and does not await it", async () => {
+test("runSelfUpdate: invokes systemd-run with the webhook URL in env, never argv", async () => {
   let capturedCommand = null;
   let capturedArgs = null;
   let capturedOptions = null;
@@ -1007,28 +1286,26 @@ test("runSelfUpdate: spawns self-update.sh detached, with an argument array (nev
 
   const result = runSelfUpdate({ interactionToken: "tok", applicationId: "app", channelId: "chan" });
 
-  assert.equal(typeof capturedCommand, "string");
-  assert.ok(Array.isArray(capturedArgs), "args must be an array, never a single interpolated string");
-  assert.equal(capturedOptions.detached, true);
-  assert.equal(capturedOptions.stdio[0], "ignore");
+  assert.equal(capturedCommand, "systemd-run");
+  assert.ok(Array.isArray(capturedArgs));
+  assert.ok(capturedArgs.some((a) => a === "--scope"));
+  // The webhook URL (built from applicationId/interactionToken) must not
+  // appear anywhere in argv -- only in options.env.
+  const argvString = capturedArgs.join(" ");
+  assert.ok(!argvString.includes("tok"), "the interaction token must not appear in argv");
+  assert.equal(capturedOptions.env.DISCORD_WEBHOOK_URL.includes("tok"), true, "the webhook URL must be passed via env");
   assert.equal(result.pid, 12345);
 });
 ```
 
-- [ ] **Step 9: Run to verify it fails**
+- [ ] **Step 10: Run to verify it fails**
 
 Run: `node --test test/writeSelfUpdate.test.js`
 Expected: FAIL — module doesn't exist.
 
-- [ ] **Step 10: Write `src/writeSelfUpdate.js`**
+- [ ] **Step 11: Write `src/writeSelfUpdate.js`**
 
 ```js
-// Discord-side trigger for the bot's own self-update (see
-// docs/design/write-command-reconciliation-l1-design-2026-09-22.md section
-// 4a). Never a template-interpolated shell string, even though this
-// command takes no user-controlled parameters today -- the discipline is
-// followed regardless, matching this codebase's own established
-// injection-prevention pattern for every other shell-adjacent call.
 import { spawn as realSpawn } from "node:child_process";
 import { openSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -1049,56 +1326,98 @@ export function runSelfUpdate({ interactionToken, applicationId, channelId }) {
     ? `https://discord.com/api/v10/webhooks/${applicationId}/${interactionToken}`
     : "";
 
-  const child = spawnImpl("bash", [scriptPath, webhookUrl], {
-    detached: true,
-    stdio: ["ignore", logFd, logFd]
+  // systemd-run --scope: escapes acp-bot.service's own cgroup (see
+  // scripts/self-update.sh's header for why this matters -- KillMode=
+  // control-group would otherwise kill this script in the same signal
+  // that kills the process it's restarting).
+  const child = spawnImpl("systemd-run", ["--uid", String(process.getuid?.() ?? "bot"), "--scope", "--", "bash", scriptPath], {
+    stdio: ["ignore", logFd, logFd],
+    env: { ...process.env, DISCORD_WEBHOOK_URL: webhookUrl }
   });
   child.unref?.();
   return { pid: child.pid, logPath };
 }
 ```
 
-- [ ] **Step 11: Run to verify it passes**
+- [ ] **Step 12: Run to verify it passes**
 
 Run: `node --test test/writeSelfUpdate.test.js`
 Expected: PASS.
 
-- [ ] **Step 12: Add `runtime/` to `.gitignore` if not already covered**
+- [ ] **Step 13: Wire the new-process marker-file check into `src/index.js`**
+
+Near the bot's own startup sequence (after the Discord client is ready), add:
+
+```js
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+
+function reportSelfUpdateCompletionIfPending() {
+  const markerFile = join(process.cwd(), "runtime", "self-update-pending.json");
+  if (!existsSync(markerFile)) return;
+  try {
+    const { webhookUrl, triggeredAt } = JSON.parse(readFileSync(markerFile, "utf8"));
+    unlinkSync(markerFile);
+    const ageMs = Date.now() - triggeredAt;
+    if (ageMs > 15 * 60 * 1000) {
+      console.warn("self-update marker found but the webhook token has likely expired (>15min old) -- not attempting the follow-up.");
+      return;
+    }
+    if (!webhookUrl) return;
+    fetch(webhookUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: `✅ Self-update complete. Now running on the latest deployed code.` })
+    }).catch(() => {});
+  } catch {
+    // marker file corrupt/unreadable -- nothing to report, don't crash startup over it
+  }
+}
+```
+
+Call `reportSelfUpdateCompletionIfPending()` once, early in the bot's real startup sequence (find the exact place `src/index.js` does its own "bot is ready" logging and call it there).
+
+- [ ] **Step 14: Add `runtime/` to `.gitignore` if not already covered**
 
 Run: `grep -n "^runtime" .gitignore || echo "runtime/" >> .gitignore`
 
-- [ ] **Step 13: Run the full mentat suite**
+- [ ] **Step 15: Run the full mentat suite**
 
 Run: `npm test` and `bats test/*.bats`
 Expected: no regressions, all new tests pass.
 
-- [ ] **Step 14: Commit**
+- [ ] **Step 16: Commit**
 
 ```bash
-git add scripts/lib/deploy-core.sh scripts/deploy-post-receive.sh scripts/self-update.sh src/writeSelfUpdate.js test/self-update.bats test/writeSelfUpdate.test.js .gitignore
-git commit -m "feat(write): add bot self-update, reusing the deploy pipeline's test-gated safety logic
+git add scripts/lib/deploy-core.sh scripts/deploy-post-receive.sh scripts/self-update.sh src/writeSelfUpdate.js src/config.js src/index.js test/self-update.bats test/writeSelfUpdate.test.js test/config.test.js .gitignore
+git commit -m "feat(write): add bot self-update, gated by a dedicated host-operator identity
 
-Extracts scripts/deploy-post-receive.sh's sync/test/install/restart steps
-into scripts/lib/deploy-core.sh, used by both the real git-push deploy
-hook (refactored, behavior-unchanged -- test/deploy-hook.bats stays green)
-and the new Discord-triggered scripts/self-update.sh. The test gate is
-never bypassed: a failing test suite aborts before any restart, same as
-today's git-push path."
+Fixes 4 Layer 1 audit findings against the original design: (1) CRITICAL
+cross-tenant privilege escalation -- self-update now requires
+DUNE_BOT_OPERATOR_DISCORD_USER_ID to match exactly, never the generic
+per-guild owner tier a multi-tenant deployment grants per-guild; (2) the
+detached child likely died in the same restart it triggered before it
+could report success -- now escapes acp-bot.service's cgroup via
+systemd-run --scope, plus a second, independent reporting layer (the new
+process itself checks a marker file on startup); (3) the webhook token
+moved from argv (visible via ps/proc) to env; (4) a lock file prevents a
+concurrent git-push deploy and Discord-triggered self-update from racing
+the same working directory. Bats tests now genuinely observe restart
+behavior via stubbed sudo/systemctl, closing a tautology in the original
+test design."
 ```
-
-**IMPORTANT — deployment note for whoever runs this in production:** `scripts/deploy-post-receive.sh`'s own header states the *live* copy on the bot VM (`~/acp-deploy.git/hooks/post-receive`) must be updated to match this file whenever it changes (this is a pre-existing, documented drift risk, not new to this task). After this PR merges and deploys, manually verify the live hook was updated — do not assume the next `git push deploy deploy` alone propagates this refactor if the live hook is a copied file rather than a symlink.
 
 ---
 
-### Task 7: mentat — Discord command registration for the new groups (mechanical, generated from `WRITE_ACTIONS`)
+### Task 7: mentat — Discord command registration: merge into existing groups + real dispatch routing
 
 **Files:**
 - Modify: `src/commands.js`
-- Test: `test/commands.test.js` (or equivalent existing command-registration test file — find via `grep -rln "buildDuneCommand" test/`)
+- Test: `test/commands.test.js` (or the real existing command-registration test file — find via `grep -rln "buildDuneCommand" test/`)
 
 **Interfaces:**
-- Consumes: `WRITE_ACTIONS` (Task 3).
-- Produces: `buildDuneCommand()`'s returned `SlashCommandBuilder` gains 7 new top-level `addSubcommandGroup` entries (`player`, `base`, `server`, `map`, `carepackage`, `guild`, `operations`, `bot` — 8, not 7; recount: player/base/server/map/carepackage/guild/operations/bot = 8 new groups), each built mechanically from `WRITE_ACTIONS`, never hand-written per-command.
+- Consumes: `WRITE_ACTIONS`/`findWriteAction` (Task 3).
+- Produces: `buildDuneCommand()` gains 6 genuinely new top-level subcommand groups (`base`, `map`, `carepackage`, `guild`, `operations`, `bot`) and extends the 2 EXISTING groups (`player`, `server`) with new subcommands, generated mechanically from `WRITE_ACTIONS`. `executeDuneCommand` gains a real dispatch branch routing any `(group, subcommand)` pair `findWriteAction` recognizes to `handleWriteCommand`, regardless of whether that group is new or merged-into-existing.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1106,21 +1425,35 @@ today's git-push path."
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildDuneCommand } from "../src/commands.js";
-import { WRITE_ACTIONS } from "../src/writeActions.js";
+import { WRITE_ACTIONS, findWriteAction } from "../src/writeActions.js";
 
-test("buildDuneCommand: registers a subcommand group for every distinct WRITE_ACTIONS group, with every action as a subcommand", () => {
+test("buildDuneCommand: registers every WRITE_ACTIONS entry as a subcommand of its real group -- merged into player/server, new for the rest", () => {
   const built = buildDuneCommand({ includeWriteGroup: true }).toJSON();
-  const groupNames = new Set(WRITE_ACTIONS.map((e) => e.group));
+  // type 2 = ApplicationCommandOptionType.SubcommandGroup (verified against
+  // discord-api-types, the real dependency this codebase already uses).
   const registeredGroups = new Map(built.options.filter((o) => o.type === 2).map((g) => [g.name, g]));
 
+  const groupNames = new Set(WRITE_ACTIONS.map((e) => e.group));
   for (const groupName of groupNames) {
     assert.ok(registeredGroups.has(groupName), `missing subcommand group: ${groupName}`);
     const registeredSubcommands = new Set(registeredGroups.get(groupName).options.map((s) => s.name));
-    const expectedSubcommands = WRITE_ACTIONS.filter((e) => e.group === groupName).map((e) => e.name);
-    for (const name of expectedSubcommands) {
-      assert.ok(registeredSubcommands.has(name), `group ${groupName} missing subcommand: ${name}`);
+    for (const entry of WRITE_ACTIONS.filter((e) => e.group === groupName)) {
+      assert.ok(registeredSubcommands.has(entry.name), `group ${groupName} missing subcommand: ${entry.name}`);
     }
   }
+
+  // [Audit fix: Architect, CRITICAL] player/server must have EXACTLY ONE
+  // registered group each (the existing one, extended) -- not two.
+  const allGroupNamesInPayload = built.options.filter((o) => o.type === 2).map((g) => g.name);
+  assert.equal(allGroupNamesInPayload.filter((n) => n === "player").length, 1);
+  assert.equal(allGroupNamesInPayload.filter((n) => n === "server").length, 1);
+
+  // player/server must ALSO still have their pre-existing read subcommands
+  // (proves this is a merge, not a silent replacement).
+  const playerSubcommands = new Set(registeredGroups.get("player").options.map((s) => s.name));
+  assert.ok(playerSubcommands.has("link"), "merging write subcommands into player must not drop its existing read subcommands");
+  const serverSubcommands = new Set(registeredGroups.get("server").options.map((s) => s.name));
+  assert.ok(serverSubcommands.has("health"), "merging write subcommands into server must not drop its existing read subcommands");
 });
 
 test("buildDuneCommand: total subcommand-group count stays under Discord's 25-group ceiling", () => {
@@ -1128,19 +1461,25 @@ test("buildDuneCommand: total subcommand-group count stays under Discord's 25-gr
   const groupCount = built.options.filter((o) => o.type === 2).length;
   assert.ok(groupCount <= 25, `${groupCount} subcommand groups exceeds Discord's limit`);
 });
+
+test("executeDuneCommand dispatch: findWriteAction recognizes both a merged group (player) and a new group (base)", () => {
+  assert.ok(findWriteAction("player", "kick"));
+  assert.ok(findWriteAction("base", "refill-generators"));
+  assert.equal(findWriteAction("player", "link"), null, "existing read subcommands are not write actions");
+});
 ```
 
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `node --test test/commands.test.js`
-Expected: FAIL — none of the new groups are registered yet.
+Expected: FAIL.
 
-- [ ] **Step 3: Add a mechanical group-builder helper and call it once per group**
+- [ ] **Step 3: Add a mechanical subcommand-adder and call it once per group, merging into `player`/`server`**
 
-In `src/commands.js`, add near the top (after existing imports):
+In `src/commands.js`, add near the top:
 
 ```js
-import { WRITE_ACTIONS } from "./writeActions.js";
+import { WRITE_ACTIONS, findWriteAction } from "./writeActions.js";
 
 function addOptionToSubcommand(subcommandBuilder, param) {
   const setCommon = (opt) => opt.setName(param.name).setDescription(param.desc).setRequired(Boolean(param.required));
@@ -1163,28 +1502,32 @@ function addOptionToSubcommand(subcommandBuilder, param) {
   });
 }
 
-function addWriteActionGroup(builder, groupName) {
-  const entries = WRITE_ACTIONS.filter((e) => e.group === groupName);
-  builder.addSubcommandGroup((g) => {
-    g.setName(groupName).setDescription(`Write commands: ${groupName} (gated behind DUNE_DISCORD_WRITES_ENABLED).`);
-    for (const entry of entries) {
-      g.addSubcommand((c) => {
-        c.setName(entry.name).setDescription(entry.desc);
-        for (const param of entry.params) addOptionToSubcommand(c, param);
-        return c;
-      });
-    }
-    return g;
-  });
+function addWriteSubcommands(groupBuilder, groupName) {
+  for (const entry of WRITE_ACTIONS.filter((e) => e.group === groupName)) {
+    groupBuilder.addSubcommand((c) => {
+      c.setName(entry.name).setDescription(entry.desc);
+      for (const param of entry.params) addOptionToSubcommand(c, param);
+      return c;
+    });
+  }
+  return groupBuilder;
 }
 ```
 
-Inside `buildDuneCommand`, right after the existing `if (includeWriteGroup) { ... }` block (do not modify that block — the old 12 stub commands stay exactly as they are):
+**Merge into the existing `player` group builder** (find its real `.addSubcommandGroup((g) => g.setName("player")...)` call in `buildDuneCommand`, per this plan's own research: it currently chains `.addSubcommand(...)` calls for `link`/`verify`/etc.) — add, inside that SAME callback, after its existing chain of `.addSubcommand(...)` calls: `addWriteSubcommands(g, "player");` then `return g;` (matching whatever the existing callback already returns).
+
+**Merge into the existing `server` group builder** the same way: inside its callback, after its existing subcommands, add `addWriteSubcommands(g, "server");`.
+
+**Add the 6 genuinely-new groups** — after the existing `if (includeWriteGroup) { ... }` block (which stays untouched, covering the 12 legacy stub commands), add:
 
 ```js
   if (includeWriteGroup) {
-    for (const groupName of [...new Set(WRITE_ACTIONS.map((e) => e.group))]) {
-      addWriteActionGroup(builder, groupName);
+    for (const groupName of ["base", "map", "carepackage", "guild", "operations", "bot"]) {
+      builder.addSubcommandGroup((g) => {
+        g.setName(groupName).setDescription(`Write commands: ${groupName} (gated behind DUNE_DISCORD_WRITES_ENABLED).`);
+        addWriteSubcommands(g, groupName);
+        return g;
+      });
     }
   }
 ```
@@ -1194,86 +1537,183 @@ Inside `buildDuneCommand`, right after the existing `if (includeWriteGroup) { ..
 Run: `node --test test/commands.test.js`
 Expected: PASS.
 
-- [ ] **Step 5: Run the full suite and check the real Discord API validation**
+- [ ] **Step 5: Add the real dispatch branch — checked before the final "Unknown command" fallback**
 
-Run: `npm test`. Then, in a non-production context (per this project's own deploy safety norms — never register against the live bot's application ID from a dev session without explicit sign-off), verify `buildDuneCommand({ includeWriteGroup: true }).toJSON()` doesn't throw when discord.js validates it (discord.js's builders throw synchronously on some invalid shapes, like a name that's too long or has bad characters) — a quick `node -e 'import("./src/commands.js").then(m => console.log(JSON.stringify(m.buildDuneCommand({includeWriteGroup:true}).toJSON()).length))'` succeeding confirms the shape is valid without actually calling Discord's API.
+In `executeDuneCommand`, find the existing `else if (group === "write") { payload = await handleWriteCommand(...); }` branch and the final `else { payload = { ok: false, error: ... } }` fallback. Add a NEW branch between them:
 
-- [ ] **Step 6: Update the dispatch call site to pass `group`**
+```js
+    // ── new real write-command groups (issue: write command reconciliation) ──
+    // Table-driven, not group-name-driven [Audit fix: Architect, CRITICAL]:
+    // this recognizes BOTH genuinely-new groups (base/map/carepackage/
+    // guild/operations/bot) and write subcommands merged into the
+    // EXISTING player/server groups, uniformly, via one lookup -- no
+    // hardcoded list of "which group names are write-capable" to keep in
+    // sync as new actions are added.
+    else if (findWriteAction(group, subcommand)) {
+      payload = await handleWriteCommand({ subcommand, group, interaction, adapterClient, config, guildId, db });
+    }
+```
 
-Find where `handleWriteCommand` is called in `src/commands.js` (the `else if (group === "write")` branch shown during planning research) and change it to pass `group` too (Task 4's `handleWriteCommand` now takes `group` as a parameter): the existing code already computes `group` from the interaction — verify `interaction.options.getSubcommandGroup()` is being read into a variable named `group` nearby (it is, based on this file's existing structure), and that it's forwarded: `handleWriteCommand({ subcommand, group, interaction, adapterClient, config, guildId, db })`.
+Also update the EXISTING `group === "write"` branch to pass `group` too (it currently only passes `subcommand`): `payload = await handleWriteCommand({ subcommand, group, interaction, adapterClient, config, guildId, db });` — confirm `const group = interaction.options.getSubcommandGroup() || "";` is already in scope at this call site (it is, per this plan's own research into the real file).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Run to verify tests pass, and confirm the OLD player/server read commands still dispatch correctly**
+
+Run: `node --test test/commands.test.js`
+Expected: PASS. Also run the full existing command-dispatch test suite (`npm test` broadly, or whatever specifically covers `executeDuneCommand`'s existing `player:link`/`server:health`-style branches) to confirm merging write subcommands into these two groups didn't disturb their existing dispatch — the new `findWriteAction` branch must sit AFTER every existing specific `key === "..."` branch, never intercepting an existing read command.
+
+- [ ] **Step 7: Verify the built command JSON is valid discord.js output (no live registration)**
+
+Run: `node -e 'import("./src/commands.js").then(m => { const json = m.buildDuneCommand({includeWriteGroup:true}).toJSON(); console.log("groups:", json.options.filter(o=>o.type===2).length); })'`
+Expected: runs without throwing, prints a group count ≤ 25.
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/commands.js test/commands.test.js
-git commit -m "feat(write): register the new write-command groups, generated mechanically from WRITE_ACTIONS"
+git commit -m "feat(write): register the new write commands, merged into existing player/server groups where they'd otherwise collide
+
+Fixes 2 Layer 1 audit CRITICAL findings: the original design proposed
+NEW player/server subcommand groups that collide with the two EXISTING
+groups of those names (breaking Discord's atomic command-registration
+call for the whole bot), and had no dispatch routing at all for the new
+group names (every new command would have been 'Unknown command').
+Dispatch now checks the shared WRITE_ACTIONS table directly rather than
+hardcoding which group names are write-capable."
 ```
 
 ---
 
-### Task 8: mentat — update `docs/upstream-write-adapter-rfc.md` and remove the stale safety-boundary comments
+### Task 8: mentat — governance documentation: RFC, roadmap, tracked issue, stale in-code claim, CHANGELOG
 
 **Files:**
 - Modify: `docs/upstream-write-adapter-rfc.md`
-- Modify: `src/writeHandler.js` (module header comment, currently says "All commands return disabled until... the upstream write-adapter contract is implemented")
+- Modify: `docs/r1-r2-release-roadmap.md`
+- Modify: `src/writeConfirmation.js` (module header)
+- Modify: `src/writeHandler.js` (module header)
+- Modify: `test/r1R2ReleaseRoadmap.test.js`
+- Modify: `CHANGELOG.md`
 
-**Interfaces:** none (documentation only).
+**Interfaces:** none (documentation/test-text only).
 
-- [ ] **Step 1: Update the RFC's Status section**
+- [ ] **Step 1: File the tracked issue first**
+
+Run: `gh issue create --repo Project-Arrakis/mentat --title "Override upstream-write-adapter-rfc.md and r1-r2-release-roadmap.md gates for the write-command reconciliation" --label security --body "<link docs/design/write-command-reconciliation-l1-design-2026-09-22.md, state the operator's 2026-09-22 decision, list the scope this covers (27 real actions + self-update) and what remains genuinely deferred>"`
+
+Record the returned issue number — reference it in Step 2 and Step 3's doc text below (replace `<issue>` with the real number).
+
+- [ ] **Step 2: Update the RFC's Status section**
 
 In `docs/upstream-write-adapter-rfc.md`, add immediately after the existing `## Status` heading's first paragraph:
 
 ```markdown
-**Update (2026-09-22, operator decision):** the "do not implement" gate above is overridden for the 27 real write commands listed in `docs/design/write-command-reconciliation-l1-design-2026-09-22.md` (Core's real, audited `dune-awakening-selfhost-docker`#215/#1026 actions, plus bot self-update). This RFC's original concern — a public write-capable adapter contract for arbitrary third-party bots — remains unresolved and is a separate question from this operator's own single Core+bot deployment choosing to use its own, now-real write bridge. The 8 actions with no real backing feature anywhere (`maintenance:*`/`notifications:*`/`schedule:*`) and `operations:clear-cache` remain genuinely blocked, unrelated to the upstream-contract question this RFC is about.
+**Update (2026-09-22, operator decision, tracked in #<issue>):** the "do not implement" gate above is overridden for the 27 real write commands listed in `docs/design/write-command-reconciliation-l1-design-2026-09-22.md` (Core's real, audited `dune-awakening-selfhost-docker`#215/#1026 actions, plus bot self-update). This RFC's original concern — a public write-capable adapter contract for arbitrary third-party bots — remains unresolved and is a separate question from this operator's own single Core+bot deployment choosing to use its own, now-real write bridge. The 8 actions with no real backing feature anywhere (`maintenance:*`/`notifications:*`/`schedule:*`) and `operations:clear-cache` remain genuinely blocked, unrelated to the upstream-contract question this RFC is about.
 ```
 
-- [ ] **Step 2: Fix the stale module header in `writeHandler.js`**
+- [ ] **Step 3: Update the roadmap's R2 Entry Criteria section**
 
-Replace the file's top comment:
+`[Audit fix: GRC, HIGH]` — Revision 1 missed this document entirely; its own R2 Entry Criteria explicitly name "service restart as the first write command" and "player moderation" as blocked, which is exactly what this plan ships. Read `docs/r1-r2-release-roadmap.md` in full first, then add, immediately after its R2 Entry Criteria list:
+
+```markdown
+**Update (2026-09-22, operator decision, tracked in #<issue>):** the entry criteria above are overridden for the scope in `docs/design/write-command-reconciliation-l1-design-2026-09-22.md` — service restart and player moderation, specifically named as blocked above, are now implemented. This is the same override recorded in `docs/upstream-write-adapter-rfc.md`; both documents' gates covered the same underlying decision from two different angles. The remaining, still-genuinely-blocked scope (maintenance/notifications/schedule stub actions, clear-cache) is unaffected.
+```
+
+- [ ] **Step 4: Update `test/r1R2ReleaseRoadmap.test.js`**
+
+Read the test's current assertion (it checks the doc's text is unchanged, e.g. "still contains 'must not add commands that mutate server state'"). Update it to assert the POST-override text instead — it should now assert that the override note from Step 3 is present, not that the pre-override blocking language is still the doc's last word on the subject. Do not delete this test's underlying purpose (catching *unintended* future drift in this doc) — only update what "the correct current state" means.
+
+- [ ] **Step 5: Run to verify it passes**
+
+Run: `node --test test/r1R2ReleaseRoadmap.test.js`
+
+- [ ] **Step 6: Fix the stale safety-boundary comment in `writeConfirmation.js`**
+
+`[Audit fix: GRC, HIGH]` — this exact file's own header makes a direct, in-file claim ("NEVER calls adapterClient.writePreview()...") that becomes false the moment Task 5 ships. Replace the module header comment:
+
+```js
+// Write Confirmation UI — builds the Discord button-based confirmation
+// prompt and routes the resulting button interactions to Core's real
+// write/execute (see docs/design/write-command-reconciliation-l1-design-2026-09-22.md).
+// bot.self-update is the one exception: it never calls Core at all (see
+// writeSelfUpdate.js) and is gated by a dedicated host-operator identity
+// check, not the generic per-guild tier system every other command uses.
+```
+
+- [ ] **Step 7: Fix `writeHandler.js`'s stale module header**
 
 ```js
 // Write Command Handler — validates, confirms, audits write operations.
 // 27 real actions (docs/design/write-command-reconciliation-l1-design-2026-09-22.md)
-// call Core's real write/preview -> write/execute; the 12 original
-// maintenance/notifications/schedule/cache scaffold entries remain stubbed
-// (no real backing feature anywhere -- see that design doc section 5).
-// All commands still require DUNE_DISCORD_WRITES_ENABLED=true.
+// call Core's real write/preview -> write/execute, or (bot.self-update
+// only) a dedicated local restart mechanism. The 12 original
+// maintenance/notifications/schedule/cache scaffold entries remain
+// stubbed (no real backing feature anywhere -- see that design doc
+// section 5). All commands still require DUNE_DISCORD_WRITES_ENABLED=true.
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 8: Add a CHANGELOG entry**
+
+`[Audit fix: GRC, LOW]` — Revision 1 omitted this entirely despite `CHANGELOG.md` being actively maintained for changes much smaller than this one. Add an `## Unreleased` (or the repo's real current heading — check `CHANGELOG.md`'s actual top section first) entry:
+
+```markdown
+### Added
+
+- **27 real Discord write commands** wired to Core's write bridge (`dune-awakening-selfhost-docker`#215/#1026): player moderation (kick/ban/unban/warn/give-item/clear-backpack/fill-water), base management, server control (restart/stop/start/restart-service — stop requires a second, different owner-tier admin to confirm), map control, care packages, guild membership, and operations (backup/game-update/steamcmd-fix). Overrides `docs/upstream-write-adapter-rfc.md` and `docs/r1-r2-release-roadmap.md`'s prior "do not implement" gates for this scope — see #<issue>.
+- **Bot self-update** (`/dune bot self-update`), restricted to a single, explicitly-configured host-operator Discord user ID (`DUNE_BOT_OPERATOR_DISCORD_USER_ID`) — never the generic per-guild owner tier, since this bot is multi-tenant and self-update restarts the one shared process. Reuses the existing git-push deploy pipeline's test-gated safety guardrails.
+```
+
+- [ ] **Step 9: Run the full mentat suite one more time**
+
+Run: `npm test` and `bats test/*.bats`
+
+- [ ] **Step 10: Commit**
 
 ```bash
-git add docs/upstream-write-adapter-rfc.md src/writeHandler.js
-git commit -m "docs(write): record the operator's decision to override the upstream-contract gate"
+git add docs/upstream-write-adapter-rfc.md docs/r1-r2-release-roadmap.md test/r1R2ReleaseRoadmap.test.js src/writeConfirmation.js src/writeHandler.js CHANGELOG.md
+git commit -m "docs(write): record the operator's override of both governing gates, fix stale in-code safety-boundary claims, add CHANGELOG entry
+
+Layer 1 GRC hat found docs/r1-r2-release-roadmap.md is a SECOND,
+test-enforced gate that explicitly blocks 'service restart' and 'player
+moderation' by name -- exactly this plan's first two moves -- and was
+missed entirely in the first design revision. Also fixes
+writeConfirmation.js's own module header, which claimed confirming a
+write action 'NEVER calls adapterClient.writePreview()/writeExecute()'
+-- a direct, in-file false claim once this same file is rewired."
 ```
 
 ---
 
-### Task 9: Push, open the mentat PR, verify CI
+### Task 9: Re-verify against Core's real branch, push, open the mentat PR, verify CI
 
-- [ ] **Step 1: Fetch and check for divergence before pushing**
+- [ ] **Step 1: Re-diff `writeActions.js` against Core's then-current tables**
+
+`[Audit fix: GRC/Architect, MEDIUM]` — before marking this PR ready (not before every commit): fetch the current tip of Core's `issue/215-write-bridge` (or wherever it has landed by then) and re-run `writeActions.js`'s own consistency tests against the real, current `WRITE_ACTION_ROUTES`/`WRITE_ACTION_MIN_TIER` shapes. A drift here produces a misleading Discord UI (wrong tier gate, wrong/missing confirm phrase), not a security bypass (Core enforces server-side regardless) — but should be caught and fixed before this leaves draft, not discovered in production.
+
+- [ ] **Step 2: Fetch and check for divergence before pushing**
 
 Run: `git fetch origin && git log --oneline HEAD..origin/docs/write-command-reconciliation`
-Expected: no output (branch is still only pushed by this session, per Task setup).
+Expected: no output.
 
-- [ ] **Step 2: Push**
+- [ ] **Step 3: Push**
 
 Run: `git push origin docs/write-command-reconciliation`
 
-- [ ] **Step 3: Update PR #395's body**
+- [ ] **Step 4: Update PR #395's body**
 
-Run: `gh pr edit 395 --repo Project-Arrakis/mentat --title "feat(write): wire mentat to Core's real write bridge" --body "<comprehensive body covering: what changed, the 27 commands, the self-update mechanism and its safety-guardrail reuse, dependency on dune-awakening-selfhost-docker#1026 merging first, test output, and a note that this is currently blocked on Task 1 (Core-side) landing>"`
-(Remove `--draft` only once CI is green and this session has run the Layer 1 design audit requested for after this plan, per Requirement 20 — do not mark ready before that.)
+Run: `gh pr edit 395 --repo Project-Arrakis/mentat --title "feat(write): wire mentat to Core's real write bridge" --body "<comprehensive body: what changed, the 28 commands, the self-update host-operator gate and its safety-guardrail reuse, dependency on dune-awakening-selfhost-docker#1026 merging first, the tracked governance-override issue, test output, and the Layer 1 audit findings this revision fixes>"`
 
-- [ ] **Step 4: Check CI**
+Remove `--draft` only once CI is green AND the re-audit (below) confirms the fixes above.
+
+- [ ] **Step 5: Check CI**
 
 Run: `gh run list --repo Project-Arrakis/mentat --branch docs/write-command-reconciliation --limit 5`
-Fix any failure found the same way Task 1-8's own test steps would have caught it locally — investigate root cause, don't skip/disable a check.
+Fix any failure the same way Task 1-8's own test steps would have caught it locally.
 
 ---
 
-## Plan Self-Review Notes (for whoever executes this)
+## Plan Self-Review Notes (Revision 2)
 
-- Task 1 must land and merge (or at least be pushed) before Task 4/5/7's tests that reference `backup.create`/`updates.*` can be exercised against a real Core instance — the mentat-side unit tests in this plan use a fake `adapterClient`, so they don't require Core's PR to be merged first, but a real end-to-end manual smoke test does.
-- Every task's tests use a fake/injected `adapterClient` or `spawn` implementation — no task in this plan requires a live Core instance or a live Discord connection to pass its own test suite.
-- The existing `write` group (12 stub entries, `commands.js`'s hand-written builder for it) is never modified by this plan — confirmed by Task 7 Step 3 explicitly preserving that block untouched.
+- Every CRITICAL and HIGH finding from the Layer 1 eight-hat audit against Revision 1 is fixed inline above, at its exact location, marked `[Audit fix: <hat>, <severity>]`.
+- A second, narrower re-audit of Tasks 3-8 (the changed sections) is required before implementation begins — per the plan of record agreed with the user, this happens as a separate step after this revision, not folded into this document.
+- Every task's tests use a fake/injected `adapterClient`, `spawn`, or stubbed shell command (`sudo`/`systemctl`) — no task requires a live Core instance, a live Discord connection, or a live systemd unit to pass its own test suite.
+- The existing `write` group (12 stub entries) and its hand-written builder are never modified — confirmed by Task 7 Step 3 explicitly preserving that block untouched.
+- Task 3's own tests are the load-bearing regression guard against Revision 1's exact QA-hat-found bugs (wrong count, wrong action-name assertion) — Step 4 explicitly says not to proceed until they're run and genuinely pass.
