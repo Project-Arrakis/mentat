@@ -156,5 +156,18 @@ while read -r oldrev newrev refname; do
     echo "WARNING: service status unclear -- check manually."
   fi
 
+  # Security guardrail (mentat#326, L2 phase 8): verify the auto-invite
+  # flow's fail-closed hop-auth gate is actually live on THIS restarted
+  # instance, not just present in the source. Runs after the restart
+  # above, against the real running process -- a source-level unit test
+  # can't catch a deploy-time config/routing regression the way a real
+  # HTTP call against the actual service can. See the script's own header
+  # for what this does and does not prove.
+  echo "Verifying auto-invite proxy-secret enforcement..."
+  if ! bash "$WORK_DIR/scripts/smoke-test-proxy-secret.sh" "http://127.0.0.1:${SETUP_PORT:-3100}"; then
+    echo "SECURITY WARNING: the auto-invite flow's fail-closed gate did not respond as expected on this deploy."
+    echo "Do not treat dune-awakening-selfhost-docker#853's auto-invite UI as safe to expose until this is investigated."
+  fi
+
   echo "Deploy complete."
 done
