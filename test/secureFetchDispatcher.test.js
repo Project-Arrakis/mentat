@@ -114,7 +114,7 @@ test("real fetch() through the dispatcher never reaches the server when the reso
     const lookupImpl = async () => ([{ address: "127.0.0.1", family: 4 }]);
     const dispatcher = createSecureDispatcher({ lookupImpl });
     await assert.rejects(
-      fetch("http://this-hostname-is-never-actually-resolved.test/", { dispatcher }),
+      fetch("https://this-hostname-is-never-actually-resolved.test/", { dispatcher }),
       /fetch failed/
     );
     assert.equal(connections(), 0, "a rejected lookup must never let the real server see a connection");
@@ -128,7 +128,7 @@ test("real fetch() through the dispatcher never reaches the server when the look
   try {
     const lookupImpl = async () => { throw new Error("ENOTFOUND"); };
     const dispatcher = createSecureDispatcher({ lookupImpl });
-    await assert.rejects(fetch("http://does-not-resolve.test/", { dispatcher }), /fetch failed/);
+    await assert.rejects(fetch("https://does-not-resolve.test/", { dispatcher }), /fetch failed/);
     assert.equal(connections(), 0);
   } finally {
     await stopServer(server);
