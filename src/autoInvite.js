@@ -22,12 +22,22 @@ import {
   createPendingOwnerConfirmation
 } from "./database.js";
 import { verifyGuildOwnership } from "./consoleRegistration.js";
+import { validateConsoleUrl } from "./consoleUrlValidation.js";
 import { logInfo, logError } from "./logger.js";
 
 const DISCORD_TOKEN_URL = "https://discord.com/api/v10/oauth2/token";
 const DISCORD_FETCH_TIMEOUT_MS = 10000;
 
-export function stageAutoInviteSession({ consoleUrl, adapterToken }) {
+// mentat#328: this is the EARLIEST point the auto-invite flow accepts a
+// fresh, attacker-controlled consoleUrl -- validating here means a
+// malicious value never even reaches the pending-session store or the
+// owner-confirmation DM, rather than surviving all the way to
+// ownerConfirmation.js's later upsertGuild() call (which itself just
+// carries forward whatever was staged here, with no validation of its
+// own). Same gap, and same fix, as consoleRegistration.js's
+// verifyAndRegisterConsole() -- see that file's own #328 comment.
+export async function stageAutoInviteSession({ consoleUrl, adapterToken }, opts = {}) {
+  await validateConsoleUrl(consoleUrl, opts.lookupImpl ? { lookupImpl: opts.lookupImpl } : undefined);
   const state = randomBytes(16).toString("hex");
   createAutoInviteSession({ state, consoleUrl, adapterToken });
   return state;

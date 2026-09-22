@@ -9,6 +9,15 @@ function fakeDb() {
   return createDatabase(":memory:");
 }
 
+// mentat#328: verifyAndRegisterConsole() now validates consoleUrl's
+// resolved destination -- matching setupServer.test.js's own
+// publicLookupImpl() convention, mocking DNS resolution to a public
+// address so these tests don't depend on (or fail due to) real DNS
+// resolution for reserved test hostnames like "example.test".
+async function publicLookupImpl() {
+  return [{ address: "203.0.113.10", family: 4 }];
+}
+
 test("rejects a malformed token/guildId with zero calls to Discord", async () => {
   resetConsoleRegistrationRateLimiterForTests({});
   let discordCalled = false;
@@ -25,7 +34,7 @@ test("registers successfully when the forwarded token proves ownership of the su
     if (url.includes("/users/@me/guilds")) return { ok: true, json: async () => ([{ id: "111111111111111111", name: "Real Guild", owner: true }]) };
     return { ok: true, json: async () => ({ id: "999999999999999999" }) };
   };
-  const result = await verifyAndRegisterConsole(db, { guildId: "111111111111111111", discordAccessToken: "tok", consoleUrl: "https://example.test", adapterToken: "adaptertoken" }, { fetchImpl });
+  const result = await verifyAndRegisterConsole(db, { guildId: "111111111111111111", discordAccessToken: "tok", consoleUrl: "https://example.test", adapterToken: "adaptertoken" }, { fetchImpl, lookupImpl: publicLookupImpl });
   assert.equal(result.ok, true);
   const stored = getGuild(db, "111111111111111111");
   assert.equal(stored.status, "active");
@@ -67,7 +76,7 @@ test("never logs or persists the forwarded discordAccessToken anywhere", async (
     return { ok: true, json: async () => ({ id: "999999999999999999" }) };
   };
   const secretToken = "super-secret-live-discord-token-value";
-  await verifyAndRegisterConsole(db, { guildId: "111111111111111111", discordAccessToken: secretToken, consoleUrl: "https://example.test", adapterToken: "x" }, { fetchImpl });
+  await verifyAndRegisterConsole(db, { guildId: "111111111111111111", discordAccessToken: secretToken, consoleUrl: "https://example.test", adapterToken: "x" }, { fetchImpl, lookupImpl: publicLookupImpl });
   const stored = getGuild(db, "111111111111111111");
   assert.ok(!JSON.stringify(stored).includes(secretToken));
 });
@@ -96,13 +105,34 @@ test("aborts and reports discord_unreachable when the Discord call hangs past th
   assert.equal(result.reason, "discord_unreachable");
 });
 
+test("rejects a consoleUrl that resolves to a private/internal address -- mentat#328 (SSRF), even though the caller genuinely owns the guild", async () => {
+  resetConsoleRegistrationRateLimiterForTests({});
+  const db = fakeDb();
+  const fetchImpl = async (url) => {
+    if (url.includes("/users/@me/guilds")) return { ok: true, json: async () => ([{ id: "111111111111111111", name: "Real Guild", owner: true }]) };
+    return { ok: true, json: async () => ({ id: "999999999999999999" }) };
+  };
+  // Simulates a hostname that resolves to a cloud-metadata/link-local
+  // address -- the exact class of destination this check must reject.
+  const lookupImpl = async () => ([{ address: "169.254.169.254", family: 4 }]);
+  const result = await verifyAndRegisterConsole(
+    db,
+    { guildId: "111111111111111111", discordAccessToken: "tok", consoleUrl: "https://attacker-controlled-hostname.test", adapterToken: "tok" },
+    { fetchImpl, lookupImpl }
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "invalid_console_url");
+  assert.equal(getGuild(db, "111111111111111111"), undefined, "the guild must not be registered with an SSRF-capable consoleUrl, even though ownership genuinely checked out");
+});
+
 // ─── HTTP-level regression tests (fix round 1) ─────────────────────────
 
-async function withRegistrationApp(fn) {
+async function withRegistrationApp(fn, overrides = {}) {
   const app = createSetupServer({
     dbPath: ":memory:",
     discordClientId: "client-id",
-    baseUrl: "http://localhost:3100"
+    baseUrl: "http://localhost:3100",
+    ...overrides
   });
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve, reject) => {
@@ -224,4 +254,40 @@ test("POST /api/consoles/register with Content-Type: application/json and a malf
     assert.equal(second.status, 429, "a malformed-JSON request must itself be rejected as rate-limited once the global bucket is exhausted");
     assert.equal(second.headers.get("retry-after"), "60");
   });
+});
+
+// Layer 2 audit finding (QA hat): setupServer.js:794-803's
+// invalid_console_url -> 400 status-mapping (added by mentat#328) had zero
+// HTTP-level coverage -- every existing #328 test for this route exercised
+// verifyAndRegisterConsole() directly, never proving the ROUTE itself
+// returns 400 (as opposed to falling through to the generic 403 branch two
+// lines below) for this specific reason. Requires a real ownership success
+// to reach the consoleUrl check at all, so this also required forwarding
+// config.fetchImpl into verifyAndRegisterConsole()'s opts (a real, separate
+// small gap fixed in the same commit -- it was already forwarded for the
+// old /setup portal routes in this file, just not this one).
+test("POST /api/consoles/register returns 400 (not 403) for an SSRF-capable consoleUrl, even when Discord ownership genuinely checks out", async () => {
+  resetConsoleRegistrationRateLimiterForTests({});
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/users/@me/guilds")) {
+      return { ok: true, json: async () => ([{ id: "111111111111111111", name: "Real Guild", owner: true }]) };
+    }
+    return { ok: true, json: async () => ({ id: "999999999999999999" }) };
+  };
+  const lookupImpl = async () => ([{ address: "169.254.169.254", family: 4 }]);
+  await withRegistrationApp(async (base) => {
+    const res = await fetch(`${base}/api/consoles/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        guildId: "111111111111111111",
+        discordAccessToken: "tok",
+        consoleUrl: "https://attacker-controlled-hostname.test",
+        adapterToken: "adapter-token"
+      })
+    });
+    assert.equal(res.status, 400, "an SSRF-capable consoleUrl must be rejected with 400, not the generic 403 ownership-failure status");
+    const body = await res.json();
+    assert.match(body.error, /private, loopback, or link-local/);
+  }, { fetchImpl, lookupImpl });
 });

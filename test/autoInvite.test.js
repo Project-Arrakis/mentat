@@ -40,6 +40,15 @@ function fetchImplStub({
   };
 }
 
+// mentat#328: stageAutoInviteSession() now validates consoleUrl's resolved
+// destination -- mocking DNS to a public address so tests using the
+// reserved "https://console.test" hostname (RFC 2606, never really
+// resolvable) don't fail this check by accident. A dedicated test below
+// overrides this per-call to prove the rejection path itself.
+async function publicLookupImpl() {
+  return [{ address: "203.0.113.10", family: 4 }];
+}
+
 function makeApp(overrides = {}) {
   return createSetupServer({
     dbPath: ":memory:",
@@ -49,6 +58,7 @@ function makeApp(overrides = {}) {
     autoInviteRedirectUri: "https://mentat-link.darkdante.org/api/consoles/auto-invite/callback",
     autoInviteReturnBaseUrl: "https://mentat-link.darkdante.org",
     fetchImpl: fetchImplStub(overrides.fetchStubOpts),
+    lookupImpl: publicLookupImpl,
     ...overrides
   });
 }
@@ -125,6 +135,26 @@ test("POST /auto-invite/start succeeds (200, returns an opaque state) when the s
       const body = await res.json();
       assert.equal(typeof body.state, "string");
       assert.ok(body.state.length > 0);
+    });
+  } finally {
+    delete process.env.MENTAT_PROXY_SHARED_SECRET;
+  }
+});
+
+test("POST /auto-invite/start rejects a consoleUrl that resolves to a private/internal address -- mentat#328 (SSRF)", async () => {
+  process.env.MENTAT_PROXY_SHARED_SECRET = PROXY_SECRET;
+  try {
+    // Simulates a hostname that resolves to a cloud-metadata/link-local
+    // address -- the exact class of destination this check must reject.
+    await withAutoInviteApp({ lookupImpl: async () => ([{ address: "169.254.169.254", family: 4 }]) }, async (base) => {
+      const res = await fetch(`${base}/api/consoles/auto-invite/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-mentat-proxy-secret": PROXY_SECRET },
+        body: JSON.stringify({ consoleUrl: "https://attacker-controlled-hostname.test", adapterToken: "adapter-token-123" })
+      });
+      assert.equal(res.status, 400, "a consoleUrl resolving to a metadata/link-local address must be rejected");
+      const body = await res.json();
+      assert.ok(!body.state, "no session state should be issued for a rejected consoleUrl");
     });
   } finally {
     delete process.env.MENTAT_PROXY_SHARED_SECRET;
