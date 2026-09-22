@@ -35,7 +35,11 @@ async function runTests(args) {
   });
 }
 
-const BATS_TEST_FILE = "test/deploy-hook.bats";
+// mentat#326: a bats file that exists on disk but isn't listed here would
+// pass silently by never running at all -- mentat-link's own #165/#168
+// already found this exact bug class (a check that exists and passes
+// locally but nothing in the real test/CI entrypoint ever invokes it).
+const BATS_TEST_FILES = ["test/deploy-hook.bats", "test/smoke-test-proxy-secret.bats"];
 
 // ACP Issue Bridge tests live under .github/scripts/issue-bridge/ (see
 // docs/issue-bridge/testing.md). `node --test`'s handling of a
@@ -69,12 +73,12 @@ const ISSUE_BRIDGE_DIR = ".github/scripts/issue-bridge";
 
 function runBats() {
   return new Promise((resolve) => {
-    const child = spawn("bats", [BATS_TEST_FILE], {
+    const child = spawn("bats", BATS_TEST_FILES, {
       stdio: "inherit"
     });
     child.on("exit", (code) => resolve(code ?? 0));
     child.on("error", (err) => {
-      console.error(`bats unavailable (${err.message}); skipping ${BATS_TEST_FILE} — install bats to run hook tests`);
+      console.error(`bats unavailable (${err.message}); skipping ${BATS_TEST_FILES.join(", ")} — install bats to run hook tests`);
       resolve(0);
     });
   });
