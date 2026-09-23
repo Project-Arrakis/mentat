@@ -39,7 +39,7 @@ async function runTests(args) {
 // pass silently by never running at all -- mentat-link's own #165/#168
 // already found this exact bug class (a check that exists and passes
 // locally but nothing in the real test/CI entrypoint ever invokes it).
-const BATS_TEST_FILES = ["test/deploy-hook.bats", "test/smoke-test-proxy-secret.bats"];
+const BATS_TEST_FILES = ["test/deploy-hook.bats", "test/smoke-test-proxy-secret.bats", "test/self-update.bats"];
 
 // ACP Issue Bridge tests live under .github/scripts/issue-bridge/ (see
 // docs/issue-bridge/testing.md). `node --test`'s handling of a

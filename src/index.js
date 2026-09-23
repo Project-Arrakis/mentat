@@ -18,6 +18,37 @@ import { handleWriteButtonInteraction } from "./writeConfirmation.js";
 import { handleOwnerConfirmationButtonInteraction, handleConfirmConnectionCommand } from "./ownerConfirmation.js";
 import { isEncryptionConfigured, checkSecretFilePermissions } from "./secretsCrypto.js";
 import { proxySharedSecret } from "./proxyAuth.js";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+
+// reportSelfUpdateCompletionIfPending: the second, independent reporting
+// layer for bot self-update (see src/writeSelfUpdate.js / scripts/self-update.sh
+// -- Task 6 of the write-command-reconciliation design). self-update.sh's
+// own webhook post (the fast path) can be lost if this process is killed
+// alongside the old one during its own restart despite the systemd-run
+// cgroup escape; this NEW process checks for the marker file self-update.sh
+// wrote just before restarting and reports success itself if found.
+function reportSelfUpdateCompletionIfPending() {
+  const markerFile = join(process.cwd(), "runtime", "self-update-pending.json");
+  if (!existsSync(markerFile)) return;
+  try {
+    const { webhookUrl, triggeredAt } = JSON.parse(readFileSync(markerFile, "utf8"));
+    unlinkSync(markerFile);
+    const ageMs = Date.now() - triggeredAt;
+    if (ageMs > 15 * 60 * 1000) {
+      console.warn("self-update marker found but the webhook token has likely expired (>15min old) -- not attempting the follow-up.");
+      return;
+    }
+    if (!webhookUrl) return;
+    fetch(webhookUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: `✅ Self-update complete. Now running on the latest deployed code.` })
+    }).catch(() => {});
+  } catch {
+    // marker file corrupt/unreadable -- nothing to report, don't crash startup over it
+  }
+}
 
 const config = loadConfig();
 const db = config.multiTenant ? createDatabase(config.dbPath) : null;
@@ -177,6 +208,7 @@ client.once(Events.ClientReady, (readyClient) => {
     botUserId: readyClient.user.id,
     multiTenant: config.multiTenant
   });
+  reportSelfUpdateCompletionIfPending();
   scheduler = startScheduler({
     client,
     adapterClient,
