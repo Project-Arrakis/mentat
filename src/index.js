@@ -15,6 +15,7 @@ import { createSteamLinkServer } from "./steamLinkServer.js";
 import { handleGuildDelete } from "./onboarding.js";
 import { startStatsPusher } from "./statsPusher.js";
 import { handleWriteButtonInteraction } from "./writeConfirmation.js";
+import { writeAuditEvent } from "./writes.js";
 import { handleOwnerConfirmationButtonInteraction, handleConfirmConnectionCommand } from "./ownerConfirmation.js";
 import { isEncryptionConfigured, checkSecretFilePermissions } from "./secretsCrypto.js";
 import { proxySharedSecret } from "./proxyAuth.js";
@@ -39,6 +40,23 @@ function reportSelfUpdateCompletionIfPending() {
       console.warn("self-update marker found but the webhook token has likely expired (>15min old) -- not attempting the follow-up.");
       return;
     }
+    // [Final-review fix, IMPORTANT 5] Reaching this line is the ONLY
+    // in-process proof that a self-update actually succeeded: the marker
+    // file is written by scripts/self-update.sh just before the restart and
+    // is only ever read by the NEW, healthy process. Until now only
+    // "triggered" (writeHandler.js) and "confirmed" (writeConfirmation.js)
+    // were audited -- the outcome never was, so the audit stream could not
+    // answer "did that restart actually happen?". The failure counterpart is
+    // emitted by scripts/self-update.sh's own failure branch (the old
+    // process survives there and has no other way to learn the outcome).
+    console.log(JSON.stringify(writeAuditEvent({
+      actor: {},
+      action: "bot.self-update",
+      capability: "bot.self-update",
+      idempotencyKey: "n/a",
+      result: "self-update-completed",
+      detail: { ageMs }
+    })));
     if (!webhookUrl) return;
     fetch(webhookUrl, {
       method: "POST",
@@ -344,7 +362,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // `false` (instead of returning) means any future prefix-dispatched
     // handler added below this line will actually run.
     if (interaction.isButton?.()) {
-      const handled = await handleWriteButtonInteraction(interaction, adapterClient);
+      // config/db are required (not optional): handleWriteButtonInteraction
+      // uses canWrite() to verify that whoever clicks a PUBLIC dual-
+      // confirmation waiting-state message actually holds the action's tier
+      // -- see that function's own ownership-gate comments.
+      const handled = await handleWriteButtonInteraction(interaction, adapterClient, config, db);
       if (handled) return;
       // mentat#343 Phase 2: the "autoinvite:confirm:"/"autoinvite:deny:"
       // buttons anticipated in the comment above (added when this fall-

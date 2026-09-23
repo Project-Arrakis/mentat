@@ -24,11 +24,23 @@ test("InteractionCreate's button handling checks handleWriteButtonInteraction()'
     src,
     // Task 5 (write-command-reconciliation): handleWriteButtonInteraction()
     // now takes adapterClient as a required second argument -- this pattern
-    // is deliberately not anchored to a specific second argument (still
-    // captures the call regardless of what it's named), only to the
+    // is deliberately not anchored to specific trailing arguments (still
+    // captures the call regardless of what they're named), only to the
     // "capture the return value" shape mentat#332's fix actually cares about.
-    /const handled\s*=\s*await handleWriteButtonInteraction\(interaction\s*,\s*\w+\)/,
+    /const handled\s*=\s*await handleWriteButtonInteraction\(interaction\s*,[^)]*\)/,
     "must capture handleWriteButtonInteraction()'s return value, not discard it"
+  );
+  // [Final-review fix, IMPORTANT 3] config and db are NOT optional extras:
+  // handleWriteButtonInteraction() uses canWrite(interaction, config, tier,
+  // db, guildId) to verify that whoever clicks a PUBLIC dual-confirmation
+  // waiting-state message actually holds the action's tier. Passing them is
+  // what makes that check able to return anything but false, so a caller
+  // that silently dropped them would re-open the gap (any member could
+  // destroy a pending second-step confirmation) while still "working".
+  assert.match(
+    src,
+    /await handleWriteButtonInteraction\(interaction\s*,\s*adapterClient\s*,\s*config\s*,\s*db\s*\)/,
+    "must pass config and db through so the second-confirmation tier check can actually run"
   );
   assert.match(
     src,

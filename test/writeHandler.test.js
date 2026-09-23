@@ -484,3 +484,40 @@ test("handleWriteCommand: group='write' subcommand names superseded by a real co
   }
   assert.equal(LEGACY_WRITE_STUBS.length, 9);
 });
+
+// [Final-review fix, MINOR 9] The denial message used to be a binary
+// owner-vs-everything-else split, so a denied MODERATOR-tier action
+// (player.warn is the only one in WRITE_ACTIONS) told the user it "Requires
+// admin-tier access" -- wrong, and actively misleading: it sends an
+// operator off to grant a strictly higher tier than the action needs.
+test("handleWriteCommand: a denied moderator-tier action names moderator tier, not admin", async () => {
+  const config = { discord: { writes: { enabled: true } } };
+  // A plain member: not the guild owner, no mapped roles -> denied.
+  const interaction = {
+    user: { id: "nobody" }, guild: { ownerId: "someone-else" }, guildId: "guild-1",
+    member: { roles: new Set() },
+    options: { getString: () => "hello", getInteger: () => null, getNumber: () => null }
+  };
+  const result = await handleWriteCommand({
+    subcommand: "warn", group: "player", interaction, adapterClient: {}, config
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /moderator-tier/i, "player.warn is moderator-tier -- the denial must say so");
+  assert.doesNotMatch(result.error, /admin-tier/i, "must not overstate the requirement as admin-tier");
+});
+
+test("handleWriteCommand: denial messages for admin-tier and owner-tier actions are unchanged", async () => {
+  const config = { discord: { writes: { enabled: true } } };
+  const denied = {
+    user: { id: "nobody" }, guild: { ownerId: "someone-else" }, guildId: "guild-1",
+    member: { roles: new Set() },
+    options: { getString: () => "x", getInteger: () => null, getNumber: () => null }
+  };
+  const adminResult = await handleWriteCommand({ subcommand: "kick", group: "player", interaction: denied, adapterClient: {}, config });
+  assert.equal(adminResult.ok, false);
+  assert.match(adminResult.error, /admin-tier/i);
+
+  const ownerResult = await handleWriteCommand({ subcommand: "give-item", group: "player", interaction: denied, adapterClient: {}, config });
+  assert.equal(ownerResult.ok, false);
+  assert.match(ownerResult.error, /owner-tier/i);
+});

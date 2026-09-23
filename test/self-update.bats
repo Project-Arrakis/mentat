@@ -102,6 +102,42 @@ EOF
   [ "$status" -ne 0 ]
 }
 
+# [Final-review fix, IMPORTANT 5] Only "triggered" (writeHandler.js) and
+# "confirmed" (writeConfirmation.js) were ever audited for bot.self-update --
+# never the OUTCOME. On the failure branch the marker file is removed and the
+# OLD bot process is still running, so nothing downstream can ever emit an
+# audit line for it; the script itself has to. This runs the REAL
+# scripts/self-update.sh against a working tree whose test gate fails, and
+# asserts the audit line is emitted as parseable JSON on stdout.
+@test "self-update.sh emits a self-update-aborted audit event on the failure branch" {
+  REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  FAILDIR="$(mktemp -d)"
+  # The real src/ (symlinked, so writes.js's own relative imports and
+  # node_modules resolution still work) -- self-update.sh's audit call
+  # imports "$WORK_DIR/src/writes.js" for the shared writeAuditEvent()
+  # shape rather than hand-rolling a second, driftable JSON format.
+  ln -s "$REPO_ROOT/src" "$FAILDIR/src"
+  echo '{"name":"t","version":"0.0.0","scripts":{"test":"exit 1"}}' > "$FAILDIR/package.json"
+  git -C "$FAILDIR" init -q
+  git -C "$FAILDIR" config user.email test@test.com
+  git -C "$FAILDIR" config user.name test
+  git -C "$FAILDIR" add -A
+  git -C "$FAILDIR" commit -qm init
+
+  run env WORK_DIR="$FAILDIR" SERVICE_NAME="fake-test-service.service" \
+    DISCORD_WEBHOOK_URL_FILE= bash "$REPO_ROOT/scripts/self-update.sh"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'"result":"self-update-aborted"'* ]]
+  [[ "$output" == *'"action":"bot.self-update"'* ]]
+  # The audit line must be real, parseable JSON -- not a printf-shaped
+  # lookalike that a log pipeline would silently drop.
+  echo "$output" | grep '"result":"self-update-aborted"' | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const e=JSON.parse(s.trim());if(e.source!=="discord-write"||e.capability!=="bot.self-update")process.exit(1);})'
+  # The marker file must be gone (no confirmed-good new process exists).
+  [ ! -f "$FAILDIR/runtime/self-update-pending.json" ]
+  rm -rf "$FAILDIR"
+}
+
 @test "deploy_core::webhook_report keeps the webhook URL out of curl's argv entirely, using a -K config file instead" {
   # [Audit fix: QA, MEDIUM round 3] Round 3 found the curl-argv-leak fix
   # (Round 2) had zero test coverage anywhere -- neither self-update.sh

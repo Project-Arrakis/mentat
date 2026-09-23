@@ -10,7 +10,7 @@
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { duneEmbed } from "./embedFormat.js";
-import { writeAuditEvent } from "./writes.js";
+import { writeAuditEvent, canWrite } from "./writes.js";
 import { buildWriteErrorEmbed, mapWriteError } from "./writeErrorMapping.js";
 import { actorFromInteraction } from "./rbac.js";
 
@@ -90,6 +90,23 @@ export function buildNotYoursEmbed() {
   return duneEmbed({ title: "🔒 Not Your Confirmation", color: "error", description: "This confirmation prompt belongs to another user." });
 }
 
+// [Final-review fix, IMPORTANT 3] The dual-confirmation waiting-state message
+// is deliberately public so a genuinely DIFFERENT admin can complete it --
+// which means every guild member who can see the channel can also click its
+// buttons. Without a tier check on the clicking user, any member could
+// destroy a pending second-step confirmation (Confirm reached Core, which
+// correctly rejected them, but clearPendingConfirmation had already run;
+// Cancel had no authorization check of any kind). This embed is the
+// client-side rejection, and -- critically -- it is returned WITHOUT
+// clearing the pending entry, so the real second admin can still act.
+export function buildSecondConfirmationNotAuthorizedEmbed(tier) {
+  return duneEmbed({
+    title: "🔒 Not Authorized",
+    color: "error",
+    description: `You are not authorized to provide this confirmation. Completing it requires \`${tier || "admin"}\`-tier access in this server. The pending confirmation is untouched -- an authorized administrator can still complete it.`
+  });
+}
+
 export function buildExpiredEmbed() {
   return duneEmbed({ title: "⌛ Confirmation Expired", color: "error", description: "Re-run the command to try again." });
 }
@@ -147,9 +164,39 @@ export function registerRealPendingConfirmation({ nonce, action, tier, userId, e
   if (typeof userId !== "string" || userId.length === 0) {
     throw new Error("registerRealPendingConfirmation: userId is required.");
   }
-  const timer = setTimeout(() => { pendingConfirmations.delete(nonce); }, Math.max(0, expiresAt - Date.now()));
+  // [Final-review fix, MINOR 7] expiresAt comes straight off a Core
+  // write/preview (or write/execute 202) response body -- a malformed or
+  // missing value made `Math.max(0, expiresAt - Date.now())` evaluate to
+  // NaN, and `setTimeout(fn, NaN)` fires on the very next timer tick,
+  // silently deleting the entry before the user could ever click Confirm
+  // (the button would then always report "Confirmation Expired", with no
+  // log line explaining why). Fall back to this bot's own confirmation
+  // window instead of trusting the remote value blindly.
+  const now = Date.now();
+  const effectiveExpiresAt = Number.isFinite(expiresAt) && expiresAt > now
+    ? expiresAt
+    : now + confirmationTimeoutMs();
+  const timer = setTimeout(() => {
+    // [Final-review fix, MINOR 8] The legacy stub path audits its own
+    // expiry via writeTimeoutAuditEvent (wired to createPendingConfirmation's
+    // onTimeout callback); the real/self-update path registered here had no
+    // timeout audit at all, so a pending write that simply expired unclicked
+    // left no trace in the audit stream between "preview-ok" and nothing.
+    const entry = pendingConfirmations.get(nonce);
+    pendingConfirmations.delete(nonce);
+    if (entry) {
+      console.log(JSON.stringify(writeAuditEvent({
+        actor: { userId: entry.userId },
+        action: entry.action,
+        capability: entry.action,
+        idempotencyKey: nonce,
+        result: "timeout",
+        detail: { tier: entry.tier, kind: entry.kind, secondConfirmationPending: entry.secondConfirmationPending === true }
+      })));
+    }
+  }, effectiveExpiresAt - now);
   timer.unref?.();
-  pendingConfirmations.set(nonce, { action, tier, userId, expiresAt, confirmPhrase, kind, timer, isReal: true, secondConfirmationPending });
+  pendingConfirmations.set(nonce, { action, tier, userId, expiresAt: effectiveExpiresAt, confirmPhrase, kind, timer, isReal: true, secondConfirmationPending });
   return nonce;
 }
 
@@ -178,7 +225,7 @@ export function resetPendingConfirmations() {
 
 // Routes a button interaction for the write confirmation flow. Returns false
 // if the interaction does not belong to this flow (caller should ignore it).
-export async function handleWriteButtonInteraction(interaction, adapterClient) {
+export async function handleWriteButtonInteraction(interaction, adapterClient, config, db) {
   if (!interaction?.isButton?.()) return false;
   const raw = String(interaction.customId || "");
   const firstColon = raw.indexOf(":");
@@ -218,6 +265,28 @@ export async function handleWriteButtonInteraction(interaction, adapterClient) {
     // reference to "the actor" from this point on must use THIS
     // interaction's own real, current identity (actorFromInteraction),
     // never entry.userId (the FIRST admin) -- see the confirm branch below.
+    //
+    // [Final-review fix, IMPORTANT 3] ...but "a different user" is not the
+    // same as "a different ADMIN". The waiting-state message is public, so
+    // until this check existed ANY guild member could click it: Confirm
+    // reached Core (which correctly refused them) but clearPendingConfirmation
+    // had already destroyed the pending entry, permanently breaking the flow
+    // for the legitimate second admin; Cancel destroyed it with no
+    // authorization check at all. Verify the CLICKER actually holds the
+    // action's own tier here, before either branch below runs, and leave the
+    // pending entry intact when they don't.
+    if (!canWrite(interaction, config, entry.tier, db, interaction.guildId)) {
+      console.log(JSON.stringify(writeAuditEvent({
+        actor: actorFromInteraction(interaction),
+        action: entry.action,
+        capability: entry.action,
+        idempotencyKey,
+        result: "second-confirmation-denied",
+        detail: { tier: entry.tier, buttonAction: action }
+      })));
+      await interaction.reply({ embeds: [buildSecondConfirmationNotAuthorizedEmbed(entry.tier)], ephemeral: true });
+      return true;
+    }
   } else if (isDualConfirmSecondStep) {
     // The SAME admin who gave the first confirmation cannot also give the
     // second -- reject client-side, mirroring Core's own
@@ -277,7 +346,14 @@ export async function handleWriteButtonInteraction(interaction, adapterClient) {
     // who physically clicked, and reject the second one itself.
     const actor = actorFromInteraction(interaction);
     try {
-      const result = await adapterClient.writeExecute(actor, { nonce: idempotencyKey, action: entry.action });
+      // [Final-review fix, CRITICAL 1] guildId is the THIRD argument of
+      // AdapterClient.writeExecute(actor, body, guildId) and is what resolves
+      // the calling guild's own Core config (base URL + adapter token) in
+      // multi-tenant mode. Omitting it fell back to the process-wide default
+      // adapter config -- i.e. every tenant's confirmed write was executed
+      // against whichever Core instance the process defaults to, not their
+      // own. writeHandler.js's sibling writePreview call already passed it.
+      const result = await adapterClient.writeExecute(actor, { nonce: idempotencyKey, action: entry.action }, interaction.guildId);
       if (result?.code === "second_confirmation_required") {
         // Re-register the SAME nonce, marking it pending a second,
         // different confirmer -- entry.userId stays the FIRST admin's ID
@@ -286,6 +362,13 @@ export async function handleWriteButtonInteraction(interaction, adapterClient) {
         // actually enables that gate's exception. Previously referenced
         // but never set anywhere -- dead code, closed here.
         registerRealPendingConfirmation({ nonce: idempotencyKey, action: entry.action, tier: entry.tier, userId: entry.userId, expiresAt: result.expiresAt, kind: "real", secondConfirmationPending: true });
+        // [Final-review fix, IMPORTANT 4] The transition into the
+        // waiting-on-a-second-administrator state is itself an auditable
+        // event -- "admin A gave the first of two required confirmations"
+        // is exactly the fact a Repudiation-class audit question asks
+        // about, and it was the ONE outcome of this branch that produced
+        // no audit line at all (execute/execute-failed both do).
+        console.log(JSON.stringify(writeAuditEvent({ actor, action: entry.action, capability: entry.action, idempotencyKey, result: "second-confirmation-required" })));
         await interaction.update({
           embeds: [duneEmbed({ title: "⏳ Waiting on a Second Administrator", color: "warning", description: "Your confirmation was accepted. A second, different owner-tier admin must click **Confirm** on this same message to complete it." })],
           components: [buildConfirmationRow(idempotencyKey)],

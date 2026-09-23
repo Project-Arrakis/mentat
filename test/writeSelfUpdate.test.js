@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { runSelfUpdate, __setSpawnImplForTests, __setHasCommandImplForTests, __resetHasCommandImplForTests } from "../src/writeSelfUpdate.js";
 
 // [Audit fix: Security, HIGH round 3] systemd-run submits the unit to the
@@ -90,4 +91,48 @@ test("runSelfUpdate: cleans up the webhook temp file if spawning self-update.sh 
   assert.ok(capturedWebhookFile, "the test must have actually captured a real file path before the throw");
   assert.throws(() => readFileSync(capturedWebhookFile, "utf8"), /ENOENT/, "the webhook temp file must be deleted after a synchronous spawn failure");
   __resetHasCommandImplForTests();
+});
+
+// [Final-review fix, IMPORTANT 5] Audit coverage for the SUCCESS outcome of
+// a self-update. Only "triggered" (writeHandler.js) and "confirmed"
+// (writeConfirmation.js) were audited before; whether the restart actually
+// happened was not. Reaching reportSelfUpdateCompletionIfPending()'s
+// post-staleness-check body is the only in-process proof it did -- the
+// marker file is written by scripts/self-update.sh immediately before the
+// restart and is only ever read by the NEW, healthy process.
+//
+// src/index.js has no exported, standalone entry point (importing it boots a
+// real discord.js client and calls client.login), so this is pinned at the
+// source level -- the same established precedent this repo already uses for
+// index.js in test/interactionRouting.test.js. The FAILURE counterpart IS
+// covered end-to-end, by running the real scripts/self-update.sh: see
+// test/self-update.bats, "emits a self-update-aborted audit event".
+test("src/index.js audits a completed self-update when it processes a valid, non-stale marker file", async () => {
+  const src = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+
+  assert.match(src, /import \{ writeAuditEvent \} from "\.\/writes\.js"/,
+    "must import the shared writeAuditEvent() shape rather than hand-rolling a second audit format");
+
+  const fnStart = src.indexOf("function reportSelfUpdateCompletionIfPending()");
+  assert.ok(fnStart !== -1, "reportSelfUpdateCompletionIfPending() must still exist");
+  const fnEnd = src.indexOf("\nconst config = loadConfig();", fnStart);
+  assert.ok(fnEnd !== -1, "could not bound reportSelfUpdateCompletionIfPending()'s body");
+  const body = src.slice(fnStart, fnEnd);
+
+  assert.match(body, /console\.log\(JSON\.stringify\(writeAuditEvent\(\{/,
+    "the completion path must emit a writeAuditEvent audit line");
+  assert.match(body, /result: "self-update-completed"/,
+    "the audit event must record the self-update's successful outcome");
+  assert.match(body, /action: "bot\.self-update"/);
+
+  // Ordering matters: the audit must come AFTER the staleness guard (a
+  // >15min-old marker is not evidence of a completed restart) and BEFORE
+  // the `if (!webhookUrl) return;` bail-out (a successful self-update with
+  // no webhook URL is still a successful self-update worth auditing).
+  const staleGuard = body.indexOf("webhook token has likely expired");
+  const auditIdx = body.indexOf('result: "self-update-completed"');
+  const webhookBail = body.indexOf("if (!webhookUrl) return;");
+  assert.ok(staleGuard !== -1 && auditIdx !== -1 && webhookBail !== -1, "all three landmarks must be present");
+  assert.ok(staleGuard < auditIdx, "a stale marker must never be audited as a completed self-update");
+  assert.ok(auditIdx < webhookBail, "a completed self-update with no webhook URL must still be audited");
 });

@@ -103,7 +103,19 @@ while read -r oldrev newrev refname; do
   # test-gated safety logic. Also acquires a lock (runtime/deploy.lock)
   # so a concurrent git-push deploy and a Discord-triggered self-update
   # can never interleave against this same working directory.
-  source "$(dirname "${BASH_SOURCE[0]}")/lib/deploy-core.sh"
+  # $WORK_DIR-relative, NOT "$(dirname "${BASH_SOURCE[0]}")"-relative: this
+  # file is DEPLOYED by being copied out of the repo into the bare deploy
+  # repo's own hooks/ directory (`cp ~/arrakis-control-panel/scripts/
+  # deploy-post-receive.sh hooks/post-receive`, see INSTALL.md), so at
+  # runtime BASH_SOURCE[0] is ~/acp-deploy.git/hooks/post-receive and
+  # "$(dirname ...)/lib/deploy-core.sh" resolves to a path that does not
+  # exist. With `set -u` and no `-e` the failed source is non-fatal, so the
+  # hook then ran on to call deploy_core::sync_test_install_restart -- an
+  # undefined function -- and failed every real deploy with a bare
+  # "command not found". Every other script this file invokes is already
+  # $WORK_DIR-relative for exactly this reason (see command-defs-changed.sh
+  # and smoke-test-proxy-secret.sh below).
+  source "$WORK_DIR/scripts/lib/deploy-core.sh"
   if ! deploy_core::sync_test_install_restart "$WORK_DIR" "$SERVICE_NAME"; then
     exit 1
   fi

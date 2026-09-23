@@ -66,6 +66,19 @@ if deploy_core::sync_test_install_restart "$WORK_DIR" "$SERVICE_NAME"; then
   deploy_core::webhook_report "✅ Self-update complete. \`$(cd "$WORK_DIR" && git log --oneline -1)\` is now live."
 else
   rm -f "$MARKER_FILE" # deploy_core already returns non-zero for either a failed test gate OR a failed post-restart health check -- either way, no confirmed-good new process exists for the marker to describe
+  # [Final-review fix, IMPORTANT 5] The failure counterpart of src/index.js's
+  # "self-update-completed" audit event. On this branch the marker file has
+  # just been removed and the OLD bot process is still running -- it has no
+  # other way to ever learn that the self-update it triggered failed, so
+  # nothing downstream would emit an audit line for this outcome at all.
+  # Emitted here, in the same inline-`node -e` style this script already
+  # uses for the marker file above, so both outcomes land in the same
+  # audit stream with the same writeAuditEvent() shape.
+  node -e "
+  import(process.argv[1]).then(({ writeAuditEvent }) => {
+    console.log(JSON.stringify(writeAuditEvent({ actor: {}, action: 'bot.self-update', capability: 'bot.self-update', idempotencyKey: 'n/a', result: process.argv[2] })));
+  });
+  " "$WORK_DIR/src/writes.js" "self-update-aborted" || true
   deploy_core::webhook_report "🛑 Self-update aborted or failed -- either the test gate failed (previous code is still running) or the restarted process did not come up healthy. Check the self-update log on the host for details."
   exit 1
 fi

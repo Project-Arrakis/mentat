@@ -52,6 +52,25 @@ export const LEGACY_WRITE_STUBS = Object.freeze([
     desc: "Clear server caches.", params: [{ name: "type", type: "string", desc: "Cache type (steam/maps/derived)", required: true }] }
 ]);
 
+// [Final-review fix, MINOR 9] The denial message used to be a binary
+// owner-vs-everything-else split, so a denied MODERATOR-tier action
+// (player.warn -- the only one, see writeActions.js) told the user it
+// "Requires admin-tier access", which is both wrong and actively
+// misleading: it sends an operator off to grant a strictly higher tier
+// than the action actually needs. Keyed off the action's real tier
+// instead, with the admin wording preserved verbatim as the fallback for
+// any unrecognized/absent tier (fail-closed messaging: never understate
+// the requirement).
+function notAuthorizedMessage(tier) {
+  if (tier === "owner") {
+    return "Not authorized for write operations. This action requires owner-tier access, which belongs only to this Discord server's real owner.";
+  }
+  if (tier === "moderator") {
+    return "Not authorized for write operations. Requires moderator-tier access (a mapped Moderator role, or any higher tier).";
+  }
+  return "Not authorized for write operations. Requires admin-tier access (a mapped Admin role, or the real Discord server owner).";
+}
+
 function findLegacyWriteStub(group, subcommand) {
   if (group !== "write") return null;
   return LEGACY_WRITE_STUBS.find((c) => c.name === subcommand) || null;
@@ -96,13 +115,7 @@ export async function handleWriteCommand({ group, subcommand, interaction, adapt
   const legacyDef = findLegacyWriteStub(group, subcommand);
   if (legacyDef) {
     if (!canWrite(interaction, config, legacyDef.tier, db, guildId)) {
-      const requiresOwner = legacyDef.tier === "owner";
-      return {
-        ok: false,
-        error: requiresOwner
-          ? "Not authorized for write operations. This action requires owner-tier access, which belongs only to this Discord server's real owner."
-          : "Not authorized for write operations. Requires admin-tier access (a mapped Admin role, or the real Discord server owner)."
-      };
+      return { ok: false, error: notAuthorizedMessage(legacyDef.tier) };
     }
     const idempotencyKey = generateIdempotencyKey();
     const confirmation = requireConfirmation({ action: legacyDef.action, target: legacyDef.tier, risk: legacyDef.risk });
@@ -166,13 +179,7 @@ export async function handleWriteCommand({ group, subcommand, interaction, adapt
   }
 
   if (!canWrite(interaction, config, def.tier, db, guildId)) {
-    const requiresOwner = def.tier === "owner";
-    return {
-      ok: false,
-      error: requiresOwner
-        ? "Not authorized for write operations. This action requires owner-tier access, which belongs only to this Discord server's real owner."
-        : "Not authorized for write operations. Requires admin-tier access (a mapped Admin role, or the real Discord server owner)."
-    };
+    return { ok: false, error: notAuthorizedMessage(def.tier) };
   }
 
   const params = collectParams(def, interaction);
