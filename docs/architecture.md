@@ -141,7 +141,7 @@ is tier-gated, and the gate is enforced by `canWrite()` before any Core call:
 | `player` | give-item, clear-backpack | **owner** |
 | `base` | refill-generators, refill-water | admin |
 | `server` | start, restart-service | admin |
-| `server` | restart, stop (stop requires a second, different owner-tier confirmation) | **owner** |
+| `server` | restart, stop (stop is *designed* to require a second, different owner-tier confirmation — currently unsatisfiable in practice since owner tier is exactly one account per guild; tracked in mentat#404) | **owner** |
 | `map` | spawn, despawn, respawn, teleport | admin |
 | `carepackage` | grant, enable, disable, scan | admin |
 | `carepackage` | grant-all, history-clear | **owner** |
