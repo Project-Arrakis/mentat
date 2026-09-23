@@ -389,3 +389,36 @@ test("handleWriteButtonInteraction: a confirmed real write audits an 'executed' 
   assert.equal(audit.action, "server.stop");
   assert.equal(audit.actor.userId, "the-owner");
 });
+
+// [Audit fix, mentat#404 round 2] mentat#404 removed all client-side
+// second-confirmation handling since no real action can produce this
+// response any more -- but if mentat and Core's write-bridge tables ever
+// desync on this specific flag, writeExecute() could still legitimately
+// return this code. Without this guard, it would silently fall through to
+// the "✅ Write Executed" success path for an action Core did NOT actually
+// execute -- a false success report, worse than a visible error.
+test("handleWriteButtonInteraction: an unexpected second_confirmation_required response reports a real error, never a false success", async () => {
+  resetPendingConfirmations();
+  registerRealPendingConfirmation({ nonce: "n-unexpected-202", action: "server.stop", tier: "owner", userId: "the-owner", expiresAt: Date.now() + 300000, kind: "real" });
+  const adapterClient = { writeExecute: async () => ({ ok: true, code: "second_confirmation_required", error: "second confirmation needed" }) };
+  const originalLog = console.log;
+  const lines = [];
+  console.log = (line) => lines.push(String(line));
+  const updates = [];
+  try {
+    const interaction = {
+      isButton: () => true, customId: "write:confirm:n-unexpected-202",
+      user: { id: "the-owner", username: "owner" }, guildId: "g1", channelId: "c1",
+      update: async (p) => updates.push(p)
+    };
+    const handled = await handleWriteButtonInteraction(interaction, adapterClient);
+    assert.equal(handled, true);
+  } finally {
+    console.log = originalLog;
+  }
+  assert.doesNotMatch(JSON.stringify(updates[0]), /Write Executed/i, "must never report success for a response mentat can't actually confirm was a real execution");
+  const audit = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .find((e) => e && e.idempotencyKey === "n-unexpected-202");
+  assert.ok(audit, "an unexpected 202 must still produce an audit event");
+  assert.equal(audit.result, "execute-failed", "must never be recorded as a successful 'executed' result");
+});

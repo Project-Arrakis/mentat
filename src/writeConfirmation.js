@@ -287,17 +287,28 @@ export async function handleWriteButtonInteraction(interaction, adapterClient) {
       // against whichever Core instance the process defaults to, not their
       // own. writeHandler.js's sibling writePreview call already passed it.
       const result = await adapterClient.writeExecute(actor, { nonce: idempotencyKey, action: entry.action }, interaction.guildId);
-      // mentat#404: a `result.code === "second_confirmation_required"` branch
-      // used to live here -- it re-registered the nonce pending a second
-      // confirmer, emitted a `second-confirmation-required` audit event and
-      // rendered a public "Waiting on a Second Administrator" embed. Core's
-      // write bridge still supports that code generically (its routes.js
-      // dispatch is deliberately kept), but no route in Core's table and no
-      // entry in this bot's WRITE_ACTIONS sets the flag that produces it any
-      // more, so nothing can reach it. Re-enabling dual confirmation on any
-      // action therefore needs client-side support restored HERE too --
-      // without it a 202 would fall through to the "✅ Write Executed" reply
-      // below for an action Core has not actually executed.
+      // mentat#404: a full `result.code === "second_confirmation_required"`
+      // branch used to live here -- it re-registered the nonce pending a
+      // second confirmer, emitted a `second-confirmation-required` audit
+      // event and rendered a public "Waiting on a Second Administrator"
+      // embed. Core's write bridge still supports that code generically (its
+      // routes.js dispatch is deliberately kept), but no route in Core's
+      // table and no entry in this bot's WRITE_ACTIONS sets the flag that
+      // produces it any more, so this should never actually happen. It's
+      // still checked explicitly (round-2 review finding) so that IF mentat
+      // and Core's write-bridge tables ever desync on this specific flag,
+      // this reports a visible error instead of a false "✅ Write Executed"
+      // for an action Core did not actually execute -- mapWriteError() and
+      // writeErrorMapping.test.js already have a real message for both
+      // protocol codes, only the dispatch here was missing. Re-enabling
+      // real dual confirmation on any future action needs the full
+      // re-registration/waiting-embed logic restored, not just this guard.
+      if (result?.code === "second_confirmation_required" || result?.code === "second_confirmation_same_actor") {
+        const error = { body: { code: result.code, error: result.error } };
+        console.log(JSON.stringify(writeAuditEvent({ actor, action: entry.action, capability: entry.action, idempotencyKey, result: "execute-failed", detail: { error: mapWriteError(error).description, unexpectedCode: result.code } })));
+        await interaction.update({ embeds: [buildWriteErrorEmbed(error)], components: [] });
+        return true;
+      }
       console.log(JSON.stringify(writeAuditEvent({ actor, action: entry.action, capability: entry.action, idempotencyKey, result: "executed" })));
       await interaction.update({
         embeds: [duneEmbed({ title: "✅ Write Executed", color: "success", description: `\`${entry.action}\` completed.` })],

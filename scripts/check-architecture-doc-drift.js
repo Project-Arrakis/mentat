@@ -25,8 +25,18 @@ async function main() {
   // WRITE_ACTIONS table (the 27 real commands) plus src/writeHandler.js's
   // LEGACY_WRITE_STUBS (the 9 still-deferred legacy commands) -- together,
   // every write subcommand a user can actually type.
-  const writeActions = await readFile(ROOT("src/writeActions.js"), "utf8");
-  const writeHandler = await readFile(ROOT("src/writeHandler.js"), "utf8");
+  //
+  // [Audit fix, mentat#401 round 2] Imports the real modules rather than
+  // regex-parsing their source text -- a round-2 review found the regex
+  // approach (matched on `group: "...", name: "..."` ordering) had a real
+  // ordering blind spot: inserting any field between `group` and `name` on
+  // a single entry made that entry silently invisible to the check, with
+  // nothing catching it (the only empty-match guard is
+  // `writeNameMatches.length === 0`, which doesn't fire for one dropped
+  // entry among many). Importing the actual exported arrays has no such
+  // blind spot -- it sees exactly what the real dispatch code sees.
+  const { WRITE_ACTIONS } = await import(ROOT("src/writeActions.js"));
+  const { LEGACY_WRITE_STUBS } = await import(ROOT("src/writeHandler.js"));
 
   // 1. No Postgres driver dependency — the doc's central claim.
   const deps = Object.keys(pkg.dependencies || {});
@@ -61,19 +71,12 @@ async function main() {
   }
 
   // 3. Write command list — every real write command name must appear in the doc.
-  // Matched on the exact `group: "...", name: "..."` ordering every top-level
-  // WRITE_ACTIONS/LEGACY_WRITE_STUBS entry uses (never the reverse) -- this
-  // deliberately does NOT match a bare `name: "..."` anywhere in the file,
-  // since each entry's own `params` array has its own `{ name: "playerId",
-  // ... }`-shaped sub-objects that would otherwise false-positive as if they
-  // were top-level command names.
-  const ENTRY_NAME_PATTERN = /group:\s*"[^"]*"\s*,\s*name:\s*"([^"]+)"/g;
   const writeNameMatches = [
-    ...[...writeActions.matchAll(ENTRY_NAME_PATTERN)].map((m) => m[1]),
-    ...[...writeHandler.matchAll(ENTRY_NAME_PATTERN)].map((m) => m[1])
+    ...WRITE_ACTIONS.map((e) => e.name),
+    ...LEGACY_WRITE_STUBS.map((e) => e.name)
   ];
   if (writeNameMatches.length === 0) {
-    issues.push("Could not find any top-level `{ group: \"...\", name: \"...\" }` write command definitions in src/writeActions.js or src/writeHandler.js — drift check itself needs updating.");
+    issues.push("WRITE_ACTIONS and LEGACY_WRITE_STUBS both resolved empty — drift check itself needs updating (or something is badly broken in src/writeActions.js / src/writeHandler.js).");
   } else {
     for (const name of writeNameMatches) {
       if (!doc.includes(name)) {

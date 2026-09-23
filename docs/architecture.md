@@ -121,11 +121,11 @@ that comment history before assuming a route's status): `health`, `status`,
 **The single source of truth for real write commands is
 `src/writeActions.js`'s `WRITE_ACTIONS` table** — both Discord command
 registration (`commands.js`) and dispatch (`writeHandler.js`) read from it.
-`src/writeCommands.js` is the SUPERSEDED predecessor list: it is no longer
-what the bot registers or dispatches, and is retained only because
-`scripts/check-architecture-doc-drift.js` still parses it (widening that
-check to `writeActions.js` is tracked separately). Do not treat
-`writeCommands.js` as current.
+`src/writeCommands.js`, the old predecessor list, has been **deleted**
+(mentat#400) — it had zero real importers left anywhere in `src/`/`test/`
+once `writeActions.js`/`writeHandler.js` became the single source of
+truth, and `scripts/check-architecture-doc-drift.js` (mentat#401) now
+reads those two files directly instead of the old one.
 
 **Player-facing write commands DO exist as of the
 write-command-reconciliation branch** (`docs/design/write-command-reconciliation-l1-design-2026-09-22.md`)

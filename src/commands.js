@@ -232,9 +232,12 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       g.setName("write").setDescription("Write commands — gated behind DUNE_DISCORD_WRITES_ENABLED.")
         // [Audit fix, mentat#403] These 9 descriptions/param descriptions must
         // stay byte-identical to LEGACY_WRITE_STUBS's (src/writeHandler.js) --
-        // two independently hand-maintained copies had already drifted on 7
-        // of 9 entries before this fix (found while extending the cross-check
-        // test below to compare description/param text, not just names).
+        // this hand-maintained copy had already drifted on 7 of 9 entries
+        // before this fix (found while extending the cross-check test below
+        // to compare description/param text, not just names). A THIRD
+        // hand-maintained copy, WRITE_HELP_ENTRIES below (consumed by
+        // /dune help), had also drifted the same way plus still advertised 3
+        // removed commands -- fixed in the same round, see its own comment.
         .addSubcommand((c) => c.setName("maintenance-note").setDescription("Set a maintenance note for operators.")
           .addStringOption((o) => o.setName("note").setDescription("Maintenance note text").setRequired(true).setMaxLength(500)))
         .addSubcommand((c) => c.setName("maintenance-window").setDescription("Set a maintenance window.")
@@ -1155,18 +1158,23 @@ function setupPayload(config, interaction) {
 // mirrors buildDuneCommand()'s full registered surface (54 entries, 66
 // with the write group) in registration order. Keep it in sync with the
 // registration block when commands change.
-const WRITE_HELP_ENTRIES = [
-  { name: "write:maintenance-note", desc: "Set a maintenance note.", role: "admin" },
+// [Audit fix, mentat#403 round 2] This was a THIRD independently
+// hand-maintained copy of the legacy write group's shape -- not just the
+// two (commands.js's builder, writeHandler.js's LEGACY_WRITE_STUBS) the
+// original #403 fix cross-checked. It still listed backup/restart/update
+// (removed from registration entirely during write-command reconciliation
+// -- /dune help was advertising 3 commands that could not be typed) and
+// had the same pre-#403 stale descriptions for the other 7. Text now
+// copied verbatim from LEGACY_WRITE_STUBS (src/writeHandler.js).
+export const WRITE_HELP_ENTRIES = [
+  { name: "write:maintenance-note", desc: "Set a maintenance note for operators.", role: "admin" },
   { name: "write:maintenance-window", desc: "Set a maintenance window.", role: "admin" },
-  { name: "write:alert-channel", desc: "Set alert notification channel.", role: "admin" },
+  { name: "write:alert-channel", desc: "Set the alert channel for readiness/service notifications.", role: "admin" },
   { name: "write:alert-threshold", desc: "Set alert thresholds.", role: "admin" },
-  { name: "write:digest-schedule", desc: "Set digest schedule interval.", role: "admin" },
-  { name: "write:post-schedule", desc: "Set scheduled post type.", role: "admin" },
-  { name: "write:add-channel", desc: "Add channel for scheduled posts.", role: "admin" },
-  { name: "write:remove-channel", desc: "Remove channel from scheduled posts.", role: "admin" },
-  { name: "write:backup", desc: "Create a database backup.", role: "admin" },
-  { name: "write:restart", desc: "Restart a game service.", role: "admin" },
-  { name: "write:update", desc: "Trigger a game or server update.", role: "admin" },
+  { name: "write:digest-schedule", desc: "Set the digest schedule interval.", role: "admin" },
+  { name: "write:post-schedule", desc: "Set the scheduled post type.", role: "admin" },
+  { name: "write:add-channel", desc: "Add a channel for scheduled posts.", role: "admin" },
+  { name: "write:remove-channel", desc: "Remove a channel from scheduled posts.", role: "admin" },
   { name: "write:cache", desc: "Clear server caches.", role: "admin" }
 ];
 

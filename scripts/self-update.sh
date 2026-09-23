@@ -67,6 +67,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/deploy-core.sh"
 # explicit 0600 mode, not the process's default umask.
 mkdir -p "$(dirname "$MARKER_FILE")"
 DISCORD_WEBHOOK_URL="$DISCORD_WEBHOOK_URL" node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify({ webhookUrl: process.env.DISCORD_WEBHOOK_URL || '', triggeredAt: Date.now() }), { mode: 0o600 })" "$MARKER_FILE"
+# Belt-and-braces: writeFileSync's {mode} option only applies at file
+# CREATION -- if a corrupt/leftover marker from a prior run already existed
+# at this exact path with looser permissions, the write above would
+# silently keep the old mode. An explicit chmod makes the guarantee hold
+# regardless of what was there before.
+chmod 600 "$MARKER_FILE"
 
 if deploy_core::sync_test_install_restart "$WORK_DIR" "$SERVICE_NAME"; then
   deploy_core::webhook_report "✅ Self-update complete. \`$(cd "$WORK_DIR" && git log --oneline -1)\` is now live."

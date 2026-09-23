@@ -121,7 +121,7 @@ test("helpPayload lists the write group only when writes are enabled, gated by w
 
     const adminHelp = helpPayload(config(), mockInteraction("core", "help", { roles: ["write-admin-role"] }));
     assert.ok(adminHelp.total > 54, "write group adds commands to help when writes enabled");
-    assert.ok(adminHelp.available.includes("write:backup"), "write-admin role can see write commands as available");
+    assert.ok(adminHelp.available.includes("write:cache"), "write-admin role can see write commands as available");
   } finally {
     if (originalAdminRoles === undefined) delete process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
     else process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = originalAdminRoles;
@@ -806,5 +806,30 @@ test("buildDuneCommand: each write-group subcommand's description and params mat
       assert.equal(registeredParam.description, param.desc, `write:${stub.name}'s param "${param.name}" description doesn't match LEGACY_WRITE_STUBS`);
       assert.equal(registeredParam.required, param.required, `write:${stub.name}'s param "${param.name}" required-ness doesn't match LEGACY_WRITE_STUBS`);
     }
+  }
+});
+
+// [Audit fix, mentat#403 round 2] A code review found a THIRD
+// independently hand-maintained copy of the legacy write-group shape --
+// WRITE_HELP_ENTRIES (consumed by /dune help) -- that the original #403
+// fix above never cross-checked. It had drifted the same way (stale
+// descriptions) AND still advertised 3 removed commands
+// (write:backup/restart/update) that could no longer be typed. This test
+// closes that gap: every LEGACY_WRITE_STUBS name must appear in
+// WRITE_HELP_ENTRIES with a matching description, and WRITE_HELP_ENTRIES
+// must never contain a name LEGACY_WRITE_STUBS doesn't have (the phantom-
+// command direction of drift).
+test("helpPayload: WRITE_HELP_ENTRIES matches LEGACY_WRITE_STUBS exactly -- same names, same descriptions", async () => {
+  const { LEGACY_WRITE_STUBS } = await import("../src/writeHandler.js");
+  const { WRITE_HELP_ENTRIES } = await import("../src/commands.js");
+  const helpByName = new Map(WRITE_HELP_ENTRIES.map((e) => [e.name.replace(/^write:/, ""), e]));
+  const legacyNames = new Set(LEGACY_WRITE_STUBS.map((s) => s.name));
+  for (const stub of LEGACY_WRITE_STUBS) {
+    const helpEntry = helpByName.get(stub.name);
+    assert.ok(helpEntry, `write:${stub.name} is in LEGACY_WRITE_STUBS but missing from WRITE_HELP_ENTRIES`);
+    assert.equal(helpEntry.desc, stub.desc, `write:${stub.name}'s WRITE_HELP_ENTRIES description doesn't match LEGACY_WRITE_STUBS`);
+  }
+  for (const name of helpByName.keys()) {
+    assert.ok(legacyNames.has(name), `WRITE_HELP_ENTRIES lists write:${name}, which is not a real LEGACY_WRITE_STUBS entry -- a phantom command /dune help would advertise that cannot actually be typed`);
   }
 });
