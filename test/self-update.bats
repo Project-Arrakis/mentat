@@ -138,6 +138,24 @@ EOF
   rm -rf "$FAILDIR"
 }
 
+@test "self-update.sh writes the marker file at 0600, not the process's default umask (mentat#397)" {
+  REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  # Source-level regression guard: the real marker-write line must still
+  # pass Node's `{ mode: 0o600 }` option -- this fails immediately if a
+  # future edit ever drops it, without needing to run the full script.
+  marker_line="$(grep -F "webhookUrl: process.env.DISCORD_WEBHOOK_URL" "$REPO_ROOT/scripts/self-update.sh")"
+  [[ "$marker_line" == *'{ mode: 0o600 }'* ]]
+
+  # Behavioral confirmation that Node's writeFileSync({mode}) option
+  # actually produces 0600 on this platform (a separate, hardcoded
+  # invocation -- not extracted from the script above -- since this half
+  # only needs to prove the Node API itself behaves as assumed).
+  markerfile="$WORK_DIR/self-update-pending.json"
+  node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify({ webhookUrl: process.env.DISCORD_WEBHOOK_URL || '', triggeredAt: Date.now() }), { mode: 0o600 })" "$markerfile"
+  mode="$(stat -c '%a' "$markerfile")"
+  [ "$mode" = "600" ]
+}
+
 @test "deploy_core::webhook_report keeps the webhook URL out of curl's argv entirely, using a -K config file instead" {
   # [Audit fix: QA, MEDIUM round 3] Round 3 found the curl-argv-leak fix
   # (Round 2) had zero test coverage anywhere -- neither self-update.sh

@@ -59,8 +59,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/deploy-core.sh"
 # survives even if THIS script's own webhook post (below) is killed
 # alongside the old process despite the systemd-run escape (belt and
 # braces, not a single point of failure).
+#
+# mentat#397: this file embeds the same bearer-style webhook URL/token as
+# the short-lived webhook-secret temp file used earlier in this script --
+# but unlike that file (0600, deleted within milliseconds), this one is
+# DESIGNED to persist across the restart window, so it needs the same
+# explicit 0600 mode, not the process's default umask.
 mkdir -p "$(dirname "$MARKER_FILE")"
-DISCORD_WEBHOOK_URL="$DISCORD_WEBHOOK_URL" node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify({ webhookUrl: process.env.DISCORD_WEBHOOK_URL || '', triggeredAt: Date.now() }))" "$MARKER_FILE"
+DISCORD_WEBHOOK_URL="$DISCORD_WEBHOOK_URL" node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify({ webhookUrl: process.env.DISCORD_WEBHOOK_URL || '', triggeredAt: Date.now() }), { mode: 0o600 })" "$MARKER_FILE"
 
 if deploy_core::sync_test_install_restart "$WORK_DIR" "$SERVICE_NAME"; then
   deploy_core::webhook_report "✅ Self-update complete. \`$(cd "$WORK_DIR" && git log --oneline -1)\` is now live."

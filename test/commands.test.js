@@ -782,3 +782,29 @@ test("buildDuneCommand: the registered write-group names and LEGACY_WRITE_STUBS'
   const legacyStubNames = new Set(LEGACY_WRITE_STUBS.map((s) => s.name));
   assert.deepEqual([...writeSubcommands].sort(), [...legacyStubNames].sort(), "commands.js's write group and writeHandler.js's LEGACY_WRITE_STUBS have drifted apart");
 });
+
+// [Audit fix, mentat#403] The name-only check above doesn't catch
+// description/param drift between the two independently hand-maintained
+// copies -- and they HAD already drifted on 7 of 9 entries' descriptions
+// before this test was added (found by writing this exact comparison).
+// LEGACY_WRITE_STUBS's params never use a param.type that needs
+// discordOptionName() conversion (no camelCase names), so this compares
+// param names directly rather than pulling in that helper.
+test("buildDuneCommand: each write-group subcommand's description and params match LEGACY_WRITE_STUBS exactly", async () => {
+  const { LEGACY_WRITE_STUBS } = await import("../src/writeHandler.js");
+  const built = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+  const registeredGroups = new Map(built.options.filter((o) => o.type === 2).map((g) => [g.name, g]));
+  const registeredByName = new Map(registeredGroups.get("write").options.map((s) => [s.name, s]));
+  for (const stub of LEGACY_WRITE_STUBS) {
+    const registered = registeredByName.get(stub.name);
+    assert.ok(registered, `write:${stub.name} is in LEGACY_WRITE_STUBS but not registered`);
+    assert.equal(registered.description, stub.desc, `write:${stub.name}'s registered description doesn't match LEGACY_WRITE_STUBS's desc`);
+    assert.equal(registered.options.length, stub.params.length, `write:${stub.name} has a different number of params registered than LEGACY_WRITE_STUBS declares`);
+    for (const param of stub.params) {
+      const registeredParam = registered.options.find((o) => o.name === param.name);
+      assert.ok(registeredParam, `write:${stub.name}'s param "${param.name}" is in LEGACY_WRITE_STUBS but not registered`);
+      assert.equal(registeredParam.description, param.desc, `write:${stub.name}'s param "${param.name}" description doesn't match LEGACY_WRITE_STUBS`);
+      assert.equal(registeredParam.required, param.required, `write:${stub.name}'s param "${param.name}" required-ness doesn't match LEGACY_WRITE_STUBS`);
+    }
+  }
+});

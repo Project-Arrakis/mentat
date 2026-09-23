@@ -230,24 +230,29 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
   if (includeWriteGroup) {
     builder.addSubcommandGroup((g) =>
       g.setName("write").setDescription("Write commands — gated behind DUNE_DISCORD_WRITES_ENABLED.")
-        .addSubcommand((c) => c.setName("maintenance-note").setDescription("Set a maintenance note.")
+        // [Audit fix, mentat#403] These 9 descriptions/param descriptions must
+        // stay byte-identical to LEGACY_WRITE_STUBS's (src/writeHandler.js) --
+        // two independently hand-maintained copies had already drifted on 7
+        // of 9 entries before this fix (found while extending the cross-check
+        // test below to compare description/param text, not just names).
+        .addSubcommand((c) => c.setName("maintenance-note").setDescription("Set a maintenance note for operators.")
           .addStringOption((o) => o.setName("note").setDescription("Maintenance note text").setRequired(true).setMaxLength(500)))
         .addSubcommand((c) => c.setName("maintenance-window").setDescription("Set a maintenance window.")
           .addStringOption((o) => o.setName("start").setDescription("Start time (ISO 8601)").setRequired(true))
           .addIntegerOption((o) => o.setName("duration").setDescription("Duration in minutes").setRequired(true).setMinValue(1).setMaxValue(1440)))
-        .addSubcommand((c) => c.setName("alert-channel").setDescription("Set alert notification channel.")
+        .addSubcommand((c) => c.setName("alert-channel").setDescription("Set the alert channel for readiness/service notifications.")
           .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
         .addSubcommand((c) => c.setName("alert-threshold").setDescription("Set alert thresholds.")
-          .addStringOption((o) => o.setName("metric").setDescription("Metric").setRequired(true))
+          .addStringOption((o) => o.setName("metric").setDescription("Metric (readiness/services/population)").setRequired(true))
           .addStringOption((o) => o.setName("condition").setDescription("Condition (lt/gt/eq)").setRequired(true))
           .addIntegerOption((o) => o.setName("value").setDescription("Threshold value").setRequired(true)))
-        .addSubcommand((c) => c.setName("digest-schedule").setDescription("Set digest schedule interval.")
+        .addSubcommand((c) => c.setName("digest-schedule").setDescription("Set the digest schedule interval.")
           .addIntegerOption((o) => o.setName("minutes").setDescription("Interval in minutes").setRequired(true).setMinValue(5).setMaxValue(1440)))
-        .addSubcommand((c) => c.setName("post-schedule").setDescription("Set scheduled post type.")
+        .addSubcommand((c) => c.setName("post-schedule").setDescription("Set the scheduled post type.")
           .addStringOption((o) => o.setName("type").setDescription("status/status-summary/readiness/services/none").setRequired(true)))
-        .addSubcommand((c) => c.setName("add-channel").setDescription("Add channel for scheduled posts.")
+        .addSubcommand((c) => c.setName("add-channel").setDescription("Add a channel for scheduled posts.")
           .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
-        .addSubcommand((c) => c.setName("remove-channel").setDescription("Remove channel from scheduled posts.")
+        .addSubcommand((c) => c.setName("remove-channel").setDescription("Remove a channel from scheduled posts.")
           .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
         // "backup"/"restart"/"update" removed (write command reconciliation,
         // Task 7): superseded by real new commands --
