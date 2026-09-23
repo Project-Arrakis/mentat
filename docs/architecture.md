@@ -155,13 +155,16 @@ A separate `broadcast` route is also live (admin announcements to a channel),
 gated by `DUNE_DISCORD_WRITES_ENABLED`, as is every write command above.
 
 Nine legacy scaffold entries (`LEGACY_WRITE_STUBS` in `writeHandler.js`,
-mirroring the old `src/writeCommands.js` list — set-maintenance-note,
-set-maintenance-window, set-alert-channel, set-alert-threshold,
-set-digest-schedule, set-post-schedule, add-post-channel,
-remove-post-channel, clear-cache) still return the "awaiting upstream
-contract" response and never reach Core. The other three entries of that old
-list — create-backup, restart-service, trigger-update — were promoted to
-real actions in the table above.
+under `/dune write <name>` — maintenance-note, maintenance-window,
+alert-channel, alert-threshold, digest-schedule, post-schedule, add-channel,
+remove-channel, cache) still return the "awaiting upstream contract"
+response and never reach Core. `src/writeCommands.js`, the original
+hand-written registry these names came from, has been deleted — it had no
+real caller left once `writeActions.js`/`writeHandler.js` became the single
+source of truth (mentat#400). The other three entries of that old
+list — backup, restart, update — were promoted to real actions in the
+table above (`operations create-backup`, `server restart-service`,
+`operations trigger-update`).
 
 The broader read/write architecture effort tracked in
 `dune-awakening-selfhost-docker`'s `docs/rw-architecture.md` is a separate,

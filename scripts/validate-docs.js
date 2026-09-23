@@ -90,7 +90,7 @@ async function main() {
     "src/index.js", "src/logger.js", "src/healthState.js", "src/healthcheck.js",
     "src/cooldown.js", "src/scheduler.js", "src/notifications.js",
     "src/announcements.js", "src/broadcast.js", "src/opsCommands.js",
-    "src/writes.js", "src/writeCommands.js"
+    "src/writes.js", "src/writeActions.js"
   ];
   for (const f of coreFiles) {
     if (!existsSync(ROOT(f))) {
