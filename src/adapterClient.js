@@ -65,7 +65,14 @@ export const LIVE_ROUTES = new Set([
   // was still inaccurate and is corrected here alongside the two
   // genuinely urgent regressions found in the same audit (see
   // MISSING_ROUTES's comment below for players-accounts-*/ops-dashboard).
-  "backups", "announcements", "maintenance"
+  "backups", "announcements", "maintenance",
+  // SIXTH reconciliation (2026-09-22, write-command reconciliation):
+  // write-execute and write-preview were classified MISSING pending Core
+  // support. dune-awakening-selfhost-docker#1026 merged with real route
+  // implementations. Moved to LIVE. Gating on DUNE_DISCORD_WRITES_ENABLED
+  // env var (writes.js, writesEnabled()) is the real kill switch for this
+  // feature, not a version-compatibility flag.
+  "write-execute", "write-preview"
 ]);
 
 // Routes that exist in upstream but return "planned" stubs or placeholder data.
@@ -168,9 +175,6 @@ export const UNMERGED_ROUTES = new Set([
 // Routes that do NOT exist anywhere, or that Core declares a route
 // constant for but never actually routes a request to.
 //
-// write-execute/write-preview: the write-command group's routes, still
-// unbuilt on Core (the bot's write group stays disabled until they land).
-//
 // player-links, player-links-verify, player-links-unlink: the never-built
 // player-links/* path family. Core has no such routes (only
 // player-links/start exists, and even that is UNMERGED/dead), and NO
@@ -210,8 +214,14 @@ export const UNMERGED_ROUTES = new Set([
 // regression from v1.3.79 (where it was genuinely live, dispatched via
 // the older OPS_PATHS/OPS_PROVIDERS array), not a stale classification
 // that was always wrong.
+// write-execute/write-preview removed 2026-09-22 (operator decision, see
+// docs/design/write-command-reconciliation-l1-design-2026-09-22.md and
+// the tracked issue it links): these routes are real once
+// dune-awakening-selfhost-docker#1026 merges. Gating on
+// DUNE_DISCORD_WRITES_ENABLED (writesEnabled(), writes.js) is the real
+// kill switch for this feature going forward, not a version-compatibility
+// flag.
 export const MISSING_ROUTES = new Set([
-  "write-execute", "write-preview",
   "player-links", "player-links-verify", "player-links-unlink",
   "players-accounts-list", "players-accounts-unlink", "players-accounts-link-steam",
   "ops-dashboard"
