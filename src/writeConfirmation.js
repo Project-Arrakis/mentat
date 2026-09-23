@@ -2,21 +2,21 @@
 // described in docs/rw-confirmation-flow.md and routes the resulting button
 // interactions.
 //
-// IMPORTANT SAFETY BOUNDARY: confirming a write action here NEVER calls
-// adapterClient.writePreview() or adapterClient.writeExecute(). Those routes
-// are listed in MISSING_ROUTES (src/adapterClient.js) because no upstream
-// write-capable adapter contract has been published or approved yet
-// (see docs/upstream-write-adapter-rfc.md and docs/r1-r2-release-roadmap.md,
-// which explicitly blocks "write adapter execution calls" until that happens).
-// Clicking Confirm here only reports the same "scaffolded, awaiting upstream
-// contract" status that src/writeHandler.js already returns for the initial
-// command — it makes the confirmation step real without making the write
-// real. Do not wire writePreview()/writeExecute() into this module until the
-// project's R2 entry criteria are met.
+// UPDATED (Task 5, write-command-reconciliation plan): confirming a REAL
+// write action (an entry registered via registerRealPendingConfirmation(),
+// i.e. one that carries a `kind`) now calls adapterClient.writeExecute() for
+// real -- Core's write-execute route is live (see writeHandler.js, which
+// already calls the matching writePreview() as of Task 4). The one exception
+// is a LEGACY stub entry (created via createPendingConfirmation(), which
+// never sets `kind`) -- those still only ever report the harmless
+// "scaffolded, awaiting upstream contract" status and never reach
+// adapterClient at all; see the `isLegacyStub` branch below.
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { duneEmbed } from "./embedFormat.js";
 import { writeAuditEvent } from "./writes.js";
+import { buildWriteErrorEmbed, mapWriteError } from "./writeErrorMapping.js";
+import { actorFromInteraction } from "./rbac.js";
 
 const DEFAULT_CONFIRMATION_TIMEOUT_MS = 60000;
 const CUSTOM_ID_PREFIX = "write";
@@ -182,12 +182,16 @@ export function resetPendingConfirmations() {
 
 // Routes a button interaction for the write confirmation flow. Returns false
 // if the interaction does not belong to this flow (caller should ignore it).
-export async function handleWriteButtonInteraction(interaction) {
+export async function handleWriteButtonInteraction(interaction, adapterClient) {
   if (!interaction?.isButton?.()) return false;
-  const parts = String(interaction.customId || "").split(":");
-  if (parts[0] !== CUSTOM_ID_PREFIX) return false;
-
-  const [, action, idempotencyKey] = parts;
+  const raw = String(interaction.customId || "");
+  const firstColon = raw.indexOf(":");
+  const secondColon = firstColon === -1 ? -1 : raw.indexOf(":", firstColon + 1);
+  if (firstColon === -1 || secondColon === -1) return false;
+  const prefix = raw.slice(0, firstColon);
+  const action = raw.slice(firstColon + 1, secondColon);
+  const idempotencyKey = raw.slice(secondColon + 1); // everything after the second colon, verbatim -- may itself contain colons
+  if (prefix !== CUSTOM_ID_PREFIX) return false;
   const entry = getPendingConfirmation(idempotencyKey);
 
   if (!entry) {
@@ -201,8 +205,32 @@ export async function handleWriteButtonInteraction(interaction) {
   // now refuses to create such an entry at all, but this check stays
   // unconditional as defense in depth against any future caller that
   // bypasses it.
+  //
+  // [Audit fix: UI/UX, CRITICAL, round 2] a dual-confirmation action's
+  // SECOND step is expected to be clicked by a genuinely different admin
+  // than the one who registered the pending entry -- the plain "not yours"
+  // rejection below must not fire for that specific case.
+  const isDualConfirmSecondStep = entry.secondConfirmationPending === true;
   if (interaction.user?.id !== entry.userId) {
-    await interaction.reply({ embeds: [buildNotYoursEmbed()], ephemeral: true });
+    if (!isDualConfirmSecondStep) {
+      // Normal case: a nonce belongs to exactly the actor who requested it.
+      await interaction.reply({ embeds: [buildNotYoursEmbed()], ephemeral: true });
+      return true;
+    }
+    // A genuinely different admin clicking a dual-confirmation's SECOND
+    // step is exactly the expected, correct case -- fall through. Every
+    // reference to "the actor" from this point on must use THIS
+    // interaction's own real, current identity (actorFromInteraction),
+    // never entry.userId (the FIRST admin) -- see the confirm branch below.
+  } else if (isDualConfirmSecondStep) {
+    // The SAME admin who gave the first confirmation cannot also give the
+    // second -- reject client-side, mirroring Core's own
+    // second_confirmation_same_actor check, per the design's own stated
+    // requirement (never actually implemented until this fix).
+    await interaction.reply({
+      embeds: [duneEmbed({ title: "🔒 A Different Administrator Is Required", color: "error", description: "You already provided the first confirmation. A different, owner-tier administrator must provide the second one by clicking this same button." })],
+      ephemeral: true
+    });
     return true;
   }
 
@@ -216,12 +244,68 @@ export async function handleWriteButtonInteraction(interaction) {
   }
 
   if (action === "confirm") {
+    const isSelfUpdate = entry.action === "bot.self-update";
+    // [Audit fix: Security/Architect, MEDIUM round 3] entries created by
+    // the OLD, untouched createPendingConfirmation() (writeHandler.js's
+    // restored LEGACY_WRITE_STUBS branch, Task 4 Step 7) carry no `kind`
+    // field at all -- only registerRealPendingConfirmation() (real/
+    // self-update paths) sets one. Without this check, a legacy stub's
+    // confirm click would fall through to the "real" branch below and
+    // call adapterClient.writeExecute() with a bogus, never-registered
+    // Core action name (e.g. "maintenance:set-note"), producing a
+    // confusing Core-side error instead of the intended, harmless
+    // scaffolded response this subcommand has always returned.
+    const isLegacyStub = !entry.kind;
     clearPendingConfirmation(idempotencyKey);
-    // See module header: confirming never calls writePreview()/writeExecute().
-    await interaction.update({
-      embeds: [buildScaffoldedEmbed({ action: entry.action })],
-      components: []
-    });
+
+    if (isLegacyStub) {
+      await interaction.update({ embeds: [buildScaffoldedEmbed({ action: entry.action })], components: [] });
+      return true;
+    }
+
+    if (isSelfUpdate) {
+      const { runSelfUpdate } = await import("./writeSelfUpdate.js");
+      console.log(JSON.stringify(writeAuditEvent({ actor: actorFromInteraction(interaction), action: entry.action, capability: entry.action, idempotencyKey, result: "confirmed" })));
+      await interaction.update({ embeds: [duneEmbed({ title: "🔄 Self-Update Starting", color: "warning", description: "Restarting on the latest deployed code. I'll post the result here once it's done." })], components: [] });
+      runSelfUpdate({ interactionToken: interaction.token, applicationId: interaction.applicationId, channelId: interaction.channelId });
+      return true;
+    }
+
+    // [Audit fix: UI/UX, CRITICAL, round 2] the actual, current clicker's
+    // real actor payload -- roleIds/guildId/channelId/username, everything
+    // actorSignature.js's real HMAC signing needs -- built via the bot's
+    // own existing, already-correct helper. Using entry.userId (the
+    // ORIGINAL admin, captured at registration) here was the second of
+    // three structural reasons dual-confirmation could never complete:
+    // Core would see the same actor identity on both calls regardless of
+    // who physically clicked, and reject the second one itself.
+    const actor = actorFromInteraction(interaction);
+    try {
+      const result = await adapterClient.writeExecute(actor, { nonce: idempotencyKey, action: entry.action });
+      if (result?.code === "second_confirmation_required") {
+        // Re-register the SAME nonce, marking it pending a second,
+        // different confirmer -- entry.userId stays the FIRST admin's ID
+        // (needed so the ownership-gate logic above can tell them apart
+        // from whoever clicks next), and secondConfirmationPending is what
+        // actually enables that gate's exception. Previously referenced
+        // but never set anywhere -- dead code, closed here.
+        registerRealPendingConfirmation({ nonce: idempotencyKey, action: entry.action, tier: entry.tier, userId: entry.userId, expiresAt: result.expiresAt, kind: "real", secondConfirmationPending: true });
+        await interaction.update({
+          embeds: [duneEmbed({ title: "⏳ Waiting on a Second Administrator", color: "warning", description: "Your confirmation was accepted. A second, different owner-tier admin must click **Confirm** on this same message to complete it." })],
+          components: [buildConfirmationRow(idempotencyKey)],
+          ephemeral: false
+        });
+        return true;
+      }
+      console.log(JSON.stringify(writeAuditEvent({ actor, action: entry.action, capability: entry.action, idempotencyKey, result: "executed" })));
+      await interaction.update({
+        embeds: [duneEmbed({ title: "✅ Write Executed", color: "success", description: `\`${entry.action}\` completed.` })],
+        components: []
+      });
+    } catch (error) {
+      console.log(JSON.stringify(writeAuditEvent({ actor, action: entry.action, capability: entry.action, idempotencyKey, result: "execute-failed", detail: { error: mapWriteError(error).description } })));
+      await interaction.update({ embeds: [buildWriteErrorEmbed(error)], components: [] });
+    }
     return true;
   }
 

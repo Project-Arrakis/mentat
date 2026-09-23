@@ -15,6 +15,7 @@ import { countSubcommands } from "./catalogTransform.js";
 import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { handleWriteCommand } from "./writeHandler.js";
+import { findWriteAction } from "./writeActions.js";
 import { writesEnabled, canWrite, writeRoleIds } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES, PLANNED_ROUTES } from "./adapterClient.js";
@@ -338,7 +339,14 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
   const startedAt = Date.now();
   const actor = actorFromInteraction(interaction);
   if (db) incrementCommandCount();
-  await interaction.deferReply({ ephemeral: config.discord.defaultEphemeral });
+  // Task 5 (write-command-reconciliation): a dual-confirmation action's
+  // (server.stop) FIRST admin's own confirmation prompt must also be
+  // public, not just the later "waiting on a second admin" state -- a
+  // second admin needs to be able to see the whole thread from the start,
+  // not just whatever state happens to exist by the time they look.
+  const writeActionDef = findWriteAction(group, subcommand);
+  const forcedPublic = writeActionDef?.requiresDualConfirmation === true;
+  await interaction.deferReply({ ephemeral: forcedPublic ? false : config.discord.defaultEphemeral });
   const deferReplyMs = elapsedMs(startedAt);
 
   try {

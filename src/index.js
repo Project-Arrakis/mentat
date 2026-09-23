@@ -312,7 +312,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // `false` (instead of returning) means any future prefix-dispatched
     // handler added below this line will actually run.
     if (interaction.isButton?.()) {
-      const handled = await handleWriteButtonInteraction(interaction);
+      const handled = await handleWriteButtonInteraction(interaction, adapterClient);
       if (handled) return;
       // mentat#343 Phase 2: the "autoinvite:confirm:"/"autoinvite:deny:"
       // buttons anticipated in the comment above (added when this fall-

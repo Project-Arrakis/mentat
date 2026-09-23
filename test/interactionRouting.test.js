@@ -22,7 +22,12 @@ test("InteractionCreate's button handling checks handleWriteButtonInteraction()'
 
   assert.match(
     src,
-    /const handled\s*=\s*await handleWriteButtonInteraction\(interaction\)/,
+    // Task 5 (write-command-reconciliation): handleWriteButtonInteraction()
+    // now takes adapterClient as a required second argument -- this pattern
+    // is deliberately not anchored to a specific second argument (still
+    // captures the call regardless of what it's named), only to the
+    // "capture the return value" shape mentat#332's fix actually cares about.
+    /const handled\s*=\s*await handleWriteButtonInteraction\(interaction\s*,\s*\w+\)/,
     "must capture handleWriteButtonInteraction()'s return value, not discard it"
   );
   assert.match(
