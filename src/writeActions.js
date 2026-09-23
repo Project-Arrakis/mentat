@@ -99,10 +99,38 @@ export const WRITE_ACTIONS = Object.freeze([
     resolveAction: (params) => (params.type === "steamcmd" ? "updates.fix-steamcmd" : "updates.apply-game") },
 
   // --- bot (genuinely new group; self-update never calls Core -- see writeSelfUpdate.js) ---
+  // [Task 7 discovery, write command reconciliation] desc shortened to fit
+  // Discord's 100-char subcommand-description limit (the original 149-char
+  // text -- "...replays the deploy pipeline's test-gated safety checks)..."
+  // -- threw immediately from setDescription() the first time this entry
+  // was actually registered via SlashCommandBuilder, confirmed directly
+  // against the real discord.js dependency; meaning preserved, detail
+  // trimmed. desc is used only for Discord's own subcommand description
+  // (see commands.js's addWriteSubcommands()) -- nothing else reads it.
   { group: "bot", name: "self-update", action: "bot.self-update", tier: "host-operator", confirmPhrase: null,
-    desc: "Restart the bot on the latest deployed code (replays the deploy pipeline's test-gated safety checks). Restricted to the configured bot host operator.", params: [] }
+    desc: "Restart the bot on the latest deployed code. Restricted to the configured bot host operator.", params: [] }
 ]);
 
 export function findWriteAction(group, name) {
   return WRITE_ACTIONS.find((e) => e.group === group && e.name === name) || null;
+}
+
+// [Task 7 discovery, write command reconciliation] Several params above use
+// a camelCase `name` (playerId, baseId, guildId, roleId, mapName, itemName)
+// matching the Funcom-style/Core-adapter field name -- but Discord's own
+// slash-command option-name validator (@discordjs/builders' `namePredicate`)
+// rejects ANY uppercase character outright (its regex is `\p{Ll}` --
+// lowercase letters only -- plus digits/underscore/hyphen), so registering
+// an option literally named "playerId" throws immediately, breaking
+// buildDuneCommand() for the whole bot, not just the write group -- confirmed
+// directly against the real discord.js dependency, not assumed. This
+// exports one shared, single-source-of-truth conversion (camelCase ->
+// kebab-case) so the Discord-facing option name and the semantic params-
+// object key used by writeHandler.js's collectParams()/Core's write/preview
+// payload never drift into two different naming schemes: commands.js uses
+// it to register the option; writeHandler.js uses the identical function to
+// read the same option back off the interaction, while still keying the
+// params object it builds for Core with the original camelCase name.
+export function discordOptionName(name) {
+  return name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 }

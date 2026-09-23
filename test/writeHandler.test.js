@@ -347,7 +347,15 @@ test("handleWriteCommand: a real preview success returns needsConfirmation with 
   const config = { discord: { writes: { enabled: true } } };
   const result = await handleWriteCommand({
     subcommand: "kick", group: "player",
-    interaction: { ...fakeOwnerInteraction(), options: { getString: (name) => (name === "playerId" ? "Server#4242" : null), getInteger: () => null, getNumber: () => null } },
+    // [Write command reconciliation, Task 7 discovery] the interaction's
+    // real Discord option name is "player-id" (kebab-case), not the
+    // camelCase "playerId" collectParams() keys its returned params object
+    // by -- Discord's own option-name validator rejects any uppercase
+    // character outright, confirmed directly against the real discord.js
+    // dependency in src/commands.js. See writeActions.js's
+    // discordOptionName() for the shared conversion both commands.js and
+    // writeHandler.js's collectParams() use.
+    interaction: { ...fakeOwnerInteraction(), options: { getString: (name) => (name === "player-id" ? "Server#4242" : null), getInteger: () => null, getNumber: () => null } },
     adapterClient, config
   });
   assert.equal(result.ok, true);
@@ -391,7 +399,9 @@ test("handleWriteCommand: integer params (base.refill-generators's baseId) are r
       ...fakeOwnerInteraction(),
       options: {
         getString: () => { throw new Error("must not call getString for an integer param"); },
-        getInteger: (name) => (name === "baseId" ? 42 : null),
+        // "base-id" -- see the discordOptionName() note above; Discord's
+        // real registered option name is kebab-case, not "baseId".
+        getInteger: (name) => (name === "base-id" ? 42 : null),
         getNumber: () => null
       }
     },

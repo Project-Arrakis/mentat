@@ -7,7 +7,7 @@
 
 import { randomUUID } from "node:crypto";
 import { writesEnabled, canWrite, requireConfirmation, generateIdempotencyKey, writeAuditEvent } from "./writes.js";
-import { findWriteAction, WRITE_ACTIONS } from "./writeActions.js";
+import { findWriteAction, WRITE_ACTIONS, discordOptionName } from "./writeActions.js";
 import { mapWriteError } from "./writeErrorMapping.js";
 import { buildConfirmationEmbed, buildConfirmationRow, registerRealPendingConfirmation, confirmationTimeoutMs, pendingConfirmationCount, createPendingConfirmation, writeTimeoutAuditEvent } from "./writeConfirmation.js";
 import { actorFromInteraction } from "./rbac.js";
@@ -55,11 +55,17 @@ function findLegacyWriteStub(group, subcommand) {
 }
 
 function collectParams(def, interaction) {
+  // Read back using the same camelCase->kebab-case conversion commands.js
+  // used to register the option (see writeActions.js's discordOptionName()),
+  // but key the returned object by the original param.name -- Core's
+  // write/preview payload expects the Core-facing field name (e.g.
+  // "playerId"), not the Discord option's kebab-case spelling.
   const params = {};
   for (const p of def.params) {
-    if (p.type === "integer") params[p.name] = interaction.options.getInteger(p.name);
-    else if (p.type === "number") params[p.name] = interaction.options.getNumber(p.name);
-    else params[p.name] = interaction.options.getString(p.name);
+    const optionName = discordOptionName(p.name);
+    if (p.type === "integer") params[p.name] = interaction.options.getInteger(optionName);
+    else if (p.type === "number") params[p.name] = interaction.options.getNumber(optionName);
+    else params[p.name] = interaction.options.getString(optionName);
   }
   return params;
 }
