@@ -48,7 +48,7 @@ test("R2 entry criteria carry the 2026-09-22 operator override note, not just th
   assert.match(roadmap, /docs\/design\/write-command-reconciliation-l1-design-2026-09-22\.md/);
   assert.match(
     roadmap,
-    /service restart and player moderation, specifically named as blocked above, are now implemented/
+    /service restart and player moderation, specifically named as blocked below \(see "Blocked from early R2\.x"\), are now implemented/
   );
   assert.match(
     roadmap,

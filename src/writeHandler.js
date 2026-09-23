@@ -1,10 +1,12 @@
 // Write Command Handler — validates, confirms, audits write operations.
 // 27 real actions (docs/design/write-command-reconciliation-l1-design-2026-09-22.md)
 // call Core's real write/preview -> write/execute, or (bot.self-update
-// only) a dedicated local restart mechanism. The 12 original
+// only) a dedicated local restart mechanism. 9 of the original 12
 // maintenance/notifications/schedule/cache scaffold entries remain
 // stubbed (no real backing feature anywhere -- see that design doc
-// section 5). All commands still require DUNE_DISCORD_WRITES_ENABLED=true.
+// section 5); the other 3 (restart-service, create-backup, trigger-update)
+// were promoted to real actions. All commands still require
+// DUNE_DISCORD_WRITES_ENABLED=true.
 
 import { randomUUID } from "node:crypto";
 import { writesEnabled, canWrite, requireConfirmation, generateIdempotencyKey, writeAuditEvent } from "./writes.js";

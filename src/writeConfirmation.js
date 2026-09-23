@@ -1,9 +1,12 @@
 // Write Confirmation UI — builds the Discord button-based confirmation
 // prompt and routes the resulting button interactions to Core's real
 // write/execute (see docs/design/write-command-reconciliation-l1-design-2026-09-22.md).
-// bot.self-update is the one exception: it never calls Core at all (see
-// writeSelfUpdate.js) and is gated by a dedicated host-operator identity
-// check, not the generic per-guild tier system every other command uses.
+// Two exceptions never call Core at all: a LEGACY stub entry (the
+// isLegacyStub branch below, still 9 live WRITE_COMMANDS entries) just
+// returns buildScaffoldedEmbed()'s "awaiting upstream contract" response,
+// and bot.self-update (see writeSelfUpdate.js), which is gated by a
+// dedicated host-operator identity check, not the generic per-guild tier
+// system every other command uses.
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { duneEmbed } from "./embedFormat.js";

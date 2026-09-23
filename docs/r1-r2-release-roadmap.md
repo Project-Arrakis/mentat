@@ -108,7 +108,7 @@ Do not start R2 implementation until all of these are true:
 - A fresh STRIDE and abuse-case review is recorded.
 - No medium, high, or critical finding is unresolved.
 
-**Update (2026-09-22, operator decision, tracked in #398):** the entry criteria above are overridden for the scope in `docs/design/write-command-reconciliation-l1-design-2026-09-22.md` — service restart and player moderation, specifically named as blocked above, are now implemented. This is the same override recorded in `docs/upstream-write-adapter-rfc.md`; both documents' gates covered the same underlying decision from two different angles. The remaining, still-genuinely-blocked scope (maintenance/notifications/schedule stub actions, clear-cache) is unaffected.
+**Update (2026-09-22, operator decision, tracked in #398):** the entry criteria above are overridden for the scope in `docs/design/write-command-reconciliation-l1-design-2026-09-22.md` — service restart and player moderation, specifically named as blocked below (see "Blocked from early R2.x"), are now implemented. This is the same override recorded in `docs/upstream-write-adapter-rfc.md`; both documents' gates covered the same underlying decision from two different angles. The remaining, still-genuinely-blocked scope (maintenance/notifications/schedule stub actions, clear-cache) is unaffected.
 
 ## R2.x Scope
 
