@@ -15,6 +15,7 @@ import {
   statusSummaryPayload
 } from "../src/commands.js";
 import { createDatabase, upsertGuild, addGuildRole, updateGuildSettings } from "../src/database.js";
+import { WRITE_ACTIONS, findWriteAction } from "../src/writeActions.js";
 
 const packageVersion = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8")
@@ -702,4 +703,82 @@ test("infra commands are RBAC-gated through fallback observer/admin", async () =
   });
   assert.ok(edited?.embeds?.[0]?.data?.title, "infra:version embed has title");
   assert.equal(seenActor.userId, "u1", "actor context sent to adapter");
+});
+
+test("buildDuneCommand: registers every WRITE_ACTIONS entry as a subcommand of its real group -- merged into player/server, new for the rest", () => {
+  const built = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+  // type 2 = ApplicationCommandOptionType.SubcommandGroup (verified against
+  // discord-api-types, the real dependency this codebase already uses).
+  const registeredGroups = new Map(built.options.filter((o) => o.type === 2).map((g) => [g.name, g]));
+
+  const groupNames = new Set(WRITE_ACTIONS.map((e) => e.group));
+  for (const groupName of groupNames) {
+    assert.ok(registeredGroups.has(groupName), `missing subcommand group: ${groupName}`);
+    const registeredSubcommands = new Set(registeredGroups.get(groupName).options.map((s) => s.name));
+    for (const entry of WRITE_ACTIONS.filter((e) => e.group === groupName)) {
+      assert.ok(registeredSubcommands.has(entry.name), `group ${groupName} missing subcommand: ${entry.name}`);
+    }
+  }
+
+  // [Audit fix: Architect, CRITICAL] player/server must have EXACTLY ONE
+  // registered group each (the existing one, extended) -- not two.
+  const allGroupNamesInPayload = built.options.filter((o) => o.type === 2).map((g) => g.name);
+  assert.equal(allGroupNamesInPayload.filter((n) => n === "player").length, 1);
+  assert.equal(allGroupNamesInPayload.filter((n) => n === "server").length, 1);
+
+  // player/server must ALSO still have their pre-existing read subcommands
+  // (proves this is a merge, not a silent replacement).
+  const playerSubcommands = new Set(registeredGroups.get("player").options.map((s) => s.name));
+  assert.ok(playerSubcommands.has("link"), "merging write subcommands into player must not drop its existing read subcommands");
+  const serverSubcommands = new Set(registeredGroups.get("server").options.map((s) => s.name));
+  assert.ok(serverSubcommands.has("health"), "merging write subcommands into server must not drop its existing read subcommands");
+});
+
+test("buildDuneCommand: total subcommand-group count stays under Discord's 25-group ceiling", () => {
+  const built = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+  const groupCount = built.options.filter((o) => o.type === 2).length;
+  assert.ok(groupCount <= 25, `${groupCount} subcommand groups exceeds Discord's limit`);
+});
+
+test("executeDuneCommand dispatch: findWriteAction recognizes both a merged group (player) and a new group (base)", () => {
+  assert.ok(findWriteAction("player", "kick"));
+  assert.ok(findWriteAction("base", "refill-generators"));
+  assert.equal(findWriteAction("player", "link"), null, "existing read subcommands are not write actions");
+});
+
+// [Audit fix: Security, MEDIUM round 3] The 3 legacy "write" group
+// subcommands superseded by a real new command elsewhere (backup,
+// restart, update) must be removed from the real write group builder, not
+// left as a dead second name for the same action -- per the design doc's
+// own explicit principle (line 149).
+test("buildDuneCommand: the legacy 'write' group no longer registers the 3 superseded subcommand names, but keeps the 9 still-deferred ones", () => {
+  const built = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+  const registeredGroups = new Map(built.options.filter((o) => o.type === 2).map((g) => [g.name, g]));
+  const writeSubcommands = new Set(registeredGroups.get("write").options.map((s) => s.name));
+  for (const superseded of ["backup", "restart", "update"]) {
+    assert.ok(!writeSubcommands.has(superseded), `write:${superseded} is superseded by a real new command and must be removed`);
+  }
+  for (const stillDeferred of ["maintenance-note", "maintenance-window", "alert-channel", "alert-threshold", "digest-schedule", "post-schedule", "add-channel", "remove-channel", "cache"]) {
+    assert.ok(writeSubcommands.has(stillDeferred), `write:${stillDeferred} has no real backing feature yet and must stay registered`);
+  }
+  assert.equal(writeSubcommands.size, 9);
+});
+
+// [Audit fix: Architect, MEDIUM round 4] There are now THREE
+// independently-maintained sources of "the 9 legacy write-group names":
+// `LEGACY_WRITE_STUBS` (src/writeHandler.js), the real hand-written
+// `.addSubcommand(...)` calls in commands.js's write group builder, and
+// the hardcoded list in the test immediately above -- none of which were
+// ever programmatically compared. A future edit to any ONE of them (a
+// rename, an add, a removal) could pass all three test suites in
+// isolation while `findLegacyWriteStub`'s name lookup silently breaks
+// (dead code, or "Unknown write command" for a real Discord subcommand).
+// This test cross-checks the first two directly against each other.
+test("buildDuneCommand: the registered write-group names and LEGACY_WRITE_STUBS's names are exactly the same set", async () => {
+  const { LEGACY_WRITE_STUBS } = await import("../src/writeHandler.js");
+  const built = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+  const registeredGroups = new Map(built.options.filter((o) => o.type === 2).map((g) => [g.name, g]));
+  const writeSubcommands = new Set(registeredGroups.get("write").options.map((s) => s.name));
+  const legacyStubNames = new Set(LEGACY_WRITE_STUBS.map((s) => s.name));
+  assert.deepEqual([...writeSubcommands].sort(), [...legacyStubNames].sort(), "commands.js's write group and writeHandler.js's LEGACY_WRITE_STUBS have drifted apart");
 });
