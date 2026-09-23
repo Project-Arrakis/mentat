@@ -47,17 +47,23 @@ export function buildConfirmationRow(idempotencyKey) {
   return new ActionRowBuilder().addComponents(confirm, cancel);
 }
 
-export function buildConfirmationEmbed({ action, tier, risk, target }) {
+// [Audit fix: UI/UX, HIGH] the design promised a rendered expiry countdown;
+// the real function never accepted or rendered `expiresAt` at all.
+export function buildConfirmationEmbed({ action, tier, risk, target, expiresAt, confirmPhrase, extraWarning }) {
+  const fields = [
+    { name: "Action", value: `\`${action}\``, inline: true },
+    { name: "Tier", value: `\`${tier}\``, inline: true },
+    { name: "Risk", value: `\`${risk}\``, inline: true },
+    ...(target ? [{ name: "Target", value: String(target).slice(0, 1024) }] : []),
+    ...(expiresAt ? [{ name: "Expires", value: `<t:${Math.floor(expiresAt / 1000)}:R>` }] : []),
+    ...(confirmPhrase ? [{ name: "Type to confirm", value: `\`${confirmPhrase}\`` }] : []),
+    ...(extraWarning ? [{ name: "⚠️ Warning", value: extraWarning }] : [])
+  ];
   return duneEmbed({
     title: "⚠️ Confirm Write Action",
     color: "warning",
     description: "This will be visible to operators. Nothing has been executed yet.",
-    fields: [
-      { name: "Action", value: `\`${action}\``, inline: true },
-      { name: "Tier", value: `\`${tier}\``, inline: true },
-      { name: "Risk", value: `\`${risk}\``, inline: true },
-      ...(target ? [{ name: "Target", value: String(target).slice(0, 1024) }] : [])
-    ]
+    fields
   });
 }
 
@@ -124,6 +130,31 @@ export function createPendingConfirmation({ idempotencyKey, action, tier, risk, 
     embed: buildConfirmationEmbed({ action, tier, risk, target }),
     row: buildConfirmationRow(idempotencyKey)
   };
+}
+
+// [Audit fix: Architect, HIGH] Real and self-update confirmations, unlike
+// the legacy stub flow, previously had no expiry timer at all -- an
+// unclicked one sat in the shared Map forever. Every kind now gets a
+// scheduled cleanup, matching the legacy flow's own existing pattern.
+//
+// [Audit fix: UI/UX, CRITICAL round 3] This signature previously did NOT
+// destructure or store `secondConfirmationPending` at all -- Task 5 Step 3
+// calls this SAME function with `secondConfirmationPending: true` when
+// re-registering after Core's 202, but a plain object-destructuring
+// parameter silently drops any property not named here. The stored entry
+// never actually carried the flag, `entry.secondConfirmationPending` read
+// `undefined` forever, and the entire ownership-gate exception in Task 5
+// Step 3 (which branches on exactly that field) could never fire -- a
+// FOURTH structural reason a second admin could never complete a dual
+// confirmation, on top of the three Round 2 already found and fixed.
+export function registerRealPendingConfirmation({ nonce, action, tier, userId, expiresAt, confirmPhrase, kind, secondConfirmationPending = false }) {
+  if (typeof userId !== "string" || userId.length === 0) {
+    throw new Error("registerRealPendingConfirmation: userId is required.");
+  }
+  const timer = setTimeout(() => { pendingConfirmations.delete(nonce); }, Math.max(0, expiresAt - Date.now()));
+  timer.unref?.();
+  pendingConfirmations.set(nonce, { action, tier, userId, expiresAt, confirmPhrase, kind, timer, isReal: true, secondConfirmationPending });
+  return nonce;
 }
 
 export function getPendingConfirmation(idempotencyKey) {

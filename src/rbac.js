@@ -152,3 +152,69 @@ export function multiTenantActorTier(actorId, guildOwnerId, db, guildId, roleIds
     roles: getGuildRoles(db, guildId)
   });
 }
+
+// ── Actor ──
+//
+// [Task 4, Step 7a] Moved here from commands.js (2026-09-22, write-command
+// reconciliation Task 4) -- writeHandler.js needs this to build the actor
+// payload it sends Core, but writeHandler.js is imported BY commands.js
+// (commands.js -> writeHandler.js), so writeHandler.js importing
+// actorFromInteraction back from commands.js would be circular. rbac.js is
+// this codebase's own already-established fix for exactly this shape of
+// problem (both writes.js and commands.js already import from here).
+// commands.js re-exports this name (`export { actorFromInteraction } from
+// "./rbac.js";`) so every existing caller there keeps working unchanged.
+export function actorFromInteraction(interaction) {
+  return {
+    userId: interaction.user?.id,
+    username: interaction.user?.username || interaction.user?.displayName || "unknown",
+    guildId: interaction.guildId,
+    channelId: interaction.channelId,
+    roleIds: extractRoleIds(interaction),
+    // Issue #240 (companion to dune-awakening-selfhost-docker#691): lets
+    // Core's discordActorTier() also recognize real Discord guild ownership
+    // -- the same concept issue #238/PR #239 (a separate, still-open PR as
+    // of this comment; not yet true of this bot's own rbac.js on this
+    // branch/main) teaches this bot's OWN local RBAC to use. This bot
+    // already has guild.ownerId live via its gateway connection
+    // (GatewayIntentBits.Guilds) in the common case -- no extra API call
+    // needed -- but interaction.guild can be null during a reconnect/
+    // guild-unavailable window even though interaction.guildId stays
+    // populated -- resolveGuildOwnerId() applies the same
+    // interaction.client.guilds.cache fallback used for the local
+    // authorization decision (isInteractionGuildOwner) during that window, so
+    // the actor payload sent to Core cannot disagree with what the bot just
+    // decided locally for the same request (a code-review finding: this
+    // previously read interaction.guild?.ownerId directly with no fallback,
+    // reintroducing the exact "bot and Core disagree on who is owner"
+    // problem issue #238/#240 exists to close, just narrowed to this one
+    // reconnect window). NOT part of actorSignature.js's HMAC-signed field
+    // set (deliberate, tracked deferral -- see
+    // dune-awakening-selfhost-docker#691's body): for any deployment WITHOUT
+    // DUNE_DISCORD_ACTOR_SECRET configured, trusted at the same level
+    // roleIds already is; for a deployment WITH it configured, Core strips
+    // this field server-side before use (a code-review finding on #691 -- an
+    // unsigned field would otherwise be a real self-escalation gap even
+    // inside an otherwise-validly-signed request), so signed deployments
+    // fall back to Core's role-based DISCORD_OWNER_ROLE_IDS mapping
+    // unchanged.
+    guildOwnerId: resolveGuildOwnerId(interaction)
+  };
+}
+
+// Private copy of commands.js's extractRoleIds -- [Audit fix: Architect/QA,
+// MEDIUM round 4] actorFromInteraction's real body calls extractRoleIds, and
+// leaving that function behind in commands.js while moving only
+// actorFromInteraction here would reintroduce the exact circular import this
+// move exists to avoid (this module's own header states it "must NOT import
+// commands.js"). writes.js already keeps its own private copy of this exact
+// function for the same reason -- this is a third, deliberate, accepted
+// private copy of a small helper, not a new problem.
+function extractRoleIds(interaction) {
+  const roles = interaction.member?.roles;
+  if (!roles) return [];
+  if (Array.isArray(roles)) return roles.map(String);
+  if (roles.cache?.keys) return [...roles.cache.keys()];
+  if (roles instanceof Set) return [...roles].map(String);
+  return [];
+}
