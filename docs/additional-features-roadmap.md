@@ -50,8 +50,9 @@ Current real version: `v1.0.0-rc.2`. Current test count: 328 total
 Core modules: `adapterClient.js`, `commands.js`, `config.js`, `format.js`,
 `healthState.js`, `healthcheck.js`, `index.js`, `logger.js`, `notifications.js`,
 `scheduler.js`, `writes.js`, `writeHandler.js`, `writeConfirmation.js`.
-`writeCommands.js` still exists but is dead code — not imported by
-`commands.js`; do not treat it as the live write-command path.
+`writeCommands.js` has been deleted (mentat#400) — it was dead code, not
+imported by `commands.js`; the live write-command path is
+`writeActions.js`/`writeHandler.js`.
 
 ## Suggested Additional Features (R1.x — Read-Only)
 
@@ -157,10 +158,12 @@ Reuse the existing `writeAuditEvent()` field shape from `src/writes.js`
 (`source`, `timestamp`, `actor`, `action`, `capability`, `idempotencyKey`,
 `result`, `detail`) rather than inventing a new schema — several docs
 already reference that shape. Actually wire it in: today `writeHandler.js`
-imports `writeAuditEvent` but never calls it, `writeCommands.js` calls it
-but is dead code (unreferenced), and `broadcast.js` calls it but discards
-the result after building the Discord reply payload — none of the three
-live/dead paths persist anything anywhere today. `/dune audit [limit]`
+imports `writeAuditEvent` but never calls it (as of this writing, prior to
+write-command-reconciliation shipping — that work has since wrapped every
+real call site in `console.log(JSON.stringify(...))`, see `writeHandler.js`/
+`writeConfirmation.js`), and `broadcast.js` calls it but discards
+the result after building the Discord reply payload — persistence beyond
+process logs is still not wired anywhere. `/dune audit [limit]`
 (admin/owner only, redacted output) becomes a read query against the new
 table instead of an in-memory ring buffer, so history survives a bot
 restart.

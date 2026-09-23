@@ -2,8 +2,9 @@
 // prompt and routes the resulting button interactions to Core's real
 // write/execute (see docs/design/write-command-reconciliation-l1-design-2026-09-22.md).
 // Two exceptions never call Core at all: a LEGACY stub entry (the
-// isLegacyStub branch below, still 9 live WRITE_COMMANDS entries) just
-// returns buildScaffoldedEmbed()'s "awaiting upstream contract" response,
+// isLegacyStub branch below, the 9 still-live LEGACY_WRITE_STUBS entries in
+// writeHandler.js) just returns buildScaffoldedEmbed()'s "awaiting upstream
+// contract" response,
 // and bot.self-update (see writeSelfUpdate.js), which is gated by a
 // dedicated host-operator identity check, not the generic per-guild tier
 // system every other command uses.
