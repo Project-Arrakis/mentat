@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Revision 2 (2026-09-22), after a Layer 1 eight-hat design audit found 4 CRITICAL and many HIGH/MEDIUM findings against Revision 1.** Every finding is fixed inline below, each marked `[Audit fix: <hat>, <severity>]` at its exact location, not summarized separately — the fix IS the plan text now. A second, narrower re-audit of just the changed sections runs after this revision, before any implementation begins.
+**Revision 5 (2026-09-22), after 4 rounds of Layer 1 eight-hat audit against this plan** (Round 1: 4 CRITICAL findings against Revision 1, fixed in Revision 2; Round 2: 1 CRITICAL + several HIGH/MEDIUM against Revision 2, fixed in Revision 3; Round 3: 1 CRITICAL + several MEDIUM against Revision 3, fixed in Revision 4; Round 4, scoped to Revision 4's own new code: 0 CRITICAL, several MEDIUM/LOW, fixed in Revision 5). Every finding is fixed inline below, each marked `[Audit fix: <hat>, <severity>, round N]` at its exact location, not summarized separately — the fix IS the plan text now. Implementation begins from this revision.
 
 **Goal:** Wire mentat's Discord commands to Core's real write bridge (25 existing actions + 3 new ones), replacing the permanent "awaiting upstream contract" stub with real `write/preview` → confirm → `write/execute` calls, and add a bot self-update command gated by a single, explicit host-operator identity — never by any guild's Discord ownership — that reuses the existing git-push deploy pipeline's safety guardrails.
 
@@ -10,12 +10,12 @@
 
 **Tech Stack:** Node.js, discord.js (`SlashCommandBuilder`, `ButtonBuilder`), `node:test`, bats (for shell script tests), Core's `dune-awakening-selfhost-docker` write bridge (external HTTP dependency via `adapterClient`), `systemd-run` (for self-update's cgroup escape).
 
-**Spec:** `docs/design/write-command-reconciliation-l1-design-2026-09-22.md` (Revision 2)
+**Spec:** `docs/design/write-command-reconciliation-l1-design-2026-09-22.md` (Revision 3)
 
 ## Global Constraints
 
 - Discord slash commands allow exactly two levels of nesting (command → subcommand group → subcommand). `base`, `map`, `carepackage`, `guild`, `operations`, `bot` are genuinely new top-level subcommand groups. **`[Audit fix: Architect, CRITICAL]` `player` and `server` are NOT new groups** — `commands.js` already has live top-level groups with those exact names (read commands: `link`/`verify`/`characters`/`enable`/`disable`/`default`/`unlink`/`faction`/`whoami`/`inventory`/`storage`/`find` under `player`; `health`/`status`/`summary`/`readiness`/`services`/`maintenance`/`coriolis`/`atlas` under `server`). The new write subcommands for these two groups are **merged into the existing groups** — verified no subcommand-name collision (`kick`/`ban`/`unban`/`warn`/`give-item`/`clear-backpack`/`fill-water` for `player`; `restart`/`stop`/`start`/`restart-service` for `server`) against either group's existing subcommand list.
-- The existing `write` group (12 old entries) and its hand-maintained, separately-defined `commands.js` builder are **left untouched** — none of the 8 deferred actions or the removed `operations:restart-service`/`cache` entries are touched by this plan.
+- **[Corrected in Revision 3/4, round 3]** The existing `write` group (originally 12 entries) keeps its hand-maintained, separately-defined `commands.js` builder — but is NOT fully untouched: 3 of its 12 subcommands (`backup`, `restart`, `update`) are **removed** because they're superseded by a real new command elsewhere (`/dune server restart-service`, `/dune operations create-backup`, `/dune operations trigger-update` respectively), per the design doc's own "removed, not kept as a second command" principle. The other 9 (the 8 originally-deferred actions plus `cache`/`operations:clear-cache`, which also has no real backing feature) stay registered under `write`, untouched in behavior, and are restored as `LEGACY_WRITE_STUBS` in `writeHandler.js` (Task 4) after an earlier draft of this plan accidentally deleted their dispatch logic entirely.
 - Every new/merged command's Discord definition is generated **mechanically from one shared table** (`writeActions.js`, new file) — never hand-duplicated a second time in `commands.js`.
 - **`[Audit fix: Architect, CRITICAL]` Dispatch is table-driven, not group-name-driven**: `executeDuneCommand` gains one new branch — `else if (findWriteAction(group, subcommand)) { ... }` — checked before the final "Unknown command" fallback, so both merged-into-existing groups (`player`, `server`) and genuinely-new groups reach `handleWriteCommand` uniformly.
 - Owner-tier and admin-tier checks reuse `canWrite()` from `writes.js` exactly as today — **except `bot.self-update`, which uses a dedicated host-operator identity check and never `canWrite()`** (see Task 6 — mentat is multi-tenant; per-guild "owner" tier is the wrong authorization boundary for an action that restarts the one shared bot process).
@@ -2313,28 +2313,30 @@ write action 'NEVER calls adapterClient.writePreview()/writeExecute()'
 
 ### Task 9: Re-verify against Core's real branch, push, open the mentat PR, verify CI
 
+`[Corrected during SDD pre-flight, 2026-09-22]` Implementation (Tasks 2-8) happens on a NEW branch, `feat/write-command-reconciliation` (created from mentat's `main`, per Requirement 21 — the design+plan documents live on the separate `docs/write-command-reconciliation` branch/PR #395, which is documents-only and stays as-is). This task's steps below target the implementation branch and open a SEPARATE PR for it — do not push implementation commits to `docs/write-command-reconciliation` or edit PR #395 for code changes.
+
 - [ ] **Step 1: Re-diff `writeActions.js` against Core's then-current tables**
 
 `[Audit fix: GRC/Architect, MEDIUM]` — before marking this PR ready (not before every commit): fetch the current tip of Core's `issue/215-write-bridge` (or wherever it has landed by then) and re-run `writeActions.js`'s own consistency tests against the real, current `WRITE_ACTION_ROUTES`/`WRITE_ACTION_MIN_TIER` shapes. A drift here produces a misleading Discord UI (wrong tier gate, wrong/missing confirm phrase), not a security bypass (Core enforces server-side regardless) — but should be caught and fixed before this leaves draft, not discovered in production.
 
 - [ ] **Step 2: Fetch and check for divergence before pushing**
 
-Run: `git fetch origin && git log --oneline HEAD..origin/docs/write-command-reconciliation`
-Expected: no output.
+Run: `git fetch origin && git log --oneline HEAD..origin/feat/write-command-reconciliation`
+Expected: no output (or "unknown revision" if this is the first push of the branch — in that case there is nothing to diverge from yet).
 
 - [ ] **Step 3: Push**
 
-Run: `git push origin docs/write-command-reconciliation`
+Run: `git push -u origin feat/write-command-reconciliation`
 
-- [ ] **Step 4: Update PR #395's body**
+- [ ] **Step 4: Open a new PR for the implementation branch**
 
-Run: `gh pr edit 395 --repo Project-Arrakis/mentat --title "feat(write): wire mentat to Core's real write bridge" --body "<comprehensive body: what changed, the 28 commands, the self-update host-operator gate and its safety-guardrail reuse, dependency on dune-awakening-selfhost-docker#1026 merging first, the tracked governance-override issue, test output, and the Layer 1 audit findings this revision fixes>"`
+Run: `gh pr create --repo Project-Arrakis/mentat --base main --head feat/write-command-reconciliation --draft --title "feat(write): wire mentat to Core's real write bridge" --body "<comprehensive body: what changed, the 28 commands, the self-update host-operator gate and its safety-guardrail reuse, dependency on dune-awakening-selfhost-docker#1026 merging first, the tracked governance-override issue (Task 8), test output, and the Layer 1 audit findings this revision fixes, and a link to PR #395 for the design/plan documents this implements>"`
 
-Remove `--draft` only once CI is green AND the re-audit (below) confirms the fixes above.
+Remove `--draft` only once CI is green AND the re-audit (above) confirms the fixes above. Keep PR #395 (the docs branch) open and unmodified by this task — it tracks the design/plan documents only, not this implementation.
 
 - [ ] **Step 5: Check CI**
 
-Run: `gh run list --repo Project-Arrakis/mentat --branch docs/write-command-reconciliation --limit 5`
+Run: `gh run list --repo Project-Arrakis/mentat --branch feat/write-command-reconciliation --limit 5`
 Fix any failure the same way Task 1-8's own test steps would have caught it locally.
 
 ---
@@ -2344,5 +2346,5 @@ Fix any failure the same way Task 1-8's own test steps would have caught it loca
 - Every CRITICAL and HIGH finding from the Layer 1 eight-hat audit against Revision 1 is fixed inline above, at its exact location, marked `[Audit fix: <hat>, <severity>]`.
 - A second, narrower re-audit of Tasks 3-8 (the changed sections) is required before implementation begins — per the plan of record agreed with the user, this happens as a separate step after this revision, not folded into this document.
 - Every task's tests use a fake/injected `adapterClient`, `spawn`, or stubbed shell command (`sudo`/`systemctl`) — no task requires a live Core instance, a live Discord connection, or a live systemd unit to pass its own test suite.
-- The existing `write` group (12 stub entries) and its hand-written builder are never modified — confirmed by Task 7 Step 3 explicitly preserving that block untouched.
+- **[Corrected in Revision 3/4, round 3]** The existing `write` group's hand-written builder is modified, not left fully untouched: Task 7 Step 3 removes 3 of its 12 subcommands (`backup`, `restart`, `update`, superseded by real new commands elsewhere), keeping the other 9 (`LEGACY_WRITE_STUBS` in Task 4) exactly as they behave today.
 - Task 3's own tests are the load-bearing regression guard against Revision 1's exact QA-hat-found bugs (wrong count, wrong action-name assertion) — Step 4 explicitly says not to proceed until they're run and genuinely pass.
