@@ -1,9 +1,10 @@
 // Write Command Handler — validates, confirms, audits write operations.
-// The 9 legacy group="write" stub subcommands (LEGACY_WRITE_STUBS below)
-// keep their existing scaffolded, "awaiting upstream contract" behavior
-// unchanged. Every other write command (WRITE_ACTIONS, see writeActions.js)
-// now dispatches for real: it calls Core's write/preview route, and the
-// confirm-button flow (writeConfirmation.js / Task 5) calls write/execute.
+// 27 real actions (docs/design/write-command-reconciliation-l1-design-2026-09-22.md)
+// call Core's real write/preview -> write/execute, or (bot.self-update
+// only) a dedicated local restart mechanism. The 12 original
+// maintenance/notifications/schedule/cache scaffold entries remain
+// stubbed (no real backing feature anywhere -- see that design doc
+// section 5). All commands still require DUNE_DISCORD_WRITES_ENABLED=true.
 
 import { randomUUID } from "node:crypto";
 import { writesEnabled, canWrite, requireConfirmation, generateIdempotencyKey, writeAuditEvent } from "./writes.js";

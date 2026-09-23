@@ -6,6 +6,11 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
+### Added
+
+- **27 real Discord write commands** wired to Core's write bridge (`dune-awakening-selfhost-docker`#215/#1026): player moderation (kick/ban/unban/warn/give-item/clear-backpack/fill-water), base management, server control (restart/stop/start/restart-service — stop requires a second, different owner-tier admin to confirm), map control, care packages, guild membership, and operations (backup/game-update/steamcmd-fix). Overrides `docs/upstream-write-adapter-rfc.md` and `docs/r1-r2-release-roadmap.md`'s prior "do not implement" gates for this scope — see #398.
+- **Bot self-update** (`/dune bot self-update`), restricted to a single, explicitly-configured host-operator Discord user ID (`DUNE_BOT_OPERATOR_DISCORD_USER_ID`) — never the generic per-guild owner tier, since this bot is multi-tenant and self-update restarts the one shared process. Reuses the existing git-push deploy pipeline's test-gated safety guardrails.
+
 ### Removed
 - **Removed the DM-on-invite onboarding trigger.** New guild registrations for the hosted bot now happen via an in-console action in Core's Settings → Discord Bot section, which independently re-verifies guild ownership before registering. `/setup`/`POST /setup/register` remain as a documented fallback. Commands run in an unregistered guild now get an explicit, actionable in-guild reply instead of silently falling back to a default config. See `dune-awakening-selfhost-docker`'s `docs/design/hosted-bot-oauth-registration-l1-design-2026-09-09.md` for the full design and its Layer 1 Eight-Hats audit.
 

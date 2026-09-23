@@ -1,16 +1,9 @@
-// Write Confirmation UI — builds the Discord button-based confirmation prompt
-// described in docs/rw-confirmation-flow.md and routes the resulting button
-// interactions.
-//
-// UPDATED (Task 5, write-command-reconciliation plan): confirming a REAL
-// write action (an entry registered via registerRealPendingConfirmation(),
-// i.e. one that carries a `kind`) now calls adapterClient.writeExecute() for
-// real -- Core's write-execute route is live (see writeHandler.js, which
-// already calls the matching writePreview() as of Task 4). The one exception
-// is a LEGACY stub entry (created via createPendingConfirmation(), which
-// never sets `kind`) -- those still only ever report the harmless
-// "scaffolded, awaiting upstream contract" status and never reach
-// adapterClient at all; see the `isLegacyStub` branch below.
+// Write Confirmation UI — builds the Discord button-based confirmation
+// prompt and routes the resulting button interactions to Core's real
+// write/execute (see docs/design/write-command-reconciliation-l1-design-2026-09-22.md).
+// bot.self-update is the one exception: it never calls Core at all (see
+// writeSelfUpdate.js) and is gated by a dedicated host-operator identity
+// check, not the generic per-guild tier system every other command uses.
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { duneEmbed } from "./embedFormat.js";
