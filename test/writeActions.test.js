@@ -41,10 +41,24 @@ test("WRITE_ACTIONS: every entry has a real Core action name, is bot.self-update
   assert.ok(selfUpdate);
 });
 
-test("WRITE_ACTIONS: server.stop is the only entry requiring dual confirmation", () => {
+// mentat#404: server.stop used to be the only entry with
+// `requiresDualConfirmation: true`. It was removed because this bot derives
+// owner tier exclusively from real Discord guild ownership -- exactly one
+// account per guild -- so "a second, DIFFERENT owner-tier admin" could never
+// exist and the action was unusable through Discord. The client-side
+// second-step machinery in writeConfirmation.js went with it, so re-adding
+// this flag to an entry would NOT restore a working flow on its own. This
+// test is now a regression guard against exactly that.
+test("WRITE_ACTIONS: no entry requires dual confirmation (mentat#404)", () => {
   const dualConfirm = WRITE_ACTIONS.filter((e) => e.requiresDualConfirmation === true);
-  assert.equal(dualConfirm.length, 1);
-  assert.equal(dualConfirm[0].action, "server.stop");
+  assert.deepEqual(dualConfirm, []);
+});
+
+test("WRITE_ACTIONS: server.stop's description no longer promises a second confirmer", () => {
+  const stop = WRITE_ACTIONS.find((e) => e.action === "server.stop");
+  assert.ok(stop);
+  assert.equal(stop.tier, "owner", "still owner-tier gated -- only the SECOND confirmation was dropped");
+  assert.doesNotMatch(stop.desc, /second|different .*admin|dual/i);
 });
 
 test("WRITE_ACTIONS: bot.self-update has the host-operator tier sentinel and group bot", () => {

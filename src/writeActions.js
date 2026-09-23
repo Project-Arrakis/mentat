@@ -40,8 +40,15 @@ export const WRITE_ACTIONS = Object.freeze([
   // verified no name collision with its read subcommands, see test above) ---
   { group: "server", name: "restart", action: "server.restart", tier: "owner", confirmPhrase: null,
     desc: "Restart the game server.", params: [] },
-  { group: "server", name: "stop", action: "server.stop", tier: "owner", confirmPhrase: null, requiresDualConfirmation: true,
-    desc: "Stop the game server. Requires a second, different owner-tier admin to confirm.", params: [] },
+  // mentat#404: this entry used to carry `requiresDualConfirmation: true`.
+  // Removed deliberately -- this bot derives owner tier EXCLUSIVELY from real
+  // Discord guild ownership (rbac.js), i.e. exactly one account per guild, so
+  // "a second, different owner-tier admin" was structurally unsatisfiable and
+  // the action was unusable through Discord. Core's route table drops the same
+  // flag in parallel. `server.stop` is now a single-confirm write like every
+  // other one, still gated by the owner-tier check.
+  { group: "server", name: "stop", action: "server.stop", tier: "owner", confirmPhrase: null,
+    desc: "Stop the game server.", params: [] },
   { group: "server", name: "start", action: "server.start", tier: "admin", confirmPhrase: null,
     desc: "Start the game server.", params: [] },
   { group: "server", name: "restart-service", action: "server.restart-service", tier: "admin", confirmPhrase: null,

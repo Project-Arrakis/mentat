@@ -30,18 +30,14 @@ test("InteractionCreate's button handling checks handleWriteButtonInteraction()'
     /const handled\s*=\s*await handleWriteButtonInteraction\(interaction\s*,[^)]*\)/,
     "must capture handleWriteButtonInteraction()'s return value, not discard it"
   );
-  // [Final-review fix, IMPORTANT 3] config and db are NOT optional extras:
-  // handleWriteButtonInteraction() uses canWrite(interaction, config, tier,
-  // db, guildId) to verify that whoever clicks a PUBLIC dual-confirmation
-  // waiting-state message actually holds the action's tier. Passing them is
-  // what makes that check able to return anything but false, so a caller
-  // that silently dropped them would re-open the gap (any member could
-  // destroy a pending second-step confirmation) while still "working".
-  assert.match(
-    src,
-    /await handleWriteButtonInteraction\(interaction\s*,\s*adapterClient\s*,\s*config\s*,\s*db\s*\)/,
-    "must pass config and db through so the second-confirmation tier check can actually run"
-  );
+  // mentat#404: this used to additionally assert that `config`/`db` were
+  // passed through, because handleWriteButtonInteraction() canWrite()-
+  // re-checked whoever clicked a PUBLIC dual-confirmation waiting-state
+  // message. No action uses dual confirmation any more, that check is gone,
+  // and the two parameters went with it -- a write confirmation button is
+  // again only ever actionable by the actor who requested it (asserted
+  // directly in writeConfirmation.test.js, not through this source-shape
+  // check).
   assert.match(
     src,
     /if\s*\(\s*handled\s*\)\s*return;/,

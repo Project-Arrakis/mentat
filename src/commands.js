@@ -420,11 +420,19 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
   const startedAt = Date.now();
   const actor = actorFromInteraction(interaction);
   if (db) incrementCommandCount();
-  // Task 5 (write-command-reconciliation): a dual-confirmation action's
-  // (server.stop) FIRST admin's own confirmation prompt must also be
-  // public, not just the later "waiting on a second admin" state -- a
-  // second admin needs to be able to see the whole thread from the start,
-  // not just whatever state happens to exist by the time they look.
+  // A dual-confirmation action's FIRST admin's own confirmation prompt must
+  // also be public, not just the later "waiting on a second admin" state --
+  // a second admin needs to see the whole thread from the start, not just
+  // whatever state happens to exist by the time they look.
+  //
+  // mentat#404: NO WRITE_ACTIONS entry sets `requiresDualConfirmation` today
+  // (server.stop was the only one; its second step was unsatisfiable because
+  // owner tier is exactly one Discord account per guild), so this is
+  // currently always false. It is kept because it is generic, self-contained
+  // and correct -- but note it is only the *public reply* half: re-enabling
+  // dual confirmation on some future action ALSO requires restoring
+  // writeConfirmation.js's second-step handling, which was removed with the
+  // flag. Setting this flag alone does not produce a working dual-confirm.
   const writeActionDef = findWriteAction(group, subcommand);
   const forcedPublic = writeActionDef?.requiresDualConfirmation === true;
   await interaction.deferReply({ ephemeral: forcedPublic ? false : config.discord.defaultEphemeral });

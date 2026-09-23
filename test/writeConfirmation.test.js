@@ -19,13 +19,11 @@ import {
 
 beforeEach(() => resetPendingConfirmations());
 
-// [Final-review fix, IMPORTANT 3] handleWriteButtonInteraction() now takes
-// (interaction, adapterClient, config, db) -- config/db feed canWrite(),
-// which gates who may click a PUBLIC dual-confirmation waiting-state
-// message. Single-tenant shape (no multiTenant flag, db null) so canWrite()
-// resolves tier from real Discord guild ownership / mapped roles rather
-// than needing a live SQLite handle.
-const WRITES_ENABLED_CONFIG = { discord: { writes: { enabled: true } } };
+// mentat#404: handleWriteButtonInteraction() takes (interaction,
+// adapterClient) again. It briefly also took (config, db), solely to feed a
+// canWrite() re-check on whoever clicked a PUBLIC dual-confirmation
+// waiting-state message; no action uses dual confirmation any more, so that
+// check and both parameters are gone.
 
 function mockButtonInteraction({ customId, userId = "user-1" } = {}) {
   const interaction = {
@@ -77,14 +75,14 @@ test("clearPendingConfirmation removes the entry and cancels its timer", () => {
 
 test("handleWriteButtonInteraction ignores non-write custom IDs", async () => {
   const interaction = mockButtonInteraction({ customId: "other:thing:123" });
-  const handled = await handleWriteButtonInteraction(interaction, null, WRITES_ENABLED_CONFIG, null);
+  const handled = await handleWriteButtonInteraction(interaction, null);
   assert.equal(handled, false);
   assert.equal(interaction._update, null);
 });
 
 test("handleWriteButtonInteraction shows expired embed for unknown key", async () => {
   const interaction = mockButtonInteraction({ customId: "write:confirm:missing-key" });
-  const handled = await handleWriteButtonInteraction(interaction, null, WRITES_ENABLED_CONFIG, null);
+  const handled = await handleWriteButtonInteraction(interaction, null);
   assert.equal(handled, true);
   assert.equal(interaction._update.components.length, 0);
   assert.ok(interaction._update.embeds[0].data.title.includes("Expired"));
@@ -93,7 +91,7 @@ test("handleWriteButtonInteraction shows expired embed for unknown key", async (
 test("handleWriteButtonInteraction rejects a different user's click", async () => {
   createPendingConfirmation({ idempotencyKey: "key-3", action: "a", tier: "admin", risk: "low", userId: "owner-user" });
   const interaction = mockButtonInteraction({ customId: "write:confirm:key-3", userId: "attacker-user" });
-  const handled = await handleWriteButtonInteraction(interaction, null, WRITES_ENABLED_CONFIG, null);
+  const handled = await handleWriteButtonInteraction(interaction, null);
   assert.equal(handled, true);
   assert.equal(interaction._reply.ephemeral, true);
   assert.ok(interaction._reply.embeds[0].data.title.includes("Not Your Confirmation"));
@@ -104,7 +102,7 @@ test("handleWriteButtonInteraction rejects a different user's click", async () =
 test("handleWriteButtonInteraction cancel clears the pending entry and shows cancelled", async () => {
   createPendingConfirmation({ idempotencyKey: "key-4", action: "a", tier: "admin", risk: "low", userId: "user-1" });
   const interaction = mockButtonInteraction({ customId: "write:cancel:key-4", userId: "user-1" });
-  const handled = await handleWriteButtonInteraction(interaction, null, WRITES_ENABLED_CONFIG, null);
+  const handled = await handleWriteButtonInteraction(interaction, null);
   assert.equal(handled, true);
   assert.equal(getPendingConfirmation("key-4"), undefined);
   assert.ok(interaction._update.embeds[0].data.title.includes("Cancelled"));
@@ -114,7 +112,7 @@ test("handleWriteButtonInteraction cancel clears the pending entry and shows can
 test("handleWriteButtonInteraction confirm clears the pending entry but never executes", async () => {
   createPendingConfirmation({ idempotencyKey: "key-5", action: "operations:restart-service", tier: "owner", risk: "high", userId: "user-1" });
   const interaction = mockButtonInteraction({ customId: "write:confirm:key-5", userId: "user-1" });
-  const handled = await handleWriteButtonInteraction(interaction, null, WRITES_ENABLED_CONFIG, null);
+  const handled = await handleWriteButtonInteraction(interaction, null);
   assert.equal(handled, true);
   assert.equal(getPendingConfirmation("key-5"), undefined);
   const embedData = interaction._update.embeds[0].data;
@@ -180,68 +178,43 @@ test("handleWriteButtonInteraction: confirm calls adapterClient.writeExecute wit
   const adapterClient = { writeExecute: async (actor, body) => { executeCalledWith = { actor, body }; return { ok: true }; } };
   const updates = [];
   const interaction = { isButton: () => true, customId: "write:confirm:n1", user: { id: "u1" }, update: async (payload) => updates.push(payload) };
-  const handled = await handleWriteButtonInteraction(interaction, adapterClient, WRITES_ENABLED_CONFIG, null);
+  const handled = await handleWriteButtonInteraction(interaction, adapterClient);
   assert.equal(handled, true);
   assert.equal(executeCalledWith.body.nonce, "n1");
   assert.equal(executeCalledWith.body.action, "player.kick");
   assert.equal(updates.length, 1);
 });
 
-test("handleWriteButtonInteraction: a 202 second_confirmation_required response shows the waiting state, non-ephemeral, instructing a second admin to click THIS message (not 'run the command yourself', which does not work)", async () => {
+// mentat#404: three tests covering the dual-confirmation second step lived
+// here -- the 202 "Waiting on a Second Administrator" waiting-state embed, a
+// genuinely different second admin completing the flow, and the same admin
+// being refused both confirmations. server.stop was the only action that
+// could ever produce that state and its `requiresDualConfirmation` flag is
+// gone (owner tier is exactly one Discord account per guild, so a second,
+// different owner-tier admin could never exist), so all three exercised
+// machinery that no longer exists. The ownership rule that replaced them --
+// a confirmation button is actionable ONLY by the actor who requested it,
+// with no exception -- is asserted below for real (non-legacy) entries too.
+test("handleWriteButtonInteraction: a different user cannot click a REAL pending confirmation either -- no dual-confirmation exception remains", async () => {
   resetPendingConfirmations();
-  registerRealPendingConfirmation({ nonce: "n2", action: "server.stop", tier: "owner", userId: "u1", expiresAt: Date.now() + 300000, kind: "real" });
-  const adapterClient = { writeExecute: async () => ({ ok: true, code: "second_confirmation_required", nonce: "n2", expiresAt: Date.now() + 300000 }) };
-  const updates = [];
-  const interaction = { isButton: () => true, customId: "write:confirm:n2", user: { id: "u1" }, update: async (p) => updates.push(p) };
-  await handleWriteButtonInteraction(interaction, adapterClient, WRITES_ENABLED_CONFIG, null);
-  assert.equal(updates[0].ephemeral, false, "the waiting-state message must be forced non-ephemeral so a second admin can see it");
-  assert.match(JSON.stringify(updates[0]), /second|waiting/i);
-  assert.match(JSON.stringify(updates[0]), /click.*confirm|click the confirm/i);
-  assert.doesNotMatch(JSON.stringify(updates[0]), /run.*\/dune server stop yourself|run the command/i, "must not repeat the round-1 advice that doesn't actually work");
-});
-
-// [Audit fix: UI/UX, CRITICAL, round 2] This is the test that would have
-// caught all three of round 2's structural breaks: a genuinely different
-// second admin clicking the same message must actually be let through
-// (not rejected as "not yours"), must have THEIR OWN real identity sent
-// to Core (not the first admin's), and the action must actually complete.
-test("handleWriteButtonInteraction: a genuinely different second admin can complete the dual-confirmation by clicking the same message", async () => {
-  resetPendingConfirmations();
-  // Simulates the state AFTER the first admin's click already got a 202
-  // and re-registered with secondConfirmationPending: true (see Step 3).
-  registerRealPendingConfirmation({ nonce: "n4", action: "server.stop", tier: "owner", userId: "first-admin", expiresAt: Date.now() + 300000, kind: "real", secondConfirmationPending: true });
-  let executeCalledWith = null;
-  const adapterClient = { writeExecute: async (actor, body) => { executeCalledWith = { actor, body }; return { ok: true }; } };
-  const updates = [];
-  const secondAdminInteraction = {
-    isButton: () => true, customId: "write:confirm:n4",
-    user: { id: "second-admin", username: "second" },
-    // [Final-review fix, IMPORTANT 3] This admin must now actually HOLD the
-    // entry's tier to get through the ownership gate, not merely be a
-    // different user. entry.tier here is "owner", and owner is derived
-    // exclusively from real Discord guild ownership (rbac.js), so the
-    // mock carries a real guild.ownerId matching this clicker.
-    guild: { ownerId: "second-admin" },
-    guildId: "g1", channelId: "c1", member: { roles: { cache: new Map() } },
-    update: async (p) => updates.push(p)
-  };
-  const handled = await handleWriteButtonInteraction(secondAdminInteraction, adapterClient, WRITES_ENABLED_CONFIG, null);
-  assert.equal(handled, true, "a genuinely different admin must not be rejected as 'not yours'");
-  assert.equal(executeCalledWith.actor.userId, "second-admin", "Core must be told the REAL, current clicker's identity, never the first admin's");
-  assert.match(JSON.stringify(updates[0]), /executed|success/i);
-});
-
-test("handleWriteButtonInteraction: the SAME admin cannot provide both confirmations -- rejected client-side before ever calling Core", async () => {
-  resetPendingConfirmations();
-  registerRealPendingConfirmation({ nonce: "n5", action: "server.stop", tier: "owner", userId: "first-admin", expiresAt: Date.now() + 300000, kind: "real", secondConfirmationPending: true });
+  registerRealPendingConfirmation({ nonce: "n-real-notyours", action: "server.stop", tier: "owner", userId: "first-admin", expiresAt: Date.now() + 300000, kind: "real" });
   let executeCalled = false;
   const adapterClient = { writeExecute: async () => { executeCalled = true; return { ok: true }; } };
   const replies = [];
-  const sameAdminInteraction = { isButton: () => true, customId: "write:confirm:n5", user: { id: "first-admin" }, reply: async (p) => replies.push(p) };
-  const handled = await handleWriteButtonInteraction(sameAdminInteraction, adapterClient, WRITES_ENABLED_CONFIG, null);
+  const otherAdmin = {
+    isButton: () => true, customId: "write:confirm:n-real-notyours",
+    user: { id: "second-admin", username: "second" },
+    guild: { ownerId: "second-admin" }, guildId: "g1", channelId: "c1",
+    member: { roles: { cache: new Map() } },
+    reply: async (p) => replies.push(p),
+    update: async () => { throw new Error("must not update another actor's confirmation message"); }
+  };
+  const handled = await handleWriteButtonInteraction(otherAdmin, adapterClient);
   assert.equal(handled, true);
-  assert.equal(executeCalled, false, "Core must never be called -- this is rejected client-side, matching Core's own second_confirmation_same_actor check");
-  assert.match(JSON.stringify(replies[0]), /different administrator/i);
+  assert.equal(executeCalled, false, "Core must never be called for someone else's confirmation");
+  assert.equal(replies[0].ephemeral, true);
+  assert.ok(replies[0].embeds[0].data.title.includes("Not Your Confirmation"));
+  assert.ok(getPendingConfirmation("n-real-notyours"), "the rejected click must not destroy the real owner's pending entry");
 });
 
 test("handleWriteButtonInteraction: writeExecute throwing a mapped error shows the specific error, not a generic failure", async () => {
@@ -251,7 +224,7 @@ test("handleWriteButtonInteraction: writeExecute throwing a mapped error shows t
   const adapterClient = { writeExecute: async () => { throw new AdapterHttpError("HTTP 410", { status: 410, route: "write-execute", body: { ok: false, code: "nonce_not_found", error: "gone" } }); } };
   const updates = [];
   const interaction = { isButton: () => true, customId: "write:confirm:n3", user: { id: "u1" }, update: async (p) => updates.push(p) };
-  await handleWriteButtonInteraction(interaction, adapterClient, WRITES_ENABLED_CONFIG, null);
+  await handleWriteButtonInteraction(interaction, adapterClient);
   assert.match(JSON.stringify(updates[0]), /expired/i);
 });
 
@@ -263,7 +236,7 @@ test("handleWriteButtonInteraction: a customId key containing a colon is not tru
   registerRealPendingConfirmation({ nonce: keyWithColon, action: "player.kick", tier: "admin", userId: "u1", expiresAt: Date.now() + 60000, kind: "real" });
   const adapterClient = { writeExecute: async (actor, body) => { assert.equal(body.nonce, keyWithColon); return { ok: true }; } };
   const interaction = { isButton: () => true, customId: `write:confirm:${keyWithColon}`, user: { id: "u1" }, update: async () => {} };
-  const handled = await handleWriteButtonInteraction(interaction, adapterClient, WRITES_ENABLED_CONFIG, null);
+  const handled = await handleWriteButtonInteraction(interaction, adapterClient);
   assert.equal(handled, true);
 });
 
@@ -283,7 +256,7 @@ test("handleWriteButtonInteraction: a legacy stub confirmation (no kind field) r
   const adapterClient = { writeExecute: async () => { executeCalled = true; return { ok: true }; } };
   const updates = [];
   const interaction = { isButton: () => true, customId: "write:confirm:n6", user: { id: "u1" }, update: async (p) => updates.push(p) };
-  const handled = await handleWriteButtonInteraction(interaction, adapterClient, WRITES_ENABLED_CONFIG, null);
+  const handled = await handleWriteButtonInteraction(interaction, adapterClient);
   assert.equal(handled, true);
   assert.equal(executeCalled, false, "a legacy stub entry must never reach adapterClient.writeExecute");
   assert.match(JSON.stringify(updates[0]), /not executed|scaffolded|awaiting upstream/i);
@@ -309,79 +282,36 @@ test("handleWriteButtonInteraction: confirm passes the interaction's guildId to 
     user: { id: "u1", username: "u" }, guildId: "guild-abc", channelId: "c1",
     update: async () => {}
   };
-  const handled = await handleWriteButtonInteraction(interaction, adapterClient, WRITES_ENABLED_CONFIG, null);
+  const handled = await handleWriteButtonInteraction(interaction, adapterClient);
   assert.equal(handled, true);
   assert.equal(capturedGuildId, "guild-abc", "writeExecute's third argument must be the clicking interaction's guildId, not undefined");
 });
 
-// [Final-review fix, IMPORTANT 3] The dual-confirmation waiting-state
-// message is deliberately PUBLIC so a genuinely different admin can
-// complete it -- which means every member of the guild can click its
-// buttons too. Before this fix, an unauthorized member's Confirm click ran
-// clearPendingConfirmation() before ever reaching Core (which then
-// correctly refused them), permanently destroying the pending entry and
-// forcing the real second admin to start over.
-test("handleWriteButtonInteraction: an unauthorized member's Confirm click during the second-confirmation window is rejected AND leaves the pending entry intact for the real second admin", async () => {
+// mentat#404: two tests here covered an unauthorized member's Confirm and
+// Cancel clicks *during the second-confirmation window* -- a window that
+// only existed because the dual-confirmation waiting-state message was
+// deliberately public. With dual confirmation gone, a confirmation message
+// is never public-and-clickable-by-others, and the plain "not yours" gate
+// (exercised above for both legacy and real entries) refuses every other
+// user's Confirm AND Cancel without clearing the pending entry.
+test("handleWriteButtonInteraction: another user's Cancel click is refused and does not destroy the pending entry", async () => {
   resetPendingConfirmations();
-  registerRealPendingConfirmation({ nonce: "n-unauth", action: "server.stop", tier: "owner", userId: "first-admin", expiresAt: Date.now() + 300000, kind: "real", secondConfirmationPending: true });
-
-  let executeCalls = 0;
-  const adapterClient = { writeExecute: async () => { executeCalls += 1; return { ok: true }; } };
+  registerRealPendingConfirmation({ nonce: "n-cancel-notyours", action: "server.stop", tier: "owner", userId: "first-admin", expiresAt: Date.now() + 300000, kind: "real" });
 
   const replies = [];
   const randomMember = {
-    isButton: () => true, customId: "write:confirm:n-unauth",
+    isButton: () => true, customId: "write:cancel:n-cancel-notyours",
     user: { id: "random-member", username: "rando" },
-    guild: { ownerId: "real-second-admin" }, guildId: "g1", channelId: "c1",
+    guild: { ownerId: "random-member" }, guildId: "g1", channelId: "c1",
     member: { roles: [] },
     reply: async (p) => replies.push(p),
-    update: async () => { throw new Error("must never update the public message on a rejected click"); }
+    update: async () => { throw new Error("must never update someone else's confirmation message on a rejected cancel"); }
   };
-  const handledRejection = await handleWriteButtonInteraction(randomMember, adapterClient, WRITES_ENABLED_CONFIG, null);
-  assert.equal(handledRejection, true);
-  assert.equal(executeCalls, 0, "an unauthorized clicker must be refused client-side, never forwarded to Core");
-  assert.equal(replies[0].ephemeral, true);
-  assert.match(JSON.stringify(replies[0]), /not authorized/i);
-  assert.ok(getPendingConfirmation("n-unauth"), "the pending confirmation must SURVIVE a rejected click -- destroying it is the bug being fixed");
-
-  // ...and the real second admin (the guild owner, i.e. genuinely owner-tier)
-  // can still complete the very same pending confirmation afterwards.
-  const updates = [];
-  const realSecondAdmin = {
-    isButton: () => true, customId: "write:confirm:n-unauth",
-    user: { id: "real-second-admin", username: "second" },
-    guild: { ownerId: "real-second-admin" }, guildId: "g1", channelId: "c1",
-    member: { roles: [] },
-    update: async (p) => updates.push(p)
-  };
-  const handledSuccess = await handleWriteButtonInteraction(realSecondAdmin, adapterClient, WRITES_ENABLED_CONFIG, null);
-  assert.equal(handledSuccess, true);
-  assert.equal(executeCalls, 1, "the real second admin's click must still reach Core");
-  assert.match(JSON.stringify(updates[0]), /executed|success/i);
-});
-
-// [Final-review fix, IMPORTANT 3] Cancel was strictly worse than Confirm:
-// it destroyed the pending confirmation with no authorization check of any
-// kind, so any guild member could kill another admin's in-flight
-// dual-confirmation outright.
-test("handleWriteButtonInteraction: an unauthorized member's Cancel click during the second-confirmation window is rejected and does not destroy the pending entry", async () => {
-  resetPendingConfirmations();
-  registerRealPendingConfirmation({ nonce: "n-unauth-cancel", action: "server.stop", tier: "owner", userId: "first-admin", expiresAt: Date.now() + 300000, kind: "real", secondConfirmationPending: true });
-
-  const replies = [];
-  const randomMember = {
-    isButton: () => true, customId: "write:cancel:n-unauth-cancel",
-    user: { id: "random-member", username: "rando" },
-    guild: { ownerId: "real-second-admin" }, guildId: "g1", channelId: "c1",
-    member: { roles: [] },
-    reply: async (p) => replies.push(p),
-    update: async () => { throw new Error("must never update the public message on a rejected cancel"); }
-  };
-  const handled = await handleWriteButtonInteraction(randomMember, {}, WRITES_ENABLED_CONFIG, null);
+  const handled = await handleWriteButtonInteraction(randomMember, {});
   assert.equal(handled, true);
   assert.equal(replies[0].ephemeral, true);
-  assert.match(JSON.stringify(replies[0]), /not authorized/i);
-  assert.ok(getPendingConfirmation("n-unauth-cancel"), "an unauthorized cancel must not be able to kill a pending dual-confirmation");
+  assert.ok(replies[0].embeds[0].data.title.includes("Not Your Confirmation"));
+  assert.ok(getPendingConfirmation("n-cancel-notyours"), "an unauthorized cancel must not be able to kill another actor's pending confirmation");
 });
 
 // [Final-review fix, MINOR 7] `setTimeout(fn, NaN)` fires on the next timer
@@ -427,31 +357,35 @@ test("registerRealPendingConfirmation: a real pending confirmation that expires 
   assert.equal(audit.actor.userId, "u-timeout");
 });
 
-// [Final-review fix, IMPORTANT 4] The transition into the
-// waiting-on-a-second-administrator state was the one outcome of the
-// confirm branch that produced no audit line at all -- a real Repudiation
-// gap ("who gave the first of the two required confirmations?").
-test("handleWriteButtonInteraction: a 202 second_confirmation_required response is itself audited", async () => {
+// mentat#404: the `second-confirmation-required` audit event this test
+// pinned was emitted only when Core answered a confirm with a 202
+// `second_confirmation_required`. No action can produce that response any
+// more, so the event (and its sibling `second-confirmation-denied`) were
+// removed along with the rest of the dual-confirmation machinery. The
+// remaining audit results for the confirm branch -- `executed`,
+// `execute-failed`, `confirmed` (self-update) and `timeout` -- are covered
+// by the tests above.
+test("handleWriteButtonInteraction: a confirmed real write audits an 'executed' result naming the clicking actor", async () => {
   resetPendingConfirmations();
-  registerRealPendingConfirmation({ nonce: "n-202-audit", action: "server.stop", tier: "owner", userId: "first-admin", expiresAt: Date.now() + 300000, kind: "real" });
-  const adapterClient = { writeExecute: async () => ({ ok: true, code: "second_confirmation_required", nonce: "n-202-audit", expiresAt: Date.now() + 300000 }) };
+  registerRealPendingConfirmation({ nonce: "n-exec-audit", action: "server.stop", tier: "owner", userId: "the-owner", expiresAt: Date.now() + 300000, kind: "real" });
+  const adapterClient = { writeExecute: async () => ({ ok: true }) };
   const originalLog = console.log;
   const lines = [];
   console.log = (line) => lines.push(String(line));
   try {
     const interaction = {
-      isButton: () => true, customId: "write:confirm:n-202-audit",
-      user: { id: "first-admin", username: "first" }, guildId: "g1", channelId: "c1",
+      isButton: () => true, customId: "write:confirm:n-exec-audit",
+      user: { id: "the-owner", username: "owner" }, guildId: "g1", channelId: "c1",
       update: async () => {}
     };
-    await handleWriteButtonInteraction(interaction, adapterClient, WRITES_ENABLED_CONFIG, null);
+    await handleWriteButtonInteraction(interaction, adapterClient);
   } finally {
     console.log = originalLog;
   }
   const audit = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } })
-    .find((e) => e && e.result === "second-confirmation-required");
-  assert.ok(audit, "the waiting-state transition must emit its own audit event");
+    .find((e) => e && e.idempotencyKey === "n-exec-audit");
+  assert.ok(audit, "a confirmed write must emit an audit event");
+  assert.equal(audit.result, "executed");
   assert.equal(audit.action, "server.stop");
-  assert.equal(audit.actor.userId, "first-admin", "the audit must name the admin who gave the FIRST confirmation");
-  assert.equal(audit.idempotencyKey, "n-202-audit");
+  assert.equal(audit.actor.userId, "the-owner");
 });

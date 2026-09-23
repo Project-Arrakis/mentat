@@ -362,11 +362,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // `false` (instead of returning) means any future prefix-dispatched
     // handler added below this line will actually run.
     if (interaction.isButton?.()) {
-      // config/db are required (not optional): handleWriteButtonInteraction
-      // uses canWrite() to verify that whoever clicks a PUBLIC dual-
-      // confirmation waiting-state message actually holds the action's tier
-      // -- see that function's own ownership-gate comments.
-      const handled = await handleWriteButtonInteraction(interaction, adapterClient, config, db);
+      // mentat#404: this call used to pass `config`/`db` as well, purely so
+      // handleWriteButtonInteraction() could canWrite()-re-check whoever
+      // clicked a PUBLIC dual-confirmation waiting-state message. No action
+      // uses dual confirmation any more, so that check (and its two
+      // parameters) are gone; a write confirmation button is again only ever
+      // actionable by the actor who requested it.
+      const handled = await handleWriteButtonInteraction(interaction, adapterClient);
       if (handled) return;
       // mentat#343 Phase 2: the "autoinvite:confirm:"/"autoinvite:deny:"
       // buttons anticipated in the comment above (added when this fall-
