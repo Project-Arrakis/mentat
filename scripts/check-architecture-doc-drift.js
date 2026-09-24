@@ -17,7 +17,26 @@ async function main() {
   const doc = await readFile(ROOT("docs/architecture.md"), "utf8");
   const pkg = JSON.parse(await readFile(ROOT("package.json"), "utf8"));
   const rbac = await readFile(ROOT("src/rbac.js"), "utf8");
-  const writeCommands = await readFile(ROOT("src/writeCommands.js"), "utf8");
+  // mentat#401: this used to read the old, dead src/writeCommands.js (no
+  // real code has imported it since the write-command-reconciliation work
+  // landed -- see mentat#400, which deleted it) giving a false "no drift"
+  // pass the entire time docs/architecture.md's write-command claims were
+  // actually stale. The real source of truth is now src/writeActions.js's
+  // WRITE_ACTIONS table (the 27 real commands) plus src/writeHandler.js's
+  // LEGACY_WRITE_STUBS (the 9 still-deferred legacy commands) -- together,
+  // every write subcommand a user can actually type.
+  //
+  // [Audit fix, mentat#401 round 2] Imports the real modules rather than
+  // regex-parsing their source text -- a round-2 review found the regex
+  // approach (matched on `group: "...", name: "..."` ordering) had a real
+  // ordering blind spot: inserting any field between `group` and `name` on
+  // a single entry made that entry silently invisible to the check, with
+  // nothing catching it (the only empty-match guard is
+  // `writeNameMatches.length === 0`, which doesn't fire for one dropped
+  // entry among many). Importing the actual exported arrays has no such
+  // blind spot -- it sees exactly what the real dispatch code sees.
+  const { WRITE_ACTIONS } = await import(ROOT("src/writeActions.js"));
+  const { LEGACY_WRITE_STUBS } = await import(ROOT("src/writeHandler.js"));
 
   // 1. No Postgres driver dependency — the doc's central claim.
   const deps = Object.keys(pkg.dependencies || {});
@@ -52,26 +71,31 @@ async function main() {
   }
 
   // 3. Write command list — every real write command name must appear in the doc.
-  const writeNameMatches = [...writeCommands.matchAll(/\{\s*name:\s*"([^"]+)"/g)].map((m) => m[1]);
+  const writeNameMatches = [
+    ...WRITE_ACTIONS.map((e) => e.name),
+    ...LEGACY_WRITE_STUBS.map((e) => e.name)
+  ];
   if (writeNameMatches.length === 0) {
-    issues.push("Could not find any `{ name: \"...\" }` write command definitions in src/writeCommands.js — drift check itself needs updating.");
+    issues.push("WRITE_ACTIONS and LEGACY_WRITE_STUBS both resolved empty — drift check itself needs updating (or something is badly broken in src/writeActions.js / src/writeHandler.js).");
   } else {
     for (const name of writeNameMatches) {
       if (!doc.includes(name)) {
         issues.push(
-          `src/writeCommands.js defines write command "${name}" which is not mentioned anywhere in ` +
+          `src/writeActions.js or src/writeHandler.js defines write command "${name}" which is not mentioned anywhere in ` +
           `docs/architecture.md's Write Capabilities table.`
         );
       }
     }
-    // Doc's own explicit claim: "No player-facing write ... exists today."
-    // If a write command's family/action looks player-facing, flag it loudly —
-    // this is the single most important claim in the whole doc to keep honest.
+    // Doc's own explicit claim used to be "No player-facing write ...
+    // exists today" -- that's now false (mentat#396/#404 work shipped real
+    // player-facing write commands) and docs/architecture.md was already
+    // corrected to say so. If a future edit ever reintroduces that old
+    // claim while player-facing commands still exist, catch it.
     const playerFacingPattern = /player|kick|ban|grant.?item/i;
     const suspicious = writeNameMatches.filter((n) => playerFacingPattern.test(n));
     if (suspicious.length > 0 && doc.includes("No player-facing write")) {
       issues.push(
-        `docs/architecture.md claims "No player-facing write ... exists today" but src/writeCommands.js ` +
+        `docs/architecture.md claims "No player-facing write ... exists today" but src/writeActions.js ` +
         `now has command(s) that look player-facing: ${suspicious.join(", ")}. Update the doc — this is exactly ` +
         `the kind of change that must not silently go undocumented.`
       );
@@ -86,7 +110,7 @@ async function main() {
     return;
   }
 
-  console.log("docs/architecture.md: no drift detected against src/rbac.js, src/writeCommands.js, package.json.");
+  console.log("docs/architecture.md: no drift detected against src/rbac.js, src/writeActions.js, src/writeHandler.js, package.json.");
 }
 
 main();

@@ -1,4 +1,12 @@
-import { signedHeaders } from "./actorSignature.js";
+import { signedHeaders, writeBridgeSignedHeaders } from "./actorSignature.js";
+
+// Routes whose actor signature must be computed with WRITE_BRIDGE_SIGNED_ACTOR_FIELDS
+// (matching Core's own write/preview and write/execute verification) rather
+// than the generic, shared field set every other signed route uses -- see
+// actorSignature.js's own comment on WRITE_BRIDGE_SIGNED_ACTOR_FIELDS for
+// why signing with the wrong field set here means the signature can never
+// verify against Core's write bridge.
+const WRITE_BRIDGE_ROUTES = new Set(["write-execute", "write-preview"]);
 import { getDefaultSecureDispatcher } from "./secureFetchDispatcher.js";
 
 export class AdapterHttpError extends Error {
@@ -65,7 +73,14 @@ export const LIVE_ROUTES = new Set([
   // was still inaccurate and is corrected here alongside the two
   // genuinely urgent regressions found in the same audit (see
   // MISSING_ROUTES's comment below for players-accounts-*/ops-dashboard).
-  "backups", "announcements", "maintenance"
+  "backups", "announcements", "maintenance",
+  // SIXTH reconciliation (2026-09-22, write-command reconciliation):
+  // write-execute and write-preview were classified MISSING pending Core
+  // support. dune-awakening-selfhost-docker#1026 merged with real route
+  // implementations. Moved to LIVE. Gating on DUNE_DISCORD_WRITES_ENABLED
+  // env var (writes.js, writesEnabled()) is the real kill switch for this
+  // feature, not a version-compatibility flag.
+  "write-execute", "write-preview"
 ]);
 
 // Routes that exist in upstream but return "planned" stubs or placeholder data.
@@ -168,9 +183,6 @@ export const UNMERGED_ROUTES = new Set([
 // Routes that do NOT exist anywhere, or that Core declares a route
 // constant for but never actually routes a request to.
 //
-// write-execute/write-preview: the write-command group's routes, still
-// unbuilt on Core (the bot's write group stays disabled until they land).
-//
 // player-links, player-links-verify, player-links-unlink: the never-built
 // player-links/* path family. Core has no such routes (only
 // player-links/start exists, and even that is UNMERGED/dead), and NO
@@ -210,8 +222,14 @@ export const UNMERGED_ROUTES = new Set([
 // regression from v1.3.79 (where it was genuinely live, dispatched via
 // the older OPS_PATHS/OPS_PROVIDERS array), not a stale classification
 // that was always wrong.
+// write-execute/write-preview removed 2026-09-22 (operator decision, see
+// docs/design/write-command-reconciliation-l1-design-2026-09-22.md and
+// the tracked issue it links): these routes are real once
+// dune-awakening-selfhost-docker#1026 merges. Gating on
+// DUNE_DISCORD_WRITES_ENABLED (writesEnabled(), writes.js) is the real
+// kill switch for this feature going forward, not a version-compatibility
+// flag.
 export const MISSING_ROUTES = new Set([
-  "write-execute", "write-preview",
   "player-links", "player-links-verify", "player-links-unlink",
   "players-accounts-list", "players-accounts-unlink", "players-accounts-link-steam",
   "ops-dashboard"
@@ -437,15 +455,22 @@ export class AdapterClient {
       if (method === "POST") {
         headers["content-type"] = "application/json";
         options.body = JSON.stringify({ actor: actor || null, ...(extra || {}) });
-        // signedHeaders() no-ops (returns {}) unless
-        // DUNE_DISCORD_ACTOR_SECRET/_FILE is configured -- fully backward
-        // compatible with every deployment that hasn't opted in yet.
-        // `path` (the full adapter URL path), not `route` (this client's
-        // internal key), MUST be what's signed -- Core's routes.js signs
-        // against the exact request path, not an internal identifier this
-        // bot invented. See actorSignature.js's own comment for why a
+        // signedHeaders()/writeBridgeSignedHeaders() no-op (return {})
+        // unless DUNE_DISCORD_ACTOR_SECRET/_FILE is configured -- fully
+        // backward compatible with every deployment that hasn't opted in
+        // yet. `path` (the full adapter URL path), not `route` (this
+        // client's internal key), MUST be what's signed -- Core's routes.js
+        // signs against the exact request path, not an internal identifier
+        // this bot invented. See actorSignature.js's own comment for why a
         // mismatch here would make every signed request fail verification.
-        Object.assign(headers, signedHeaders(actor, path));
+        //
+        // CRITICAL: write-execute/write-preview use a DIFFERENT signed
+        // field set than every other route (WRITE_BRIDGE_SIGNED_ACTOR_FIELDS,
+        // not the generic SIGNED_ACTOR_FIELDS) and additionally bind the
+        // specific action being requested -- see WRITE_BRIDGE_ROUTES above.
+        Object.assign(headers, WRITE_BRIDGE_ROUTES.has(route)
+          ? writeBridgeSignedHeaders(actor, path, extra?.action)
+          : signedHeaders(actor, path));
       }
 
       const response = await this.fetchImpl(url, options);

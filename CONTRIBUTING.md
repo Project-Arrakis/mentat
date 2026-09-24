@@ -17,7 +17,7 @@ The `main` branch is the release target.
 | Setup server | `src/setupServer.js` | Express (OAuth2 portal) |
 | Onboarding | `src/onboarding.js` | Discord guild events |
 | Write handler | `src/writeHandler.js` | Write command routing |
-| Write commands | `src/writeCommands.js` | Write command definitions |
+| Write commands | `src/writeActions.js` | Write command definitions |
 | OPS commands | `src/opsCommands.js` | OPS subcommand definitions |
 | Status card | `src/statusCard.js` | Canvas PNG rendering |
 | Scheduler | `src/scheduler.js` | Scheduled posts |

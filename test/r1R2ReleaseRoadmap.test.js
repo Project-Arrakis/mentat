@@ -37,6 +37,25 @@ test("R2 entry criteria require upstream contract and security evidence", async 
   }
 });
 
+test("R2 entry criteria carry the 2026-09-22 operator override note, not just the pre-override gate text", async () => {
+  const roadmap = await readFile("docs/r1-r2-release-roadmap.md", "utf8");
+
+  assert.match(
+    roadmap,
+    /Update \(2026-09-22, operator decision, tracked in #398\)/,
+    "the entry criteria section must record the operator's tracked override, not silently go stale against shipped write commands"
+  );
+  assert.match(roadmap, /docs\/design\/write-command-reconciliation-l1-design-2026-09-22\.md/);
+  assert.match(
+    roadmap,
+    /service restart and player moderation, specifically named as blocked below \(see "Blocked from early R2\.x"\), are now implemented/
+  );
+  assert.match(
+    roadmap,
+    /same override recorded in `docs\/upstream-write-adapter-rfc\.md`/
+  );
+});
+
 test("R2 roadmap starts with foundation and low-risk writes", async () => {
   const roadmap = await readFile("docs/r1-r2-release-roadmap.md", "utf8");
 

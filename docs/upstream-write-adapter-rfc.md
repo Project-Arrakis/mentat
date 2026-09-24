@@ -7,6 +7,8 @@ command surface remains read-only. Do not implement the operator write-command
 group in this bot beyond its current disabled-by-default scaffold until
 upstream publishes and approves a write-capable adapter contract.
 
+**Update (2026-09-22, operator decision, tracked in #398):** the "do not implement" gate above is overridden for the 27 real write commands listed in `docs/design/write-command-reconciliation-l1-design-2026-09-22.md` (Core's real, audited `dune-awakening-selfhost-docker`#215/#1026 actions, plus bot self-update). This RFC's original concern — a public write-capable adapter contract for arbitrary third-party bots — remains unresolved and is a separate question from this operator's own single Core+bot deployment choosing to use its own, now-real write bridge. The 8 actions with no real backing feature anywhere (`maintenance:*`/`notifications:*`/`schedule:*`) and `operations:clear-cache` remain genuinely blocked, unrelated to the upstream-contract question this RFC is about.
+
 The current upstream Discord adapter baseline is
 `Red-Blink/dune-awakening-selfhost-docker@1afdb95766eba92f4c3ef4ed3965d21990aab431`
 (latest published release tag `v1.4.12`), re-verified on September 8, 2026 --

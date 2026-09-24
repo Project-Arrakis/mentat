@@ -97,31 +97,28 @@ while read -r oldrev newrev refname; do
   git reset --hard deploy/"$DEPLOY_BRANCH" 2>&1 || { echo "ERROR: git reset failed"; exit 1; }
   echo "Current: $(git log --oneline -1)"
 
-  # Guardrail: run tests on the NEW code
-  echo "Running test suite..."
-  npm test 2>&1 | tee /tmp/deploy-test.log | tail -10
-  TEST_EXIT=${PIPESTATUS[0]}
-  if [ "$TEST_EXIT" -ne 0 ]; then
-    echo "ERROR: tests failed (exit code $TEST_EXIT) -- aborting deployment."
+  # Test/install/restart/health-check, shared with scripts/self-update.sh
+  # (the Discord-triggered bot self-update path -- see
+  # src/writeSelfUpdate.js) so there is exactly one copy of this
+  # test-gated safety logic. Also acquires a lock (runtime/deploy.lock)
+  # so a concurrent git-push deploy and a Discord-triggered self-update
+  # can never interleave against this same working directory.
+  # $WORK_DIR-relative, NOT "$(dirname "${BASH_SOURCE[0]}")"-relative: this
+  # file is DEPLOYED by being copied out of the repo into the bare deploy
+  # repo's own hooks/ directory (`cp ~/arrakis-control-panel/scripts/
+  # deploy-post-receive.sh hooks/post-receive`, see INSTALL.md), so at
+  # runtime BASH_SOURCE[0] is ~/acp-deploy.git/hooks/post-receive and
+  # "$(dirname ...)/lib/deploy-core.sh" resolves to a path that does not
+  # exist. With `set -u` and no `-e` the failed source is non-fatal, so the
+  # hook then ran on to call deploy_core::sync_test_install_restart -- an
+  # undefined function -- and failed every real deploy with a bare
+  # "command not found". Every other script this file invokes is already
+  # $WORK_DIR-relative for exactly this reason (see command-defs-changed.sh
+  # and smoke-test-proxy-secret.sh below).
+  source "$WORK_DIR/scripts/lib/deploy-core.sh"
+  if ! deploy_core::sync_test_install_restart "$WORK_DIR" "$SERVICE_NAME"; then
     exit 1
   fi
-
-  if grep -qE "^not ok " /tmp/deploy-test.log; then
-    echo "ERROR: tests had failures -- aborting deployment."
-    exit 1
-  fi
-  echo "Tests passed."
-
-  # Guardrail: check for required files
-  for f in src/index.js src/statsPusher.js package.json; do
-    if [ ! -f "$WORK_DIR/$f" ]; then
-      echo "ERROR: missing required file: $f -- aborting deployment."
-      exit 1
-    fi
-  done
-
-  # Install dependencies if needed
-  npm install --omit=dev 2>&1 | tail -3
 
   # Re-register slash commands if command definitions changed in range.
   # Discord's command registry is separate from the bot process; a
@@ -142,18 +139,6 @@ while read -r oldrev newrev refname; do
     fi
   else
     echo "No command-definition changes -- skipping slash-command registration."
-  fi
-
-  # Restart service
-  echo "Restarting $SERVICE_NAME..."
-  sudo systemctl restart "$SERVICE_NAME" 2>/dev/null || systemctl --user restart "$SERVICE_NAME" 2>/dev/null || true
-
-  # Health check
-  sleep 3
-  if systemctl is-active "$SERVICE_NAME" 2>/dev/null | grep -q active; then
-    echo "Deployment complete -- service is active."
-  else
-    echo "WARNING: service status unclear -- check manually."
   fi
 
   # Security guardrail (mentat#326, L2 phase 8): verify the auto-invite

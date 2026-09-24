@@ -15,6 +15,7 @@ import {
   statusSummaryPayload
 } from "../src/commands.js";
 import { createDatabase, upsertGuild, addGuildRole, updateGuildSettings } from "../src/database.js";
+import { WRITE_ACTIONS, findWriteAction } from "../src/writeActions.js";
 
 const packageVersion = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8")
@@ -120,7 +121,7 @@ test("helpPayload lists the write group only when writes are enabled, gated by w
 
     const adminHelp = helpPayload(config(), mockInteraction("core", "help", { roles: ["write-admin-role"] }));
     assert.ok(adminHelp.total > 54, "write group adds commands to help when writes enabled");
-    assert.ok(adminHelp.available.includes("write:backup"), "write-admin role can see write commands as available");
+    assert.ok(adminHelp.available.includes("write:cache"), "write-admin role can see write commands as available");
   } finally {
     if (originalAdminRoles === undefined) delete process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
     else process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = originalAdminRoles;
@@ -452,7 +453,9 @@ test("executeDuneCommand handles server:summary through the status route", async
   await executeDuneCommand(interaction, client, {
     discord: { defaultEphemeral: false, rbac: { mode: "restricted", commandRoleIds: { "server:summary": ["role-a"] } } }
   });
-  assert.deepEqual(seenActor, { userId: "u1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], guildOwnerId: undefined });
+  const { roleSnapshotAt, ...seenActorWithoutSnapshot } = seenActor;
+  assert.ok(Number.isInteger(roleSnapshotAt));
+  assert.deepEqual(seenActorWithoutSnapshot, { userId: "u1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], guildOwnerId: undefined });
   assert.ok(edited?.embeds?.[0]?.data?.title, "summary embed has title");
 });
 
@@ -533,6 +536,7 @@ test("executeDuneCommand routes player:find scope=guild to guildFind, not player
 });
 
 test("actorFromInteraction emits minimal Discord context, including guildOwnerId (issue #240)", () => {
+  const before = Math.floor(Date.now() / 1000);
   const actor = actorFromInteraction({
     user: { id: "user-1" },
     guild: { ownerId: "owner-1" },
@@ -540,7 +544,14 @@ test("actorFromInteraction emits minimal Discord context, including guildOwnerId
     channelId: "channel-1",
     member: { roles: ["role-1"] }
   });
-  assert.deepEqual(actor, { userId: "user-1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-1"], guildOwnerId: "owner-1" });
+  const after = Math.floor(Date.now() / 1000);
+  // roleSnapshotAt (CRITICAL FIX): Core's write/execute route requires this
+  // field (fail-closed) as proof roleIds reflects the actor's CURRENT
+  // Discord roles -- checked as a real timestamp range, not a fixed literal,
+  // since it's genuinely `Date.now()`-derived, not a stable constant.
+  assert.ok(Number.isInteger(actor.roleSnapshotAt) && actor.roleSnapshotAt >= before && actor.roleSnapshotAt <= after);
+  const { roleSnapshotAt, ...actorWithoutSnapshot } = actor;
+  assert.deepEqual(actorWithoutSnapshot, { userId: "user-1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-1"], guildOwnerId: "owner-1" });
 });
 
 test("actorFromInteraction: guildOwnerId is undefined when interaction.guild is absent and no client-cache fallback is available", () => {
@@ -702,4 +713,133 @@ test("infra commands are RBAC-gated through fallback observer/admin", async () =
   });
   assert.ok(edited?.embeds?.[0]?.data?.title, "infra:version embed has title");
   assert.equal(seenActor.userId, "u1", "actor context sent to adapter");
+});
+
+test("buildDuneCommand: registers every WRITE_ACTIONS entry as a subcommand of its real group -- merged into player/server, new for the rest", () => {
+  const built = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+  // type 2 = ApplicationCommandOptionType.SubcommandGroup (verified against
+  // discord-api-types, the real dependency this codebase already uses).
+  const registeredGroups = new Map(built.options.filter((o) => o.type === 2).map((g) => [g.name, g]));
+
+  const groupNames = new Set(WRITE_ACTIONS.map((e) => e.group));
+  for (const groupName of groupNames) {
+    assert.ok(registeredGroups.has(groupName), `missing subcommand group: ${groupName}`);
+    const registeredSubcommands = new Set(registeredGroups.get(groupName).options.map((s) => s.name));
+    for (const entry of WRITE_ACTIONS.filter((e) => e.group === groupName)) {
+      assert.ok(registeredSubcommands.has(entry.name), `group ${groupName} missing subcommand: ${entry.name}`);
+    }
+  }
+
+  // [Audit fix: Architect, CRITICAL] player/server must have EXACTLY ONE
+  // registered group each (the existing one, extended) -- not two.
+  const allGroupNamesInPayload = built.options.filter((o) => o.type === 2).map((g) => g.name);
+  assert.equal(allGroupNamesInPayload.filter((n) => n === "player").length, 1);
+  assert.equal(allGroupNamesInPayload.filter((n) => n === "server").length, 1);
+
+  // player/server must ALSO still have their pre-existing read subcommands
+  // (proves this is a merge, not a silent replacement).
+  const playerSubcommands = new Set(registeredGroups.get("player").options.map((s) => s.name));
+  assert.ok(playerSubcommands.has("link"), "merging write subcommands into player must not drop its existing read subcommands");
+  const serverSubcommands = new Set(registeredGroups.get("server").options.map((s) => s.name));
+  assert.ok(serverSubcommands.has("health"), "merging write subcommands into server must not drop its existing read subcommands");
+});
+
+test("buildDuneCommand: total subcommand-group count stays under Discord's 25-group ceiling", () => {
+  const built = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+  const groupCount = built.options.filter((o) => o.type === 2).length;
+  assert.ok(groupCount <= 25, `${groupCount} subcommand groups exceeds Discord's limit`);
+});
+
+test("executeDuneCommand dispatch: findWriteAction recognizes both a merged group (player) and a new group (base)", () => {
+  assert.ok(findWriteAction("player", "kick"));
+  assert.ok(findWriteAction("base", "refill-generators"));
+  assert.equal(findWriteAction("player", "link"), null, "existing read subcommands are not write actions");
+});
+
+// [Audit fix: Security, MEDIUM round 3] The 3 legacy "write" group
+// subcommands superseded by a real new command elsewhere (backup,
+// restart, update) must be removed from the real write group builder, not
+// left as a dead second name for the same action -- per the design doc's
+// own explicit principle (line 149).
+test("buildDuneCommand: the legacy 'write' group no longer registers the 3 superseded subcommand names, but keeps the 9 still-deferred ones", () => {
+  const built = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+  const registeredGroups = new Map(built.options.filter((o) => o.type === 2).map((g) => [g.name, g]));
+  const writeSubcommands = new Set(registeredGroups.get("write").options.map((s) => s.name));
+  for (const superseded of ["backup", "restart", "update"]) {
+    assert.ok(!writeSubcommands.has(superseded), `write:${superseded} is superseded by a real new command and must be removed`);
+  }
+  for (const stillDeferred of ["maintenance-note", "maintenance-window", "alert-channel", "alert-threshold", "digest-schedule", "post-schedule", "add-channel", "remove-channel", "cache"]) {
+    assert.ok(writeSubcommands.has(stillDeferred), `write:${stillDeferred} has no real backing feature yet and must stay registered`);
+  }
+  assert.equal(writeSubcommands.size, 9);
+});
+
+// [Audit fix: Architect, MEDIUM round 4] There are now THREE
+// independently-maintained sources of "the 9 legacy write-group names":
+// `LEGACY_WRITE_STUBS` (src/writeHandler.js), the real hand-written
+// `.addSubcommand(...)` calls in commands.js's write group builder, and
+// the hardcoded list in the test immediately above -- none of which were
+// ever programmatically compared. A future edit to any ONE of them (a
+// rename, an add, a removal) could pass all three test suites in
+// isolation while `findLegacyWriteStub`'s name lookup silently breaks
+// (dead code, or "Unknown write command" for a real Discord subcommand).
+// This test cross-checks the first two directly against each other.
+test("buildDuneCommand: the registered write-group names and LEGACY_WRITE_STUBS's names are exactly the same set", async () => {
+  const { LEGACY_WRITE_STUBS } = await import("../src/writeHandler.js");
+  const built = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+  const registeredGroups = new Map(built.options.filter((o) => o.type === 2).map((g) => [g.name, g]));
+  const writeSubcommands = new Set(registeredGroups.get("write").options.map((s) => s.name));
+  const legacyStubNames = new Set(LEGACY_WRITE_STUBS.map((s) => s.name));
+  assert.deepEqual([...writeSubcommands].sort(), [...legacyStubNames].sort(), "commands.js's write group and writeHandler.js's LEGACY_WRITE_STUBS have drifted apart");
+});
+
+// [Audit fix, mentat#403] The name-only check above doesn't catch
+// description/param drift between the two independently hand-maintained
+// copies -- and they HAD already drifted on 7 of 9 entries' descriptions
+// before this test was added (found by writing this exact comparison).
+// LEGACY_WRITE_STUBS's params never use a param.type that needs
+// discordOptionName() conversion (no camelCase names), so this compares
+// param names directly rather than pulling in that helper.
+test("buildDuneCommand: each write-group subcommand's description and params match LEGACY_WRITE_STUBS exactly", async () => {
+  const { LEGACY_WRITE_STUBS } = await import("../src/writeHandler.js");
+  const built = buildDuneCommand({ includeWriteGroup: true }).toJSON();
+  const registeredGroups = new Map(built.options.filter((o) => o.type === 2).map((g) => [g.name, g]));
+  const registeredByName = new Map(registeredGroups.get("write").options.map((s) => [s.name, s]));
+  for (const stub of LEGACY_WRITE_STUBS) {
+    const registered = registeredByName.get(stub.name);
+    assert.ok(registered, `write:${stub.name} is in LEGACY_WRITE_STUBS but not registered`);
+    assert.equal(registered.description, stub.desc, `write:${stub.name}'s registered description doesn't match LEGACY_WRITE_STUBS's desc`);
+    assert.equal(registered.options.length, stub.params.length, `write:${stub.name} has a different number of params registered than LEGACY_WRITE_STUBS declares`);
+    for (const param of stub.params) {
+      const registeredParam = registered.options.find((o) => o.name === param.name);
+      assert.ok(registeredParam, `write:${stub.name}'s param "${param.name}" is in LEGACY_WRITE_STUBS but not registered`);
+      assert.equal(registeredParam.description, param.desc, `write:${stub.name}'s param "${param.name}" description doesn't match LEGACY_WRITE_STUBS`);
+      assert.equal(registeredParam.required, param.required, `write:${stub.name}'s param "${param.name}" required-ness doesn't match LEGACY_WRITE_STUBS`);
+    }
+  }
+});
+
+// [Audit fix, mentat#403 round 2] A code review found a THIRD
+// independently hand-maintained copy of the legacy write-group shape --
+// WRITE_HELP_ENTRIES (consumed by /dune help) -- that the original #403
+// fix above never cross-checked. It had drifted the same way (stale
+// descriptions) AND still advertised 3 removed commands
+// (write:backup/restart/update) that could no longer be typed. This test
+// closes that gap: every LEGACY_WRITE_STUBS name must appear in
+// WRITE_HELP_ENTRIES with a matching description, and WRITE_HELP_ENTRIES
+// must never contain a name LEGACY_WRITE_STUBS doesn't have (the phantom-
+// command direction of drift).
+test("helpPayload: WRITE_HELP_ENTRIES matches LEGACY_WRITE_STUBS exactly -- same names, same descriptions", async () => {
+  const { LEGACY_WRITE_STUBS } = await import("../src/writeHandler.js");
+  const { WRITE_HELP_ENTRIES } = await import("../src/commands.js");
+  const helpByName = new Map(WRITE_HELP_ENTRIES.map((e) => [e.name.replace(/^write:/, ""), e]));
+  const legacyNames = new Set(LEGACY_WRITE_STUBS.map((s) => s.name));
+  for (const stub of LEGACY_WRITE_STUBS) {
+    const helpEntry = helpByName.get(stub.name);
+    assert.ok(helpEntry, `write:${stub.name} is in LEGACY_WRITE_STUBS but missing from WRITE_HELP_ENTRIES`);
+    assert.equal(helpEntry.desc, stub.desc, `write:${stub.name}'s WRITE_HELP_ENTRIES description doesn't match LEGACY_WRITE_STUBS`);
+  }
+  for (const name of helpByName.keys()) {
+    assert.ok(legacyNames.has(name), `WRITE_HELP_ENTRIES lists write:${name}, which is not a real LEGACY_WRITE_STUBS entry -- a phantom command /dune help would advertise that cannot actually be typed`);
+  }
 });

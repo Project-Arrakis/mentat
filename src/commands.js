@@ -15,14 +15,59 @@ import { countSubcommands } from "./catalogTransform.js";
 import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { handleWriteCommand } from "./writeHandler.js";
+import { WRITE_ACTIONS, findWriteAction, discordOptionName } from "./writeActions.js";
 import { writesEnabled, canWrite, writeRoleIds } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES, PLANNED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
 import { getGuildStatus, getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
-import { multiTenantActorTier, tierAtLeast, resolveGuildOwnerId, isInteractionGuildOwner } from "./rbac.js";
+import { multiTenantActorTier, tierAtLeast, resolveGuildOwnerId, isInteractionGuildOwner, actorFromInteraction } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
+
+// Mechanical WRITE_ACTIONS -> discord.js subcommand registration -- shared
+// by every write-capable group builder (whether that group is genuinely new
+// or an existing read-only group being merged into), so the Discord option
+// shape always matches writeActions.js's single source of truth.
+function addOptionToSubcommand(subcommandBuilder, param) {
+  // discordOptionName(): several WRITE_ACTIONS param names (playerId, baseId,
+  // guildId, roleId, mapName, itemName) are camelCase to match the Core
+  // adapter's own field naming -- but Discord's option-name validator rejects
+  // any uppercase character, so the Discord-facing name is derived here
+  // rather than using param.name verbatim. writeHandler.js's collectParams()
+  // reads the option back using the same conversion, then stores it under
+  // the original param.name key, so the Core-facing params object is
+  // unaffected. See writeActions.js's discordOptionName() for the full note.
+  const setCommon = (opt) => opt.setName(discordOptionName(param.name)).setDescription(param.desc).setRequired(Boolean(param.required));
+  if (param.type === "integer") {
+    return subcommandBuilder.addIntegerOption((o) => {
+      setCommon(o);
+      if (param.minValue !== undefined) o.setMinValue(param.minValue);
+      if (param.maxValue !== undefined) o.setMaxValue(param.maxValue);
+      return o;
+    });
+  }
+  if (param.type === "number") {
+    return subcommandBuilder.addNumberOption((o) => setCommon(o));
+  }
+  return subcommandBuilder.addStringOption((o) => {
+    setCommon(o);
+    if (param.maxLength !== undefined) o.setMaxLength(param.maxLength);
+    if (param.choices) o.addChoices(...param.choices.map((c) => ({ name: c, value: c })));
+    return o;
+  });
+}
+
+function addWriteSubcommands(groupBuilder, groupName) {
+  for (const entry of WRITE_ACTIONS.filter((e) => e.group === groupName)) {
+    groupBuilder.addSubcommand((c) => {
+      c.setName(entry.name).setDescription(entry.desc);
+      for (const param of entry.params) addOptionToSubcommand(c, param);
+      return c;
+    });
+  }
+  return groupBuilder;
+}
 
 // Group -> subcommand -> handler config
 // Each group can have up to 25 subcommands; a top-level command can have up
@@ -51,19 +96,31 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("setup").setDescription("How to add this bot to your own Discord server.")))
 
     // ── server group ──
-    .addSubcommandGroup((g) => g.setName("server").setDescription("Server health, status, and services.")
-      .addSubcommand((c) => c.setName("health").setDescription("Check the console Discord adapter."))
-      .addSubcommand((c) => c.setName("status").setDescription("Show high-level server status.")
-        .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin-only: full diagnostic with containers table.")))
-      .addSubcommand((c) => c.setName("summary").setDescription("Show compact aggregate server status."))
-      .addSubcommand((c) => c.setName("readiness").setDescription("Show readiness and preflight state.")
-        .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin-only: detailed readiness checks.")))
-      .addSubcommand((c) => c.setName("readiness-detail").setDescription("Show grouped readiness detail with issues."))
-      .addSubcommand((c) => c.setName("services").setDescription("Show service container state."))
-      .addSubcommand((c) => c.setName("services-detail").setDescription("Show detailed service state with logs."))
-      .addSubcommand((c) => c.setName("maintenance").setDescription("Show current maintenance note or window (read-only)."))
-      .addSubcommand((c) => c.setName("coriolis").setDescription("Show the current Coriolis storm seed and next-cycle countdown."))
-      .addSubcommand((c) => c.setName("atlas").setDescription("Show per-sietch PvP/PvE and live sandstorm status.")))
+    // Merged with write's new "server" WRITE_ACTIONS entries (write command
+    // reconciliation, Task 7) -- converted from an expression-bodied arrow
+    // to a block body so addWriteSubcommands() can be appended; every
+    // pre-existing .addSubcommand(...) call below is unchanged.
+    .addSubcommandGroup((g) => {
+      g.setName("server").setDescription("Server health, status, and services.")
+        .addSubcommand((c) => c.setName("health").setDescription("Check the console Discord adapter."))
+        .addSubcommand((c) => c.setName("status").setDescription("Show high-level server status.")
+          .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin-only: full diagnostic with containers table.")))
+        .addSubcommand((c) => c.setName("summary").setDescription("Show compact aggregate server status."))
+        .addSubcommand((c) => c.setName("readiness").setDescription("Show readiness and preflight state.")
+          .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin-only: detailed readiness checks.")))
+        .addSubcommand((c) => c.setName("readiness-detail").setDescription("Show grouped readiness detail with issues."))
+        .addSubcommand((c) => c.setName("services").setDescription("Show service container state."))
+        .addSubcommand((c) => c.setName("services-detail").setDescription("Show detailed service state with logs."))
+        .addSubcommand((c) => c.setName("maintenance").setDescription("Show current maintenance note or window (read-only)."))
+        .addSubcommand((c) => c.setName("coriolis").setDescription("Show the current Coriolis storm seed and next-cycle countdown."))
+        .addSubcommand((c) => c.setName("atlas").setDescription("Show per-sietch PvP/PvE and live sandstorm status."));
+      // Gated the same as every other write command (DUNE_DISCORD_WRITES_ENABLED)
+      // -- must NOT register when includeWriteGroup is false, or these
+      // subcommands would always be visible/dispatchable regardless of the
+      // feature flag, unlike every other write-capable group.
+      if (includeWriteGroup) addWriteSubcommands(g, "server");
+      return g;
+    })
 
     // ── data group ──
     // inventory/storage/find moved to player (2026-07-26) -- these are
@@ -81,39 +138,51 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
     // inventory/storage/find joined this group 2026-07-26, moved from data
     // -- every subcommand here is scoped to the calling player's own
     // character/account, never server-wide data.
-    .addSubcommandGroup((g) => g.setName("player").setDescription("Your character: linking, inventory, storage, and account management.")
-      .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character.")
-        .addStringOption((o) => o.setName("character").setDescription("Your character name").setRequired(true)))
-      .addSubcommand((c) => c.setName("verify").setDescription("Verify a pending character link with a code.")
-        .addStringOption((o) => o.setName("code").setDescription("Verification code from in-game whisper").setRequired(true)))
-      .addSubcommand((c) => c.setName("characters").setDescription("List your verified characters."))
-      .addSubcommand((c) => c.setName("enable").setDescription("Enable a character in this guild.")
-        .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
-      .addSubcommand((c) => c.setName("disable").setDescription("Disable a character in this guild.")
-        .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
-      .addSubcommand((c) => c.setName("default").setDescription("Set your default character for this guild.")
-        .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
-      .addSubcommand((c) => c.setName("unlink").setDescription("Unlink a character from your Discord.")
-        .addStringOption((o) => o.setName("character").setDescription("Player controller ID from /dune player characters (omit to unlink your single-link character)")))
-      // Read-only, auto-detected from your real in-game faction (Core's
-      // players-faction route, dune-awakening-selfhost-docker#696) -- there
-      // is deliberately no argument here. This used to be a settable
-      // "atreides"/"harkonnen"/"fremen" choice with no route on Core to
-      // back it at all (the option was silently discarded); Core's real
-      // route reports your actual faction and never accepts a caller-
-      // supplied value, so the option was removed rather than left to
-      // silently do nothing.
-      .addSubcommand((c) => c.setName("faction").setDescription("Show your real, in-game faction."))
-      .addSubcommand((c) => c.setName("whoami").setDescription("Show your linked game character info."))
-      .addSubcommand((c) => c.setName("inventory").setDescription("View your personal inventory.")
-        .addStringOption((o) => o.setName("search").setDescription("Filter by item name (optional)")))
-      .addSubcommand((c) => c.setName("storage").setDescription("View your storage containers grouped by map.")
-        .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
-          .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" })))
-      .addSubcommand((c) => c.setName("find").setDescription("Search for items across your containers.")
-        .addStringOption((o) => o.setName("query").setDescription("Item name to search for").setRequired(true))
-        .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
-          .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" }))))
+    // Merged with write's new "player" WRITE_ACTIONS entries (write command
+    // reconciliation, Task 7) -- converted from an expression-bodied arrow
+    // to a block body so addWriteSubcommands() can be appended; every
+    // pre-existing .addSubcommand(...) call below is unchanged.
+    .addSubcommandGroup((g) => {
+      g.setName("player").setDescription("Your character: linking, inventory, storage, and account management.")
+        .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character.")
+          .addStringOption((o) => o.setName("character").setDescription("Your character name").setRequired(true)))
+        .addSubcommand((c) => c.setName("verify").setDescription("Verify a pending character link with a code.")
+          .addStringOption((o) => o.setName("code").setDescription("Verification code from in-game whisper").setRequired(true)))
+        .addSubcommand((c) => c.setName("characters").setDescription("List your verified characters."))
+        .addSubcommand((c) => c.setName("enable").setDescription("Enable a character in this guild.")
+          .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
+        .addSubcommand((c) => c.setName("disable").setDescription("Disable a character in this guild.")
+          .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
+        .addSubcommand((c) => c.setName("default").setDescription("Set your default character for this guild.")
+          .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
+        .addSubcommand((c) => c.setName("unlink").setDescription("Unlink a character from your Discord.")
+          .addStringOption((o) => o.setName("character").setDescription("Player controller ID from /dune player characters (omit to unlink your single-link character)")))
+        // Read-only, auto-detected from your real in-game faction (Core's
+        // players-faction route, dune-awakening-selfhost-docker#696) -- there
+        // is deliberately no argument here. This used to be a settable
+        // "atreides"/"harkonnen"/"fremen" choice with no route on Core to
+        // back it at all (the option was silently discarded); Core's real
+        // route reports your actual faction and never accepts a caller-
+        // supplied value, so the option was removed rather than left to
+        // silently do nothing.
+        .addSubcommand((c) => c.setName("faction").setDescription("Show your real, in-game faction."))
+        .addSubcommand((c) => c.setName("whoami").setDescription("Show your linked game character info."))
+        .addSubcommand((c) => c.setName("inventory").setDescription("View your personal inventory.")
+          .addStringOption((o) => o.setName("search").setDescription("Filter by item name (optional)")))
+        .addSubcommand((c) => c.setName("storage").setDescription("View your storage containers grouped by map.")
+          .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
+            .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" })))
+        .addSubcommand((c) => c.setName("find").setDescription("Search for items across your containers.")
+          .addStringOption((o) => o.setName("query").setDescription("Item name to search for").setRequired(true))
+          .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
+            .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" })));
+      // Gated the same as every other write command (DUNE_DISCORD_WRITES_ENABLED)
+      // -- must NOT register when includeWriteGroup is false, or these
+      // subcommands would always be visible/dispatchable regardless of the
+      // feature flag, unlike every other write-capable group.
+      if (includeWriteGroup) addWriteSubcommands(g, "player");
+      return g;
+    })
 
     // ── logs group ──
     .addSubcommandGroup((g) => g.setName("logs").setDescription("View logs from specific game services.")
@@ -161,34 +230,55 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
   if (includeWriteGroup) {
     builder.addSubcommandGroup((g) =>
       g.setName("write").setDescription("Write commands — gated behind DUNE_DISCORD_WRITES_ENABLED.")
-        .addSubcommand((c) => c.setName("maintenance-note").setDescription("Set a maintenance note.")
+        // [Audit fix, mentat#403] These 9 descriptions/param descriptions must
+        // stay byte-identical to LEGACY_WRITE_STUBS's (src/writeHandler.js) --
+        // this hand-maintained copy had already drifted on 7 of 9 entries
+        // before this fix (found while extending the cross-check test below
+        // to compare description/param text, not just names). A THIRD
+        // hand-maintained copy, WRITE_HELP_ENTRIES below (consumed by
+        // /dune help), had also drifted the same way plus still advertised 3
+        // removed commands -- fixed in the same round, see its own comment.
+        .addSubcommand((c) => c.setName("maintenance-note").setDescription("Set a maintenance note for operators.")
           .addStringOption((o) => o.setName("note").setDescription("Maintenance note text").setRequired(true).setMaxLength(500)))
         .addSubcommand((c) => c.setName("maintenance-window").setDescription("Set a maintenance window.")
           .addStringOption((o) => o.setName("start").setDescription("Start time (ISO 8601)").setRequired(true))
           .addIntegerOption((o) => o.setName("duration").setDescription("Duration in minutes").setRequired(true).setMinValue(1).setMaxValue(1440)))
-        .addSubcommand((c) => c.setName("alert-channel").setDescription("Set alert notification channel.")
+        .addSubcommand((c) => c.setName("alert-channel").setDescription("Set the alert channel for readiness/service notifications.")
           .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
         .addSubcommand((c) => c.setName("alert-threshold").setDescription("Set alert thresholds.")
-          .addStringOption((o) => o.setName("metric").setDescription("Metric").setRequired(true))
+          .addStringOption((o) => o.setName("metric").setDescription("Metric (readiness/services/population)").setRequired(true))
           .addStringOption((o) => o.setName("condition").setDescription("Condition (lt/gt/eq)").setRequired(true))
           .addIntegerOption((o) => o.setName("value").setDescription("Threshold value").setRequired(true)))
-        .addSubcommand((c) => c.setName("digest-schedule").setDescription("Set digest schedule interval.")
+        .addSubcommand((c) => c.setName("digest-schedule").setDescription("Set the digest schedule interval.")
           .addIntegerOption((o) => o.setName("minutes").setDescription("Interval in minutes").setRequired(true).setMinValue(5).setMaxValue(1440)))
-        .addSubcommand((c) => c.setName("post-schedule").setDescription("Set scheduled post type.")
+        .addSubcommand((c) => c.setName("post-schedule").setDescription("Set the scheduled post type.")
           .addStringOption((o) => o.setName("type").setDescription("status/status-summary/readiness/services/none").setRequired(true)))
-        .addSubcommand((c) => c.setName("add-channel").setDescription("Add channel for scheduled posts.")
+        .addSubcommand((c) => c.setName("add-channel").setDescription("Add a channel for scheduled posts.")
           .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
-        .addSubcommand((c) => c.setName("remove-channel").setDescription("Remove channel from scheduled posts.")
+        .addSubcommand((c) => c.setName("remove-channel").setDescription("Remove a channel from scheduled posts.")
           .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
-        .addSubcommand((c) => c.setName("backup").setDescription("Create a database backup.")
-          .addStringOption((o) => o.setName("label").setDescription("Backup label").setRequired(true).setMaxLength(100)))
-        .addSubcommand((c) => c.setName("restart").setDescription("Restart a game service.")
-          .addStringOption((o) => o.setName("service").setDescription("Service name").setRequired(true))
-          .addStringOption((o) => o.setName("reason").setDescription("Reason for restart").setRequired(true).setMaxLength(200)))
-        .addSubcommand((c) => c.setName("update").setDescription("Trigger a game or server update.")
-          .addStringOption((o) => o.setName("type").setDescription("Update type (game/steamcmd/self)").setRequired(true)))
+        // "backup"/"restart"/"update" removed (write command reconciliation,
+        // Task 7): superseded by real new commands --
+        // /dune operations create-backup, /dune server restart-service,
+        // /dune operations trigger-update -- and intentionally not kept as a
+        // second, dead name for the same action (design doc line 149).
         .addSubcommand((c) => c.setName("cache").setDescription("Clear server caches.")
           .addStringOption((o) => o.setName("type").setDescription("Cache type (steam/maps/derived)").setRequired(true))));
+  }
+
+  // ── genuinely-new write-only groups (write command reconciliation,
+  // Task 7) ── each is generated mechanically from WRITE_ACTIONS; "player"
+  // and "server" are handled above by merging into their existing groups
+  // instead, since a duplicate-named subcommand group would break Discord's
+  // atomic command-registration call for the whole bot.
+  if (includeWriteGroup) {
+    for (const groupName of ["base", "map", "carepackage", "guild", "operations", "bot"]) {
+      builder.addSubcommandGroup((g) => {
+        g.setName(groupName).setDescription(`Write commands: ${groupName} (gated behind DUNE_DISCORD_WRITES_ENABLED).`);
+        addWriteSubcommands(g, groupName);
+        return g;
+      });
+    }
   }
 
   return builder;
@@ -338,7 +428,22 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
   const startedAt = Date.now();
   const actor = actorFromInteraction(interaction);
   if (db) incrementCommandCount();
-  await interaction.deferReply({ ephemeral: config.discord.defaultEphemeral });
+  // A dual-confirmation action's FIRST admin's own confirmation prompt must
+  // also be public, not just the later "waiting on a second admin" state --
+  // a second admin needs to see the whole thread from the start, not just
+  // whatever state happens to exist by the time they look.
+  //
+  // mentat#404: NO WRITE_ACTIONS entry sets `requiresDualConfirmation` today
+  // (server.stop was the only one; its second step was unsatisfiable because
+  // owner tier is exactly one Discord account per guild), so this is
+  // currently always false. It is kept because it is generic, self-contained
+  // and correct -- but note it is only the *public reply* half: re-enabling
+  // dual confirmation on some future action ALSO requires restoring
+  // writeConfirmation.js's second-step handling, which was removed with the
+  // flag. Setting this flag alone does not produce a working dual-confirm.
+  const writeActionDef = findWriteAction(group, subcommand);
+  const forcedPublic = writeActionDef?.requiresDualConfirmation === true;
+  await interaction.deferReply({ ephemeral: forcedPublic ? false : config.discord.defaultEphemeral });
   const deferReplyMs = elapsedMs(startedAt);
 
   try {
@@ -619,7 +724,17 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     }
     // ── write group ──
     else if (group === "write") {
-      payload = await handleWriteCommand({ subcommand, interaction, adapterClient, config, guildId, db });
+      payload = await handleWriteCommand({ subcommand, group, interaction, adapterClient, config, guildId, db });
+    }
+    // ── new real write-command groups (issue: write command reconciliation) ──
+    // Table-driven, not group-name-driven [Audit fix: Architect, CRITICAL]:
+    // this recognizes BOTH genuinely-new groups (base/map/carepackage/
+    // guild/operations/bot) and write subcommands merged into the
+    // EXISTING player/server groups, uniformly, via one lookup -- no
+    // hardcoded list of "which group names are write-capable" to keep in
+    // sync as new actions are added.
+    else if (findWriteAction(group, subcommand)) {
+      payload = await handleWriteCommand({ subcommand, group, interaction, adapterClient, config, guildId, db });
     }
     else {
       payload = { ok: false, error: `Unknown command: ${key}` };
@@ -790,43 +905,14 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
 }
 
 // ── Actor ──
-export function actorFromInteraction(interaction) {
-  return {
-    userId: interaction.user?.id,
-    username: interaction.user?.username || interaction.user?.displayName || "unknown",
-    guildId: interaction.guildId,
-    channelId: interaction.channelId,
-    roleIds: extractRoleIds(interaction),
-    // Issue #240 (companion to dune-awakening-selfhost-docker#691): lets
-    // Core's discordActorTier() also recognize real Discord guild ownership
-    // -- the same concept issue #238/PR #239 (a separate, still-open PR as
-    // of this comment; not yet true of this bot's own rbac.js on this
-    // branch/main) teaches this bot's OWN local RBAC to use. This bot
-    // already has guild.ownerId live via its gateway connection
-    // (GatewayIntentBits.Guilds) in the common case -- no extra API call
-    // needed -- but interaction.guild can be null during a reconnect/
-    // guild-unavailable window even though interaction.guildId stays
-    // populated -- resolveGuildOwnerId() applies the same
-    // interaction.client.guilds.cache fallback used for the local
-    // authorization decision (isInteractionGuildOwner) during that window, so
-    // the actor payload sent to Core cannot disagree with what the bot just
-    // decided locally for the same request (a code-review finding: this
-    // previously read interaction.guild?.ownerId directly with no fallback,
-    // reintroducing the exact "bot and Core disagree on who is owner"
-    // problem issue #238/#240 exists to close, just narrowed to this one
-    // reconnect window). NOT part of actorSignature.js's HMAC-signed field
-    // set (deliberate, tracked deferral -- see
-    // dune-awakening-selfhost-docker#691's body): for any deployment WITHOUT
-    // DUNE_DISCORD_ACTOR_SECRET configured, trusted at the same level
-    // roleIds already is; for a deployment WITH it configured, Core strips
-    // this field server-side before use (a code-review finding on #691 -- an
-    // unsigned field would otherwise be a real self-escalation gap even
-    // inside an otherwise-validly-signed request), so signed deployments
-    // fall back to Core's role-based DISCORD_OWNER_ROLE_IDS mapping
-    // unchanged.
-    guildOwnerId: resolveGuildOwnerId(interaction)
-  };
-}
+// [Task 4, Step 7a] actorFromInteraction moved to rbac.js (2026-09-22,
+// write-command reconciliation) -- writeHandler.js needs it to build the
+// actor payload it sends Core, and importing it FROM commands.js there would
+// be circular (commands.js -> writeHandler.js already). Re-exported here
+// (rather than re-defined) so every existing caller in this file keeps
+// working unchanged -- see rbac.js's own copy for the full function body and
+// its private extractRoleIds() helper.
+export { actorFromInteraction } from "./rbac.js";
 
 // ── RBAC ──
 
@@ -1072,18 +1158,23 @@ function setupPayload(config, interaction) {
 // mirrors buildDuneCommand()'s full registered surface (54 entries, 66
 // with the write group) in registration order. Keep it in sync with the
 // registration block when commands change.
-const WRITE_HELP_ENTRIES = [
-  { name: "write:maintenance-note", desc: "Set a maintenance note.", role: "admin" },
+// [Audit fix, mentat#403 round 2] This was a THIRD independently
+// hand-maintained copy of the legacy write group's shape -- not just the
+// two (commands.js's builder, writeHandler.js's LEGACY_WRITE_STUBS) the
+// original #403 fix cross-checked. It still listed backup/restart/update
+// (removed from registration entirely during write-command reconciliation
+// -- /dune help was advertising 3 commands that could not be typed) and
+// had the same pre-#403 stale descriptions for the other 7. Text now
+// copied verbatim from LEGACY_WRITE_STUBS (src/writeHandler.js).
+export const WRITE_HELP_ENTRIES = [
+  { name: "write:maintenance-note", desc: "Set a maintenance note for operators.", role: "admin" },
   { name: "write:maintenance-window", desc: "Set a maintenance window.", role: "admin" },
-  { name: "write:alert-channel", desc: "Set alert notification channel.", role: "admin" },
+  { name: "write:alert-channel", desc: "Set the alert channel for readiness/service notifications.", role: "admin" },
   { name: "write:alert-threshold", desc: "Set alert thresholds.", role: "admin" },
-  { name: "write:digest-schedule", desc: "Set digest schedule interval.", role: "admin" },
-  { name: "write:post-schedule", desc: "Set scheduled post type.", role: "admin" },
-  { name: "write:add-channel", desc: "Add channel for scheduled posts.", role: "admin" },
-  { name: "write:remove-channel", desc: "Remove channel from scheduled posts.", role: "admin" },
-  { name: "write:backup", desc: "Create a database backup.", role: "admin" },
-  { name: "write:restart", desc: "Restart a game service.", role: "admin" },
-  { name: "write:update", desc: "Trigger a game or server update.", role: "admin" },
+  { name: "write:digest-schedule", desc: "Set the digest schedule interval.", role: "admin" },
+  { name: "write:post-schedule", desc: "Set the scheduled post type.", role: "admin" },
+  { name: "write:add-channel", desc: "Add a channel for scheduled posts.", role: "admin" },
+  { name: "write:remove-channel", desc: "Remove a channel from scheduled posts.", role: "admin" },
   { name: "write:cache", desc: "Clear server caches.", role: "admin" }
 ];
 

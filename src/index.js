@@ -15,9 +15,58 @@ import { createSteamLinkServer } from "./steamLinkServer.js";
 import { handleGuildDelete } from "./onboarding.js";
 import { startStatsPusher } from "./statsPusher.js";
 import { handleWriteButtonInteraction } from "./writeConfirmation.js";
+import { writeAuditEvent } from "./writes.js";
 import { handleOwnerConfirmationButtonInteraction, handleConfirmConnectionCommand } from "./ownerConfirmation.js";
 import { isEncryptionConfigured, checkSecretFilePermissions } from "./secretsCrypto.js";
 import { proxySharedSecret } from "./proxyAuth.js";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+
+// reportSelfUpdateCompletionIfPending: the second, independent reporting
+// layer for bot self-update (see src/writeSelfUpdate.js / scripts/self-update.sh
+// -- Task 6 of the write-command-reconciliation design). self-update.sh's
+// own webhook post (the fast path) can be lost if this process is killed
+// alongside the old one during its own restart despite the systemd-run
+// cgroup escape; this NEW process checks for the marker file self-update.sh
+// wrote just before restarting and reports success itself if found.
+function reportSelfUpdateCompletionIfPending() {
+  const markerFile = join(process.cwd(), "runtime", "self-update-pending.json");
+  if (!existsSync(markerFile)) return;
+  try {
+    const { webhookUrl, triggeredAt } = JSON.parse(readFileSync(markerFile, "utf8"));
+    unlinkSync(markerFile);
+    const ageMs = Date.now() - triggeredAt;
+    if (ageMs > 15 * 60 * 1000) {
+      console.warn("self-update marker found but the webhook token has likely expired (>15min old) -- not attempting the follow-up.");
+      return;
+    }
+    // [Final-review fix, IMPORTANT 5] Reaching this line is the ONLY
+    // in-process proof that a self-update actually succeeded: the marker
+    // file is written by scripts/self-update.sh just before the restart and
+    // is only ever read by the NEW, healthy process. Until now only
+    // "triggered" (writeHandler.js) and "confirmed" (writeConfirmation.js)
+    // were audited -- the outcome never was, so the audit stream could not
+    // answer "did that restart actually happen?". The failure counterpart is
+    // emitted by scripts/self-update.sh's own failure branch (the old
+    // process survives there and has no other way to learn the outcome).
+    console.log(JSON.stringify(writeAuditEvent({
+      actor: {},
+      action: "bot.self-update",
+      capability: "bot.self-update",
+      idempotencyKey: "n/a",
+      result: "self-update-completed",
+      detail: { ageMs }
+    })));
+    if (!webhookUrl) return;
+    fetch(webhookUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: `✅ Self-update complete. Now running on the latest deployed code.` })
+    }).catch(() => {});
+  } catch {
+    // marker file corrupt/unreadable -- nothing to report, don't crash startup over it
+  }
+}
 
 const config = loadConfig();
 const db = config.multiTenant ? createDatabase(config.dbPath) : null;
@@ -177,6 +226,7 @@ client.once(Events.ClientReady, (readyClient) => {
     botUserId: readyClient.user.id,
     multiTenant: config.multiTenant
   });
+  reportSelfUpdateCompletionIfPending();
   scheduler = startScheduler({
     client,
     adapterClient,
@@ -312,7 +362,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // `false` (instead of returning) means any future prefix-dispatched
     // handler added below this line will actually run.
     if (interaction.isButton?.()) {
-      const handled = await handleWriteButtonInteraction(interaction);
+      // mentat#404: this call used to pass `config`/`db` as well, purely so
+      // handleWriteButtonInteraction() could canWrite()-re-check whoever
+      // clicked a PUBLIC dual-confirmation waiting-state message. No action
+      // uses dual confirmation any more, so that check (and its two
+      // parameters) are gone; a write confirmation button is again only ever
+      // actionable by the actor who requested it.
+      const handled = await handleWriteButtonInteraction(interaction, adapterClient);
       if (handled) return;
       // mentat#343 Phase 2: the "autoinvite:confirm:"/"autoinvite:deny:"
       // buttons anticipated in the comment above (added when this fall-

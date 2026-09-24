@@ -225,6 +225,15 @@ export function loadConfig(env = process.env) {
         ? readSecret(env, "DISCORD_CLIENT_SECRET", "DISCORD_CLIENT_SECRET_FILE")
         : (optionalEnv(env, "DISCORD_CLIENT_SECRET") || readOptionalSecretFile(env, "DISCORD_CLIENT_SECRET_FILE")),
       guildId: optionalEnv(env, "DISCORD_GUILD_ID"),
+      // botOperatorUserId (mentat#write-command-reconciliation Task 6): the
+      // ONE Discord user ID authorized to trigger bot.self-update
+      // (writeHandler.js) -- deliberately NOT part of the rbac block above,
+      // since mentat is multi-tenant and rbac's "owner" tier is scoped
+      // per-guild, while self-update restarts the single shared bot process
+      // serving every tenant. Left null (self-update permanently disabled)
+      // when unset, rather than defaulting to any existing per-guild
+      // identity.
+      botOperatorUserId: optionalEnv(env, "DUNE_BOT_OPERATOR_DISCORD_USER_ID") || null,
       defaultEphemeral: parseBoolean(env.DISCORD_DEFAULT_EPHEMERAL, true),
       rbac: {
         mode: parseRbacMode(env.DISCORD_RBAC_MODE),

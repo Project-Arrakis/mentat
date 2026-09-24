@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AdapterClient, AdapterHttpError, LIVE_ROUTES, PLANNED_ROUTES, UNMERGED_ROUTES, MISSING_ROUTES, routeStatus } from "../src/adapterClient.js";
+import { AdapterClient, AdapterHttpError, LIVE_ROUTES, PLANNED_ROUTES, UNMERGED_ROUTES, MISSING_ROUTES, routeStatus, isRouteMissing } from "../src/adapterClient.js";
 import { getDefaultSecureDispatcher } from "../src/secureFetchDispatcher.js";
 
 function config(overrides = {}) {
@@ -314,6 +314,11 @@ test("every known route is classified into exactly one of the four route tables 
     "the four sets must be disjoint (every route classifies exactly once)");
   assert.deepEqual([...whole].sort(), expectedPathKeys.slice().sort(),
     "config path keys and classified route keys must be identical sets -- a new config key without a classification is a bug");
+});
+
+test("write-execute and write-preview are no longer MISSING_ROUTES", () => {
+  assert.equal(isRouteMissing("write-execute"), false);
+  assert.equal(isRouteMissing("write-preview"), false);
 });
 
 // The 2026-08-06 ops:announcements dispatch fix: OPS_COMMANDS.announcements
