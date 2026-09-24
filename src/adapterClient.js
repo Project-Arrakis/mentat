@@ -1,4 +1,12 @@
-import { signedHeaders } from "./actorSignature.js";
+import { signedHeaders, writeBridgeSignedHeaders } from "./actorSignature.js";
+
+// Routes whose actor signature must be computed with WRITE_BRIDGE_SIGNED_ACTOR_FIELDS
+// (matching Core's own write/preview and write/execute verification) rather
+// than the generic, shared field set every other signed route uses -- see
+// actorSignature.js's own comment on WRITE_BRIDGE_SIGNED_ACTOR_FIELDS for
+// why signing with the wrong field set here means the signature can never
+// verify against Core's write bridge.
+const WRITE_BRIDGE_ROUTES = new Set(["write-execute", "write-preview"]);
 import { getDefaultSecureDispatcher } from "./secureFetchDispatcher.js";
 
 export class AdapterHttpError extends Error {
@@ -447,15 +455,22 @@ export class AdapterClient {
       if (method === "POST") {
         headers["content-type"] = "application/json";
         options.body = JSON.stringify({ actor: actor || null, ...(extra || {}) });
-        // signedHeaders() no-ops (returns {}) unless
-        // DUNE_DISCORD_ACTOR_SECRET/_FILE is configured -- fully backward
-        // compatible with every deployment that hasn't opted in yet.
-        // `path` (the full adapter URL path), not `route` (this client's
-        // internal key), MUST be what's signed -- Core's routes.js signs
-        // against the exact request path, not an internal identifier this
-        // bot invented. See actorSignature.js's own comment for why a
+        // signedHeaders()/writeBridgeSignedHeaders() no-op (return {})
+        // unless DUNE_DISCORD_ACTOR_SECRET/_FILE is configured -- fully
+        // backward compatible with every deployment that hasn't opted in
+        // yet. `path` (the full adapter URL path), not `route` (this
+        // client's internal key), MUST be what's signed -- Core's routes.js
+        // signs against the exact request path, not an internal identifier
+        // this bot invented. See actorSignature.js's own comment for why a
         // mismatch here would make every signed request fail verification.
-        Object.assign(headers, signedHeaders(actor, path));
+        //
+        // CRITICAL: write-execute/write-preview use a DIFFERENT signed
+        // field set than every other route (WRITE_BRIDGE_SIGNED_ACTOR_FIELDS,
+        // not the generic SIGNED_ACTOR_FIELDS) and additionally bind the
+        // specific action being requested -- see WRITE_BRIDGE_ROUTES above.
+        Object.assign(headers, WRITE_BRIDGE_ROUTES.has(route)
+          ? writeBridgeSignedHeaders(actor, path, extra?.action)
+          : signedHeaders(actor, path));
       }
 
       const response = await this.fetchImpl(url, options);

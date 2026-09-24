@@ -171,6 +171,19 @@ export function actorFromInteraction(interaction) {
     guildId: interaction.guildId,
     channelId: interaction.channelId,
     roleIds: extractRoleIds(interaction),
+    // CRITICAL FIX: roleSnapshotAt was never set anywhere in this bot's
+    // actor-construction code. Core's write/execute route requires it
+    // (Number.isSafeInteger(actor.roleSnapshotAt), fail-closed) as proof the
+    // signed roleIds above reflect the actor's CURRENT Discord roles, not a
+    // value cached from an earlier interaction -- every real write/execute
+    // call was rejected with stale_actor_signature (or, before this
+    // function existed for write bridge purposes, would have been once
+    // the signature-field-set mismatch was separately fixed). roleIds was
+    // just freshly derived from this exact, live interaction object above,
+    // so "now" is the honest, correct snapshot time. Harmless for every
+    // non-write-bridge caller of this function -- Core's normalizeDiscordActor
+    // accepts and forwards the field but nothing else reads it.
+    roleSnapshotAt: Math.floor(Date.now() / 1000),
     // Issue #240 (companion to dune-awakening-selfhost-docker#691): lets
     // Core's discordActorTier() also recognize real Discord guild ownership
     // -- the same concept issue #238/PR #239 (a separate, still-open PR as

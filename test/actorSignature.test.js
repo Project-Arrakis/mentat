@@ -6,9 +6,44 @@ import {
   canonicalActorSignaturePayload,
   signActorPayload,
   signedHeaders,
+  writeBridgeSignedHeaders,
+  WRITE_BRIDGE_SIGNED_ACTOR_FIELDS,
   ACTOR_SIGNATURE_HEADER,
   ACTOR_TIMESTAMP_HEADER
 } from "../src/actorSignature.js";
+
+// CRITICAL FIX: the previous single hardcoded path here
+// (/home/darkdante/projects/dune/dune-awakening-selfhost-docker/...) does not
+// exist anywhere on this machine at all -- confirmed directly (`ls
+// /home/darkdante` fails). Every "live cross-repo integration check" test
+// below has been silently SKIPPING on every real run in this environment
+// since it was written, not passing -- the try/catch treats "sibling repo
+// not found" as an acceptable no-op, which is exactly how the real
+// WRITE_BRIDGE_SIGNED_ACTOR_FIELDS field-set mismatch (this repo signed with
+// the wrong field set entirely for write/preview and write/execute) went
+// undetected: the one test class designed to catch exactly this kind of
+// cross-repo drift never actually ran. Tries this machine's real,
+// established repo location first (Project-Arrakis's own documented
+// convention, ~/projects/repos/dune-awakening-selfhost-docker), then the
+// write-bridge feature worktree (actorSignature.js does not exist on Core's
+// own main yet, only on the not-yet-merged write-bridge branches) -- so
+// these tests actually run today, not just after a future merge.
+const CORE_ACTOR_SIGNATURE_CANDIDATES = [
+  "/root/projects/repos/dune-awakening-selfhost-docker/console/api/src/integrations/discord/actorSignature.js",
+  "/root/projects/repos-worktrees/core-issue215-write-bridge/console/api/src/integrations/discord/actorSignature.js",
+  "/root/projects/repos-worktrees/core-issue215-write-bridge-upstream/console/api/src/integrations/discord/actorSignature.js"
+];
+
+async function importCoreActorSignature() {
+  for (const path of CORE_ACTOR_SIGNATURE_CANDIDATES) {
+    try {
+      return await import(path);
+    } catch {
+      // try the next candidate
+    }
+  }
+  return null;
+}
 
 test("actorSignatureSecret reads from DUNE_DISCORD_ACTOR_SECRET", () => {
   assert.equal(actorSignatureSecret({ DUNE_DISCORD_ACTOR_SECRET: "  my-secret  " }), "my-secret");
@@ -83,12 +118,9 @@ test("signedHeaders produces a signature that verifies successfully against Core
   // byte-compatible. If dune-awakening-selfhost-docker's local clone is
   // unavailable in a given environment, this test is skipped rather than
   // failed, since it depends on a sibling repo being checked out locally.
-  let verifyActorSignature;
-  try {
-    ({ verifyActorSignature } = await import("/home/darkdante/projects/dune/dune-awakening-selfhost-docker/console/api/src/integrations/discord/actorSignature.js"));
-  } catch {
-    return; // sibling repo not available in this environment -- skip, don't fail.
-  }
+  const core = await importCoreActorSignature();
+  if (!core) return; // sibling repo not available in this environment -- skip, don't fail.
+  const { verifyActorSignature } = core;
 
   const actor = { userId: "user-1", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], interactionId: "int-1" };
   const route = "/api/integrations/discord/players/link";
@@ -104,12 +136,9 @@ test("signedHeaders produces a signature that verifies successfully against Core
 });
 
 test("signedHeaders' signature is correctly rejected by Core's real verifyActorSignature() when the secrets differ", async () => {
-  let verifyActorSignature;
-  try {
-    ({ verifyActorSignature } = await import("/home/darkdante/projects/dune/dune-awakening-selfhost-docker/console/api/src/integrations/discord/actorSignature.js"));
-  } catch {
-    return;
-  }
+  const core = await importCoreActorSignature();
+  if (!core) return;
+  const { verifyActorSignature } = core;
 
   const actor = { userId: "user-1", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], interactionId: "int-1" };
   const route = "/api/integrations/discord/players/link";
@@ -117,6 +146,58 @@ test("signedHeaders' signature is correctly rejected by Core's real verifyActorS
 
   assert.throws(
     () => verifyActorSignature({ actorPayload: actor, headers, config: { discordActorSecret: "shared-secret-123" }, route }),
+    (error) => error.code === "invalid_actor_signature"
+  );
+});
+
+// [CRITICAL FIX] Real cross-repo proof that writeBridgeSignedHeaders() (the
+// fix for the field-set-mismatch bug) actually verifies against Core's real
+// write/preview and write/execute verification -- not just against this
+// repo's own copy of the same (possibly independently-wrong) algorithm.
+test("writeBridgeSignedHeaders produces a signature that verifies successfully against Core's real verifyActorSignature() with WRITE_BRIDGE_SIGNED_ACTOR_FIELDS (live cross-repo integration check)", async () => {
+  const core = await importCoreActorSignature();
+  if (!core) return;
+  const { verifyActorSignature, WRITE_BRIDGE_SIGNED_ACTOR_FIELDS: coreFields } = core;
+
+  // The two field-set arrays must be identical, not just each internally
+  // self-consistent -- this is the exact class of drift that broke the
+  // feature originally.
+  assert.deepEqual(WRITE_BRIDGE_SIGNED_ACTOR_FIELDS, coreFields, "bot and Core's WRITE_BRIDGE_SIGNED_ACTOR_FIELDS have drifted");
+
+  const actor = { userId: "user-1", username: "tester", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], roleSnapshotAt: Math.floor(Date.now() / 1000) };
+  const route = "/api/integrations/discord/write/execute";
+  const action = "player.warn";
+  const headers = writeBridgeSignedHeaders(actor, route, action, { DUNE_DISCORD_ACTOR_SECRET: "shared-secret-123" });
+
+  const result = verifyActorSignature({
+    actorPayload: { ...actor, action },
+    headers,
+    config: { discordActorSecret: "shared-secret-123" },
+    route,
+    required: true,
+    fields: coreFields
+  });
+  assert.deepEqual(result, { verified: true, required: true });
+});
+
+test("writeBridgeSignedHeaders: a signature for one action does not verify for a different action against Core's real verification (closes the cross-action replay gap)", async () => {
+  const core = await importCoreActorSignature();
+  if (!core) return;
+  const { verifyActorSignature, WRITE_BRIDGE_SIGNED_ACTOR_FIELDS: coreFields } = core;
+
+  const actor = { userId: "user-1", username: "tester", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], roleSnapshotAt: Math.floor(Date.now() / 1000) };
+  const route = "/api/integrations/discord/write/execute";
+  const headers = writeBridgeSignedHeaders(actor, route, "player.warn", { DUNE_DISCORD_ACTOR_SECRET: "shared-secret-123" });
+
+  assert.throws(
+    () => verifyActorSignature({
+      actorPayload: { ...actor, action: "server.stop" },
+      headers,
+      config: { discordActorSecret: "shared-secret-123" },
+      route,
+      required: true,
+      fields: coreFields
+    }),
     (error) => error.code === "invalid_actor_signature"
   );
 });

@@ -453,7 +453,9 @@ test("executeDuneCommand handles server:summary through the status route", async
   await executeDuneCommand(interaction, client, {
     discord: { defaultEphemeral: false, rbac: { mode: "restricted", commandRoleIds: { "server:summary": ["role-a"] } } }
   });
-  assert.deepEqual(seenActor, { userId: "u1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], guildOwnerId: undefined });
+  const { roleSnapshotAt, ...seenActorWithoutSnapshot } = seenActor;
+  assert.ok(Number.isInteger(roleSnapshotAt));
+  assert.deepEqual(seenActorWithoutSnapshot, { userId: "u1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], guildOwnerId: undefined });
   assert.ok(edited?.embeds?.[0]?.data?.title, "summary embed has title");
 });
 
@@ -534,6 +536,7 @@ test("executeDuneCommand routes player:find scope=guild to guildFind, not player
 });
 
 test("actorFromInteraction emits minimal Discord context, including guildOwnerId (issue #240)", () => {
+  const before = Math.floor(Date.now() / 1000);
   const actor = actorFromInteraction({
     user: { id: "user-1" },
     guild: { ownerId: "owner-1" },
@@ -541,7 +544,14 @@ test("actorFromInteraction emits minimal Discord context, including guildOwnerId
     channelId: "channel-1",
     member: { roles: ["role-1"] }
   });
-  assert.deepEqual(actor, { userId: "user-1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-1"], guildOwnerId: "owner-1" });
+  const after = Math.floor(Date.now() / 1000);
+  // roleSnapshotAt (CRITICAL FIX): Core's write/execute route requires this
+  // field (fail-closed) as proof roleIds reflects the actor's CURRENT
+  // Discord roles -- checked as a real timestamp range, not a fixed literal,
+  // since it's genuinely `Date.now()`-derived, not a stable constant.
+  assert.ok(Number.isInteger(actor.roleSnapshotAt) && actor.roleSnapshotAt >= before && actor.roleSnapshotAt <= after);
+  const { roleSnapshotAt, ...actorWithoutSnapshot } = actor;
+  assert.deepEqual(actorWithoutSnapshot, { userId: "user-1", username: "unknown", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-1"], guildOwnerId: "owner-1" });
 });
 
 test("actorFromInteraction: guildOwnerId is undefined when interaction.guild is absent and no client-cache fallback is available", () => {
