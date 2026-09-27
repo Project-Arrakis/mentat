@@ -767,7 +767,14 @@ function atlasSietchLine(sietch, instanceOrdinal) {
   const instance = instanceOrdinal ? ` (Instance ${instanceOrdinal})` : "";
   const combat = atlasCombatLabel(sietch.combatState);
   const storm = sietch.sandstormActive ? " · 🌪️ **Storm active**" : "";
-  return `**${name}**${instance} — ${combat}${storm}`;
+  // Real login password (Core issue #938/mentat#376, 2026-09-27): this
+  // channel is role-restricted to Naib/Fedaykin/Crysknife-Bearer
+  // specifically so this can be shown in the clear -- every other display
+  // of this field anywhere in this project (the console CLI/web UI) is
+  // deliberately write-only and never echoes it back. Only render when a
+  // password is actually set; Core returns null otherwise.
+  const password = sietch.loginPassword ? ` · 🔒 \`${sietch.loginPassword}\`` : "";
+  return `**${name}**${instance} — ${combat}${storm}${password}`;
 }
 
 function sortByPartitionIdAscending(sietches) {
