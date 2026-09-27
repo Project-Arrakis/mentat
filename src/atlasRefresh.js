@@ -1,5 +1,6 @@
 import { formatAtlasEmbed } from "./embedFormat.js";
 import { postOrEditLiveMessage } from "./liveMessage.js";
+import { parseCsv } from "./scheduler.js";
 
 // atlasRefresh.js (mentat#376, dune-awakening-selfhost-docker#938): the
 // first real caller of liveMessage.js's postOrEditLiveMessage() -- #370
@@ -22,8 +23,18 @@ import { postOrEditLiveMessage } from "./liveMessage.js";
 // refresh with a generic "fetch failed" TypeError against that literal
 // placeholder host -- caught immediately from the bot's own logs, not
 // discovered in code review.
+// roleIds is not empty here on purpose (2026-09-27, real finding from
+// Core's own automated PR review, dune-awakening-selfhost-docker#1075):
+// Core only includes the real sietch login password in its response when
+// the CALLING actor's own roleIds intersect its DUNE_ATLAS_PASSWORD_ROLE_IDS
+// allowlist -- a Discord channel's permission lock has no bearing on that
+// check at all. Without this, the scheduled refresh (an empty-roleIds
+// "scheduler" identity) would silently never receive the password, even
+// though #the-atlas is locked down specifically so it can be shown there.
+// The operator must configure this env var identically to Core's own
+// DUNE_ATLAS_PASSWORD_ROLE_IDS for the two sides to agree.
 function schedulerActor(guildId) {
-  return { userId: "scheduler", username: "Mentat", guildId, channelId: "scheduler", roleIds: [] };
+  return { userId: "scheduler", username: "Mentat", guildId, channelId: "scheduler", roleIds: parseCsv(process.env.DUNE_ATLAS_PASSWORD_ROLE_IDS) };
 }
 
 export function atlasRefresher({ adapterClient, client, db, channelId, messageKey = "atlas", onError = () => {} }) {
