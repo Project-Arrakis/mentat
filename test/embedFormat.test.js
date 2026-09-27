@@ -302,6 +302,44 @@ test("formatAtlasEmbed's Deep Desert ordinal scales to more than 2 instances, st
   assert.match(lines[3], /Partition 50\*\* \(Instance 4\)/);
 });
 
+// loginPassword (Core issue #938/mentat#376, 2026-09-27): #the-atlas is
+// role-restricted (Naib/Fedaykin/Crysknife-Bearer), so the real password is
+// shown directly -- the first place in this whole project that echoes it
+// back at all (everywhere else, CLI/web console, is write-only).
+test("formatAtlasEmbed shows a lock icon and the real password when one is set", () => {
+  const embed = formatAtlasEmbed({
+    ok: true,
+    coriolisSeed: "cor-6",
+    coriolisNextCycleAt: null,
+    sietches: {
+      HaggaBasin: [
+        { partitionId: "1", serverDisplayName: "Sietch Zahir", combatState: "PVE", sandstormActive: false, loginPassword: "Shai-Hulud-42" }
+      ],
+      DeepDesert: []
+    }
+  });
+  const json = embed.toJSON();
+  const hagga = json.fields.find((field) => field.name === "Hagga Basin");
+  assert.match(hagga.value, /🔒 `Shai-Hulud-42`/);
+});
+
+test("formatAtlasEmbed omits the lock icon entirely when no password is set", () => {
+  const embed = formatAtlasEmbed({
+    ok: true,
+    coriolisSeed: "cor-6",
+    coriolisNextCycleAt: null,
+    sietches: {
+      HaggaBasin: [
+        { partitionId: "1", serverDisplayName: "Sietch Zahir", combatState: "PVE", sandstormActive: false, loginPassword: null }
+      ],
+      DeepDesert: []
+    }
+  });
+  const json = embed.toJSON();
+  const hagga = json.fields.find((field) => field.name === "Hagga Basin");
+  assert.doesNotMatch(hagga.value, /🔒/);
+});
+
 test("formatAtlasEmbed reports no sietches reporting instead of an empty field when both maps are empty", () => {
   const embed = formatAtlasEmbed({ ok: true, coriolisSeed: null, coriolisNextCycleAt: null, sietches: { HaggaBasin: [], DeepDesert: [] } });
   const json = embed.toJSON();

@@ -53,6 +53,37 @@ test("atlasRefresher posts a fresh atlas embed and records it under the channel'
   assert.equal(recorded.channel_id, "channel-1");
 });
 
+// [Security regression test, real finding from Core's own automated PR
+// review, dune-awakening-selfhost-docker#1075, 2026-09-27] Core only
+// includes the real sietch password when the calling actor's roleIds
+// intersect its DUNE_ATLAS_PASSWORD_ROLE_IDS allowlist -- without this,
+// the scheduled refresh (an empty-roleIds "scheduler" identity) would
+// silently never receive the password at all.
+test("atlasRefresher's scheduler actor carries DUNE_ATLAS_PASSWORD_ROLE_IDS so Core will include the real password", async () => {
+  const OLD_VALUE = process.env.DUNE_ATLAS_PASSWORD_ROLE_IDS;
+  process.env.DUNE_ATLAS_PASSWORD_ROLE_IDS = "role-naib, role-fedaykin";
+  try {
+    const db = createDatabase(":memory:");
+    const channel = fakeChannel({ id: "channel-1", guildId: "guild-1" });
+    const client = fakeClient({ "channel-1": channel });
+    const seenCalls = [];
+    const adapterClient = {
+      atlas: async (actor, guildId) => {
+        seenCalls.push({ actor, guildId });
+        return { ok: true, coriolisSeed: null, coriolisNextCycleAt: null, sietches: { HaggaBasin: [], DeepDesert: [] } };
+      }
+    };
+
+    const refresher = atlasRefresher({ adapterClient, client, db, channelId: "channel-1" });
+    await refresher.refresh();
+
+    assert.deepEqual(seenCalls[0].actor.roleIds, ["role-naib", "role-fedaykin"]);
+  } finally {
+    if (OLD_VALUE === undefined) delete process.env.DUNE_ATLAS_PASSWORD_ROLE_IDS;
+    else process.env.DUNE_ATLAS_PASSWORD_ROLE_IDS = OLD_VALUE;
+  }
+});
+
 test("atlasRefresher edits the previous message in place on a second refresh", async () => {
   const db = createDatabase(":memory:");
   const editCalls = [];
