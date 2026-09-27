@@ -70,7 +70,7 @@ Discord User → Slash Command → Bot RBAC → Confirmation (if destructive)
 | `restart-service <name>` | write/execute → `POST /api/server/restart-service` | `server:restart-service` | admin | Yes (shows affected service) |
 | `maintenance on/off` | write/execute → config endpoint | `server:write-config` | admin | No |
 
-**Safety**: `restart` and `stop` require confirmation phrases on Core (#223). Bot displays live player count in preview embed. 60s cooldown group. 30s cancellable countdown between confirm and execute. `stop` requires a second administrator to confirm (dual-confirmation gate).
+**Safety**: `restart` and `stop` require confirmation phrases on Core (#223). Bot displays live player count in preview embed. 60s cooldown group. 30s cancellable countdown between confirm and execute. **Correction (mentat#404):** `stop` no longer has a dual-confirmation gate — the owner tier is exactly one account per guild, so "a second, different owner-tier admin" was structurally unsatisfiable and has been removed along with its dead machinery.
 
 ### Group D: `map` — Map Control
 
