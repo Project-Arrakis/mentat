@@ -107,6 +107,23 @@ ongoing risk in this feature (see also
    this feature's data-drift risk covers logic drift, not just numeric
    drift.
 
+**Confirmed real instance, 2026-09-28 (pre-implementation, caught in
+design):** Duraluminum Ingot's Large-tier Water cost was transcribed as
+×500/craft from the reference site; the operator directly checked the live
+in-game crafting panel and found it is actually ×400/craft (Jasmium Crystal
+×3 and Aluminum Ingot ×1 for that tier matched and needed no correction).
+Corrected in `calculator-implementation-prompt.md` and the worked example in
+`calculator-design.md` §Quantity Bound. Medium tier's ×500 Water figure was
+**not** re-checked against the live client in this pass and should not be
+assumed correct just because it wasn't flagged — this is the exact
+"pretending otherwise" failure mode this section warns against, so it's
+named explicitly rather than left implicit. This is evidence the drift risk
+this section describes is real, not hypothetical, and that catching it
+*before* `craftingData.js` exists (i.e. before there's a shipped `source`/
+`verifiedAt` field to correct) is cheaper than catching it after — worth
+re-verifying every recipe against the live client, not just the reference
+site, before the implementation PR ships.
+
 ## Dependency and Supply-Chain Review
 
 No new npm package is required. The feature is expressible entirely with the

@@ -31,6 +31,21 @@ reporting) — see the two companion documents' own "Revision history"
 sections for the full detail and worked examples this prompt intentionally
 does not re-derive.
 
+**2026-09-28 correction (real recipe-data drift, caught before
+implementation, not after):** the note immediately above claims "the recipe
+data itself never changed" — that is now false for one value. The operator
+directly confirmed against the live in-game crafting panel that Duraluminum
+Ingot's **Large** tier costs **Water ×400 per craft, not ×500** as this
+document previously had it (Jasmium Crystal ×3 and Aluminum Ingot ×1 for
+that tier are unchanged and were independently confirmed correct). The
+Recipe Data table below is corrected. Medium tier's Water ×500 has **not**
+been independently re-confirmed against the live client — do not assume it
+also changed just because Large did; verify it the same way before trusting
+it further. This is exactly the ongoing data-drift risk
+[`calculator-grc.md`](calculator-grc.md#data-drift-risk--the-primary-ongoing-compliance-concern)
+already names as the top ongoing compliance concern for this feature —
+recorded here as a real instance of it, not a hypothetical.
+
 ---
 
 ## Task
@@ -150,8 +165,8 @@ below have no `large` row.
 
 | Tier key | Station | Time | Inputs |
 |---|---|---|---|
-| `large` | Large Ore Refinery | 4s | Water ×500, Jasmium Crystal ×3, Aluminum Ingot ×1 *(craftable → `aluminum_ingot`)* |
-| `medium` | Medium Ore Refinery | 5s | Water ×500, Jasmium Crystal ×4, Aluminum Ingot ×1 *(craftable → `aluminum_ingot`)* |
+| `large` | Large Ore Refinery | 4s | Water ×400, Jasmium Crystal ×3, Aluminum Ingot ×1 *(craftable → `aluminum_ingot`)* |
+| `medium` | Medium Ore Refinery | 5s | Water ×500, Jasmium Crystal ×4, Aluminum Ingot ×1 *(craftable → `aluminum_ingot`)* — **not independently re-verified in this correction, see revision note above** |
 
 ### `plastanium_ingot` — Plastanium Ingot (Tier 6)
 

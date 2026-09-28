@@ -160,11 +160,18 @@ both axes the original `FINDING-CALC-1` security review checked:
   magnitude below `Number.MAX_SAFE_INTEGER` (`≈9×10^15`). No overflow risk at
   100,000, or even substantially higher.
 - **Embed-size safety:** a full worked example at real operator scale (25,000
-  Duraluminum, Large tier) produces Water 17,500,000, Jasmium Crystal 75,000,
-  Aluminum Ore 100,000, plus the nested Aluminum Ingot line — five or six
-  short comma-formatted lines, nowhere near Discord's 1024-char field or
-  6000-char total embed limits, even with this revision's added
+  Duraluminum, Large tier) produces Water 15,000,000 *(corrected 2026-09-28:
+  Duraluminum's own Large-tier Water cost is ×400/craft, confirmed against
+  the live in-game crafting panel, not ×500 as an earlier pass of this
+  document had it — 25,000 × 400 = 10,000,000 for the Duraluminum step,
+  plus 25,000 × 200 = 5,000,000 for the nested Aluminum Ingot step, total
+  15,000,000; this was previously miscalculated as 17,500,000)*, Jasmium
+  Crystal 75,000, Aluminum Ore 100,000, plus the nested Aluminum Ingot line —
+  five or six short comma-formatted lines, nowhere near Discord's 1024-char
+  field or 6000-char total embed limits, even with this revision's added
   shortfall/max-completable/duration lines per node (see §Response Shape).
+  The embed-size conclusion itself is unaffected by this correction — the
+  total is still lower, not higher, than what was checked.
 
 `FINDING-CALC-1`'s required mitigations (hard client-side bound, independent
 server-side re-validation, defensive truncation) carry forward unchanged —
