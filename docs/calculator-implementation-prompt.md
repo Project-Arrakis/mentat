@@ -16,23 +16,48 @@ or be non-functional even on the reference site itself. This revision
 reflects the fully re-verified dataset and formula. Do not reintroduce the
 dropped modifiers without new evidence.
 
+**2026-09-28 revision note (closing a real Layer 1 audit HIGH finding —
+this file had gone stale relative to its own companion documents):** the
+design was substantially redesigned around a shortfall/on-hand-credit/
+max-completable/duration calculation, and this prompt was not updated
+alongside `calculator-design.md`/`calculator-architecture.md` until now.
+Everything below the Recipe Data section (data values, `source`/`verifiedAt`
+fields, per-tier `variants` shape) is unchanged and still correct — the
+recipe data itself never changed. What changed: the quantity bound (was
+1–10,000, now 1–100,000), and the command/calculation scope (was
+forward-only; now includes up to 6 optional `on-hand-N`/`on-hand-N-quantity`
+pairs, the shortfall/max-completable/bottleneck calculation, and Duration
+reporting) — see the two companion documents' own "Revision history"
+sections for the full detail and worked examples this prompt intentionally
+does not re-derive.
+
 ---
 
 ## Task
 
-Implement `/dune data calculator` in `Arrakis-Control-Panel` exactly as
-specified in these three documents, which you must read in full before
+Implement `/dune data calculator` in this repository (`mentat` — formerly
+`Arrakis-Control-Panel`/`sentinel`; if you're reading this in a checkout
+under an older name, you're on a stale clone, not a stale prompt) exactly
+as specified in these documents, which you must read in full before
 writing any code:
 
-1. `docs/calculator-design.md` — command shape, response embed layout,
-   autocomplete behavior, error UX, modifier scope decision.
+1. `docs/calculator-design.md` — command shape (including the 6 optional
+   `on-hand-N` slots), response embed layout, the shortfall/max-completable/
+   bottleneck/duration calculation with worked examples, autocomplete
+   behavior (including the new item-dependent `on-hand-N` autocomplete),
+   error UX, modifier scope decision.
 2. `docs/calculator-architecture.md` — file layout, data/logic separation,
    the verified reference algorithm (ceiling rounding, cost-factor scoping,
-   batch/leftover logic), per-tier `variants` data shape, cycle-guard
-   requirement, autocomplete wiring note.
-3. `docs/calculator-security-review.md` — required bounds enforcement
-   (FINDING-CALC-1), required structural `source` field on every recipe
-   variant (FINDING-CALC-3), cooldown-reuse requirement (FINDING-CALC-4).
+   batch/leftover logic), the `applyOnHandCredit()`/`estimateDuration()`
+   traversal design (including the required `Map`-based node lookups —
+   this is a real security requirement, not a style note, see the doc's
+   own citation), per-tier `variants` data shape, cycle-guard requirement,
+   autocomplete wiring note.
+3. `docs/calculator-security-review.md` — required bounds enforcement on
+   BOTH `quantity` and every `on-hand-N-quantity` (FINDING-CALC-1, updated
+   for the 100,000 bound), required structural `source` field on every
+   recipe variant (FINDING-CALC-3), cooldown-reuse requirement
+   (FINDING-CALC-4).
 
 Also read `docs/calculator-grc.md` for the required recipe-data attribution
 comment and the `docs/changes/` note you must add.
@@ -44,12 +69,14 @@ something different.
 
 ## Scope Boundary (hard constraint)
 
-This work is scoped **entirely to the `Arrakis-Control-Panel` repository**.
-Do not modify, reference, or add any code, table, or route in
-`dune-awakening-selfhost-docker` (Core) or `acp-landing`. This feature makes
-zero adapter calls and zero database calls by design — if your implementation
-needs either, stop and flag it, because that means the design has been
-misunderstood.
+This work is scoped **entirely to this repository** (`mentat`). Do not
+modify, reference, or add any code, table, or route in
+`dune-awakening-selfhost-docker` (Core) or `mentat-link`. This feature makes
+zero adapter calls and zero database calls by design, even with this
+revision's on-hand/shortfall additions (every `on-hand-N-quantity` is
+operator-typed, never read from any live system — that's the explicitly
+separate, not-yet-designed Phase 2) — if your implementation needs either,
+stop and flag it, because that means the design has been misunderstood.
 
 ## Recipe Data — Use Exactly These 15 Items
 
@@ -305,11 +332,18 @@ different implementation; find and fix the implementation bug instead.
 
 - `src/commands.js` — add the `data:calculator` subcommand (`SlashCommandBuilder`
   with `item` autocomplete string option, `quantity` integer option with
-  `setMinValue(1)`/`setMaxValue(10000)`, optional `station-tier` choice
+  `setMinValue(1)`/`setMaxValue(100000)`, optional `station-tier` choice
   option restricted per-item at validation time — not all items support all
-  three tiers, see the per-item table above — and optional
-  `crafting-contract` boolean option), the dispatch case, and a new
-  autocomplete-interaction handler.
+  three tiers, see the per-item table above — optional `crafting-contract`
+  boolean option, 6 optional `on-hand-N`/`on-hand-N-quantity` pairs with
+  `setMinValue(0)`/`setMaxValue(100000)` on each quantity, and optional
+  `station-count` integer with `setMinValue(1)`/`setMaxValue(50)`), the
+  dispatch case, and a new autocomplete-interaction handler that resolves
+  `on-hand-N` suggestions dependent on the already-selected `item` (see
+  the architecture doc's §Autocomplete Wiring — this is a real,
+  new-to-this-bot interaction pattern, budget real implementation time for
+  it, not just the mechanically similar independent-autocomplete case
+  v1 already needed).
 - `src/index.js` — add the missing `AutocompleteInteraction` branch to the
   `Events.InteractionCreate` handler (currently only
   `ChatInputCommandInteraction` is handled — confirm this before assuming
@@ -330,11 +364,22 @@ different implementation; find and fix the implementation bug instead.
 
 ## Required Behavior (do not skip any of these)
 
-1. `quantity` bound (1–10,000) enforced both by the Discord option
+1. `quantity` bound (1–100,000) enforced both by the Discord option
    (`setMinValue`/`setMaxValue`) **and** independently inside
    `calculateCraftingPlan()` — do not rely on Discord's client-side
    enforcement alone. This is FINDING-CALC-1 from the security review and is
-   required, not optional.
+   required, not optional. Every `on-hand-N-quantity` (0–100,000) needs the
+   identical treatment inside `applyOnHandCredit()` itself — this is
+   FINDING S-1 from the Layer 1 audit and is equally required, not
+   implied-safe by the Discord option constraint alone.
+1a. Every node-keyed lookup structure in `applyOnHandCredit()` (the flat
+   requirement map, the returned `shortfall` map) MUST use `Map`, never a
+   plain object literal — a free-typed `on-hand-N` value bypassing
+   autocomplete could otherwise resolve `"__proto__"`/`"constructor"`/
+   `"prototype"` against real inherited properties instead of `undefined`.
+   This is FINDING S-2 from the Layer 1 audit, a real requirement, not a
+   style preference — see the architecture doc's own citation for the
+   exact failure mode this prevents.
 2. Recursion into nested recipes (`craftable: true` inputs) must use a
    cycle-safe visited-set walk (see `docs/calculator-architecture.md`
    §Traversal Design) — throw a typed, catchable "circular dependency
@@ -400,9 +445,19 @@ runner, see `package.json`'s `test`/`check` scripts) — no new test framework.
    - Multi-output recipe (Low-grade Lubricant ×12, output ×5/craft)
      produces `crafts=3, totalOut=15, leftover=3` exactly, per the worked
      example.
-   - `quantity` boundary tests: exactly 1 and exactly 10000 succeed; 0,
-     negative, 10001, non-integer, and non-numeric all reject with a typed
-     error (never an unhandled `TypeError`/`NaN` propagating outward).
+   - `quantity` boundary tests: exactly 1 and exactly 100000 succeed; 0,
+     negative, 100001, non-integer, and non-numeric all reject with a typed
+     error (never an unhandled `TypeError`/`NaN` propagating outward). Same
+     boundary set for every `on-hand-N-quantity` at its own 0–100,000 bound.
+   - On-hand credit tests, covering all three distinct shapes per chained
+     item (flat ingredient, intermediate craftable, leaf-under-nested — see
+     `docs/calculator-architecture.md`'s expanded §Shortfall Traversal
+     Design test-coverage note), plus the chain-aware max-completable
+     worked example and the target-item-credit-combined-with-insufficient-
+     supply case, both from `docs/calculator-design.md`'s worked examples —
+     use the exact numbers given there as expected values, not
+     self-referential assertions against whatever the implementation
+     happens to produce.
    - Unknown item key rejects with a typed, catchable error.
    - `stationTier` requesting a tier with no known variant for a given item
      (e.g. `small` for `plastanium_ingot`, or `large` for any Chemical

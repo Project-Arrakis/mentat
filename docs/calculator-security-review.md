@@ -111,12 +111,23 @@ The implementation must re-run the standard scanner suite
   regardless of which of the 15 items or which station tier is selected,
   since Plastanium's Water requirement (1250/craft) is the largest
   per-craft ingredient quantity across the entire verified dataset.
-  **Not yet re-verified for this revision:** whether the added
-  shortfall/max-completable/duration output lines (more lines per response
-  than v1 ever had) could approach the embed-size limit at the new cap in a
-  worst-case *combination* of a chained item with all 6 on-hand slots
-  filled — flagged for the Eight-Hats Layer 1 audit to check explicitly,
-  not assumed safe by extrapolation alone.
+  **Re-verified for this revision, 2026-09-28 (closing the Layer 1 audit's
+  own deferral of this exact check):** worst-case combination — Industrial
+  Grade Lubricant (the deepest tree, 6 on-hand nodes), `quantity: 100000`,
+  `station-tier: Medium` (its only real tier), all 6 on-hand slots filled
+  near the 100,000 cap. Real numbers: 10,000 crafts needed (100,000 ÷ 10
+  output/craft); pooled Water 2,150,000 (150,000 direct + 2,000,000 via the
+  nested 40,000 Silicone Block crafts), Fuel Cell 60,000, Spice Residue
+  50,000, Flour Sand 120,000, plus the target item's own 100,000. A full
+  response — title, tier/on-hand summary line naming all 6 on-hand values,
+  a shortfall line per remaining ingredient with its explanatory
+  annotation, the nested-craft section, the max-completable line, and one
+  Duration line per applicable station type — comes to roughly 800-900
+  characters total, even with every section populated at once. This is
+  comfortably under both Discord's 1024-char single-field limit and
+  6000-char total-embed limit, with room to spare; the added
+  shortfall/max-completable/duration content does not meaningfully change
+  the conclusion the original (simpler) worst-case check already reached.
 - **Remediation branch:** implemented directly in the feature branch, not a
   deferred follow-up (this is a same-PR requirement, not a tracked gap).
 
@@ -216,7 +227,9 @@ The implementation must re-run the standard scanner suite
 ### Required before merge (same PR, not deferred)
 
 1. **FINDING-CALC-1:** Client-side + server-side `quantity` bound
-   enforcement (1–10,000), with embed truncation as defense-in-depth.
+   enforcement (1–100,000, updated 2026-09-28), with embed truncation as
+   defense-in-depth. Extends to every `on-hand-N-quantity` (0–100,000) per
+   the Layer 1 audit's finding S-1.
 2. **FINDING-CALC-3:** Structural `source` field on every recipe **variant**
    (per-tier), plus an internal-consistency test asserting no dangling
    references, no invalid quantities, no unexpected recursion/cycles, and no

@@ -1,5 +1,19 @@
 # Crafting Calculator — GRC Review
 
+**2026-09-28 revision note:** re-verified against the shortfall/on-hand-
+credit/max-completable/duration redesign in `calculator-design.md`. Every
+classification below still holds unchanged: the new `on-hand-N` values are
+operator-typed per invocation exactly like `quantity` always was, never
+read from any live game-account/inventory data source (that's Phase 2, a
+separate, not-yet-designed effort) — "Game-account or player data: No"
+remains accurate. The revision adds zero new recipe data (same 15-item
+dataset; every on-hand-able leaf node was already part of the original
+recipe trees), so the Third-Party Data Attribution section below needs no
+new entries either. Confirmed as part of a full Eight-Hats Layer 1 audit
+(findings: `mentat`#412) — this review's own original scope (a solo
+security+GRC pass) is superseded by that audit for anything the two
+overlap on.
+
 ## Status
 
 This is a pre-implementation compliance review for `/dune data calculator`.

@@ -42,6 +42,19 @@ bundle (`app.DwUuazv4.js`), not guessed from UI copy. See
 [Architecture §Verified Reference Algorithm](calculator-architecture.md#verified-reference-algorithm)
 for the exact decompiled source and citation.
 
+**Risk classification: LOW** (closing a Layer 1 GRC audit finding — this
+was previously only implied by inheritance from the original v1 review's
+"lowest risk feature category" language, never restated explicitly for
+this revision). Blast radius: a bug produces a wrong number in a single
+Discord response render, nothing more — no adapter call, no database
+write, no persisted state, no new credential, confirmed independently by
+five of eight Layer 1 audit hats (Network/Cloud Security/DBA reported zero
+findings; Architect/Security confirmed zero blast radius beyond one
+response). Not elevated to MEDIUM despite the real correctness findings
+this audit found (target-item semantics, cross-level pooling, chain-aware
+max-completable) — those are design-completeness/correctness gaps, fixed
+in this same revision, not risk-surface expansions.
+
 **Phasing note:** this feature is Phase 1 of a three-phase plan. Phase 1
 (this document) is pure, stateless local math — no external calls, no
 persisted state, identical risk posture to the original v1 design. Phase 2
@@ -78,6 +91,28 @@ Discord's 25-option-per-command cap.
 | `station-tier` | string choice | no (default `Large`) | `Large`, `Medium`, `Small` — only tiers with a **confirmed real recipe variant** for the selected item are offered/honored (unchanged from v1 — see the per-item tier table below) |
 | `crafting-contract` | boolean | no (default `false`) | Applies the verified -25% ingredient-quantity reduction (see §Modifiers below, unchanged from v1) |
 | `on-hand-N` (1-6) | string (autocomplete) | no | must resolve to a node in the **chosen `item`'s own recipe tree** — the target item itself, any intermediate craftable in its chain, or any raw/leaf ingredient (including Water). Autocomplete options change based on which `item` is already selected (dependent/cascading autocomplete — see §Autocomplete Behavior). Each `on-hand-N` slot must name a *different* node; a duplicate is a validation error (see §Error UX). |
+
+**Discord option description text (closing a Layer 1 UI/UX audit finding —
+this was previously entirely unspecified):**
+- `item`: "Which item are you calculating for?"
+- `quantity`: "How many total do you need (your goal)?"
+- `on-hand-1` through `on-hand-6`: **identical description text on every
+  slot** — "Any ingredient you already have some of (slot order doesn't
+  matter)." Making every slot's description literally the same string is
+  deliberate: it's the cheapest possible way to tell a player up front that
+  slot choice is arbitrary, without needing them to read this design doc.
+- `on-hand-N-quantity`: "How much of that you currently have."
+- `station-count`: "How many of that station type you're running at once
+  (for the time estimate only — doesn't change any ingredient amount)."
+
+**Command description (Discord shows this in the slash-command picker,
+before any options are filled in) — closing the Layer 1 UI/UX audit's
+"headline feature is undiscoverable" finding:** "Calculate crafting
+requirements — optionally track a goal against what you already have on
+hand." The word "goal" here is deliberate marketing for the feature this
+whole revision exists for; a command description that only said "Crafting
+calculator" (matching v1) would give a first-time user zero signal the
+on-hand/shortfall capability exists at all.
 | `on-hand-N-quantity` | integer | no (default 0 if `on-hand-N` is set without it) | `setMinValue(0)` / `setMaxValue(100000)` |
 | `station-count` | integer | no (default 1) | `setMinValue(1)` / `setMaxValue(50)` — number of stations of the *relevant* type running in parallel, for the Duration line only (see §Duration below); has no effect on any ingredient quantity |
 
@@ -251,62 +286,124 @@ separate "reverse-mode formula" that could apply the modifier inconsistently.
 This is the core of this revision, replacing the original v1's
 requirement-only output.
 
-**Step 1 — compute the full tree requirement,** exactly as v1 always did:
-for the requested `quantity` of `item` at the chosen `station-tier` (and
-`crafting-contract` if set), walk the recipe tree and compute the total
-required amount of every node — the target item's own craft count, every
-direct ingredient, and (for the five chained items) every ingredient of the
-nested craftable too. This produces one number per distinct node in the
-tree.
+**Revision note (Layer 1 audit, 2026-09-28):** the first draft of this
+section conflated two genuinely different kinds of on-hand credit —
+"already-completed progress toward the goal" (additive) and "available
+supply that gets consumed" (a constraint) — into one `min()`-based
+formula, which the Architect and QA hats independently flagged as
+producing a wrong answer for the target-item-itself case (5 of 25 already
+done, plus enough ingredients on hand for 20 more from scratch, is 25
+completable total, not `min(5, 20) = 5`). Rewritten below to resolve this
+by construction, not by special-casing: target-item credit reduces the
+*effective quantity* every other step operates on, so it never enters the
+supply-constraint `min()` at all.
 
-**Step 2 — apply on-hand credit.** For each `on-hand-N`/`on-hand-N-quantity`
-pair supplied:
-- If `on-hand-N` names the **target item itself**: treat the on-hand
-  quantity as already-completed progress. Reduces the *effective* quantity
-  used for Step 1's craft-count math for that item (but Step 1's own
-  requirement numbers are still computed against the full requested
-  `quantity` for display — the on-hand credit is applied as a subtraction
-  at the end, in the same pass as every other node, not by silently
-  re-running Step 1 with a smaller quantity, so the response can honestly
-  show "goal: 25,000, already have: 5,000, shortfall: ..." rather than
-  hiding the original goal).
+**Step 1 — resolve the effective quantity.** If `on-hand-N` names the
+**target item itself** (e.g. "I already have 5,000 of my 25,000
+Duraluminum goal"), subtract that from `quantity` to get
+`effectiveQuantity = max(0, quantity − targetItemOnHand)`. If no
+`on-hand-N` names the target item, `effectiveQuantity = quantity`
+unchanged. The response always displays both the original `quantity`
+(the stated goal) and `effectiveQuantity` (what's actually left to
+produce) — this is not hidden, just not what the tree-walk math below
+uses.
+
+**Step 2 — compute the full tree requirement** for `effectiveQuantity` of
+`item` at the chosen `station-tier` (and `crafting-contract` if set),
+exactly as v1's forward-only calculation always did: walk the recipe tree
+and compute the total required amount of every remaining node — the
+target item's own remaining craft count, every direct ingredient, and (for
+the five chained items) every ingredient of the nested craftable too.
+**Pool requirements across every level of the tree into one number per
+distinct resource — never track the same resource as separate per-level
+figures.** This matters concretely for the five chained items: Water (and,
+for the two Lubricants, Fuel Cell) appears in both the parent recipe and
+its nested craftable's own recipe — these combine into one total per
+resource, the same way v1's own "Total Raw Materials to Gather" section
+already pooled them (see the plain worked example below, which has always
+shown one combined Water figure, not two). This produces one number per
+distinct ingredient/intermediate node in the tree, all against the pooled
+total.
+
+**Step 3 — apply ingredient on-hand credit.** For each remaining
+`on-hand-N`/`on-hand-N-quantity` pair (i.e. every one that doesn't name the
+target item, already consumed in Step 1):
 - If `on-hand-N` names an **intermediate craftable** in the tree (e.g.
   Stravidium Fiber, Aluminum Ingot, Silicone Block): subtract the on-hand
-  quantity from that node's own computed requirement, floored at zero, and
+  quantity from that node's own pooled requirement, floored at zero, and
   **cascade the reduction down**: fewer crafts of that intermediate needed
-  means correspondingly fewer of *its own* ingredients are needed too. This
-  is a real recursive step, not just a leaf subtraction.
-- If `on-hand-N` names a **raw/leaf ingredient** (including Water):
-  subtract on-hand quantity from that leaf's own total computed
-  requirement, floored at zero. No further cascading — it's a leaf.
+  means correspondingly fewer of *its own* ingredients are needed too,
+  recomputed from the reduced craft count using the same per-ingredient
+  ceiling-rounding formula as Step 2. This is a real recursive step, not
+  just a leaf subtraction.
+- If `on-hand-N` names a **raw/leaf ingredient directly — including one
+  that sits underneath a nested craftable** (e.g. crediting Stravidium
+  Mass directly for Plastanium, skipping the Stravidium Fiber
+  intermediate; or Water, pooled per Step 2): subtract on-hand quantity
+  from that leaf's own **pooled** total requirement, floored at zero. No
+  cascading — it's a leaf — but the pooling from Step 2 means this
+  correctly reduces demand contributed from every level at once, not just
+  one.
 - Any node **not** named in an `on-hand-N` slot is treated as zero on hand
-  — this is the natural default (not a special case), and matches v1's
-  existing behavior when no `on-hand-N` is given at all. This is pure
-  subtraction, never division or a lookup table, so there is no `0`-input
-  failure mode to replicate from the reference spreadsheet this feature was
-  partly inspired by (which had a live `#N/A` formula error on a zero
-  input) — this design deliberately cannot reproduce that bug class.
+  — the natural default, matching v1's behavior with no `on-hand-N` at
+  all. Pure subtraction, never division or a lookup table, so there is no
+  `0`-input failure mode to replicate from the reference spreadsheet this
+  feature was partly inspired by (which had a live `#N/A` formula error on
+  a zero input) — this design cannot reproduce that bug class.
 
-**Step 3 — report two things, not a separate "mode":**
-1. **Shortfall of every remaining node** after on-hand credit — this is the
-   "what do I still need to gather/craft" answer for the stated `quantity`
-   goal.
-2. **Max completable units of `item`** given current on-hand stock — i.e.
-   "you can actually finish at most M units before the first ingredient
-   runs out" (M ≤ `quantity`), naming whichever node is the limiting one.
-   This is computed as: for each node with on-hand credit applied, divide
-   available supply by that node's own per-target-unit ratio (accounting
-   for chain depth — a limited nested-craftable supply constrains the
-   parent the same way a limited raw-ingredient supply does), and M is the
-   minimum across all supplied nodes. **This subsumes the earlier draft's
-   separate "bottleneck mode" entirely** — comparing two on-hand quantities
-   to find which is scarcer is just this same M calculation with exactly
-   two `on-hand-N` values supplied, reported by naming the node that
-   produced the minimum. Water is a first-class candidate for this — if
-   Water is supplied as an `on-hand-N` value and it's the actual limiting
-   factor, it gets named as the bottleneck exactly like any other
-   ingredient. If zero `on-hand-N` values are supplied, this line is
-   omitted entirely (nothing to compute M from).
+**Step 4 — report three things, not a separate "mode":**
+1. **Shortfall of every remaining node** after Step 3's credit — "what do I
+   still need to gather/craft" for the stated goal.
+2. **Max completable units of `item`**, combining both kinds of credit
+   correctly: `maxCompletable = targetItemOnHand + min(supply-constrained
+   completions from Step 3's remaining on-hand values)`, capped at the
+   original `quantity` (never reported as more than what was actually
+   asked for, even if on-hand supply could technically support more). The
+   supply-constrained part — for each Step 3 on-hand value, divide
+   available supply by that node's own per-target-unit ratio, accounting
+   for chain depth exactly as Step 3's cascade does — is the same `min()`
+   calculation the first draft used, just now applied only to genuine
+   consumable-supply credits, never to target-item progress. If zero
+   ingredient-level `on-hand-N` values are supplied (only a target-item
+   value, or none at all), the supply-constrained term is treated as
+   unbounded and `maxCompletable = targetItemOnHand` (or omitted entirely
+   if there's no on-hand value of any kind — nothing to compute from).
+3. Whichever node produced the minimum in (2) is named as the **bottleneck**
+   — this subsumes the earlier draft's separate "bottleneck mode" entirely;
+   comparing two on-hand quantities to find which is scarcer is just this
+   same calculation with exactly two ingredient-level `on-hand-N` values
+   supplied. Water is a first-class bottleneck candidate exactly like any
+   other ingredient.
+
+**Worked example — leaf-under-nested-craftable credit** (closing the Layer
+1 audit's QA finding that this path had no numbers to test against):
+`item: Plastanium Ingot, quantity: 25, on-hand-1: Stravidium Mass,
+on-hand-1-quantity: 60`. Stravidium Mass is a leaf two levels down (under
+Stravidium Fiber), never the intermediate itself. Step 2's pooled
+Stravidium Mass requirement for 25 Plastanium is `25 × 3 = 75` (Stravidium
+Fiber's own ratio, unchanged from the primary example). Step 3 subtracts
+the 60 on hand: shortfall drops to `75 − 60 = 15` Stravidium Mass, but this
+is a **leaf subtraction with no cascade** — it does *not* by itself reduce
+the Stravidium Fiber or Plastanium craft counts, since having raw material
+on hand isn't the same as already having it refined into the intermediate.
+Max completable: `60 ÷ 3 = 20` Plastanium Ingot supportable by this
+Stravidium Mass alone — naming Stravidium Mass as the bottleneck if no
+other on-hand value is supplied, since 20 < 25 requested.
+
+**Worked example — chain-aware max completable, the hardest case in this
+design** (closing the Layer 1 audit's QA finding that this had zero
+worked numbers anywhere): `item: Plastanium Ingot, quantity: 25,
+on-hand-1: Stravidium Fiber, on-hand-1-quantity: 8, on-hand-2: Titanium
+Ore, on-hand-2-quantity: 2000`. Two ingredient-level credits, one on an
+intermediate (Stravidium Fiber, cascades) and one on a direct raw
+ingredient (Titanium Ore, doesn't cascade — nothing sits under it). Per
+node: Stravidium Fiber supports `8 ÷ 1 = 8` Plastanium Ingot (1:1 ratio at
+Large tier); Titanium Ore supports `2000 ÷ 4 = 500` Plastanium Ingot.
+`min(8, 500) = 8` — Stravidium Fiber is the bottleneck, `maxCompletable =
+0 + 8 = 8` (no target-item credit supplied here), short 17 of the
+requested 25. This demonstrates the chain-aware ratio calculation
+end-to-end with an intermediate as the actual limiting node, not just the
+simpler flat-ingredient case the original single example covered.
 
 ## Duration
 
@@ -323,6 +420,18 @@ independent durations, not one combined total. `station-count` applies
 per-station-type, not globally — if a future version needs independent
 counts per station type, that's an additive change (more options), not
 redesign.
+
+**Single-station-type worked example** (closing a Layer 1 audit QA
+finding — the only prior example, Plastanium, uses both station types and
+never demonstrated the simpler common case): `item: Copper Ingot, quantity:
+500` uses only Ore Refinery, no nested craft, no Chemical Refinery
+involvement at all. The response shows exactly **one** Duration line —
+`⏱️ Duration: Ore Refinery 1,500s (25m)` — never a second, inapplicable
+`Chemical Refinery 0s` line. The rule is: only show a station-type line if
+that station type has at least one node with remaining crafts > 0; a
+station type with nothing to craft is omitted entirely, not shown as a
+zero. This is the same "explain, don't show an unexplained number" rule
+§Response Shape's shortfall section already applies, extended to Duration.
 
 ## Response Shape
 
@@ -353,7 +462,20 @@ Station: Medium Chemical Refinery (Tier 6) · Craft time: 250s
 • Stravidium Mass        75
 
 ⏱️ Duration: Ore Refinery 500s (12m 30s) · Chemical Refinery 250s (4m 10s) — independent, run in parallel
+
+💡 Tip: add on-hand-1 (and up to 5 more) to track a goal against what you
+already have — see /dune data calculator's own description.
 ```
+
+**New — discoverability footer (closing a Layer 1 UI/UX audit HIGH
+finding):** the plain, zero-on-hand response always ends with the `💡 Tip`
+line above. This is the single cheapest fix for "the headline feature is
+undiscoverable" — a first-time user who only ever runs the plain form
+still gets pointed at the goal-tracking capability directly in the
+response they already see, not just in a command description they may
+never read. Omitted only when at least one `on-hand-N` value was already
+supplied (a user already using the feature doesn't need to be told it
+exists).
 
 **With on-hand values** (`item: Plastanium Ingot, quantity: 25`,
 `on-hand-1: Titanium Ore, on-hand-1-quantity: 2000`, `on-hand-2: Stravidium
@@ -363,14 +485,18 @@ Fiber, on-hand-2-quantity: 10`):
 🧮 Crafting Calculator — 25× Plastanium Ingot (goal)
 Tier: Large Ore Refinery · On hand: 2,000 Titanium Ore, 10 Stravidium Fiber
 
-🗒️ Shortfall (after on-hand credit)
-• Water              31,250   (none on hand)
+🗒️ Shortfall (after on-hand credit, pooled across every level)
+• Water              33,750   (none on hand — this is the combined total
+                                from both the direct craft and the nested
+                                Stravidium Fiber craft, same pooling v1's
+                                own "Total Raw Materials" always used)
 • Titanium Ore            0   (2,000 on hand — fully covered)
 • Stravidium Fiber        0   (10 on hand, 15 more needed → see nested craft)
 
 🔧 Nested Craft: 15× Stravidium Fiber (25 needed − 10 on hand)
-• Water                1,500
-• Stravidium Mass         45
+• Stravidium Mass         45   (this node's own contribution to the pooled
+                                 Water figure above is already included there,
+                                 not shown again here as a separate number)
 
 ✅ You can complete all 25 requested — Titanium Ore and Stravidium Fiber on
 hand are both sufficient; the remaining shortfall is fully coverable by
@@ -381,11 +507,26 @@ Fiber crafts — Ore Refinery time is 0s, all 25 Plastanium ingredient needs
 are already covered by on-hand stock plus the nested craft above.
 ```
 
+**Revision note (Layer 1 audit fix):** the first draft of this example
+showed Water as two separate, un-summed lines (31,250 in the shortfall
+section, 1,500 again under the nested craft) — the Architect and QA hats
+independently flagged this as ambiguous about whether on-hand credit pools
+correctly across levels. Fixed: every pooled resource (Water here; also
+Fuel Cell for the two Lubricants) is shown **once**, already combined, in
+the top-level shortfall section — never split by level. A nested craft's
+own section only lists ingredients that are genuinely unique to that
+level (Stravidium Mass here), not ones already accounted for above.
+
 (A max-completable example where on-hand stock is *insufficient* to reach
 the full requested quantity — e.g. `on-hand-1: Titanium Ore,
 on-hand-1-quantity: 40` against `quantity: 25` — would instead report `⚠️ You
 can complete at most 10 Plastanium Ingot with current Titanium Ore on hand
-(40 ÷ 4 per craft) — short 15.` naming Titanium Ore as the bottleneck.)
+(40 ÷ 4 per craft) — short 15.` naming Titanium Ore as the bottleneck. See
+§Shortfall & Bottleneck Calculation for the chain-aware version of this
+same example, where the bottleneck is an intermediate craftable rather
+than a flat ingredient, and the target-item-credit worked example showing
+`maxCompletable` combining already-completed progress with remaining
+supply correctly.)
 
 Design rationale (carried forward from v1, plus new items for this
 revision):
@@ -412,6 +553,25 @@ revision):
   more than 1 unit per craft (Spice-infused Fuel Cell, both Lubricants)
   show a `+N leftover (rounded up to whole crafts)` line whenever
   leftover > 0.
+- **New — slot independence isn't just internal logic, it's stated to the
+  user** (closing a Layer 1 UI/UX audit finding): a response never implies
+  that `on-hand-2` being filled while `on-hand-1` is empty is unusual or
+  incomplete — there is no "on-hand-1 required first" framing anywhere in
+  the embed. Combined with every `on-hand-N` slot sharing identical
+  Discord description text (§Command Shape), a player has no reason to
+  believe slot order or contiguous filling matters, because nothing in
+  either the command UI or the response ever suggests it does.
+- **New — response density at maximum on-hand slots** (closing a Layer 1
+  UI/UX audit finding): with all 6 slots filled against a 6-node tree
+  (Industrial-grade Lubricant, the verified worst case), the shortfall
+  section lists at most 6 lines plus the target item's own line — every
+  section (shortfall, nested craft, max-completable, duration) already
+  omits itself entirely when it has nothing to report (see the Duration
+  single-station-type rule above, and the `✅`/`⚠️` single-line
+  max-completable format), so the response scales in content, not in
+  boilerplate, as more on-hand values are supplied. No additional
+  truncation logic beyond `FINDING-CALC-1`'s existing defensive
+  `.slice()` pattern is needed at this bound.
 
 ## Autocomplete Behavior
 

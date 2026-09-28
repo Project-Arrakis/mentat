@@ -112,47 +112,120 @@ Design below for the deliberate improvement made here.
 Extends `calculateCraftingPlan()`'s output rather than replacing it. New
 function, same file:
 
+**Revision note (Layer 1 audit, 2026-09-28):** this pseudocode originally
+folded target-item-itself credit into the same `min()`-based
+`maxCompletable` formula as ingredient credit, which the Architect and QA
+hats independently showed produces a wrong answer (additive
+already-completed progress isn't a consumable supply constraint). Fixed
+below by resolving target-item credit into `effectiveQuantity` in a
+separate, earlier step — `calculateCraftingPlan()` itself receives
+`effectiveQuantity`, not the raw requested `quantity`, so `plan`'s own
+tree requirements are already correct for whatever's actually left to
+produce, and `applyOnHandCredit()` only ever has to handle genuine
+ingredient-level supply constraints. This also closes the audit's node-key
+prototype-pollution finding (S-2) and the bound-revalidation finding (S-1)
+explicitly, as their own numbered steps below.
+
 ```js
 // src/craftingCalculator.js (illustrative shape)
-export function applyOnHandCredit(plan, onHandEntries) {
-  // plan: the structured object calculateCraftingPlan() already returns
-  //   ({ directInputs, nestedCrafts, totalRawMaterials, totalTimeSeconds,
-  //   leftover }), unchanged from v1.
+
+// Step A — resolve effective quantity BEFORE calling calculateCraftingPlan().
+// Lives in the command handler (commands.js), not craftingCalculator.js,
+// since it only touches the single target-item on-hand value, not the
+// tree-walk itself:
+//   const targetItemOnHand = onHandEntries.find(e => e.node === itemKey)?.quantity ?? 0;
+//   const effectiveQuantity = Math.max(0, quantity - targetItemOnHand);
+//   const plan = calculateCraftingPlan(itemKey, effectiveQuantity, options);
+// plan's own tree requirements (directInputs, nestedCrafts,
+// totalRawMaterials) are therefore already computed against what's
+// actually left to produce. The response still displays the original
+// `quantity` (the stated goal) alongside `effectiveQuantity` — this is a
+// presentation-layer concern for formatCalculatorEmbed(), not something
+// applyOnHandCredit() needs to know about.
+
+export function applyOnHandCredit(plan, onHandEntries, { quantity, targetItemOnHand } = {}) {
+  // plan: calculateCraftingPlan()'s output, computed against
+  //   effectiveQuantity per Step A above — NOT the raw requested quantity.
   // onHandEntries: [{ node: "titanium_ore", quantity: 2000 }, ...] — up to
-  //   6 entries, each already validated (§Error UX in the design doc) to
-  //   name a real node in `plan`'s own tree, with no duplicates.
+  //   6 entries, MINUS whichever one (if any) named the target item itself
+  //   (already consumed in Step A) — this function only ever sees
+  //   ingredient-level entries.
   //
-  // 1. Build a flat map of every node in `plan`'s tree to its own computed
-  //    requirement (this is just plan's existing directInputs +
-  //    nestedCrafts + totalRawMaterials + the target item's own craft
-  //    count, flattened — no new computation here, purely reading what
-  //    calculateCraftingPlan() already produced).
-  // 2. For each onHandEntries pair, subtract from that node's requirement,
-  //    floored at 0. If the node is an intermediate craftable (appears as
-  //    a key in plan.nestedCrafts), recompute that nested craft's own
-  //    crafts count downward too (crafts = ceil(newRequirement /
-  //    outputPerCraft)), and re-derive ITS OWN ingredients' requirements
-  //    from the reduced crafts count — this is the recursive cascade the
-  //    design doc's §Shortfall & Bottleneck Calculation describes. Reuse
-  //    the exact same per-ingredient ceiling-rounding formula
-  //    calculateCraftingPlan() already uses; do not introduce a second,
-  //    parallel rounding implementation.
-  // 3. Compute maxCompletable: for each onHandEntries node, divide its
-  //    on-hand quantity by its own per-target-unit ratio (derived from
-  //    plan's tree — e.g. for a direct ingredient, ratio = original
-  //    per-craft quantity / outputPerCraft; for a nested craftable's own
-  //    ingredient, the ratio must account for the chain: on-hand raw
-  //    material -> max nested crafts -> max parent crafts). The minimum
-  //    across all onHandEntries is maxCompletable; track which node
-  //    produced the minimum as the named bottleneck. If onHandEntries is
-  //    empty, maxCompletable is undefined (the response omits this line
-  //    entirely, per the design doc).
-  // 4. Return { ...plan, shortfall: <flat map, post-subtraction>,
-  //    maxCompletable: { units, limitingNode } | undefined }. Never mutate
-  //    the input `plan` object — callers (formatCalculatorEmbed()) need
-  //    both the original full requirement AND the post-credit shortfall to
-  //    render the "(2,000 on hand — fully covered)"-style explanatory text
-  //    the design doc requires.
+  // [SECURITY, closing Layer 1 audit finding S-2] Every node-keyed
+  // structure this function builds or reads — the flat requirement map,
+  // `plan.nestedCrafts`, the returned `shortfall` map — MUST be a `Map`,
+  // never a plain object literal. `onHandEntries[].node` values that
+  // reach this function may originate from a free-typed Discord option
+  // that bypassed autocomplete (see the design doc's §Error UX validation
+  // requirement, which happens before this function is ever called, but
+  // defense-in-depth applies here too): a plain-object lookup like
+  // `map[node]` or `node in map` resolves `"__proto__"`/`"constructor"`/
+  // `"prototype"` to real inherited properties instead of `undefined`,
+  // and this bot is a long-running process — a successful pollution here
+  // would corrupt shared `Object.prototype` state for every subsequent
+  // invocation by every user, not just the caller's own. `Map.get()`/
+  // `Map.has()` have no such inherited-property ambiguity. This is a
+  // required implementation constraint, not a style preference.
+  //
+  // [SECURITY, closing Layer 1 audit finding S-1] Re-validate
+  // `onHandEntries[].quantity` is an integer in [0, 100000] HERE,
+  // explicitly, as this function's own first step — do not rely on the
+  // Discord option bound or the command handler's own check alone, for
+  // the identical reason `calculateCraftingPlan()` independently
+  // re-validates `quantity` rather than trusting the option constraint.
+  // A malformed/out-of-range value here throws the same typed,
+  // catchable error `calculateCraftingPlan()` uses for its own bound
+  // violation — do not introduce a second error shape.
+  //
+  // 1. Build a Map of every node in `plan`'s tree to its own computed,
+  //    ALREADY-POOLED requirement — a resource appearing at multiple tree
+  //    levels (Water for every chained item; Fuel Cell for both
+  //    Lubricants) must be combined into ONE entry before this step, not
+  //    tracked per-level. This is just plan's existing directInputs +
+  //    nestedCrafts + totalRawMaterials, deduplicated by resource key —
+  //    no new computation, purely reading and combining what
+  //    calculateCraftingPlan() already produced (it already pools these
+  //    for its own "Total Raw Materials" output — reuse that, don't
+  //    re-derive it).
+  // 2. For each onHandEntries pair, subtract from that node's pooled
+  //    requirement, floored at 0. If the node is an intermediate
+  //    craftable (a key in plan.nestedCrafts), recompute that nested
+  //    craft's own crafts count downward too (crafts = ceil(newRequirement
+  //    / outputPerCraft)), and re-derive ITS OWN ingredients' requirements
+  //    from the reduced crafts count, merging the result back into the
+  //    same pooled map from step 1 — a raw leaf under that nested craft
+  //    (e.g. Stravidium Mass under Stravidium Fiber) gets its pooled
+  //    total reduced by this cascade even though it wasn't itself named
+  //    in onHandEntries. Reuse the exact same per-ingredient
+  //    ceiling-rounding formula calculateCraftingPlan() already uses; do
+  //    not introduce a second, parallel rounding implementation.
+  // 3. Compute the supply-constrained part of maxCompletable: for each
+  //    onHandEntries node, divide its on-hand quantity by its own
+  //    per-target-unit ratio (derived from plan's tree — e.g. for a direct
+  //    ingredient, ratio = original per-craft quantity / outputPerCraft;
+  //    for a nested craftable's own ingredient, the ratio must account for
+  //    the chain: on-hand raw material -> max nested crafts -> max parent
+  //    crafts). The minimum across all onHandEntries is the
+  //    supply-constrained value; track which node produced the minimum as
+  //    the named bottleneck. If onHandEntries is empty, this term is
+  //    unbounded (Infinity, not undefined — see step 4's combination with
+  //    targetItemOnHand).
+  // 4. Final maxCompletable = Math.min(quantity, targetItemOnHand +
+  //    supplyConstrainedValue-from-step-3) — combining already-completed
+  //    progress (additive) with remaining supply (a cap), never applying
+  //    Math.min() to targetItemOnHand directly the way the original
+  //    (wrong) draft did. If BOTH targetItemOnHand is 0 and
+  //    onHandEntries is empty, maxCompletable is undefined (the response
+  //    omits this line entirely, per the design doc) rather than a
+  //    computed 0.
+  // 5. Return { ...plan, quantity, effectiveQuantity: plan's own quantity,
+  //    shortfall: <pooled Map, post-subtraction>, maxCompletable: { units,
+  //    limitingNode } | undefined }. Never mutate the input `plan` object
+  //    — callers (formatCalculatorEmbed()) need both the original full
+  //    requirement AND the post-credit shortfall to render the
+  //    "(2,000 on hand — fully covered)"-style explanatory text the
+  //    design doc requires, plus both `quantity` and `effectiveQuantity`
+  //    to show the goal vs. what's actually left to produce.
 }
 ```
 
@@ -162,11 +235,43 @@ Lubricants — see the design doc's corrected §Recipe Data note). For every
 flat item (the other ten), on-hand credit is a single subtraction with no
 cascade at all — `applyOnHandCredit()` must not apply cascade logic
 unconditionally; it should check whether the credited node is a key in
-`plan.nestedCrafts` first, and only cascade in that case. The
-data-integrity test suite must cover at least one on-hand-credit case for
-each of the five chained items (crediting the nested craftable directly,
-e.g. "200 Stravidium Fiber on hand"), not just the flat-item case, since
-that's the path with real recursive logic to get wrong.
+`plan.nestedCrafts` first, and only cascade in that case.
+
+**Required test coverage (expanded per the Layer 1 audit's QA findings —
+the original note here only required one credit shape per chained item;
+that was insufficient):** for each of the five chained items, the
+data-integrity test suite must cover all three distinct credit shapes,
+since each exercises genuinely different code:
+1. **Crediting a flat ingredient directly** (e.g. Titanium Ore for
+   Plastanium) — subtraction only, no cascade, already covered by the
+   design doc's primary worked example.
+2. **Crediting the intermediate craftable itself** (e.g. Stravidium Fiber
+   for Plastanium) — cascades down, reducing the intermediate's own
+   ingredient needs. Already covered by the design doc's primary example.
+3. **Crediting a leaf resource underneath the intermediate** (e.g.
+   Stravidium Mass directly, skipping Stravidium Fiber) — a pure leaf
+   subtraction against the *pooled* total, explicitly NOT cascading
+   upward into the intermediate's own craft count. This shape was entirely
+   untested by the original design and is now covered by the design doc's
+   new "leaf-under-nested-craftable credit" worked example — it is the
+   easiest of the three to implement wrong (a naive implementation might
+   incorrectly try to cascade this one too, or double-count it against
+   both the pooled total and the intermediate's own requirement).
+
+Additionally, at least one test must cover **chain-aware `maxCompletable`**
+specifically — crediting an intermediate craftable (not just a flat leaf)
+and confirming the supply-constrained ratio correctly walks the chain (see
+the design doc's new "chain-aware max completable" worked example, 8
+Stravidium Fiber on hand → 8 Plastanium Ingot completable, naming
+Stravidium Fiber as the bottleneck over a much larger Titanium Ore supply).
+This was the single highest-risk untested path per the Layer 1 QA
+finding — the original design had zero worked numbers for it at all.
+
+Finally, at least one test must cover **target-item-itself credit
+combined with an insufficient ingredient supply**, confirming step 4's
+`Math.min(quantity, targetItemOnHand + supplyConstrainedValue)` formula
+— not the earlier (wrong) design's plain `min()` over all credits
+including the target item.
 
 **Duration** (`craftTimeSeconds` per remaining node, station-type-independent
 —  see the design doc's §Duration) is a straightforward derived field from
