@@ -800,6 +800,28 @@ test("admin:service-setup reuses the prior applications-channel when the argumen
   assert.equal(row.review_channel_id, "review-1", "must reuse the guild's already-configured applications channel");
 });
 
+test("admin:service-setup rejects a service-key containing a colon, before creating a role (mentat#385)", async () => {
+  const db = createDatabase(":memory:");
+  const { interaction, created } = fakeServiceSetupInteraction({ serviceKey: "water:seller", applicationsChannel: "review-1", userId: "admin-setup-385" });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  const handled = await executeDuneCommand(interaction, {}, fakeConfigForAdmin(), db);
+  assert.equal(handled, true);
+  const description = edited?.embeds?.[0]?.data?.description || "";
+  assert.match(description, /lowercase letters, digits, and hyphens/);
+  assert.equal(created.length, 0, "must not create a role before the service-key is validated");
+  assert.equal(getServiceChannel(db, interaction.guildId, "water:seller"), undefined, "must not write a registry row for an invalid service-key");
+});
+
+test("admin:service-setup accepts a service-key with only lowercase letters, digits, and hyphens", async () => {
+  const db = createDatabase(":memory:");
+  const { interaction, created } = fakeServiceSetupInteraction({ serviceKey: "water-seller-2", applicationsChannel: "review-1", userId: "admin-setup-385b" });
+  const handled = await executeDuneCommand(interaction, {}, fakeConfigForAdmin(), db);
+  assert.equal(handled, true);
+  assert.equal(created.length, 1);
+  assert.ok(getServiceChannel(db, interaction.guildId, "water-seller-2"));
+});
+
 test("admin:service-setup fails with a clear error when applications-channel is omitted and no prior service_channels row exists for the guild, without creating an orphaned role", async () => {
   const db = createDatabase(":memory:");
   const { interaction, created } = fakeServiceSetupInteraction({ applicationsChannel: null, userId: "admin-setup-3" });

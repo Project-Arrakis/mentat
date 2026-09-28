@@ -152,7 +152,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("broadcast").setDescription("Send a message to all in-game players (moderator+).")
         .addStringOption((o) => o.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500)))
       .addSubcommand((c) => c.setName("service-setup").setDescription("Provision a service channel's duty/apply component (mentat#372).")
-        .addStringOption((o) => o.setName("service-key").setDescription("Short key, e.g. water-seller").setRequired(true))
+        .addStringOption((o) => o.setName("service-key").setDescription("Short key, e.g. water-seller (lowercase letters, digits, hyphens only)").setRequired(true).setMaxLength(32))
         .addStringOption((o) => o.setName("channel").setDescription("Channel ID for the service's pinned status embed").setRequired(true))
         .addStringOption((o) => o.setName("role").setDescription("Role ID to gate this service (created if omitted)").setRequired(false))
         .addStringOption((o) => o.setName("applications-channel").setDescription("Channel ID for staff application review (required on a guild's first call)").setRequired(false))))
@@ -986,11 +986,24 @@ function rolesConfigPayload(interaction, config, db = null, guildId = null) {
 // a process-global env var -- mentat is confirmed multi-tenant
 // (docs/multi-tenant-design.md), and a global env var here would leak
 // one guild's applications into another's review channel.
+const SERVICE_KEY_PATTERN = /^[a-z0-9-]+$/;
+
 async function executeServiceSetup({ interaction, db, guildId }) {
   const serviceKey = interaction.options.getString("service-key");
   const channelId = interaction.options.getString("channel");
   let roleId = interaction.options.getString("role");
   let reviewChannelId = interaction.options.getString("applications-channel");
+
+  // mentat#385 (Layer 2 audit, Security hat, LOW): service-key is used raw
+  // in Discord role creation and embedded directly into button customIds
+  // (service:onduty:${serviceKey}, etc.), which the dispatch handler splits
+  // on ":". An unrestricted charset -- a colon above all -- desyncs that
+  // parsing, silently breaking the service channel until reprovisioned.
+  // Rejected here, before any side effect (role creation, DB write),
+  // matching this function's existing validate-before-mutate ordering.
+  if (!SERVICE_KEY_PATTERN.test(serviceKey)) {
+    throw new Error(`service-key must contain only lowercase letters, digits, and hyphens (got "${serviceKey}").`);
+  }
 
   // /code-review high finding: validate applications-channel BEFORE
   // creating a role -- the original order created the Discord role
