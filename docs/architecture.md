@@ -118,37 +118,58 @@ that comment history before assuming a route's status): `health`, `status`,
 
 ## Write Capabilities
 
-Real, current list (`src/writeCommands.js`) — **all admin or owner tier, all
-operational/infrastructure actions. No player-facing write (kick, ban, grant
-item) exists today**:
+**The single source of truth for real write commands is
+`src/writeActions.js`'s `WRITE_ACTIONS` table** — both Discord command
+registration (`commands.js`) and dispatch (`writeHandler.js`) read from it.
+`src/writeCommands.js`, the old predecessor list, has been **deleted**
+(mentat#400) — it had zero real importers left anywhere in `src/`/`test/`
+once `writeActions.js`/`writeHandler.js` became the single source of
+truth, and `scripts/check-architecture-doc-drift.js` (mentat#401) now
+reads those two files directly instead of the old one.
 
-| Command | Family | Tier |
+**Player-facing write commands DO exist as of the
+write-command-reconciliation branch** (`docs/design/write-command-reconciliation-l1-design-2026-09-22.md`)
+— this section's own prior claim that "no player-facing write (kick, ban,
+grant item) exists today" and that "player-facing write capability ... does
+not exist in Mentat today" is false and has been corrected here. Every one
+is tier-gated, and the gate is enforced by `canWrite()` before any Core call:
+
+| Group | Commands | Tier |
 |---|---|---|
-| set-maintenance-note, set-maintenance-window | maintenance | admin |
-| set-alert-channel, set-alert-threshold | notifications | admin |
-| set-digest-schedule | notifications | admin |
-| set-post-schedule, add-post-channel, remove-post-channel | schedule | admin |
-| create-backup | operational | **owner** |
-| restart-service | operational | **owner** |
-| trigger-update | operational | **owner** |
-| clear-cache | operational | **owner** |
+| `player` | warn | **moderator** (the only moderator-tier write action) |
+| `player` | kick, ban, unban, fill-water | admin |
+| `player` | give-item, clear-backpack | **owner** |
+| `base` | refill-generators, refill-water | admin |
+| `server` | start, restart-service | admin |
+| `server` | restart, stop (single owner-tier confirmation, like every other write action — the second, different-admin confirmation `stop` was originally designed with was removed in mentat#404, since owner tier is exactly one Discord account per guild and no second owner-tier admin can exist) | **owner** |
+| `map` | spawn, despawn, respawn, teleport | admin |
+| `carepackage` | grant, enable, disable, scan | admin |
+| `carepackage` | grant-all, history-clear | **owner** |
+| `guild` | add, remove | admin |
+| `operations` | create-backup, trigger-update | **owner** |
+| `bot` | self-update | `host-operator` sentinel — never `canWrite()`; a dedicated bot-host-operator identity check (`config.discord.botOperatorUserId`), because self-update restarts the one shared process serving every tenant |
 
-Flow: `writeHandler.js` → `writeCommands.js` → `adapterClient.writePreview()`
-/ `writeExecute()`. A separate `broadcast` route is also live (admin
-announcements to a channel), gated by `DUNE_DISCORD_WRITES_ENABLED`.
+Flow: `writeHandler.js` → `writeActions.js` → `adapterClient.writePreview()`
+→ button confirmation (`writeConfirmation.js`) → `adapterClient.writeExecute()`.
+A separate `broadcast` route is also live (admin announcements to a channel),
+gated by `DUNE_DISCORD_WRITES_ENABLED`, as is every write command above.
 
-**Player-facing write capability (kick/ban/grant-item/etc.) does not exist
-in Mentat today.** It is a separate, still-in-design effort tracked in
-`dune-awakening-selfhost-docker`'s `docs/rw-architecture.md`. That file's own
-header currently reads "**Status: Layer 1 Design (Requirement 20). Eight-Hat
-Layer 1 completed. 8 issues filed (#215-223). Awaiting fixes before Layer
-2.**" — note this header did not obviously match this session's own prior
-context of a much longer audit-round history for that effort; whoever reads
-this next should re-check that file's own tracking section directly rather
-than trust either this summary or an old chat transcript, since the header
-itself may be stale relative to the file's body. **Do not build against the
-RW-architecture effort until it has actually shipped** — nothing in this
-repo should assume kick/ban/grant-item exists.
+Nine legacy scaffold entries (`LEGACY_WRITE_STUBS` in `writeHandler.js`,
+under `/dune write <name>` — maintenance-note, maintenance-window,
+alert-channel, alert-threshold, digest-schedule, post-schedule, add-channel,
+remove-channel, cache) still return the "awaiting upstream contract"
+response and never reach Core. `src/writeCommands.js`, the original
+hand-written registry these names came from, has been deleted — it had no
+real caller left once `writeActions.js`/`writeHandler.js` became the single
+source of truth (mentat#400). The other three entries of that old
+list — backup, restart, update — were promoted to real actions in the
+table above (`operations create-backup`, `server restart-service`,
+`operations trigger-update`).
+
+The broader read/write architecture effort tracked in
+`dune-awakening-selfhost-docker`'s `docs/rw-architecture.md` is a separate,
+Core-side design; re-check that file's own tracking section directly rather
+than trusting any summary here.
 
 ## Core-side data availability (checked 2026-09, re-verify before relying on this list)
 

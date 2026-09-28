@@ -20,6 +20,45 @@ test("writesEnabled respects config flag", () => {
   assert.equal(writesEnabled({ discord: { writes: { enabled: true } } }), true);
 });
 
+// dune-awakening-selfhost-docker#217 (HIGH): Core's own discordWritesEnabled()
+// accepts both "1" and "true" (case-insensitively) -- this bot's own gate
+// must accept the identical set, or a deployment standardized on "1" (per
+// the design doc's own §3.7 canonical-value decision) silently disables
+// every write command here while Core's own gate stays open.
+test("writesEnabled accepts \"1\", matching Core's own accepted-value set", () => {
+  const old = process.env.DUNE_DISCORD_WRITES_ENABLED;
+  process.env.DUNE_DISCORD_WRITES_ENABLED = "1";
+  try {
+    assert.equal(writesEnabled({}), true);
+  } finally {
+    process.env.DUNE_DISCORD_WRITES_ENABLED = old;
+  }
+});
+
+test("writesEnabled accepts \"TRUE\"/\"True\" case-insensitively, matching Core's own regex", () => {
+  const old = process.env.DUNE_DISCORD_WRITES_ENABLED;
+  try {
+    process.env.DUNE_DISCORD_WRITES_ENABLED = "TRUE";
+    assert.equal(writesEnabled({}), true);
+    process.env.DUNE_DISCORD_WRITES_ENABLED = "True";
+    assert.equal(writesEnabled({}), true);
+  } finally {
+    process.env.DUNE_DISCORD_WRITES_ENABLED = old;
+  }
+});
+
+test("writesEnabled rejects any other value, including \"0\", \"yes\", and whitespace-padded garbage", () => {
+  const old = process.env.DUNE_DISCORD_WRITES_ENABLED;
+  try {
+    for (const value of ["0", "yes", "TRUEISH", "  ", "2"]) {
+      process.env.DUNE_DISCORD_WRITES_ENABLED = value;
+      assert.equal(writesEnabled({}), false, `expected "${value}" to be rejected`);
+    }
+  } finally {
+    process.env.DUNE_DISCORD_WRITES_ENABLED = old;
+  }
+});
+
 test("canWrite returns false when writes disabled", () => {
   assert.equal(canWrite({ member: { roles: { cache: new Map([["admin", {}]]) } } }, {}), false);
 });

@@ -11,8 +11,21 @@ const WRITE_ADMIN_ROLE_ENV = "DISCORD_WRITE_ADMIN_ROLE_IDS";
 // reach the "owner" tier itself anymore.
 const WRITE_OWNER_ROLE_ENV = "DISCORD_WRITE_OWNER_ROLE_IDS";
 
+// dune-awakening-selfhost-docker#217 (HIGH): this used to check only the
+// literal string "true", but Core's own discordWritesEnabled()
+// (console/api/src/integrations/discord/adapter.js) accepts BOTH "1" and
+// "true" (case-insensitively) -- a deployment set to "1" passed Core's
+// gate but silently failed this one, disabling every write command with
+// no operator-visible error (the bot's own /dune commands.write group
+// just never appears, per commands.js's own conditional-append comment).
+// Standardized on Core's exact accepted-value set here rather than
+// narrowing to "1" only, per Requirement 0's update-path rule -- an
+// operator who already set "true" during the read-only/experimental
+// period must keep working across this fix, not be silently broken by it.
+const WRITES_ENABLED_PATTERN = /^(?:1|true)$/i;
+
 export function writesEnabled(config) {
-  if (process.env[WRITES_ENABLED_ENV] === "true") return true;
+  if (WRITES_ENABLED_PATTERN.test(String(process.env[WRITES_ENABLED_ENV] || "").trim())) return true;
   if (config?.discord?.writes?.enabled === true) return true;
   return false;
 }

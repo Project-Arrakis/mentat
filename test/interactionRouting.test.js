@@ -22,9 +22,22 @@ test("InteractionCreate's button handling checks handleWriteButtonInteraction()'
 
   assert.match(
     src,
-    /const handled\s*=\s*await handleWriteButtonInteraction\(interaction\)/,
+    // Task 5 (write-command-reconciliation): handleWriteButtonInteraction()
+    // now takes adapterClient as a required second argument -- this pattern
+    // is deliberately not anchored to specific trailing arguments (still
+    // captures the call regardless of what they're named), only to the
+    // "capture the return value" shape mentat#332's fix actually cares about.
+    /const handled\s*=\s*await handleWriteButtonInteraction\(interaction\s*,[^)]*\)/,
     "must capture handleWriteButtonInteraction()'s return value, not discard it"
   );
+  // mentat#404: this used to additionally assert that `config`/`db` were
+  // passed through, because handleWriteButtonInteraction() canWrite()-
+  // re-checked whoever clicked a PUBLIC dual-confirmation waiting-state
+  // message. No action uses dual confirmation any more, that check is gone,
+  // and the two parameters went with it -- a write confirmation button is
+  // again only ever actionable by the actor who requested it (asserted
+  // directly in writeConfirmation.test.js, not through this source-shape
+  // check).
   assert.match(
     src,
     /if\s*\(\s*handled\s*\)\s*return;/,

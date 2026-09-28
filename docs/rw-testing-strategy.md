@@ -42,15 +42,15 @@ test("writeAuditEvent includes all required fields", ...);
 test("writeAuditEvent actor is redacted", ...);
 ```
 
-### writeCommands.js — NOT the live path (do not rely on these tests as coverage)
+### writeCommands.js — deleted (mentat#400), was never the live path
 
-`writeCommands.js` (`activeWriteCommands()`, `executeWriteCommand()`) is a
+`writeCommands.js` (`activeWriteCommands()`, `executeWriteCommand()`) was a
 separate, unused command-execution scaffold from the same PR #63 write-safety
-foundation. `commands.js` never imports it — the live write dispatch path is
-`writeHandler.js::handleWriteCommand()`. Any tests written against
-`writeCommands.js` exercise dead code; they do not verify the bot's actual
-write-command behavior. Prefer `test/writeHandler.test.js` for that coverage
-(see below).
+foundation, never imported by `commands.js` — it has since been deleted.
+The live write dispatch path is `writeHandler.js::handleWriteCommand()`, with
+`writeActions.js`'s `WRITE_ACTIONS` table as the single source of truth for
+what commands exist. Prefer `test/writeHandler.test.js`/`test/writeActions.test.js`
+for that coverage (see below).
 
 ### writeHandler.js — the live write-command path
 

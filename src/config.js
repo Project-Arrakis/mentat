@@ -7,6 +7,9 @@ const DEFAULT_PATHS = Object.freeze({
   // coriolis (mentat#370, dune-awakening-selfhost-docker#942): public-tier
   // farm-wide Coriolis storm seed + next-cycle timing.
   coriolis: "/api/integrations/discord/world/coriolis",
+  // atlas (mentat#376, dune-awakening-selfhost-docker#938): public-tier
+  // per-sietch PvP/PvE + live sandstorm status + the Coriolis cycle.
+  atlas: "/api/integrations/discord/world/atlas",
   readiness: "/api/integrations/discord/readiness",
   services: "/api/integrations/discord/services",
   population: "/api/integrations/discord/population",
@@ -85,6 +88,7 @@ const DEFAULT_METHODS = Object.freeze({
   health: "GET",
   status: "POST",
   coriolis: "POST",
+  atlas: "POST",
   readiness: "POST",
   services: "POST",
   population: "POST",
@@ -221,6 +225,15 @@ export function loadConfig(env = process.env) {
         ? readSecret(env, "DISCORD_CLIENT_SECRET", "DISCORD_CLIENT_SECRET_FILE")
         : (optionalEnv(env, "DISCORD_CLIENT_SECRET") || readOptionalSecretFile(env, "DISCORD_CLIENT_SECRET_FILE")),
       guildId: optionalEnv(env, "DISCORD_GUILD_ID"),
+      // botOperatorUserId (mentat#write-command-reconciliation Task 6): the
+      // ONE Discord user ID authorized to trigger bot.self-update
+      // (writeHandler.js) -- deliberately NOT part of the rbac block above,
+      // since mentat is multi-tenant and rbac's "owner" tier is scoped
+      // per-guild, while self-update restarts the single shared bot process
+      // serving every tenant. Left null (self-update permanently disabled)
+      // when unset, rather than defaulting to any existing per-guild
+      // identity.
+      botOperatorUserId: optionalEnv(env, "DUNE_BOT_OPERATOR_DISCORD_USER_ID") || null,
       defaultEphemeral: parseBoolean(env.DISCORD_DEFAULT_EPHEMERAL, true),
       rbac: {
         mode: parseRbacMode(env.DISCORD_RBAC_MODE),
@@ -248,6 +261,7 @@ export function loadConfig(env = process.env) {
         health: optionalEnv(env, "DUNE_ADAPTER_HEALTH_PATH") || DEFAULT_PATHS.health,
         status: optionalEnv(env, "DUNE_ADAPTER_STATUS_PATH") || DEFAULT_PATHS.status,
         coriolis: optionalEnv(env, "DUNE_ADAPTER_CORIOLIS_PATH") || DEFAULT_PATHS.coriolis,
+        atlas: optionalEnv(env, "DUNE_ADAPTER_ATLAS_PATH") || DEFAULT_PATHS.atlas,
         readiness: optionalEnv(env, "DUNE_ADAPTER_READINESS_PATH") || DEFAULT_PATHS.readiness,
         services: optionalEnv(env, "DUNE_ADAPTER_SERVICES_PATH") || DEFAULT_PATHS.services,
         population: optionalEnv(env, "DUNE_ADAPTER_POPULATION_PATH") || DEFAULT_PATHS.population,
@@ -314,6 +328,7 @@ export function loadConfig(env = process.env) {
         health: parseMethod(env.DUNE_ADAPTER_HEALTH_METHOD, DEFAULT_METHODS.health),
         status: parseMethod(env.DUNE_ADAPTER_STATUS_METHOD, DEFAULT_METHODS.status),
         coriolis: parseMethod(env.DUNE_ADAPTER_CORIOLIS_METHOD, DEFAULT_METHODS.coriolis),
+        atlas: parseMethod(env.DUNE_ADAPTER_ATLAS_METHOD, DEFAULT_METHODS.atlas),
         readiness: parseMethod(env.DUNE_ADAPTER_READINESS_METHOD, DEFAULT_METHODS.readiness),
         services: parseMethod(env.DUNE_ADAPTER_SERVICES_METHOD, DEFAULT_METHODS.services),
         population: parseMethod(env.DUNE_ADAPTER_POPULATION_METHOD, DEFAULT_METHODS.population),

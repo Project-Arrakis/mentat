@@ -255,5 +255,5 @@ Every command must handle these error modes:
 - [Adapter Contract](rw-adapter-contract.md)
 - [Confirmation Flow](rw-confirmation-flow.md)
 - [Rollback & Recovery](rw-rollback-recovery.md)
-- [Write Command Stubs](../src/writeCommands.js)
+- [Write Command Definitions](../src/writeActions.js)
 - [Non-Read-Only Roadmap](non-readonly-roadmap.md)

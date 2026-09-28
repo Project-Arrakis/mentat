@@ -8,16 +8,67 @@ import { startHealthState } from "./healthState.js";
 import { logError, logInfo } from "./logger.js";
 import { startScheduler, startDailyDigest } from "./scheduler.js";
 import { alertSubscriber } from "./notifications.js";
+import { atlasRefresher } from "./atlasRefresh.js";
+import { startArrivalGreeter } from "./arrivalGreeting.js";
 import { createDatabase, getGuild, getGuildRoles, getGuildSettings } from "./database.js";
 import { createSetupServer } from "./setupServer.js";
 import { createSteamLinkServer } from "./steamLinkServer.js";
 import { handleGuildDelete } from "./onboarding.js";
 import { startStatsPusher } from "./statsPusher.js";
 import { handleWriteButtonInteraction } from "./writeConfirmation.js";
+import { writeAuditEvent } from "./writes.js";
 import { handleOwnerConfirmationButtonInteraction, handleConfirmConnectionCommand } from "./ownerConfirmation.js";
 import { handleServiceButtonInteraction, handleServiceModalSubmit } from "./serviceComponent.js";
 import { isEncryptionConfigured, checkSecretFilePermissions } from "./secretsCrypto.js";
 import { proxySharedSecret } from "./proxyAuth.js";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+
+// reportSelfUpdateCompletionIfPending: the second, independent reporting
+// layer for bot self-update (see src/writeSelfUpdate.js / scripts/self-update.sh
+// -- Task 6 of the write-command-reconciliation design). self-update.sh's
+// own webhook post (the fast path) can be lost if this process is killed
+// alongside the old one during its own restart despite the systemd-run
+// cgroup escape; this NEW process checks for the marker file self-update.sh
+// wrote just before restarting and reports success itself if found.
+function reportSelfUpdateCompletionIfPending() {
+  const markerFile = join(process.cwd(), "runtime", "self-update-pending.json");
+  if (!existsSync(markerFile)) return;
+  try {
+    const { webhookUrl, triggeredAt } = JSON.parse(readFileSync(markerFile, "utf8"));
+    unlinkSync(markerFile);
+    const ageMs = Date.now() - triggeredAt;
+    if (ageMs > 15 * 60 * 1000) {
+      console.warn("self-update marker found but the webhook token has likely expired (>15min old) -- not attempting the follow-up.");
+      return;
+    }
+    // [Final-review fix, IMPORTANT 5] Reaching this line is the ONLY
+    // in-process proof that a self-update actually succeeded: the marker
+    // file is written by scripts/self-update.sh just before the restart and
+    // is only ever read by the NEW, healthy process. Until now only
+    // "triggered" (writeHandler.js) and "confirmed" (writeConfirmation.js)
+    // were audited -- the outcome never was, so the audit stream could not
+    // answer "did that restart actually happen?". The failure counterpart is
+    // emitted by scripts/self-update.sh's own failure branch (the old
+    // process survives there and has no other way to learn the outcome).
+    console.log(JSON.stringify(writeAuditEvent({
+      actor: {},
+      action: "bot.self-update",
+      capability: "bot.self-update",
+      idempotencyKey: "n/a",
+      result: "self-update-completed",
+      detail: { ageMs }
+    })));
+    if (!webhookUrl) return;
+    fetch(webhookUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: `✅ Self-update complete. Now running on the latest deployed code.` })
+    }).catch(() => {});
+  } catch {
+    // marker file corrupt/unreadable -- nothing to report, don't crash startup over it
+  }
+}
 
 const config = loadConfig();
 const db = config.multiTenant ? createDatabase(config.dbPath) : null;
@@ -125,7 +176,10 @@ const adapterClient = new AdapterClient(config, {
     };
   } : null
 });
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+// GuildMembers (privileged, already enabled on this bot's Developer Portal
+// application) is required for guildMemberAdd to fire at all -- added
+// 2026-09-27 for the arrival-greeting nudge (see arrivalGreeting.js).
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 const healthState = startHealthState({
   onError: (error) => logError("health_state.write_failed", error)
 });
@@ -133,7 +187,9 @@ let scheduler = { active: false, stop() {} };
 let announcementBridge = { active: false, stop() {} };
 let alerts = { active: false, stop() {} };
 let dailyDigest = { active: false, stop() {} };
+let atlasRefresh = { active: false, stop() {} };
 let statsPusher = { active: false, stop() {} };
+let arrivalGreeter = { active: false, stop() {} };
 
 if (config.multiTenant) {
   const setupApp = createSetupServer({
@@ -176,6 +232,7 @@ client.once(Events.ClientReady, (readyClient) => {
     botUserId: readyClient.user.id,
     multiTenant: config.multiTenant
   });
+  reportSelfUpdateCompletionIfPending();
   scheduler = startScheduler({
     client,
     adapterClient,
@@ -246,6 +303,45 @@ client.once(Events.ClientReady, (readyClient) => {
     });
   }
 
+  // #the-atlas (mentat#376, dune-awakening-selfhost-docker#938): the first
+  // real caller of liveMessage.js's postOrEditLiveMessage() -- requires a
+  // real db (multi-tenant mode; confirmed the live deployment already runs
+  // with ACP_MULTI_TENANT=true), since single-tenant mode has no local
+  // SQLite instance to record the message pointer in.
+  const atlasChannelId = process.env.DUNE_ATLAS_CHANNEL_ID;
+  if (atlasChannelId && db) {
+    const atlasIntervalMs = Number.parseInt(process.env.DUNE_ATLAS_INTERVAL_MS || "600000", 10) || 600000;
+    const refresher = atlasRefresher({
+      adapterClient,
+      client,
+      db,
+      channelId: atlasChannelId,
+      onError: (error) => logError("atlas.refresh.failed", error)
+    });
+    void refresher.refresh();
+    const atlasTimer = setInterval(() => refresher.refresh(), atlasIntervalMs);
+    atlasTimer.unref?.();
+    atlasRefresh = { active: true, stop() { clearInterval(atlasTimer); } };
+    logInfo("atlas.refresh.started", { channel: atlasChannelId, intervalMs: atlasIntervalMs });
+  } else if (atlasChannelId && !db) {
+    logError("atlas.refresh.failed", new Error("DUNE_ATLAS_CHANNEL_ID is set but multi-tenant mode (with a local database) is required for the self-refreshing atlas message."));
+  }
+
+  // Real discoverability gap found 2026-09-27: YAGPDB's human-verification
+  // gate runs entirely over DM with no in-server fallback -- a member whose
+  // DMs are closed to server members gets zero signal anything else is
+  // required, completes Discord's own onboarding, and is silently kicked
+  // hours later. See arrivalGreeting.js's own comment for the full story.
+  const arrivalChannelId = process.env.DUNE_ARRIVAL_CHANNEL_ID;
+  if (arrivalChannelId) {
+    arrivalGreeter = startArrivalGreeter({
+      client,
+      channelId: arrivalChannelId,
+      onError: (error) => logError("arrival_greeting.failed", error)
+    });
+    logInfo("arrival_greeting.started", { channel: arrivalChannelId });
+  }
+
   const digestChannelId = process.env.DUNE_DIGEST_CHANNEL_ID || alertChannelId;
   if (digestChannelId) {
     const digestHour = Number.parseInt(process.env.DUNE_DIGEST_HOUR || "8", 10) || 8;
@@ -287,7 +383,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // `false` (instead of returning) means any future prefix-dispatched
     // handler added below this line will actually run.
     if (interaction.isButton?.()) {
-      const handled = await handleWriteButtonInteraction(interaction);
+      // mentat#404: this call used to pass `config`/`db` as well, purely so
+      // handleWriteButtonInteraction() could canWrite()-re-check whoever
+      // clicked a PUBLIC dual-confirmation waiting-state message. No action
+      // uses dual confirmation any more, so that check (and its two
+      // parameters) are gone; a write confirmation button is again only ever
+      // actionable by the actor who requested it.
+      const handled = await handleWriteButtonInteraction(interaction, adapterClient);
       if (handled) return;
       // mentat#343 Phase 2: the "autoinvite:confirm:"/"autoinvite:deny:"
       // buttons anticipated in the comment above (added when this fall-
@@ -365,6 +467,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     announcementBridge.stop();
     alerts.stop();
     dailyDigest.stop();
+    atlasRefresh.stop();
     statsPusher.stop();
     if (db) db.close();
     await client.destroy();

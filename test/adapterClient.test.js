@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AdapterClient, AdapterHttpError, LIVE_ROUTES, PLANNED_ROUTES, UNMERGED_ROUTES, MISSING_ROUTES, routeStatus } from "../src/adapterClient.js";
+import { AdapterClient, AdapterHttpError, LIVE_ROUTES, PLANNED_ROUTES, UNMERGED_ROUTES, MISSING_ROUTES, routeStatus, isRouteMissing } from "../src/adapterClient.js";
+import { getDefaultSecureDispatcher } from "../src/secureFetchDispatcher.js";
 
 function config(overrides = {}) {
   return {
@@ -47,6 +48,41 @@ test("AdapterClient sends bearer token and parses JSON", async () => {
   assert.equal(seen[0].options.method, "GET");
   assert.equal(seen[0].options.headers.authorization, "Bearer adapter-token");
   assert.equal(seen[0].options.body, undefined);
+});
+
+// Layer 2 audit finding (Security Architect hat, mentat#393): the actual
+// wiring change (request()'s `dispatcher: this.dispatcher` in its options)
+// had zero test coverage -- every existing test here only checked method/
+// headers/body, never dispatcher. A regression that silently dropped this
+// field (or reverted the constructor's default) would have passed every
+// test in this file untouched, defeating the entire point of the #393 fix
+// without any test noticing.
+test("AdapterClient passes its dispatcher through to fetchImpl on every request, defaulting to the real secure dispatcher", async () => {
+  const seen = [];
+  const client = new AdapterClient(config(), {
+    fetchImpl: async (url, options) => {
+      seen.push(options);
+      return jsonResponse({ ok: true });
+    }
+  });
+
+  await client.health({ userId: "user-1" });
+  assert.equal(seen[0].dispatcher, getDefaultSecureDispatcher(), "must default to the real, shared secure dispatcher when none is injected");
+});
+
+test("AdapterClient passes an explicitly injected dispatcher through unchanged, not the default", async () => {
+  const fakeDispatcher = { fake: true };
+  const seen = [];
+  const client = new AdapterClient(config(), {
+    dispatcher: fakeDispatcher,
+    fetchImpl: async (url, options) => {
+      seen.push(options);
+      return jsonResponse({ ok: true });
+    }
+  });
+
+  await client.health({ userId: "user-1" });
+  assert.equal(seen[0].dispatcher, fakeDispatcher);
 });
 
 test("AdapterClient posts actor context to POST routes", async () => {
@@ -271,13 +307,18 @@ test("every known route is classified into exactly one of the four route tables 
     "player-inventory-v2",
     "players-accounts-link-steam", "players-link-verify",
     "players-accounts-list", "players-accounts-unlink",
-    "coriolis"
+    "coriolis", "atlas"
   ];
 
   assert.equal(whole.size, LIVE_ROUTES.size + PLANNED_ROUTES.size + UNMERGED_ROUTES.size + MISSING_ROUTES.size,
     "the four sets must be disjoint (every route classifies exactly once)");
   assert.deepEqual([...whole].sort(), expectedPathKeys.slice().sort(),
     "config path keys and classified route keys must be identical sets -- a new config key without a classification is a bug");
+});
+
+test("write-execute and write-preview are no longer MISSING_ROUTES", () => {
+  assert.equal(isRouteMissing("write-execute"), false);
+  assert.equal(isRouteMissing("write-preview"), false);
 });
 
 // The 2026-08-06 ops:announcements dispatch fix: OPS_COMMANDS.announcements

@@ -740,6 +740,78 @@ export function formatCoriolisEmbed(payload) {
   });
 }
 
+// formatAtlasEmbed (mentat#376, dune-awakening-selfhost-docker#938):
+// #the-atlas -- per-sietch PvP/PvE + live sandstorm status, plus the
+// farm-wide Coriolis cycle. Sandworm/storm-cadence config is deliberately
+// not included yet (Core issue #938's own fast-follow note); do not add
+// fields for it here without a matching payload field to read.
+function atlasCombatLabel(combatState) {
+  if (combatState === "PVP") return "⚔️ PvP";
+  if (combatState === "PVE") return "🕊️ PvE";
+  if (combatState === "CONFLICT") return "⚡ Conflict";
+  return "❔ Unknown";
+}
+
+// Real operator request (2026-09-18, refined same day after first landing
+// with a raw partition-id shown for every sietch): Hagga Basin sietches
+// already have unique real names (Kadir/Zahir/etc.) and need no further
+// disambiguation. Deep Desert's dynamic instances don't have that -- two
+// instances can render as identically-named "Deep Desert PvE"/"Deep Desert
+// PvP" -- so ONLY Deep Desert gets an instance number, and it's a
+// sequential ordinal (1, 2, 3...) from sorting by partition ID ascending,
+// not the raw (meaningless-to-players) partition ID itself. Scales the
+// same way at any count: 4 Deep Desert instances sort by partition ID and
+// number 1-4 in that order.
+function atlasSietchLine(sietch, instanceOrdinal) {
+  const name = sietch.serverDisplayName || `Partition ${sietch.partitionId}`;
+  const instance = instanceOrdinal ? ` (Instance ${instanceOrdinal})` : "";
+  const combat = atlasCombatLabel(sietch.combatState);
+  const storm = sietch.sandstormActive ? " · 🌪️ **Storm active**" : "";
+  // Real login password (Core issue #938/mentat#376, 2026-09-27): this
+  // channel is role-restricted to Naib/Fedaykin/Crysknife-Bearer
+  // specifically so this can be shown in the clear -- every other display
+  // of this field anywhere in this project (the console CLI/web UI) is
+  // deliberately write-only and never echoes it back. Only render when a
+  // password is actually set; Core returns null otherwise.
+  const password = sietch.loginPassword ? ` · 🔒 \`${sietch.loginPassword}\`` : "";
+  return `**${name}**${instance} — ${combat}${storm}${password}`;
+}
+
+function sortByPartitionIdAscending(sietches) {
+  return [...sietches].sort((a, b) => Number(a.partitionId) - Number(b.partitionId));
+}
+
+export function formatAtlasEmbed(payload) {
+  if (payload?.ok !== true) {
+    return duneEmbed({
+      title: "📜 The Atlas",
+      color: "warning",
+      description: "❔ **Not yet known** — sietch data hasn't been observed since the server's last restart."
+    });
+  }
+  const hagga = Array.isArray(payload?.sietches?.HaggaBasin) ? payload.sietches.HaggaBasin : [];
+  const deepDesert = Array.isArray(payload?.sietches?.DeepDesert) ? payload.sietches.DeepDesert : [];
+  const nextCycleUnix = Math.floor(new Date(payload?.coriolisNextCycleAt).getTime() / 1000);
+  const coriolisLine = payload?.coriolisSeed && Number.isFinite(nextCycleUnix)
+    ? `🌪️ Coriolis seed **${payload.coriolisSeed}** — next cycle <t:${nextCycleUnix}:R>`
+    : "🌪️ Coriolis cycle not yet known.";
+
+  const fields = [];
+  if (hagga.length) fields.push({ name: "Hagga Basin", value: hagga.map((sietch) => atlasSietchLine(sietch)).join("\n"), inline: false });
+  if (deepDesert.length) {
+    const ordered = sortByPartitionIdAscending(deepDesert);
+    fields.push({ name: "The Deep Desert", value: ordered.map((sietch, index) => atlasSietchLine(sietch, index + 1)).join("\n"), inline: false });
+  }
+  if (!fields.length) fields.push({ name: "Sietches", value: "No sietches are currently reporting.", inline: false });
+
+  return duneEmbed({
+    title: "📜 The Atlas",
+    color: "spice",
+    description: coriolisLine,
+    fields
+  });
+}
+
 export function formatMaintenanceEmbed(payload) {
   // Route provenance for "maintenance" is unverified against upstream main
   // (see adapterClient.js maintenance() comment); a false/missing "ok" must

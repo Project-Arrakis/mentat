@@ -87,3 +87,10 @@ test("loadConfig requires adapter paths to stay absolute", () => {
     /must start with/
   );
 });
+
+test("config: botOperatorUserId is null when DUNE_BOT_OPERATOR_DISCORD_USER_ID is unset, set otherwise", () => {
+  const withoutIt = loadConfig(baseEnv());
+  assert.equal(withoutIt.discord.botOperatorUserId, null);
+  const withIt = loadConfig(baseEnv({ DUNE_BOT_OPERATOR_DISCORD_USER_ID: "12345" }));
+  assert.equal(withIt.discord.botOperatorUserId, "12345");
+});

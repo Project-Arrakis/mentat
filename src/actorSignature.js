@@ -31,8 +31,32 @@ import { readFileSync } from "node:fs";
 const SIGNATURE_HEADER = "x-dune-actor-signature";
 const TIMESTAMP_HEADER = "x-dune-actor-timestamp";
 
-// Must match Core's SIGNED_ACTOR_FIELDS exactly, same order.
+// Must match Core's SIGNED_ACTOR_FIELDS exactly, same order. This is the
+// default field set for the shared/generic routes (link, verify, unlink) --
+// the write bridge's own two routes use WRITE_BRIDGE_SIGNED_ACTOR_FIELDS
+// below instead, passed explicitly.
 const SIGNED_ACTOR_FIELDS = ["userId", "guildId", "channelId", "roleIds", "interactionId"];
+
+// CRITICAL FIX: must match Core's WRITE_BRIDGE_SIGNED_ACTOR_FIELDS exactly
+// (console/api/src/integrations/discord/actorSignature.js) -- same fields,
+// same order, including trailing "action". Before this export existed,
+// writeExecute()/writePreview() (adapterClient.js) signed with the generic
+// SIGNED_ACTOR_FIELDS above via the plain signedHeaders() helper, which is
+// a COMPLETELY DIFFERENT field set than what Core's write/preview and
+// write/execute routes verify against -- every real write-bridge call would
+// fail with invalid_actor_signature (403) the moment DUNE_DISCORD_ACTOR_SECRET
+// was configured on both sides (a required prerequisite for the write
+// bridge to work at all, since Core's verification is `required: true` for
+// these two routes specifically, not opt-in like every other route).
+// Verified directly: computing both sides' canonical strings for the same
+// (actor, timestamp, route) with the old scheme produced two completely
+// different strings.
+//
+// `action` is included specifically because write/preview and write/execute
+// are the SAME route for every action -- without it, a captured,
+// legitimately-signed envelope could be replayed with a different
+// action/params within the freshness window and still verify.
+export const WRITE_BRIDGE_SIGNED_ACTOR_FIELDS = ["userId", "username", "roleIds", "guildId", "channelId", "roleSnapshotAt", "action"];
 
 export function actorSignatureSecret(env = process.env) {
   const direct = env.DUNE_DISCORD_ACTOR_SECRET || "";
@@ -48,17 +72,20 @@ export function actorSignatureSecret(env = process.env) {
 
 // Must match Core's canonicalActorSignaturePayload() exactly -- same
 // field order, same array-sort/stringify behavior, same delimiter shape.
-export function canonicalActorSignaturePayload(actorPayload = {}, timestamp, route = "") {
-  const fields = {};
-  for (const key of SIGNED_ACTOR_FIELDS) {
+// `fields` defaults to the shared array for backward compatibility with
+// every existing caller; the write bridge passes WRITE_BRIDGE_SIGNED_ACTOR_FIELDS
+// explicitly, matching Core's own canonicalActorSignaturePayload() signature.
+export function canonicalActorSignaturePayload(actorPayload = {}, timestamp, route = "", fields = SIGNED_ACTOR_FIELDS) {
+  const canonical = {};
+  for (const key of fields) {
     const value = actorPayload?.[key];
-    fields[key] = Array.isArray(value) ? [...value].map(String).sort() : String(value ?? "");
+    canonical[key] = Array.isArray(value) ? [...value].map(String).sort() : String(value ?? "");
   }
-  return `${timestamp}.${String(route)}.${JSON.stringify(fields)}`;
+  return `${timestamp}.${String(route)}.${JSON.stringify(canonical)}`;
 }
 
-export function signActorPayload(actorPayload, secret, timestamp = Math.floor(Date.now() / 1000), route = "") {
-  const message = canonicalActorSignaturePayload(actorPayload, timestamp, route);
+export function signActorPayload(actorPayload, secret, timestamp = Math.floor(Date.now() / 1000), route = "", fields = SIGNED_ACTOR_FIELDS) {
+  const message = canonicalActorSignaturePayload(actorPayload, timestamp, route, fields);
   const signature = createHmac("sha256", String(secret)).update(message).digest("hex");
   return { signature, timestamp };
 }
@@ -79,6 +106,31 @@ export function signedHeaders(actorPayload, route, env = process.env) {
   const secret = actorSignatureSecret(env);
   if (!secret) return {};
   const { signature, timestamp } = signActorPayload(actorPayload, secret, Math.floor(Date.now() / 1000), route);
+  return {
+    [SIGNATURE_HEADER]: signature,
+    [TIMESTAMP_HEADER]: String(timestamp)
+  };
+}
+
+// Write-bridge-specific counterpart to signedHeaders(): signs with
+// WRITE_BRIDGE_SIGNED_ACTOR_FIELDS (matching Core's write/preview and
+// write/execute verification) instead of the generic SIGNED_ACTOR_FIELDS,
+// and merges `action` into the signed payload -- `action` lives alongside
+// `actor` in the request body, not inside actorPayload itself, so it must
+// be merged in here rather than expected to already be a property of the
+// actor object. `route` MUST be the full adapter path (e.g.
+// "/api/integrations/discord/write/preview"), same requirement as
+// signedHeaders() above.
+export function writeBridgeSignedHeaders(actorPayload, route, action, env = process.env) {
+  const secret = actorSignatureSecret(env);
+  if (!secret) return {};
+  const { signature, timestamp } = signActorPayload(
+    { ...actorPayload, action },
+    secret,
+    Math.floor(Date.now() / 1000),
+    route,
+    WRITE_BRIDGE_SIGNED_ACTOR_FIELDS
+  );
   return {
     [SIGNATURE_HEADER]: signature,
     [TIMESTAMP_HEADER]: String(timestamp)
