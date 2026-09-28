@@ -85,6 +85,44 @@ test("canonicalActorSignaturePayload changes when the route changes, even with i
   assert.notEqual(a, b, "binding the route into the signature prevents cross-route replay of a captured envelope");
 });
 
+// [CRITICAL FIX, issue #1070] Local (non-cross-repo) coverage for the
+// object-valued-field canonicalization this fix adds -- guaranteed to run
+// in every environment, unlike the live cross-repo checks above which
+// silently skip when Core's sibling checkout isn't available.
+test("canonicalActorSignaturePayload canonicalizes an object-valued field (params) identically regardless of key insertion order", () => {
+  const a = canonicalActorSignaturePayload({ userId: "u1", params: { reason: "griefing", playerId: "alice" } }, 100, "/route", ["userId", "params"]);
+  const b = canonicalActorSignaturePayload({ userId: "u1", params: { playerId: "alice", reason: "griefing" } }, 100, "/route", ["userId", "params"]);
+  assert.equal(a, b, "same logical params object must canonicalize identically regardless of key insertion order");
+});
+
+test("canonicalActorSignaturePayload does not collapse an object-valued field to the useless literal string \"[object Object]\"", () => {
+  const withParams = canonicalActorSignaturePayload({ userId: "u1", params: { playerId: "alice" } }, 100, "/route", ["userId", "params"]);
+  const withDifferentParams = canonicalActorSignaturePayload({ userId: "u1", params: { playerId: "bob" } }, 100, "/route", ["userId", "params"]);
+  assert.notEqual(withParams, withDifferentParams, "two distinct params objects must not canonicalize to the same string");
+  assert.doesNotMatch(withParams, /\[object Object\]/, "an object-valued field must be recursively canonicalized, not stringified");
+});
+
+test("canonicalActorSignaturePayload canonicalizes a nested object inside an array-valued params field", () => {
+  const a = canonicalActorSignaturePayload({ userId: "u1", params: { items: [{ b: 2, a: 1 }] } }, 100, "/route", ["userId", "params"]);
+  const b = canonicalActorSignaturePayload({ userId: "u1", params: { items: [{ a: 1, b: 2 }] } }, 100, "/route", ["userId", "params"]);
+  assert.equal(a, b, "nested object key order inside an array must not affect the canonical payload");
+});
+
+// [CRITICAL FIX, ported from Core's own issue #1073] A plain `{}` inherits
+// Object.prototype's own "__proto__" ACCESSOR -- assigning to that one key
+// invokes the inherited setter instead of creating an own property,
+// silently dropping it (and its whole subtree) from what gets signed, even
+// though a JSON.parse'd params object can have "__proto__" as a genuine own
+// property (JSON.parse uses CreateDataProperty, not [[Set]]). This must not
+// throw, and the resulting string must actually reflect the value under
+// that key, not silently drop it.
+test("canonicalActorSignaturePayload does not silently drop a literal \"__proto__\" key inside an object-valued field", () => {
+  const withProtoKey = JSON.parse('{"userId":"u1","params":{"__proto__":{"polluted":true},"real":"value"}}');
+  const result = canonicalActorSignaturePayload(withProtoKey, 100, "/route", ["userId", "params"]);
+  assert.match(result, /polluted/, "the __proto__ key's value must survive canonicalization, not be silently dropped");
+  assert.equal(Object.prototype.polluted, undefined, "canonicalizing an untrusted params object must never actually pollute Object.prototype");
+});
+
 test("signActorPayload produces a signature byte-identical to a known-good vector (regression: prevents silent algorithm drift from Core's implementation)", () => {
   // This exact input/output pair was independently cross-checked against
   // dune-awakening-selfhost-docker's real actorSignature.js implementation
@@ -167,10 +205,11 @@ test("writeBridgeSignedHeaders produces a signature that verifies successfully a
   const actor = { userId: "user-1", username: "tester", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], roleSnapshotAt: Math.floor(Date.now() / 1000) };
   const route = "/api/integrations/discord/write/execute";
   const action = "player.warn";
-  const headers = writeBridgeSignedHeaders(actor, route, action, { DUNE_DISCORD_ACTOR_SECRET: "shared-secret-123" });
+  const params = { playerId: "victim-1", reason: "griefing" };
+  const headers = writeBridgeSignedHeaders(actor, route, action, params, { DUNE_DISCORD_ACTOR_SECRET: "shared-secret-123" });
 
   const result = verifyActorSignature({
-    actorPayload: { ...actor, action },
+    actorPayload: { ...actor, action, params },
     headers,
     config: { discordActorSecret: "shared-secret-123" },
     route,
@@ -187,7 +226,7 @@ test("writeBridgeSignedHeaders: a signature for one action does not verify for a
 
   const actor = { userId: "user-1", username: "tester", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], roleSnapshotAt: Math.floor(Date.now() / 1000) };
   const route = "/api/integrations/discord/write/execute";
-  const headers = writeBridgeSignedHeaders(actor, route, "player.warn", { DUNE_DISCORD_ACTOR_SECRET: "shared-secret-123" });
+  const headers = writeBridgeSignedHeaders(actor, route, "player.warn", undefined, { DUNE_DISCORD_ACTOR_SECRET: "shared-secret-123" });
 
   assert.throws(
     () => verifyActorSignature({
@@ -200,4 +239,55 @@ test("writeBridgeSignedHeaders: a signature for one action does not verify for a
     }),
     (error) => error.code === "invalid_actor_signature"
   );
+});
+
+// [CRITICAL FIX, issue #1070] Real cross-repo proof that params is now
+// actually part of the signed payload, not just present in the request
+// body -- before this fix, a signature covering only action (not params)
+// would still verify here even with substituted params, since nothing
+// about the signed payload depended on it. This is the exact replay gap
+// Core's own fix closed; this test proves mentat's signing side closes it
+// too, not just Core's verification side.
+test("writeBridgeSignedHeaders: a signature for one params object does not verify for a different params object against Core's real verification (closes the params-substitution replay gap, issue #1070)", async () => {
+  const core = await importCoreActorSignature();
+  if (!core) return;
+  const { verifyActorSignature, WRITE_BRIDGE_SIGNED_ACTOR_FIELDS: coreFields } = core;
+
+  const actor = { userId: "user-1", username: "tester", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], roleSnapshotAt: Math.floor(Date.now() / 1000) };
+  const route = "/api/integrations/discord/write/execute";
+  const action = "player.kick";
+  const headers = writeBridgeSignedHeaders(actor, route, action, { playerId: "alice" }, { DUNE_DISCORD_ACTOR_SECRET: "shared-secret-123" });
+
+  assert.throws(
+    () => verifyActorSignature({
+      actorPayload: { ...actor, action, params: { playerId: "bob" } },
+      headers,
+      config: { discordActorSecret: "shared-secret-123" },
+      route,
+      required: true,
+      fields: coreFields
+    }),
+    (error) => error.code === "invalid_actor_signature"
+  );
+});
+
+// [CRITICAL FIX, issue #1070] Confirms the field-set fix didn't just add
+// "params" as a name that gets ignored -- an object-valued params field
+// must actually be canonicalized (not collapsed to the useless literal
+// string "[object Object]" every distinct object would produce under a
+// naive String(value) fallback), and must do so identically to Core's own
+// canonicalizeValue() regardless of key insertion order.
+test("canonicalActorSignaturePayload canonicalizes an object-valued params field identically regardless of key order, against Core's real implementation", async () => {
+  const core = await importCoreActorSignature();
+  if (!core) return;
+  const { canonicalActorSignaturePayload: coreCanonical, WRITE_BRIDGE_SIGNED_ACTOR_FIELDS: coreFields } = core;
+
+  const actor = { userId: "user-1", username: "tester", guildId: "guild-1", channelId: "channel-1", roleIds: ["role-a"], roleSnapshotAt: 100, action: "player.kick" };
+  const a = canonicalActorSignaturePayload({ ...actor, params: { reason: "griefing", playerId: "alice" } }, 100, "/route", WRITE_BRIDGE_SIGNED_ACTOR_FIELDS);
+  const b = canonicalActorSignaturePayload({ ...actor, params: { playerId: "alice", reason: "griefing" } }, 100, "/route", WRITE_BRIDGE_SIGNED_ACTOR_FIELDS);
+  assert.equal(a, b, "same logical params object must canonicalize identically regardless of key insertion order");
+  assert.notEqual(a, JSON.stringify({}), "an object-valued field must not collapse to a useless constant string");
+
+  const coreCanonicalString = coreCanonical({ ...actor, params: { reason: "griefing", playerId: "alice" } }, 100, "/route", coreFields);
+  assert.equal(a, coreCanonicalString, "bot and Core must canonicalize the same params object identically");
 });

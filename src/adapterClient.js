@@ -469,7 +469,7 @@ export class AdapterClient {
         // not the generic SIGNED_ACTOR_FIELDS) and additionally bind the
         // specific action being requested -- see WRITE_BRIDGE_ROUTES above.
         Object.assign(headers, WRITE_BRIDGE_ROUTES.has(route)
-          ? writeBridgeSignedHeaders(actor, path, extra?.action)
+          ? writeBridgeSignedHeaders(actor, path, extra?.action, extra?.params)
           : signedHeaders(actor, path));
       }
 
