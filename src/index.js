@@ -9,6 +9,7 @@ import { logError, logInfo } from "./logger.js";
 import { startScheduler, startDailyDigest } from "./scheduler.js";
 import { alertSubscriber } from "./notifications.js";
 import { atlasRefresher } from "./atlasRefresh.js";
+import { startArrivalGreeter } from "./arrivalGreeting.js";
 import { createDatabase, getGuild, getGuildRoles, getGuildSettings } from "./database.js";
 import { createSetupServer } from "./setupServer.js";
 import { createSteamLinkServer } from "./steamLinkServer.js";
@@ -174,7 +175,10 @@ const adapterClient = new AdapterClient(config, {
     };
   } : null
 });
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+// GuildMembers (privileged, already enabled on this bot's Developer Portal
+// application) is required for guildMemberAdd to fire at all -- added
+// 2026-09-27 for the arrival-greeting nudge (see arrivalGreeting.js).
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 const healthState = startHealthState({
   onError: (error) => logError("health_state.write_failed", error)
 });
@@ -184,6 +188,7 @@ let alerts = { active: false, stop() {} };
 let dailyDigest = { active: false, stop() {} };
 let atlasRefresh = { active: false, stop() {} };
 let statsPusher = { active: false, stop() {} };
+let arrivalGreeter = { active: false, stop() {} };
 
 if (config.multiTenant) {
   const setupApp = createSetupServer({
@@ -319,6 +324,21 @@ client.once(Events.ClientReady, (readyClient) => {
     logInfo("atlas.refresh.started", { channel: atlasChannelId, intervalMs: atlasIntervalMs });
   } else if (atlasChannelId && !db) {
     logError("atlas.refresh.failed", new Error("DUNE_ATLAS_CHANNEL_ID is set but multi-tenant mode (with a local database) is required for the self-refreshing atlas message."));
+  }
+
+  // Real discoverability gap found 2026-09-27: YAGPDB's human-verification
+  // gate runs entirely over DM with no in-server fallback -- a member whose
+  // DMs are closed to server members gets zero signal anything else is
+  // required, completes Discord's own onboarding, and is silently kicked
+  // hours later. See arrivalGreeting.js's own comment for the full story.
+  const arrivalChannelId = process.env.DUNE_ARRIVAL_CHANNEL_ID;
+  if (arrivalChannelId) {
+    arrivalGreeter = startArrivalGreeter({
+      client,
+      channelId: arrivalChannelId,
+      onError: (error) => logError("arrival_greeting.failed", error)
+    });
+    logInfo("arrival_greeting.started", { channel: arrivalChannelId });
   }
 
   const digestChannelId = process.env.DUNE_DIGEST_CHANNEL_ID || alertChannelId;
