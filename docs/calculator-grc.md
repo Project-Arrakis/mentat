@@ -107,22 +107,33 @@ ongoing risk in this feature (see also
    this feature's data-drift risk covers logic drift, not just numeric
    drift.
 
-**Confirmed real instance, 2026-09-28 (pre-implementation, caught in
-design):** Duraluminum Ingot's Large-tier Water cost was transcribed as
-×500/craft from the reference site; the operator directly checked the live
-in-game crafting panel and found it is actually ×400/craft (Jasmium Crystal
-×3 and Aluminum Ingot ×1 for that tier matched and needed no correction).
-Corrected in `calculator-implementation-prompt.md` and the worked example in
-`calculator-design.md` §Quantity Bound. Medium tier's ×500 Water figure was
-**not** re-checked against the live client in this pass and should not be
-assumed correct just because it wasn't flagged — this is the exact
-"pretending otherwise" failure mode this section warns against, so it's
-named explicitly rather than left implicit. This is evidence the drift risk
-this section describes is real, not hypothetical, and that catching it
-*before* `craftingData.js` exists (i.e. before there's a shipped `source`/
-`verifiedAt` field to correct) is cheaper than catching it after — worth
-re-verifying every recipe against the live client, not just the reference
-site, before the implementation PR ships.
+**Unresolved discrepancy, 2026-09-28 — recorded as a caution about
+verification discipline, not just data drift:** a single in-game reading
+reported Duraluminum Ingot's Large-tier Water cost as ×400/craft, against
+×500/craft in the original transcribed data. This was briefly treated as a
+"confirmed" correction and shipped into `calculator-implementation-prompt.md`
+and `calculator-design.md` the same day, then **reverted** once a second,
+independent source (dune.geno.gg's server-rendered item pages) corroborated
+the original ×500 for both Large and Medium tiers, and no known modifier
+(Crafting Contract `-25%`, Deep Desert Discount `-50%`) produces a clean
+×400 from a ×500 base. A third candidate source
+(duneawakeningcalculator.com) could not be read at all — pure JS shell, no
+static data or discoverable API. Current state: ×500 stands as the
+best-evidenced value; ×400 is unconfirmed and needs a fresh in-game check
+(screenshot, and note any active buff/skill/contract at the time) before
+being trusted again.
+
+**The real lesson here is procedural, not just numeric:** a single
+observation — even a direct, first-hand one — is not corroboration, and
+should not have been written up as "confirmed real drift" the way it
+initially was. The audit-trail requirements above (structural `source`/
+`verifiedAt` fields, change notes) exist to make exactly this kind of
+claim traceable and correctable; this incident is itself now part of that
+trail. Before `craftingData.js` exists, a doc correction is cheap to
+reverse — this is precisely why catching disagreements at this stage,
+before there's a shipped value with a `verifiedAt` date implying
+confidence that was never earned, is worth doing carefully rather than
+quickly.
 
 ## Dependency and Supply-Chain Review
 

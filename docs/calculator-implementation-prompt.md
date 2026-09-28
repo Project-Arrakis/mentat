@@ -31,20 +31,32 @@ reporting) — see the two companion documents' own "Revision history"
 sections for the full detail and worked examples this prompt intentionally
 does not re-derive.
 
-**2026-09-28 correction (real recipe-data drift, caught before
-implementation, not after):** the note immediately above claims "the recipe
-data itself never changed" — that is now false for one value. The operator
-directly confirmed against the live in-game crafting panel that Duraluminum
-Ingot's **Large** tier costs **Water ×400 per craft, not ×500** as this
-document previously had it (Jasmium Crystal ×3 and Aluminum Ingot ×1 for
-that tier are unchanged and were independently confirmed correct). The
-Recipe Data table below is corrected. Medium tier's Water ×500 has **not**
-been independently re-confirmed against the live client — do not assume it
-also changed just because Large did; verify it the same way before trusting
-it further. This is exactly the ongoing data-drift risk
+**2026-09-28 correction, reverted same day (see the note directly below):**
+an earlier pass of this same revision changed Duraluminum Ingot's Large-tier
+Water cost to ×400/craft based on a single in-game reading, superseding the
+×500 this document originally had. That change is now reverted — see below.
+
+**2026-09-28 follow-up — the ×400 change above was itself premature and is
+reverted; Water ×500 stands as the current best-evidence value, unresolved:**
+two independent sources — the original dune.gaming.tools data this document
+was built from, and a second, independently re-checked site
+(dune.geno.gg's server-rendered item pages, verbatim: "LargeOreRefinery —
+1x Aluminum Ingot, 3x Jasmium Crystal, 500x Water") — both agree on ×500.
+Only a single in-game screen reading said ×400, and no known modifier
+explains the gap cleanly: Crafting Contract is a documented flat `-25%`
+(`Math.ceil(500 * 0.75) = 375`, see `calculator-design.md`'s §Modifiers)
+and Deep Desert Discount is `-50%` (`250`) — neither lands on 400, which
+would require an exact, unexplained `-20%`. Until this is independently
+re-verified in-game (ideally with a screenshot, and checking for any other
+active buff/skill/contract at the time, not just the two named modifiers),
+treat ×500 as the operative value and ×400 as unconfirmed — this document
+should not have declared the ×400 change "confirmed" on one reading in the
+first place. This is the real, ongoing data-drift risk
 [`calculator-grc.md`](calculator-grc.md#data-drift-risk--the-primary-ongoing-compliance-concern)
-already names as the top ongoing compliance concern for this feature —
-recorded here as a real instance of it, not a hypothetical.
+already names as the top compliance concern for this feature, now with a
+second, cautionary lesson attached: a single observation is not
+corroboration, and a documentation fix should carry the same evidentiary
+bar as the data it's replacing.
 
 ---
 
@@ -165,8 +177,8 @@ below have no `large` row.
 
 | Tier key | Station | Time | Inputs |
 |---|---|---|---|
-| `large` | Large Ore Refinery | 4s | Water ×400, Jasmium Crystal ×3, Aluminum Ingot ×1 *(craftable → `aluminum_ingot`)* |
-| `medium` | Medium Ore Refinery | 5s | Water ×500, Jasmium Crystal ×4, Aluminum Ingot ×1 *(craftable → `aluminum_ingot`)* — **not independently re-verified in this correction, see revision note above** |
+| `large` | Large Ore Refinery | 4s | Water ×500, Jasmium Crystal ×3, Aluminum Ingot ×1 *(craftable → `aluminum_ingot`)* — **corroborated by a second independent source 2026-09-28; a conflicting single in-game reading of ×400 is unresolved, see revision note above** |
+| `medium` | Medium Ore Refinery | 5s | Water ×500, Jasmium Crystal ×4, Aluminum Ingot ×1 *(craftable → `aluminum_ingot`)* — **corroborated by the same second source 2026-09-28 (also 500x Water)** |
 
 ### `plastanium_ingot` — Plastanium Ingot (Tier 6)
 
