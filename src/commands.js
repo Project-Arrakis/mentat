@@ -1256,6 +1256,43 @@ function executeCalculator({ interaction }) {
   return { plan: credited, durations, onHandEntries: rawOnHandEntries };
 }
 
+// Autocomplete response handler for /dune data calculator's "item" and
+// "on-hand-N" options. "on-hand-N" is dependent on "item" -- it can only
+// suggest nodes from that item's own recipe tree (recipeTreeNodes()), so it
+// reads the already-filled "item" value off the SAME in-progress interaction
+// via interaction.options.getString("item"). Discord caps autocomplete
+// responses at 25 choices; every branch below respects that.
+export async function handleCalculatorAutocomplete(interaction) {
+  const focused = interaction.options.getFocused(true); // { name, value }
+  const query = String(focused.value || "").toLowerCase();
+
+  if (focused.name === "item") {
+    const matches = Object.entries(CRAFTING_RECIPES)
+      .filter(([, recipe]) => recipe.displayName.toLowerCase().includes(query))
+      .sort(([, a], [, b]) => a.tier - b.tier || a.displayName.localeCompare(b.displayName))
+      .slice(0, 25)
+      .map(([key, recipe]) => ({ name: recipe.displayName, value: key }));
+    await interaction.respond(matches);
+    return;
+  }
+
+  if (/^on-hand-\d$/.test(focused.name)) {
+    const selectedItem = interaction.options.getString("item");
+    if (!selectedItem || !CRAFTING_RECIPES[selectedItem]) {
+      await interaction.respond([{ name: "Select an item first", value: "__none__" }]);
+      return;
+    }
+    const nodes = recipeTreeNodes(selectedItem)
+      .filter((n) => n.displayName.toLowerCase().includes(query))
+      .slice(0, 25)
+      .map((n) => ({ name: n.displayName, value: n.key }));
+    await interaction.respond(nodes);
+    return;
+  }
+
+  await interaction.respond([]);
+}
+
 function setupPayload(config, interaction) {
   const clientId = process.env.DISCORD_CLIENT_ID || config?.discord?.clientId || "";
   const guildId = interaction?.guildId || "";
