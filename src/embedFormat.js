@@ -1847,3 +1847,36 @@ export function formatGoalListEmbed(payload) {
   const description = payload.rows.length > 0 ? payload.rows.join("\n") : "No goals yet — create one with /dune goal create.";
   return duneEmbed({ title: `${payload.scope === "guild" ? "Guild" : "Your"} Goals`, color: "spice", description });
 }
+
+// ── goal:progress (Task 8) ──
+// Craftable-goal case is a thin wrapper: it reuses formatCalculatorEmbed()'s
+// real, computed body content (Shortfall/Nested Craft/Duration sections)
+// byte-for-byte, rather than reimplementing any of that formatting here --
+// see this task's own byte-for-byte parity test in commands.test.js for
+// what "reused" means precisely (the shared sections, not the whole embed
+// object -- this wrapper's own title/due-date chrome is new code with its
+// own separate test).
+export function formatGoalProgressEmbed(payload) {
+  const { goal, itemName } = payload;
+  const overdue = goal.due_at !== null && goal.status === "active" && new Date(`${goal.due_at}T00:00:00Z`).getTime() < Date.now();
+  const header = [`🎯 **Goal #${goal.id}: ${itemName}**`];
+  if (goal.due_at) header.push(`Due: ${goal.due_at}${overdue ? " ⚠️ OVERDUE" : ""}`);
+
+  if (payload.kind === "simple") {
+    header.push(`On hand: ${payload.onHand.toLocaleString()} / ${goal.target_quantity.toLocaleString()}`);
+    header.push(payload.remaining === 0 ? "✅ Target reached." : `Still need: ${payload.remaining.toLocaleString()}`);
+    // "success"/"spice" (named DUNE_COLORS keys) -- see
+    // formatGoalOnHandEmbed's comment above for why a raw hex literal here
+    // would silently fall back to the default spice color instead of doing
+    // what it looks like it does.
+    return duneEmbed({ title: "Goal Progress", color: payload.remaining === 0 ? "success" : "spice", description: header.join("\n") });
+  }
+
+  // Craftable: pull formatCalculatorEmbed()'s own rendered description
+  // straight out of its EmbedBuilder (`.data.description`) and prepend this
+  // wrapper's own goal-specific chrome -- never re-derive the shortfall/
+  // nested-craft/duration text here.
+  const inner = formatCalculatorEmbed(payload.plan, payload.durations, { onHandEntries: payload.onHandEntries });
+  const innerDescription = inner.data?.description ?? inner.description ?? "";
+  return duneEmbed({ title: `Goal Progress — #${goal.id}`, color: "spice", description: [...header, "", innerDescription].join("\n") });
+}
