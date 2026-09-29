@@ -60,6 +60,41 @@ test("station-tier with no known variant for the item returns an explicit error,
   assert.throws(() => calculateCraftingPlan("stravidium_fiber", 5, { stationTier: "large" }), /no recipe variant at this tier/i);
 });
 
+test("nested craftable input uses the SAME tier as the parent when that tier genuinely exists for it (steel_ingot/large -> iron_ingot/large)", () => {
+  const plan = calculateCraftingPlan("steel_ingot", 10, { stationTier: "large" });
+  assert.equal(plan.nestedCrafts.iron_ingot.stationTier, "large", "iron_ingot has a real large variant and must use it, not silently fall back to another tier");
+  // Cross-check the actual numbers too, not just the tier label: large-tier
+  // steel needs Water x50/craft + Carbon Ore x2/craft + Iron Ingot x1/craft;
+  // large-tier iron needs Water x25/craft + Iron Ore x3/craft (per
+  // src/craftingData.js). Water is pooled from BOTH levels (steel's own
+  // direct input plus iron_ingot's nested input), matching the same
+  // additive-pooling behavior already verified by the Plastanium worked
+  // example above -- 10*25 alone (ignoring steel's own water requirement)
+  // would be wrong.
+  const totalOf = (resource) => plan.totalRawMaterials.find((r) => r.resource === resource)?.quantity ?? 0;
+  assert.equal(totalOf("carbon_ore"), 10 * 2);
+  assert.equal(totalOf("iron_ore"), 10 * 3); // would be 10*4 or 10*5 if it wrongly fell back to medium/small
+  assert.equal(totalOf("water"), 10 * 50 + 10 * 25);
+});
+
+test("nested tier resolution is exact-match-first, not first-declared-key: steel_ingot/small -> iron_ingot/small", () => {
+  // iron_ingot's variants are declared large, medium, small (in that order)
+  // in src/craftingData.js -- requesting steel_ingot at "large" alone can't
+  // distinguish correct exact-match-first behavior from a regressed
+  // always-use-first-declared-tier bug, since both happen to yield "large"
+  // there. Requesting "small" instead makes the two behaviors diverge:
+  // first-declared-key would wrongly produce "large", exact-match-first
+  // correctly produces "small".
+  const plan = calculateCraftingPlan("steel_ingot", 10, { stationTier: "small" });
+  assert.equal(plan.nestedCrafts.iron_ingot.stationTier, "small", "iron_ingot has a real small variant and must use it, not fall back to its first-declared tier (large)");
+  const totalOf = (resource) => plan.totalRawMaterials.find((r) => r.resource === resource)?.quantity ?? 0;
+  // small-tier steel: Water 50, Carbon Ore 4/craft, Iron Ingot 1/craft;
+  // small-tier iron: Water 25, Iron Ore 5/craft (per src/craftingData.js).
+  assert.equal(totalOf("carbon_ore"), 10 * 4);
+  assert.equal(totalOf("iron_ore"), 10 * 5); // would be 10*3 if it wrongly used iron_ingot's large variant
+  assert.equal(totalOf("water"), 10 * 50 + 10 * 25);
+});
+
 test("a synthetic circular-dependency fixture throws rather than hanging or stack-overflowing", () => {
   // Constructed only within this test -- never added to real craftingData.js.
   // walkRecipeTree() takes `recipes` as its last parameter (defaulting to
