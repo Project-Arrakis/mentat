@@ -468,7 +468,7 @@ Station: Medium Chemical Refinery (Tier 6) · Craft time: 250s
 • Titanium Ore          100
 • Stravidium Mass        75
 
-⏱️ Duration: Ore Refinery 500s (12m 30s) · Chemical Refinery 250s (4m 10s) — independent, run in parallel
+⏱️ Duration: Ore Refinery 500s (8m 20s) · Chemical Refinery 250s (4m 10s) — independent, run in parallel
 
 💡 Tip: add on-hand-1 (and up to 5 more) to track a goal against what you
 already have — see /dune data calculator's own description.
@@ -488,41 +488,71 @@ exists).
 `on-hand-1: Titanium Ore, on-hand-1-quantity: 2000`, `on-hand-2: Stravidium
 Fiber, on-hand-2-quantity: 10`):
 
+**Corrected (final-review fix 5, 2026-09-29):** the example below previously
+claimed "✅ ... all 25" and "Ore Refinery time is 0s" — both wrong against
+the actual, audited behavior. Stravidium Fiber's on-hand credit is a hard
+supply cap on chain-aware `maxCompletable` (see §Shortfall & Bottleneck
+Calculation), not something that unlocks full completion once *some* of it
+is on hand — with only 10 of the 25 needed on hand, at most 10 Plastanium
+Ingot are completable, short 15. The block below is the real, rendered
+output of `calculateCraftingPlan("plastanium_ingot", 25, { stationTier:
+"large" })` → `applyOnHandCredit(plan, [{ node: "titanium_ore", quantity:
+2000 }, { node: "stravidium_fiber", quantity: 10 }], { quantity: 25 })` →
+`estimateDuration(...)` → `formatCalculatorEmbed(...)`, copied verbatim
+(not hand-guessed) from a direct run against this exact scenario:
+
 ```
 🧮 Crafting Calculator — 25× Plastanium Ingot (goal)
-Tier: Large Ore Refinery · On hand: 2,000 Titanium Ore, 10 Stravidium Fiber
+Tier: Large Ore Refinery
+On hand: 2,000 Titanium Ore, 10 Stravidium Fiber
 
 🗒️ Shortfall (after on-hand credit, pooled across every level)
-• Water              33,750   (none on hand — this is the combined total
-                                from both the direct craft and the nested
-                                Stravidium Fiber craft, same pooling v1's
-                                own "Total Raw Materials" always used)
-• Titanium Ore            0   (2,000 on hand — fully covered)
-• Stravidium Fiber        0   (10 on hand, 15 more needed → see nested craft)
+• Stravidium Fiber    15 (10 on hand, 15 more needed)
+• Water               32,750
+• Titanium Ore        0 (2,000 on hand — fully covered)
+• Stravidium Mass     45
 
-🔧 Nested Craft: 15× Stravidium Fiber (25 needed − 10 on hand)
-• Stravidium Mass         45   (this node's own contribution to the pooled
-                                 Water figure above is already included there,
-                                 not shown again here as a separate number)
+🔧 Nested Craft: 15× Stravidium Fiber, Medium Chemical Refinery (see Shortfall above for ingredient amounts)
 
-✅ You can complete all 25 requested — Titanium Ore and Stravidium Fiber on
-hand are both sufficient; the remaining shortfall is fully coverable by
-gathering the Water/Stravidium Mass lines above.
+⚠️ You can complete at most 10 Plastanium Ingot with current Stravidium Fiber on hand — short 15.
 
-⏱️ Duration: Chemical Refinery 150s (2m 30s) for the remaining Stravidium
-Fiber crafts — Ore Refinery time is 0s, all 25 Plastanium ingredient needs
-are already covered by on-hand stock plus the nested craft above.
+⏱️ Duration: Ore Refinery 500s (8m 20s) · Chemical Refinery 250s (4m 10s)
 ```
 
-**Revision note (Layer 1 audit fix):** the first draft of this example
-showed Water as two separate, un-summed lines (31,250 in the shortfall
-section, 1,500 again under the nested craft) — the Architect and QA hats
-independently flagged this as ambiguous about whether on-hand credit pools
-correctly across levels. Fixed: every pooled resource (Water here; also
-Fuel Cell for the two Lubricants) is shown **once**, already combined, in
-the top-level shortfall section — never split by level. A nested craft's
-own section only lists ingredients that are genuinely unique to that
-level (Stravidium Mass here), not ones already accounted for above.
+Notes on this real output, for anyone hand-tracing the math:
+
+- **Stravidium Fiber is the actual bottleneck, not Titanium Ore.** 2,000
+  Titanium Ore fully covers the 100 needed (fully covered), but only 10 of
+  the 25 Stravidium Fiber needed are on hand — `maxCompletable` reports the
+  binding constraint (`limitingNode: "stravidium_fiber"`), capping
+  completion at 10 even though Titanium Ore has plenty of headroom.
+- **Water and Stravidium Mass carry zero on-hand credit** in this example
+  (neither was supplied as an on-hand entry), so their Shortfall lines show
+  the full pooled amount still needed (32,750 and 45 respectively) with no
+  "on hand" qualifier.
+- **The Nested Craft section shows only a header, not per-ingredient rows**
+  (final-review fix 4) — its own ingredient amounts (Stravidium Mass) are
+  already reported, correctly credited, in the Shortfall section above;
+  repeating an uncredited/raw number here previously contradicted it.
+- **Duration shows BOTH station families with real numbers**
+  (final-review fix 2) — 500s at the Ore Refinery for the 25 root Plastanium
+  crafts (`plan.crafts`, unaffected by how much raw material happens to be
+  on hand) and 250s at the Chemical Refinery for the full 25 Stravidium
+  Fiber crafts (this estimate's coarse "fully covered or not" precision,
+  not a partial 15-craft reduction — see `estimateDuration()`'s own doc
+  comment in `src/craftingCalculator.js`).
+
+**Revision note (Layer 1 audit fix, historical):** the first draft of this
+example showed Water as two separate, un-summed lines (31,250 in the
+shortfall section, 1,500 again under the nested craft) — the Architect and
+QA hats independently flagged this as ambiguous about whether on-hand
+credit pools correctly across levels. Fixed at the time: every pooled
+resource is shown **once**, already combined, in the top-level shortfall
+section — never split by level. (The example above no longer shows a
+per-ingredient nested-craft breakdown at all, per final-review fix 4 —
+superseding this note's original "Stravidium Mass shown once in the nested
+section" framing, which itself became stale once that section stopped
+printing ingredient rows in on-hand mode.)
 
 (A max-completable example where on-hand stock is *insufficient* to reach
 the full requested quantity — e.g. `on-hand-1: Titanium Ore,
