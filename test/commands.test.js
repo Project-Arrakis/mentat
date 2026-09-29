@@ -16,7 +16,7 @@ import {
   requiredRoleIdsForCommand,
   statusSummaryPayload
 } from "../src/commands.js";
-import { createDatabase, upsertGuild, addGuildRole, updateGuildSettings, getGoalScoped, createGoal, setGoalOnHandEntry } from "../src/database.js";
+import { createDatabase, upsertGuild, addGuildRole, updateGuildSettings, getGoalScoped, getGoalAuditLog, createGoal, setGoalOnHandEntry } from "../src/database.js";
 import { WRITE_ACTIONS, findWriteAction } from "../src/writeActions.js";
 import { GAME_ITEM_CATALOG, GAME_ITEM_CATALOG_BY_ID } from "../src/gameItemCatalog.js";
 import { clearCooldown } from "../src/cooldown.js";
@@ -1796,6 +1796,104 @@ test("goal:on-hand is atomic across completion: a failing 'complete' audit inser
   assert.equal(getGoalScoped(db, { id: goalId, ownerType: "player", ownerId: userId }).status, "active", "goal must not be left completed");
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goal_on_hand_entries WHERE goal_id = ?").get(goalId).n, 0);
   assert.deepEqual(auditRows(db, goalId), ["create"]);
+});
+
+// ── mentat#429: end-to-end journeys through real executeDuneCommand dispatch ──
+async function runGoalCommand(interaction, config, db) {
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  const handled = await executeDuneCommand(interaction, {}, config, db);
+  assert.equal(handled, true);
+  return JSON.stringify(edited?.embeds?.[0]);
+}
+
+function guildActor(group, sub, options, { userId, guildId = "guild-1", ownerId, roles = [] }) {
+  return mockInteraction(group, sub, { options, user: { id: userId }, guildId, guild: { ownerId }, member: { roles } });
+}
+
+test("goal journey: craftable GUILD goal -- admin creates/updates/deletes, non-admin member reads only, audit trail survives", async () => {
+  // Open-mode multi-tenant guild with an observer role for the plain member
+  // so they pass the command-level gate but NOT the admin-tier gate.
+  const db = multiTenantDb({ observer: ["member-role"], rbacMode: "open" });
+  const adminId = "guild-admin-1";
+  const memberId = "guild-member-1";
+  const admin = (group, sub, options) => guildActor(group, sub, options, { userId: adminId, ownerId: adminId });
+  const member = (group, sub, options) => guildActor(group, sub, options, { userId: memberId, ownerId: adminId, roles: ["member-role"] });
+
+  // 1. Admin/owner creates a craftable guild goal.
+  const createText = await runGoalCommand(admin("goal", "create", goalCreateOptions({ scope: "guild", item: "Silicone", quantity: 10 })), MT_CONFIG, db);
+  assert.match(createText, /crafting math/i);
+  const goalId = Number(createText.match(/Goal #(\d+) created/)[1]);
+  const stored = getGoalScoped(db, { id: goalId, ownerType: "guild", ownerId: "guild-1" });
+  assert.equal(stored.item_kind, "craftable");
+  assert.equal(stored.created_by, adminId);
+
+  // 2. Admin records on-hand for two ingredients (the root item and its sand).
+  const sand = await runGoalCommand(admin("goal", "on-hand", goalOnHandOptions({ id: goalId, node: "FlourSand", quantity: 30 })), MT_CONFIG, db);
+  assert.doesNotMatch(sand, /error|not found/i);
+  assert.match(sand, /flour sand/i);
+  clearCooldown({ userId: adminId, commandName: "goal:on-hand" });
+  const root = await runGoalCommand(admin("goal", "on-hand", goalOnHandOptions({ id: goalId, node: "Silicone", quantity: 4 })), MT_CONFIG, db);
+  assert.doesNotMatch(root, /error|not found/i);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goal_on_hand_entries WHERE goal_id = ?").get(goalId).n, 2);
+
+  // 3. A non-admin member can list and read progress, and sees real numbers.
+  const listText = await runGoalCommand(member("goal", "list", goalListOptions({ scope: "guild" })), MT_CONFIG, db);
+  assert.match(listText, new RegExp(`#${goalId}\\b`));
+  assert.match(listText, /40%/, "4 of 10 finished items on hand");
+  assert.match(listText, /ingredients ready/i);
+  const progressText = await runGoalCommand(member("goal", "progress", { getSubcommandGroup: () => "goal", getSubcommand: () => "progress", getBoolean: () => false, getInteger: (n) => (n === "id" ? goalId : null) }), MT_CONFIG, db);
+  assert.doesNotMatch(progressText, /error|not found|undefined|NaN/i);
+  assert.match(progressText, /silicone/i);
+
+  // 4. The same member cannot mutate: on-hand and delete are rejected and change nothing.
+  const memberOnHand = await runGoalCommand(member("goal", "on-hand", goalOnHandOptions({ id: goalId, node: "Silicone", quantity: 10 })), MT_CONFIG, db);
+  assert.match(memberOnHand, /admin|owner/i);
+  const memberDelete = await runGoalCommand(member("goal", "delete", goalDeleteOptions({ id: goalId })), MT_CONFIG, db);
+  assert.match(memberDelete, /admin|owner/i);
+  assert.ok(getGoalScoped(db, { id: goalId, ownerType: "guild", ownerId: "guild-1" }), "goal must survive the rejected delete");
+  assert.equal(db.prepare("SELECT quantity FROM goal_on_hand_entries WHERE goal_id = ? AND node = 'Silicone'").get(goalId).quantity, 4, "rejected on-hand must not change the entry");
+
+  // 5. Admin deletes it; goal and on-hand rows are gone, audit trail survives.
+  const delText = await runGoalCommand(admin("goal", "delete", goalDeleteOptions({ id: goalId })), MT_CONFIG, db);
+  assert.doesNotMatch(delText, /error|not found/i);
+  assert.equal(getGoalScoped(db, { id: goalId, ownerType: "guild", ownerId: "guild-1" }), undefined);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goal_on_hand_entries WHERE goal_id = ?").get(goalId).n, 0);
+  const actions = getGoalAuditLog(db, goalId).map((r) => r.action);
+  assert.deepEqual(actions, ["create", "on_hand_update", "on_hand_update", "delete"]);
+  assert.ok(getGoalAuditLog(db, goalId).every((r) => r.actor_id === adminId), "rejected member attempts wrote no audit rows");
+});
+
+test("goal journey: cross-tenant -- guild A's admin cannot see, update, progress or delete guild B's goal by id", async () => {
+  const db = multiTenantDb({ admin: ["a-admin-role"], rbacMode: "open" });
+  upsertGuild(db, { guildId: "guild-2", guildName: "B", consoleUrl: "https://example.test", adapterToken: "t2", status: "active" });
+  updateGuildSettings(db, "guild-2", { rbac_mode: "open" });
+  const bOwner = "guild-b-owner";
+  const aAdmin = "guild-a-admin";
+
+  const bCreate = await runGoalCommand(guildActor("goal", "create", goalCreateOptions({ scope: "guild", item: "Silicone", quantity: 10 }), { userId: bOwner, guildId: "guild-2", ownerId: bOwner }), MT_CONFIG, db);
+  const bGoalId = Number(bCreate.match(/Goal #(\d+) created/)[1]);
+  const a = (group, sub, options) => guildActor(group, sub, options, { userId: aAdmin, guildId: "guild-1", ownerId: "guild-a-owner", roles: ["a-admin-role"] });
+
+  // Reference text for a genuinely nonexistent id.
+  const missing = await runGoalCommand(a("goal", "progress", { getSubcommandGroup: () => "goal", getSubcommand: () => "progress", getBoolean: () => false, getInteger: () => 999999 }), MT_CONFIG, db);
+  assert.match(missing, /Goal #999999 not found\./);
+
+  clearCooldown({ userId: aAdmin, commandName: "goal:progress" });
+  const idOpts = (sub) => ({ getSubcommandGroup: () => "goal", getSubcommand: () => sub, getBoolean: () => false, getInteger: (n) => (n === "id" ? bGoalId : null) });
+  const progress = await runGoalCommand(a("goal", "progress", idOpts("progress")), MT_CONFIG, db);
+  assert.match(progress, new RegExp(`Goal #${bGoalId} not found\\.`));
+  const onHand = await runGoalCommand(a("goal", "on-hand", goalOnHandOptions({ id: bGoalId, node: "Silicone", quantity: 5 })), MT_CONFIG, db);
+  assert.match(onHand, new RegExp(`Goal #${bGoalId} not found\\.`));
+  const del = await runGoalCommand(a("goal", "delete", goalDeleteOptions({ id: bGoalId })), MT_CONFIG, db);
+  assert.match(del, new RegExp(`Goal #${bGoalId} not found\\.`));
+  const list = await runGoalCommand(a("goal", "list", goalListOptions({ scope: "guild" })), MT_CONFIG, db);
+  assert.doesNotMatch(list, new RegExp(`#${bGoalId}\\b`), "guild B's goal must not appear in guild A's list");
+
+  // Nothing changed for guild B.
+  assert.ok(getGoalScoped(db, { id: bGoalId, ownerType: "guild", ownerId: "guild-2" }));
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goal_on_hand_entries WHERE goal_id = ?").get(bGoalId).n, 0);
+  assert.deepEqual(getGoalAuditLog(db, bGoalId).map((r) => r.action), ["create"]);
 });
 
 // ── goal:progress (Task 8) ──
