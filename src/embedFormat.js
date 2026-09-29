@@ -1824,3 +1824,20 @@ export function formatGoalCreateEmbed(payload) {
   // that lookup entirely and silently fall back to the default spice blue.
   return duneEmbed({ title: "Goal Created", color: "success", description: lines.join("\n") });
 }
+
+// ── goal:on-hand confirmation (Task 6) ──
+export function formatGoalOnHandEmbed(payload) {
+  const lines = [`✅ Goal #${payload.goalId}: ${payload.node} set to ${payload.quantity.toLocaleString()}`];
+  if (payload.previous) {
+    lines.push(`Previous: ${payload.previous.previousQuantity.toLocaleString()} (set by <@${payload.previous.previousUpdatedBy}> at ${payload.previous.previousUpdatedAt})`);
+  }
+  if (payload.completed) lines.push("🎉 **Goal complete!**");
+  // "success"/"warning" (named DUNE_COLORS keys), not the task brief's own
+  // raw hex literals (0xf1c40f/0x3498db) -- same bug class this file's own
+  // formatGoalCreateEmbed comment two entries up already documents and
+  // guards against: duneEmbed() resolves `color` through DUNE_COLORS[color]
+  // by string key, so a bare hex number would miss that lookup and
+  // silently fall back to the default spice blue every time, completed or
+  // not.
+  return duneEmbed({ title: "On-Hand Updated", color: payload.completed ? "success" : "spice", description: lines.join("\n") });
+}

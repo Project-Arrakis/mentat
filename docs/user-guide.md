@@ -112,6 +112,7 @@ of them.
 | Command | What It Does |
 |---------|-------------|
 | `/dune goal create <scope> <item> <quantity> [due-at] [station-tier] [crafting-contract]` | Create a personal or guild farming goal (or, with `due-at` set, a time-boxed order) against any game item. Craftable items are tracked with full crafting math (`station-tier`/`crafting-contract` apply); everything else is tracked as a simple count. Guild-scoped goals require admin-tier access or server ownership. |
+| `/dune goal on-hand <id> <node> <quantity>` | Update your current on-hand quantity of one ingredient (or the goal's own item, for a simple goal) for a goal. A craftable goal may track up to 6 distinct on-hand nodes; a simple goal only its own item. Crossing the target auto-completes the goal. Guild-scoped goals require admin-tier access or server ownership. |
 
 ### 📋 `logs` — Container Logs
 

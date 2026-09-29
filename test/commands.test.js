@@ -15,7 +15,7 @@ import {
   requiredRoleIdsForCommand,
   statusSummaryPayload
 } from "../src/commands.js";
-import { createDatabase, upsertGuild, addGuildRole, updateGuildSettings, getGoalScoped } from "../src/database.js";
+import { createDatabase, upsertGuild, addGuildRole, updateGuildSettings, getGoalScoped, createGoal, setGoalOnHandEntry } from "../src/database.js";
 import { WRITE_ACTIONS, findWriteAction } from "../src/writeActions.js";
 import { GAME_ITEM_CATALOG_BY_ID } from "../src/gameItemCatalog.js";
 import { clearCooldown } from "../src/cooldown.js";
@@ -1221,6 +1221,210 @@ test("goal:create enforces the 5-active-personal-goal cap with an actionable, id
   const text = JSON.stringify(lastEdited?.embeds?.[0]);
   assert.match(text, /5|cap|limit/i);
   assert.match(text, /\bid\b|#\d/i, "rejection must list existing goals with actionable ids, not just a bare count");
+});
+
+// ── goal:on-hand (Task 6) ──
+//
+// "DuraluminumRod" is Task 2's own real, verified game-item id for the
+// duraluminum_ingot recipe (RECIPE_KEY_TO_GAME_ITEM_ID.get("duraluminum_ingot")
+// === "DuraluminumRod", confirmed directly against src/gameItemIdBridge.js).
+//
+// This section also fixes several scaffolding gaps found in this task's own
+// draft test code while wiring it up (none of them are the key-space
+// mapping direction itself -- that part traced through cleanly):
+//   - Every executeDuneCommand() call below now threads an explicit,
+//     real `db` (created via createDatabase(":memory:") or multiTenantDb(),
+//     matching the goal:create tests' own established convention just
+//     above) -- the draft's own helper/test code called
+//     executeDuneCommand(interaction, {}, config) with NO 4th argument,
+//     which defaults to db=null (see executeDuneCommand's own signature)
+//     and would crash the very first real database write.
+//   - goalOnHandOptions() now defines getBoolean() (the draft omitted it
+//     entirely) -- executeDuneCommand's own diagnostic-mode check
+//     unconditionally calls interaction.options.getBoolean("diagnostic")
+//     before the dispatch's try/catch even starts, so a mock options object
+//     missing that method throws immediately on every single test below.
+//   - The 7th-entry cap test's multiTenantDb() now passes
+//     { rbacMode: "open" } -- without it, guild-1 is registered but has
+//     zero configured roles, so executeDuneCommand's own "this server
+//     isn't connected to Mentat yet" pre-dispatch gate fires first and the
+//     on-hand command is never reached at all (the goal being tested is
+//     personal-scoped, not guild-scoped, so this has nothing to do with
+//     the cap logic itself -- it's purely about getting past the outer
+//     command gates to reach it).
+//   - Repeated same-user on-hand calls within one test now call
+//     clearCooldown({ userId, commandName: "goal:on-hand" }) between them,
+//     matching the goal:create cap test's own precedent just above (a
+//     same-user repeat of the same command inside checkCooldown()'s
+//     default 5s window is otherwise silently absorbed as a no-op
+//     "please wait" reply instead of a real second update).
+//   - The crossing-completion test's own db is created directly
+//     (createDatabase(":memory:")) and threaded through every call in that
+//     test, including the mid-test getGoalScoped() read -- the draft
+//     referenced a non-existent dbFromConfig(config) helper.
+function goalOnHandOptions(overrides = {}) {
+  const values = { id: null, node: null, quantity: 0, ...overrides };
+  return {
+    getSubcommandGroup: () => "goal",
+    getSubcommand: () => "on-hand",
+    getBoolean: () => false,
+    getInteger: (name) => (typeof values[name] === "number" ? values[name] : null),
+    getString: (name) => (typeof values[name] === "string" ? values[name] : null)
+  };
+}
+
+function goalOnHandInteraction(overrides = {}, { userId = `onhand-${Math.random()}`, guildId = "guild-1" } = {}) {
+  return mockInteraction("goal", "on-hand", { options: goalOnHandOptions(overrides), user: { id: userId }, guildId, guild: { ownerId: "someone-else" }, member: { roles: [] } });
+}
+
+async function createTestGoal(db, { config, itemId = "DuraluminumRod", quantity = 10000, userId }) {
+  const createInteraction = goalCreateInteraction({ item: itemId, quantity }, { userId });
+  let edited;
+  createInteraction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(createInteraction, {}, config, db);
+  const match = JSON.stringify(edited).match(/Goal #(\d+)/);
+  return Number(match[1]);
+}
+
+test("goal:on-hand crediting the goal's own item updates and returns a confirmation with no error", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `onhand-target-${Math.random()}`;
+  const goalId = await createTestGoal(db, { config, userId });
+  const interaction = goalOnHandInteraction({ id: goalId, node: "DuraluminumRod", quantity: 100 }, { userId });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  const handled = await executeDuneCommand(interaction, {}, config, db);
+  assert.equal(handled, true);
+  assert.doesNotMatch(JSON.stringify(edited?.embeds?.[0]), /error/i);
+});
+
+test("goal:on-hand shows the previous value, who set it, and when, on a second update", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `onhand-transparency-${Math.random()}`;
+  const goalId = await createTestGoal(db, { config, userId });
+  const first = goalOnHandInteraction({ id: goalId, node: "DuraluminumRod", quantity: 50 }, { userId });
+  first.editReply = async () => {};
+  await executeDuneCommand(first, {}, config, db);
+  clearCooldown({ userId, commandName: "goal:on-hand" });
+  const second = goalOnHandInteraction({ id: goalId, node: "DuraluminumRod", quantity: 75 }, { userId });
+  let edited;
+  second.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(second, {}, config, db);
+  const text = JSON.stringify(edited?.embeds?.[0]);
+  assert.match(text, /50/, "must show the previous value");
+  assert.match(text, new RegExp(userId), "must show who set the previous value");
+});
+
+test("goal:on-hand rejects a free-typed node not in the goal's own recipe tree, even though autocomplete would never suggest it", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `onhand-badnode-${Math.random()}`;
+  const goalId = await createTestGoal(db, { config, userId });
+  const interaction = goalOnHandInteraction({ id: goalId, node: "not-a-real-ingredient", quantity: 10 }, { userId });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, config, db);
+  assert.match(JSON.stringify(edited?.embeds?.[0]), /not an ingredient|invalid/i);
+});
+
+test("goal:on-hand rejects a 7th on-hand entry on a craftable goal", async () => {
+  // Real recipe data makes the natural version of this test (fill 6
+  // legitimate on-hand positions from one item's own recipe tree, then try
+  // a 7th) impossible to write today: `water` has no real game-item id at
+  // all (gameItemIdBridge.js's documented exception) and is therefore
+  // never a valid on-hand node, and once water is excluded, the DEEPEST of
+  // the current recipes has at most 5 distinct non-water positions -- no
+  // current item can ever reach a 6th legitimate node through
+  // executeGoalOnHand's own validNodes gate. That doesn't mean the cap is
+  // untestable -- it means this test seeds 6 rows directly via the DB
+  // accessor (bypassing the validNodes gate on purpose, since that gate
+  // has its own dedicated test above) to isolate and verify the
+  // cap-enforcement logic itself, in real database rows, not a mock.
+  const db = multiTenantDb({ rbacMode: "open" });
+  const userId = `onhand-cap-${Math.random()}`;
+  const goalId = createGoal(db, { ownerType: "player", ownerId: userId, itemId: "Silicone", itemKind: "craftable", targetQuantity: 100, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: userId });
+  for (let i = 0; i < 6; i++) {
+    setGoalOnHandEntry(db, { goalId, node: `seed-node-${i}`, quantity: 1, updatedBy: userId });
+  }
+  // "Silicone" itself (the goal's own item_id) is a real, legitimately
+  // valid node for this goal (it's the recipe tree's own root) but was
+  // never one of the 6 seeded rows above -- so this exercises the CAP
+  // rejection specifically, not the "not an ingredient" rejection a
+  // genuinely-invalid node would hit instead.
+  const seventh = goalOnHandInteraction({ id: goalId, node: "Silicone", quantity: 5 }, { userId });
+  let lastEdited;
+  seventh.editReply = async (payload) => { lastEdited = payload; };
+  await executeDuneCommand(seventh, {}, MT_CONFIG, db);
+  assert.match(JSON.stringify(lastEdited?.embeds?.[0]), /6|limit|at most/i);
+});
+
+test("goal:on-hand: a personal goal owned by someone else is rejected as not-found, not updated", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const ownerId = `owner-${Math.random()}`;
+  const goalId = await createTestGoal(db, { config, userId: ownerId });
+  const attacker = goalOnHandInteraction({ id: goalId, node: "DuraluminumRod", quantity: 99999 }, { userId: `attacker-${Math.random()}` });
+  let edited;
+  attacker.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(attacker, {}, config, db);
+  assert.match(JSON.stringify(edited?.embeds?.[0]), /not found/i);
+});
+
+test("goal:on-hand: a guild-A admin cannot update guild-B's goal by free-typing its id", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  // Create a guild goal under guild-1 as its real owner.
+  const guild1Owner = goalCreateInteraction({ scope: "guild", item: "Silicone", quantity: 100 }, { userId: "owner-1", guildId: "guild-1" });
+  guild1Owner.guild = { ownerId: "owner-1" };
+  guild1Owner.member = { roles: [] };
+  let edited;
+  guild1Owner.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(guild1Owner, {}, config, db);
+  const goalId = Number(JSON.stringify(edited).match(/Goal #(\d+)/)[1]);
+
+  // A different guild's admin tries to touch it.
+  const attacker = goalOnHandInteraction({ id: goalId, node: "Silicone", quantity: 5 }, { userId: "admin-of-guild-2", guildId: "guild-2" });
+  attacker.guild = { ownerId: "admin-of-guild-2" };
+  attacker.member = { roles: [] };
+  let attackerEdited;
+  attacker.editReply = async (payload) => { attackerEdited = payload; };
+  await executeDuneCommand(attacker, {}, config, db);
+  assert.match(JSON.stringify(attackerEdited?.embeds?.[0]), /not found/i);
+});
+
+test("goal:on-hand crossing the target auto-completes the goal", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `crossing-${Math.random()}`;
+  const createInteraction = goalCreateInteraction({ item: "Silicone", quantity: 100 }, { userId });
+  let created;
+  createInteraction.editReply = async (payload) => { created = payload; };
+  await executeDuneCommand(createInteraction, {}, config, db);
+  const goalId = Number(JSON.stringify(created).match(/Goal #(\d+)/)[1]);
+
+  const underInteraction = goalOnHandInteraction({ id: goalId, node: "Silicone", quantity: 99 }, { userId });
+  underInteraction.editReply = async () => {};
+  await executeDuneCommand(underInteraction, {}, config, db);
+  const goalAfterUnder = getGoalScoped(db, { id: goalId, ownerType: "player", ownerId: userId });
+  assert.equal(goalAfterUnder.status, "active", "99 of 100 must not complete the goal");
+  clearCooldown({ userId, commandName: "goal:on-hand" });
+
+  const atInteraction = goalOnHandInteraction({ id: goalId, node: "Silicone", quantity: 100 }, { userId });
+  let atEdited;
+  atInteraction.editReply = async (payload) => { atEdited = payload; };
+  await executeDuneCommand(atInteraction, {}, config, db);
+  assert.match(JSON.stringify(atEdited?.embeds?.[0]), /complete/i);
+  const goalAfterAt = getGoalScoped(db, { id: goalId, ownerType: "player", ownerId: userId });
+  assert.equal(goalAfterAt.status, "completed", "exactly hitting 100 of 100 must complete the goal");
+  clearCooldown({ userId, commandName: "goal:on-hand" });
+
+  const overInteraction = goalOnHandInteraction({ id: goalId, node: "Silicone", quantity: 150 }, { userId });
+  let overEdited;
+  overInteraction.editReply = async (payload) => { overEdited = payload; };
+  await executeDuneCommand(overInteraction, {}, config, db);
+  assert.match(JSON.stringify(overEdited?.embeds?.[0]), /complete/i);
 });
 
 // [Final-review fix 1] Discord enforces a hard 8000-char budget across a

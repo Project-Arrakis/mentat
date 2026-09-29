@@ -12,7 +12,7 @@ import { logInfo, logError } from "./logger.js";
 import { resolveCompatEnv } from "./compatEnv.js";
 import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegistryMetadata } from "./registryLoader.js";
 import { countSubcommands } from "./catalogTransform.js";
-import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed, formatCalculatorEmbed, formatGoalCreateEmbed } from "./embedFormat.js";
+import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed, formatCalculatorEmbed, formatGoalCreateEmbed, formatGoalOnHandEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { WRITE_ACTIONS, findWriteAction, discordOptionName } from "./writeActions.js";
@@ -217,16 +217,20 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
     // in docs, not repeated per option here.
     .addSubcommandGroup((g) => g.setName("goal").setDescription("Goals.")
       .addSubcommand((c) => c.setName("create").setDescription("Create a goal.")
-        .addStringOption((o) => o.setName("scope").setDescription("Personal/guild.").setRequired(true).addChoices(
+        .addStringOption((o) => o.setName("scope").setDescription("Scope.").setRequired(true).addChoices(
           { name: "Personal", value: "personal" }, { name: "Guild", value: "guild" }
         ))
         .addStringOption((o) => o.setName("item").setDescription("Item.").setRequired(true).setAutocomplete(true))
         .addIntegerOption((o) => o.setName("quantity").setDescription("Quantity.").setRequired(true).setMinValue(MIN_QUANTITY).setMaxValue(MAX_QUANTITY))
-        .addStringOption((o) => o.setName("due-at").setDescription("Deadline (YYYY-MM-DD) -- set to place a time-boxed order."))
+        .addStringOption((o) => o.setName("due-at").setDescription("Deadline (YYYY-MM-DD) -- makes this an order."))
         .addStringOption((o) => o.setName("station-tier").setDescription("Station size.").addChoices(
           { name: "Large", value: "large" }, { name: "Medium", value: "medium" }, { name: "Small", value: "small" }
         ))
         .addBooleanOption((o) => o.setName("crafting-contract").setDescription("-25% Crafting Contract.")))
+      .addSubcommand((c) => c.setName("on-hand").setDescription("On-hand.")
+        .addIntegerOption((o) => o.setName("id").setDescription("Id.").setRequired(true).setAutocomplete(true))
+        .addStringOption((o) => o.setName("node").setDescription("Item.").setRequired(true).setAutocomplete(true))
+        .addIntegerOption((o) => o.setName("quantity").setDescription("Qty.").setRequired(true).setMinValue(0).setMaxValue(MAX_QUANTITY)))
     )
 
     // ── logs group ──
@@ -542,6 +546,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     // ── goal group (Phase 3) ──
     else if (key === "goal:create") {
       payload = executeGoalCreate({ interaction, config, db });
+    } else if (key === "goal:on-hand") {
+      payload = executeGoalOnHand({ interaction, config, db });
     }
     // ── player group ──
     // Split out of data (2026-07-24) -- see the block comment above
@@ -857,6 +863,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatCalculatorEmbed(payload.plan, payload.durations, { onHandEntries: payload.onHandEntries });
     } else if (subcommand === "create" && group === "goal") {
       embed = formatGoalCreateEmbed(payload);
+    } else if (subcommand === "on-hand" && group === "goal") {
+      embed = formatGoalOnHandEmbed(payload);
     } else if (subcommand === "link") {
       embed = formatLinkEmbed(payload);
     } else if (subcommand === "verify") {
@@ -1333,6 +1341,117 @@ function executeGoalCreate({ interaction, config, db }) {
   return { ok: true, id, itemName, quantity, itemKind, kindConfirmationLine, dueAt };
 }
 
+// ── goal:on-hand (Task 6) ──
+// Cap: a craftable goal may track on-hand credit against at most 6 distinct
+// nodes (the root item itself plus up to 5 ingredients); a simple goal
+// (no known recipe) may only ever track its own item -- there is nothing
+// else to credit.
+const GOAL_ON_HAND_CRAFTABLE_CAP = 6;
+const GOAL_ON_HAND_SIMPLE_CAP = 1;
+
+function executeGoalOnHand({ interaction, config, db }) {
+  const id = interaction.options.getInteger("id");
+  const node = interaction.options.getString("node");
+  const quantity = interaction.options.getInteger("quantity");
+
+  // Binding rule: try personal first, then guild -- whichever scope the
+  // goal is actually under determines the real authorization path. We
+  // don't know the goal's scope until we find it, so probe both scoped
+  // lookups; a real cross-tenant/cross-owner id will match neither, and
+  // isAdminActor() is only ever invoked once a REAL guild-scoped match is
+  // already confirmed -- a guild-B admin free-typing guild-A's id never
+  // reaches (or leaks anything from) the access check at all.
+  let goal = getGoalScoped(db, { id, ownerType: "player", ownerId: interaction.user.id });
+  if (!goal && interaction.guildId) {
+    const guildCandidate = getGoalScoped(db, { id, ownerType: "guild", ownerId: interaction.guildId });
+    if (guildCandidate) {
+      requireGuildGoalAccess(interaction, config, db);
+      goal = guildCandidate;
+    }
+  }
+  if (!goal) {
+    throw new Error(`Goal #${id} not found.`);
+  }
+
+  let validNodes;
+  if (goal.item_kind === "craftable") {
+    const recipeKey = GAME_ITEM_ID_TO_RECIPE_KEY.get(goal.item_id);
+    // recipeTreeNodes() returns mentat's own snake_case recipe/leaf keys,
+    // but goal_on_hand_entries stores real game item ids -- every key must
+    // be mapped through RECIPE_KEY_TO_GAME_ITEM_ID before comparing
+    // against `node`. The root node maps to goal.item_id directly (it's
+    // already the real id, that's how the goal itself was created); every
+    // other node maps through the bridge -- EXCEPT `water`, which has no
+    // real game-item id at all (gameItemIdBridge.js's documented
+    // exception) and must be filtered out, not included as a literal
+    // `undefined` entry in the Set (an `undefined` entry would make
+    // `validNodes.has(undefined)` true, and while no real Discord option
+    // value can ever BE `undefined`, leaving it in is still a real
+    // correctness bug worth avoiding deliberately, not by accident).
+    validNodes = new Set(
+      recipeTreeNodes(recipeKey)
+        .map((n) => (n.key === recipeKey ? goal.item_id : RECIPE_KEY_TO_GAME_ITEM_ID.get(n.key)))
+        .filter((gameItemId) => gameItemId !== undefined)
+    );
+  } else {
+    validNodes = new Set([goal.item_id]);
+  }
+  if (!validNodes.has(node)) {
+    throw new Error(`'${node}' is not an ingredient of this goal. Try /dune goal on-hand and use the autocomplete suggestions.`);
+  }
+
+  const existingCount = countGoalOnHandEntries(db, id);
+  const alreadyHasThisNode = getGoalOnHandEntries(db, id).some((e) => e.node === node);
+  const cap = goal.item_kind === "craftable" ? GOAL_ON_HAND_CRAFTABLE_CAP : GOAL_ON_HAND_SIMPLE_CAP;
+  if (!alreadyHasThisNode && existingCount >= cap) {
+    throw new Error(`This goal already has ${cap} on-hand ${cap === 1 ? "entry" : "entries"} -- that's the limit. Update an existing one instead of adding a new one.`);
+  }
+
+  const previous = setGoalOnHandEntry(db, { goalId: id, node, quantity, updatedBy: interaction.user.id });
+  appendGoalAuditLog(db, { goalId: id, action: "on_hand_update", actorId: interaction.user.id, node, previousQuantity: previous?.previousQuantity ?? null, newQuantity: quantity });
+
+  // Completion check: `reachedTarget` is evaluated every time regardless of
+  // the goal's current status, but `completeGoal()`/the "complete" audit
+  // entry only ever fire the first time (guarded by `goal.status ===
+  // "active"`), so an already-completed goal doesn't get re-completed or
+  // double-logged. Deliberately NOT gating `completed` itself on that same
+  // "active" check (a first draft of this function did, and it produced a
+  // real, explainable bug: a second on-hand update on an already-completed
+  // goal -- e.g. topping off on-hand further past the target -- would
+  // silently stop reporting the goal as complete in its own confirmation
+  // embed, even though it obviously still is).
+  let completed = false;
+  const entries = getGoalOnHandEntries(db, id).map((e) => ({ node: e.node, quantity: e.quantity }));
+  const recipeKey = goal.item_kind === "craftable" ? GAME_ITEM_ID_TO_RECIPE_KEY.get(goal.item_id) : null;
+  const targetOnHand = entries.find((e) => e.node === goal.item_id)?.quantity ?? 0;
+  const reachedTarget = goal.item_kind === "simple"
+    ? targetOnHand >= goal.target_quantity
+    : resolveEffectiveOnHandCredit(
+        recipeKey,
+        goal.target_quantity,
+        // Reverse mapping (real game-item-id -> mentat's own recipe key),
+        // the mirror image of validNodes' forward mapping above --
+        // resolveEffectiveOnHandCredit() expects recipe-key-shaped `node`
+        // values. The root entry (node === goal.item_id) maps straight to
+        // recipeKey, same special case as the forward direction; every
+        // other stored entry maps through GAME_ITEM_ID_TO_RECIPE_KEY.
+        // `water` never appears here because it was already excluded from
+        // validNodes above, so setGoalOnHandEntry can never be reached with
+        // it -- this reverse mapping never has to handle that exception.
+        entries.map((e) => ({ node: e.node === goal.item_id ? recipeKey : (GAME_ITEM_ID_TO_RECIPE_KEY.get(e.node) ?? e.node), quantity: e.quantity })),
+        { stationTier: goal.station_tier, craftingContract: !!goal.crafting_contract }
+      ).effectiveQuantity === 0;
+  if (reachedTarget) {
+    completed = true;
+    if (goal.status === "active") {
+      completeGoal(db, { id });
+      appendGoalAuditLog(db, { goalId: id, action: "complete", actorId: interaction.user.id });
+    }
+  }
+
+  return { ok: true, goalId: id, node, quantity, previous, completed };
+}
+
 // Autocomplete response handler for /dune data calculator's "item" and
 // "on-hand-N" options. "on-hand-N" is dependent on "item" -- it can only
 // suggest nodes from that item's own recipe tree (recipeTreeNodes()), so it
@@ -1463,6 +1582,7 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "player:find", desc: "Search for items across your containers.", role: "player" },
     // ── goal (Phase 3) ──
     { name: "goal:create", desc: "Create a new farming goal or order. Set due-at to place a time-boxed order.", role: "player" },
+    { name: "goal:on-hand", desc: "Update your current on-hand quantity of one ingredient for a goal.", role: "player" },
     // ── logs ──
     { name: "logs:dune-cache", desc: "Show dune-cache container logs.", role: "player" },
     { name: "logs:dune-generated", desc: "Show dune-generated container logs.", role: "player" },
