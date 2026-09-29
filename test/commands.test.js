@@ -1248,7 +1248,19 @@ test("goal:create enforces the 5-active-personal-goal cap with an actionable, id
 // descriptions before adding more"), and the target itself moved to
 // reflect the real, deliberate new baseline (measured 7952/8000) --
 // still comfortably under the hard limit, just with a smaller margin than
-// before. A future addition should trim its own descriptions first,
+// before.
+//
+// Budget target lowered further, 7975 -> 7452 (Task 5.5): Task 5 left only
+// 48 chars of headroom, and the remaining 4 planned /dune goal subcommands
+// (Tasks 6-9) needed ~417 more chars -- 369 over Discord's hard 8000-char
+// limit. Rather than let each subsequent task independently fight over
+// shrinking headroom, Task 5.5 trimmed ~530 chars of wording out of 36+
+// existing, unrelated descriptions across the player/data/ops/write/server
+// groups (pure text trims -- no option names, no behavior changes) and
+// reduced the real measured total to 7424/8000. The new target leaves
+// genuine margin (~775 chars below the non-goal-groups' own sub-target of
+// 7225) for the full 5-subcommand goal group, instead of repeating this
+// scrape. A future addition should still trim its own descriptions first,
 // the same way this one did, before assuming this number can just move
 // again.
 function discordCommandCharBudget(node) {
@@ -1273,6 +1285,6 @@ test("commandDefinitions: write-group /dune build stays under Discord's 8000-cha
   assert.ok(total < 8000, `write-group /dune definition is ${total} chars, exceeds Discord's hard 8000-char limit`);
   // Leave meaningful headroom for future subcommands rather than merely
   // scraping under the hard limit (see this test's own comment above for
-  // why this target moved from 7800 to 7975 for Task 5).
-  assert.ok(total <= 7975, `write-group /dune definition is ${total} chars, above the 7975 budget target -- trim option descriptions before adding more`);
+  // why this target moved 7800 -> 7975 -> 7452, most recently in Task 5.5).
+  assert.ok(total <= 7452, `write-group /dune definition is ${total} chars, above the 7452 budget target -- trim option descriptions before adding more`);
 });

@@ -108,16 +108,16 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       g.setName("server").setDescription("Server health, status, and services.")
         .addSubcommand((c) => c.setName("health").setDescription("Check the console Discord adapter."))
         .addSubcommand((c) => c.setName("status").setDescription("Show high-level server status.")
-          .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin-only: full diagnostic with containers table.")))
-        .addSubcommand((c) => c.setName("summary").setDescription("Show compact aggregate server status."))
+          .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin: full diagnostic, containers table.")))
+        .addSubcommand((c) => c.setName("summary").setDescription("Compact aggregate server status."))
         .addSubcommand((c) => c.setName("readiness").setDescription("Show readiness and preflight state.")
           .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin-only: detailed readiness checks.")))
-        .addSubcommand((c) => c.setName("readiness-detail").setDescription("Show grouped readiness detail with issues."))
+        .addSubcommand((c) => c.setName("readiness-detail").setDescription("Grouped readiness detail with issues."))
         .addSubcommand((c) => c.setName("services").setDescription("Show service container state."))
-        .addSubcommand((c) => c.setName("services-detail").setDescription("Show detailed service state with logs."))
-        .addSubcommand((c) => c.setName("maintenance").setDescription("Show current maintenance note or window (read-only)."))
-        .addSubcommand((c) => c.setName("coriolis").setDescription("Show the current Coriolis storm seed and next-cycle countdown."))
-        .addSubcommand((c) => c.setName("atlas").setDescription("Show per-sietch PvP/PvE and live sandstorm status."));
+        .addSubcommand((c) => c.setName("services-detail").setDescription("Detailed service state with logs."))
+        .addSubcommand((c) => c.setName("maintenance").setDescription("Maintenance note or window (read-only)."))
+        .addSubcommand((c) => c.setName("coriolis").setDescription("Coriolis storm seed, next-cycle countdown."))
+        .addSubcommand((c) => c.setName("atlas").setDescription("Per-sietch PvP/PvE, live sandstorm status."));
       // Gated the same as every other write command (DUNE_DISCORD_WRITES_ENABLED)
       // -- must NOT register when includeWriteGroup is false, or these
       // subcommands would always be visible/dispatchable regardless of the
@@ -132,27 +132,27 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
     // data like population/backups/maps. Every player-related subcommand
     // now lives under /dune player, consistently, per explicit operator
     // direction -- do not add a new player-scoped subcommand here again.
-    .addSubcommandGroup((g) => g.setName("data").setDescription("Server population, backups, and map data.")
-      .addSubcommand((c) => c.setName("population").setDescription("Show aggregate player count and server population."))
-      .addSubcommand((c) => c.setName("backups").setDescription("List recent backup metadata (read-only)."))
-      .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime."))
+    .addSubcommandGroup((g) => g.setName("data").setDescription("Population, backups, map data.")
+      .addSubcommand((c) => c.setName("population").setDescription("Player count and server population."))
+      .addSubcommand((c) => c.setName("backups").setDescription("Recent backup metadata (read-only)."))
+      .addSubcommand((c) => c.setName("maps").setDescription("Active game maps: state and uptime."))
       .addSubcommand((c) => {
         // Descriptions here are deliberately terse (Discord's 8000-char
         // per-command budget, see test/commands.test.js's regression test) --
         // the full explanation lives in docs/calculator-design.md and this
         // subcommand's own top-level description, not repeated per option.
-        c.setName("calculator").setDescription("Calculate crafting requirements, optionally against what you have on hand.")
+        c.setName("calculator").setDescription("Crafting requirements vs. items on hand (optional).")
           .addStringOption((o) => o.setName("item").setDescription("Item to calculate for.").setRequired(true).setAutocomplete(true))
           .addIntegerOption((o) => o.setName("quantity").setDescription("Total quantity needed (your goal).").setMinValue(MIN_QUANTITY).setMaxValue(MAX_QUANTITY))
-          .addStringOption((o) => o.setName("station-tier").setDescription("Station size (only tiers this item has apply).").addChoices(
+          .addStringOption((o) => o.setName("station-tier").setDescription("Station size (item's tiers only).").addChoices(
             { name: "Large", value: "large" }, { name: "Medium", value: "medium" }, { name: "Small", value: "small" }
           ))
-          .addBooleanOption((o) => o.setName("crafting-contract").setDescription("Apply the -25% Crafting Contract reduction."));
+          .addBooleanOption((o) => o.setName("crafting-contract").setDescription("-25% Crafting Contract reduction."));
         for (let i = 1; i <= 6; i++) {
           c.addStringOption((o) => o.setName(`on-hand-${i}`).setDescription("Item you have (optional).").setAutocomplete(true));
           c.addIntegerOption((o) => o.setName(`on-hand-${i}-quantity`).setDescription("Quantity you have.").setMinValue(0).setMaxValue(MAX_QUANTITY));
         }
-        c.addIntegerOption((o) => o.setName("station-count").setDescription("Stations running at once (time estimate only).").setMinValue(1).setMaxValue(50));
+        c.addIntegerOption((o) => o.setName("station-count").setDescription("Parallel stations (estimate only).").setMinValue(1).setMaxValue(50));
         return c;
       }))
 
@@ -166,20 +166,20 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
     // to a block body so addWriteSubcommands() can be appended; every
     // pre-existing .addSubcommand(...) call below is unchanged.
     .addSubcommandGroup((g) => {
-      g.setName("player").setDescription("Your character: linking, inventory, storage, and account management.")
-        .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character.")
+      g.setName("player").setDescription("Linking, inventory, storage, account management.")
+        .addSubcommand((c) => c.setName("link").setDescription("Link Discord to your game character.")
           .addStringOption((o) => o.setName("character").setDescription("Your character name").setRequired(true)))
-        .addSubcommand((c) => c.setName("verify").setDescription("Verify a pending character link with a code.")
-          .addStringOption((o) => o.setName("code").setDescription("Verification code from in-game whisper").setRequired(true)))
+        .addSubcommand((c) => c.setName("verify").setDescription("Verify a character link with a code.")
+          .addStringOption((o) => o.setName("code").setDescription("Code from in-game whisper").setRequired(true)))
         .addSubcommand((c) => c.setName("characters").setDescription("List your verified characters."))
         .addSubcommand((c) => c.setName("enable").setDescription("Enable a character in this guild.")
           .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
         .addSubcommand((c) => c.setName("disable").setDescription("Disable a character in this guild.")
           .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
-        .addSubcommand((c) => c.setName("default").setDescription("Set your default character for this guild.")
+        .addSubcommand((c) => c.setName("default").setDescription("Default character for this guild.")
           .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
-        .addSubcommand((c) => c.setName("unlink").setDescription("Unlink a character from your Discord.")
-          .addStringOption((o) => o.setName("character").setDescription("Player controller ID from /dune player characters (omit to unlink your single-link character)")))
+        .addSubcommand((c) => c.setName("unlink").setDescription("Unlink a character from Discord.")
+          .addStringOption((o) => o.setName("character").setDescription("Controller ID from player characters (omit if single-linked)")))
         // Read-only, auto-detected from your real in-game faction (Core's
         // players-faction route, dune-awakening-selfhost-docker#696) -- there
         // is deliberately no argument here. This used to be a settable
@@ -189,13 +189,13 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
         // supplied value, so the option was removed rather than left to
         // silently do nothing.
         .addSubcommand((c) => c.setName("faction").setDescription("Show your real, in-game faction."))
-        .addSubcommand((c) => c.setName("whoami").setDescription("Show your linked game character info."))
+        .addSubcommand((c) => c.setName("whoami").setDescription("Your linked game character info."))
         .addSubcommand((c) => c.setName("inventory").setDescription("View your personal inventory.")
           .addStringOption((o) => o.setName("search").setDescription("Filter by item name (optional)")))
-        .addSubcommand((c) => c.setName("storage").setDescription("View your storage containers grouped by map.")
+        .addSubcommand((c) => c.setName("storage").setDescription("Storage containers, grouped by map.")
           .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
             .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" })))
-        .addSubcommand((c) => c.setName("find").setDescription("Search for items across your containers.")
+        .addSubcommand((c) => c.setName("find").setDescription("Search items across your containers.")
           .addStringOption((o) => o.setName("query").setDescription("Item name to search for").setRequired(true))
           .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
             .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" })));
@@ -222,7 +222,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
         ))
         .addStringOption((o) => o.setName("item").setDescription("Item.").setRequired(true).setAutocomplete(true))
         .addIntegerOption((o) => o.setName("quantity").setDescription("Quantity.").setRequired(true).setMinValue(MIN_QUANTITY).setMaxValue(MAX_QUANTITY))
-        .addStringOption((o) => o.setName("due-at").setDescription("Deadline (YYYY-MM-DD)."))
+        .addStringOption((o) => o.setName("due-at").setDescription("Deadline (YYYY-MM-DD) -- set to place a time-boxed order."))
         .addStringOption((o) => o.setName("station-tier").setDescription("Station size.").addChoices(
           { name: "Large", value: "large" }, { name: "Medium", value: "medium" }, { name: "Small", value: "small" }
         ))
@@ -240,7 +240,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("redblink-dune-docker-console").setDescription("Show console adapter logs.")))
 
     // ── ops group ──
-    .addSubcommandGroup((g) => g.setName("ops").setDescription("Operational observability from the OPS addon.")
+    .addSubcommandGroup((g) => g.setName("ops").setDescription("OPS addon observability.")
       .addSubcommand((c) => c.setName("activity").setDescription(opsDescriptionFor("activity")))
       .addSubcommand((c) => c.setName("combat").setDescription(opsDescriptionFor("combat")))
       .addSubcommand((c) => c.setName("resources").setDescription(opsDescriptionFor("resources")))
@@ -274,7 +274,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
   // ── write group ── conditionally appended, requires DUNE_DISCORD_WRITES_ENABLED=true
   if (includeWriteGroup) {
     builder.addSubcommandGroup((g) =>
-      g.setName("write").setDescription("Write commands — gated behind DUNE_DISCORD_WRITES_ENABLED.")
+      g.setName("write").setDescription("Write commands; needs DUNE_DISCORD_WRITES_ENABLED.")
         // [Audit fix, mentat#403] These 9 descriptions/param descriptions must
         // stay byte-identical to LEGACY_WRITE_STUBS's (src/writeHandler.js) --
         // this hand-maintained copy had already drifted on 7 of 9 entries
@@ -288,7 +288,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
         .addSubcommand((c) => c.setName("maintenance-window").setDescription("Set a maintenance window.")
           .addStringOption((o) => o.setName("start").setDescription("Start time (ISO 8601)").setRequired(true))
           .addIntegerOption((o) => o.setName("duration").setDescription("Duration in minutes").setRequired(true).setMinValue(1).setMaxValue(1440)))
-        .addSubcommand((c) => c.setName("alert-channel").setDescription("Set the alert channel for readiness/service notifications.")
+        .addSubcommand((c) => c.setName("alert-channel").setDescription("Alert channel: readiness/service notifications.")
           .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
         .addSubcommand((c) => c.setName("alert-threshold").setDescription("Set alert thresholds.")
           .addStringOption((o) => o.setName("metric").setDescription("Metric (readiness/services/population)").setRequired(true))
@@ -1416,7 +1416,7 @@ function setupPayload(config, interaction) {
 export const WRITE_HELP_ENTRIES = [
   { name: "write:maintenance-note", desc: "Set a maintenance note for operators.", role: "admin" },
   { name: "write:maintenance-window", desc: "Set a maintenance window.", role: "admin" },
-  { name: "write:alert-channel", desc: "Set the alert channel for readiness/service notifications.", role: "admin" },
+  { name: "write:alert-channel", desc: "Alert channel: readiness/service notifications.", role: "admin" },
   { name: "write:alert-threshold", desc: "Set alert thresholds.", role: "admin" },
   { name: "write:digest-schedule", desc: "Set the digest schedule interval.", role: "admin" },
   { name: "write:post-schedule", desc: "Set the scheduled post type.", role: "admin" },
@@ -1462,7 +1462,7 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "player:storage", desc: "View your storage containers grouped by map.", role: "player" },
     { name: "player:find", desc: "Search for items across your containers.", role: "player" },
     // ── goal (Phase 3) ──
-    { name: "goal:create", desc: "Create a new farming goal or order.", role: "player" },
+    { name: "goal:create", desc: "Create a new farming goal or order. Set due-at to place a time-boxed order.", role: "player" },
     // ── logs ──
     { name: "logs:dune-cache", desc: "Show dune-cache container logs.", role: "player" },
     { name: "logs:dune-generated", desc: "Show dune-generated container logs.", role: "player" },
