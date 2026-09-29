@@ -714,6 +714,20 @@ describe('Command Execution', () => {
     const replyText = JSON.stringify(interaction._editReply || {});
     assert.ok(!replyText.includes('Link via Steam'), 'Must NOT offer Steam-link when steamLink.enabled is false, even if hasSteam is true');
   });
+
+  test('data:calculator returns an embed via the full commands.js dispatch path, no adapter call required', async () => {
+    const { adapterClient, config } = getTestContext();
+    const interaction = createMockInteraction({
+      command: 'data:calculator',
+      roles: ['observer-role-id'],
+      options: { item: 'copper_ingot', quantity: 5, 'station-tier': 'large' }
+    });
+    const result = await executeDuneCommand(interaction, adapterClient, config);
+    assert.ok(result, 'Command should succeed');
+    assert.ok(interaction._editReply?.embeds?.[0], 'Should have embed');
+    const embed = interaction._editReply.embeds[0].data || interaction._editReply.embeds[0];
+    assert.match(JSON.stringify(embed), /Copper Ingot/);
+  });
 });
 
 // ============================================================================

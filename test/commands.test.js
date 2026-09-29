@@ -5,6 +5,7 @@ import {
   aboutPayload,
   actorFromInteraction,
   buildDuneCommand,
+  commandDefinitions,
   executeDuneCommand,
   extractRoleIds,
   helpPayload,
@@ -842,4 +843,228 @@ test("helpPayload: WRITE_HELP_ENTRIES matches LEGACY_WRITE_STUBS exactly -- same
   for (const name of helpByName.keys()) {
     assert.ok(legacyNames.has(name), `WRITE_HELP_ENTRIES lists write:${name}, which is not a real LEGACY_WRITE_STUBS entry -- a phantom command /dune help would advertise that cannot actually be typed`);
   }
+});
+
+// ── data:calculator (Task 7: Slash Command Wiring) ──
+import { calculateCraftingPlan } from "../src/craftingCalculator.js"; // sanity import, not required for assertions below
+
+function calculatorOptions(overrides = {}) {
+  const values = {
+    item: "plastanium_ingot",
+    quantity: 25,
+    "station-tier": "large",
+    "crafting-contract": false,
+    ...overrides
+  };
+  return {
+    getSubcommandGroup: () => "data",
+    getSubcommand: () => "calculator",
+    getString: (name) => (typeof values[name] === "string" ? values[name] : null),
+    getInteger: (name) => (typeof values[name] === "number" ? values[name] : null),
+    getBoolean: (name) => (typeof values[name] === "boolean" ? values[name] : null)
+  };
+}
+
+function calculatorInteraction(overrides = {}) {
+  // A distinct userId per call -- checkCooldown/applyCooldown key off
+  // interaction.user.id (see the module-level cooldownMap comments
+  // elsewhere in this file), so every test hitting the same "data:calculator"
+  // command key must use its own user or later tests get blocked by the
+  // earlier test's cooldown.
+  const interaction = mockInteraction("data", "calculator", { options: calculatorOptions(overrides), user: { id: `calc-${Math.random()}` } });
+  return interaction;
+}
+
+test("data:calculator plain request returns an embed with the pooled totals (no adapter call)", async () => {
+  const interaction = calculatorInteraction();
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  const handled = await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  assert.equal(handled, true);
+  const text = JSON.stringify(edited?.embeds?.[0]);
+  assert.match(text, /33,750|33750/);
+});
+
+// Regression for the "default to large" UX bug: 9 of 15 items have no Large
+// variant at all (no "Large Chemical Refinery" placeable exists in the
+// game -- verified 2026-09-29 against dune.gaming.tools' placeables
+// listing), so the plainest possible invocation used to fail immediately
+// for the majority of items. station-tier omitted entirely (not "large")
+// must now succeed by auto-selecting the item's own best tier (medium).
+test("data:calculator with no station-tier specified succeeds for a Chemical-Refinery-only item (no Large variant exists)", async () => {
+  const interaction = calculatorInteraction({ item: "silicone_block", quantity: 10, "station-tier": undefined });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  const handled = await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  assert.equal(handled, true);
+  const text = JSON.stringify(edited?.embeds?.[0]);
+  assert.doesNotMatch(text, /no recipe variant at this tier/i);
+  assert.match(text, /Medium Chemical Refinery/i);
+});
+
+test("data:calculator with no station-tier specified still defaults to large for an Ore-Refinery item", async () => {
+  const interaction = calculatorInteraction({ item: "copper_ingot", quantity: 10, "station-tier": undefined });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  const text = JSON.stringify(edited?.embeds?.[0]);
+  assert.match(text, /Large Ore Refinery/i);
+});
+
+test("data:calculator with on-hand values reports a shortfall, not the plain total", async () => {
+  const interaction = calculatorInteraction({
+    "on-hand-1": "titanium_ore",
+    "on-hand-1-quantity": 2000
+  });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  const text = JSON.stringify(edited?.embeds?.[0]);
+  assert.match(text, /goal/i);
+});
+
+test("data:calculator rejects an unknown item with a plain, non-fabricated error", async () => {
+  const interaction = calculatorInteraction({ item: "not_a_real_item" });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  assert.match(edited?.embeds?.[0]?.data?.description || "", /Unknown item/);
+});
+
+// CRAFTING_RECIPES is a plain frozen object, so a bare `CRAFTING_RECIPES[itemKey]`
+// bracket-access lookup resolves inherited Object.prototype members ("constructor",
+// "toString", "hasOwnProperty", "__proto__") as truthy and bypasses the "Unknown
+// item" guard entirely -- confirmed via /code-review high on PR #417, the exact
+// prototype-pollution class this same PR already fixed once elsewhere (S-2).
+for (const poisonedKey of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+  test(`data:calculator rejects the prototype-property item key "${poisonedKey}" instead of crashing`, async () => {
+    const interaction = calculatorInteraction({ item: poisonedKey });
+    let edited;
+    interaction.editReply = async (payload) => { edited = payload; };
+    await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+    assert.match(edited?.embeds?.[0]?.data?.description || "", /Unknown item/);
+  });
+}
+
+test("data:calculator rejects two on-hand slots naming the same node", async () => {
+  const interaction = calculatorInteraction({
+    "on-hand-1": "water", "on-hand-1-quantity": 100,
+    "on-hand-2": "water", "on-hand-2-quantity": 50
+  });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  assert.match(edited?.embeds?.[0]?.data?.description || "", /both name/i);
+});
+
+test("data:calculator rejects an on-hand-N-quantity supplied without a matching on-hand-N", async () => {
+  const interaction = calculatorInteraction({ "on-hand-1-quantity": 100 }); // no on-hand-1
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  assert.match(edited?.embeds?.[0]?.data?.description || "", /on-hand-1/);
+});
+
+test("data:calculator target-item-itself on-hand value reduces effectiveQuantity (Step A)", async () => {
+  const interaction = calculatorInteraction({
+    quantity: 25,
+    "on-hand-1": "plastanium_ingot",
+    "on-hand-1-quantity": 5
+  });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  // effectiveQuantity=20 -> pooled water for 20 plastanium: 20*1250 + 20*100 = 27000
+  assert.match(JSON.stringify(edited?.embeds?.[0]), /27,000|27000/);
+});
+
+// [Critical fix regression, post-review] When the target-item-itself
+// on-hand credit alone fully covers the goal (effectiveQuantity === 0), a
+// prior version of executeCalculator() reused a real MIN_QUANTITY=1 plan's
+// nestedCrafts/totalRawMaterials/directInputs/totalTimeSeconds unchanged --
+// only quantity/crafts/leftover were zeroed. That rendered a genuinely
+// self-contradictory embed EVERY time this exact scenario occurred: the top
+// correctly said "Still need to produce: 0" / "You can complete all N
+// requested", but the body below it still showed a non-zero Shortfall
+// table (real 1-unit ingredient amounts), a phantom "Nested Craft" section,
+// and a non-zero Duration line. Confirmed via an actual re-rendered embed
+// trace (quantity 25, on-hand-1 = the item itself = 25) before and after
+// the fix -- this test locks in the fixed, internally-consistent shape.
+test("data:calculator target-item-itself credit fully covering the goal renders a genuinely empty plan, not a phantom one (Critical fix)", async () => {
+  const interaction = calculatorInteraction({
+    quantity: 25,
+    "on-hand-1": "plastanium_ingot",
+    "on-hand-1-quantity": 25
+  });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  const description = edited?.embeds?.[0]?.data?.description || "";
+
+  // Correct top-of-embed content is still present.
+  assert.match(description, /Still need to produce: 0/);
+  assert.match(description, /You can complete all 25 requested/);
+
+  // No phantom nested-craft section and no non-zero duration line.
+  assert.doesNotMatch(description, /Nested Craft/);
+  assert.doesNotMatch(description, /⏱️ Duration/);
+
+  // No resource line should show up at all -- the old bug showed real
+  // MIN_QUANTITY=1 plan data (Water, Titanium Ore, Stravidium Fiber/Mass)
+  // in the "shortfall" table despite the goal being fully covered.
+  assert.doesNotMatch(description, /Water/);
+  assert.doesNotMatch(description, /Titanium Ore/);
+  assert.doesNotMatch(description, /Stravidium/);
+});
+
+// Note: 17 options, not 16 -- item, quantity, station-tier, crafting-contract
+// (4) + 6 on-hand-N/on-hand-N-quantity pairs (12) + station-count (1) = 17.
+// (Task 7 implementation note: the task brief's own illustrative count of
+// "16" undercounted station-count by one; verified by literally enumerating
+// every .addStringOption/.addIntegerOption/.addBooleanOption call in the
+// registration code -- station-count is a real, required option per the
+// brief's own prose description and the estimateDuration()/stationCount
+// wiring, so the option was kept and the expected count corrected instead.)
+test("buildDuneCommand: data:calculator is registered with all 17 options", () => {
+  const built = buildDuneCommand().toJSON();
+  const dataGroup = built.options.find((o) => o.name === "data");
+  const calculator = dataGroup.options.find((o) => o.name === "calculator");
+  assert.ok(calculator, "data:calculator must be registered");
+  assert.equal(calculator.options.length, 17);
+});
+
+// [Final-review fix 1] Discord enforces a hard 8000-char budget across a
+// command's own name+description plus every option's name+description
+// (recursively through subcommands/subcommand groups) and every choice's
+// name+value. The write-group build (register-commands.js registers this
+// whenever DUNE_DISCORD_WRITES_ENABLED=true) was measured at 8206 chars
+// before the calculator subcommand's option descriptions were trimmed --
+// over the limit, which would make Discord reject registration of the
+// ENTIRE /dune command, not just the calculator subcommand. This asserts
+// the real total (not JSON.stringify().length, which also counts syntax
+// punctuation Discord doesn't count) stays comfortably under the limit so
+// future subcommands have budget left before they blow it again.
+function discordCommandCharBudget(node) {
+  let total = 0;
+  if (typeof node.name === "string") total += node.name.length;
+  if (typeof node.description === "string") total += node.description.length;
+  if (Array.isArray(node.choices)) {
+    for (const choice of node.choices) {
+      if (typeof choice.name === "string") total += choice.name.length;
+      if (typeof choice.value === "string") total += choice.value.length;
+    }
+  }
+  if (Array.isArray(node.options)) {
+    for (const option of node.options) total += discordCommandCharBudget(option);
+  }
+  return total;
+}
+
+test("commandDefinitions: write-group /dune build stays under Discord's 8000-char command budget", () => {
+  const [dune] = commandDefinitions({ includeWriteGroup: true });
+  const total = discordCommandCharBudget(dune);
+  assert.ok(total < 8000, `write-group /dune definition is ${total} chars, exceeds Discord's hard 8000-char limit`);
+  // Leave meaningful headroom for future subcommands rather than merely
+  // scraping under the hard limit.
+  assert.ok(total <= 7800, `write-group /dune definition is ${total} chars, above the 7800 budget target -- trim option descriptions before adding more`);
 });

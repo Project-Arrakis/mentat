@@ -1,7 +1,7 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { AdapterClient } from "./adapterClient.js";
 import { createAnnouncementBridge, announcementConfig } from "./announcements.js";
-import { executeDuneCommand } from "./commands.js";
+import { executeDuneCommand, handleCalculatorAutocomplete } from "./commands.js";
 import { loadRegistryAtStartup } from "./registryLoader.js";
 import { loadConfig } from "./config.js";
 import { startHealthState } from "./healthState.js";
@@ -401,6 +401,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // (the Steam-link Link-style button, which Discord never sends an
       // interaction event for at all) -- and is the obvious place a future
       // handler for a new customId prefix should be added.
+    }
+    // AutocompleteInteraction is a distinct interaction type discord.js can
+    // deliver for the same command name ("dune") as a real
+    // ChatInputCommandInteraction -- it must be checked BEFORE the
+    // isChatInputCommand?.() branch below, since isChatInputCommand?.()
+    // returns false for it but a later, more permissive check could
+    // otherwise mis-route it. Currently only /dune data calculator's
+    // "item" and "on-hand-N" options are autocomplete-enabled anywhere in
+    // this bot (see src/commands.js's buildDuneCommand()) -- this branch
+    // is scoped narrowly to that one subcommand so it never interferes
+    // with any other command.
+    if (interaction.isAutocomplete?.() && interaction.commandName === "dune") {
+      const group = interaction.options.getSubcommandGroup();
+      const sub = interaction.options.getSubcommand();
+      if (group === "data" && sub === "calculator") {
+        await handleCalculatorAutocomplete(interaction);
+      }
+      return;
     }
     // mentat#343 Phase 2: /confirm-connection is a separate top-level slash
     // command (not a "dune" subcommand), so it must be checked BEFORE

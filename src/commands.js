@@ -12,7 +12,7 @@ import { logInfo, logError } from "./logger.js";
 import { resolveCompatEnv } from "./compatEnv.js";
 import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegistryMetadata } from "./registryLoader.js";
 import { countSubcommands } from "./catalogTransform.js";
-import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed } from "./embedFormat.js";
+import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed, formatCalculatorEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { WRITE_ACTIONS, findWriteAction, discordOptionName } from "./writeActions.js";
@@ -24,6 +24,8 @@ import { getGuildStatus, getGuildRoles, getGuildSettings, incrementCommandCount,
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
 import { multiTenantActorTier, tierAtLeast, resolveGuildOwnerId, isInteractionGuildOwner, actorFromInteraction } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
+import { calculateCraftingPlan, applyOnHandCredit, estimateDuration, recipeTreeNodes, bestAvailableTier, MIN_QUANTITY, MAX_QUANTITY } from "./craftingCalculator.js";
+import { CRAFTING_RECIPES } from "./craftingData.js";
 
 // Mechanical WRITE_ACTIONS -> discord.js subcommand registration -- shared
 // by every write-capable group builder (whether that group is genuinely new
@@ -131,7 +133,26 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
     .addSubcommandGroup((g) => g.setName("data").setDescription("Server population, backups, and map data.")
       .addSubcommand((c) => c.setName("population").setDescription("Show aggregate player count and server population."))
       .addSubcommand((c) => c.setName("backups").setDescription("List recent backup metadata (read-only)."))
-      .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime.")))
+      .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime."))
+      .addSubcommand((c) => {
+        // Descriptions here are deliberately terse (Discord's 8000-char
+        // per-command budget, see test/commands.test.js's regression test) --
+        // the full explanation lives in docs/calculator-design.md and this
+        // subcommand's own top-level description, not repeated per option.
+        c.setName("calculator").setDescription("Calculate crafting requirements, optionally against what you have on hand.")
+          .addStringOption((o) => o.setName("item").setDescription("Item to calculate for.").setRequired(true).setAutocomplete(true))
+          .addIntegerOption((o) => o.setName("quantity").setDescription("Total quantity needed (your goal).").setMinValue(MIN_QUANTITY).setMaxValue(MAX_QUANTITY))
+          .addStringOption((o) => o.setName("station-tier").setDescription("Station size (only tiers this item has apply).").addChoices(
+            { name: "Large", value: "large" }, { name: "Medium", value: "medium" }, { name: "Small", value: "small" }
+          ))
+          .addBooleanOption((o) => o.setName("crafting-contract").setDescription("Apply the -25% Crafting Contract reduction."));
+        for (let i = 1; i <= 6; i++) {
+          c.addStringOption((o) => o.setName(`on-hand-${i}`).setDescription("Item you have (optional).").setAutocomplete(true));
+          c.addIntegerOption((o) => o.setName(`on-hand-${i}-quantity`).setDescription("Quantity you have.").setMinValue(0).setMaxValue(MAX_QUANTITY));
+        }
+        c.addIntegerOption((o) => o.setName("station-count").setDescription("Stations running at once (time estimate only).").setMinValue(1).setMaxValue(50));
+        return c;
+      }))
 
     // ── player group ──
     // Split out of data (see the block comment above buildDuneCommand()).
@@ -491,6 +512,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     } else if (key === "data:maps") {
       const status = await adapterClient.status(actor, false, guildId);
       payload = { maps: status?.result?.maps || [] };
+    } else if (key === "data:calculator") {
+      payload = executeCalculator({ interaction });
     }
     // ── player group ──
     // Split out of data (2026-07-24) -- see the block comment above
@@ -802,6 +825,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatBackupsEmbed(payload);
     } else if (subcommand === "maps") {
       embed = formatMapsEmbed(payload);
+    } else if (subcommand === "calculator") {
+      embed = formatCalculatorEmbed(payload.plan, payload.durations, { onHandEntries: payload.onHandEntries });
     } else if (subcommand === "link") {
       embed = formatLinkEmbed(payload);
     } else if (subcommand === "verify") {
@@ -1123,6 +1148,155 @@ export function populationPayload(p) { const r = p?.result || {}; return { ok: p
 
 export function backupPayload(b) { const list = Array.isArray(b?.result?.backups) ? b.result.backups.slice(0, 10) : []; return { ok: b?.ok === true, count: list.length, backups: list.map(x => ({ name: x.name || "unknown", date: x.date || x.createdAt || "unknown", size: x.size || "unknown" })) }; }
 
+// data:calculator -- see docs/calculator-design.md. Purely local/synchronous
+// (no adapterClient call at all -- recipe data is bundled with the bot, see
+// craftingData.js's own provenance note), unlike every other data:* payload
+// builder above.
+//
+// Reads and validates every on-hand-N/on-hand-N-quantity pair. Throws plain
+// Errors for every failure case -- these propagate to executeDuneCommand()'s
+// existing top-level try/catch, landing in its final
+// `sendError(interaction, { error: error.message })` branch unchanged (see
+// Task 7 brief's note -- no new catch branch is added for this feature).
+function readOnHandEntries(interaction) {
+  const entries = [];
+  for (let i = 1; i <= 6; i++) {
+    const node = interaction.options.getString(`on-hand-${i}`);
+    const quantity = interaction.options.getInteger(`on-hand-${i}-quantity`);
+    if (node === null && quantity === null) continue;
+    if (node === null || quantity === null) {
+      throw new Error(`on-hand-${i} and on-hand-${i}-quantity must both be provided together, or both omitted.`);
+    }
+    entries.push({ node, quantity, slot: i });
+  }
+  // Duplicate-node check -- BEFORE any calculation runs (see self-review
+  // criteria in the task brief). applyOnHandCredit() also re-checks this
+  // independently (defense in depth), but this check must fire first so a
+  // duplicate is rejected before calculateCraftingPlan()/recipeTreeNodes()
+  // ever run.
+  for (let a = 0; a < entries.length; a++) {
+    for (let b = a + 1; b < entries.length; b++) {
+      if (entries[a].node === entries[b].node) {
+        throw new Error(`on-hand-${entries[a].slot} and on-hand-${entries[b].slot} both name ${entries[a].node} — combine them into a single value instead of splitting across slots.`);
+      }
+    }
+  }
+  return entries;
+}
+
+function executeCalculator({ interaction }) {
+  const itemKey = interaction.options.getString("item");
+  if (!Object.hasOwn(CRAFTING_RECIPES, itemKey)) {
+    throw new Error(`Unknown item: '${itemKey}'. Try /dune data calculator and use the autocomplete suggestions.`);
+  }
+  const quantity = interaction.options.getInteger("quantity") ?? MIN_QUANTITY;
+  const stationTier = interaction.options.getString("station-tier") ?? bestAvailableTier(itemKey);
+  const craftingContract = interaction.options.getBoolean("crafting-contract") ?? false;
+  const stationCount = interaction.options.getInteger("station-count") ?? 1;
+
+  const rawOnHandEntries = readOnHandEntries(interaction);
+  const treeNodes = new Set(recipeTreeNodes(itemKey).map((n) => n.key));
+  for (const entry of rawOnHandEntries) {
+    if (!treeNodes.has(entry.node)) {
+      throw new Error(`'${entry.node}' is not an ingredient of ${itemKey}. Try /dune data calculator and use the autocomplete suggestions for on-hand items.`);
+    }
+  }
+
+  // Step A: resolve target-item-itself credit BEFORE calling
+  // calculateCraftingPlan() -- see docs/calculator-architecture.md's
+  // Shortfall Traversal Design "Step 1".
+  const targetEntry = rawOnHandEntries.find((e) => e.node === itemKey);
+  const targetItemOnHand = targetEntry?.quantity ?? 0;
+  const effectiveQuantity = Math.max(0, quantity - targetItemOnHand);
+  const ingredientOnHandEntries = rawOnHandEntries.filter((e) => e.node !== itemKey);
+
+  let credited;
+  let durations;
+
+  if (effectiveQuantity === 0) {
+    // [Critical fix, post-review] The target-item-itself on-hand credit
+    // alone already covers the whole goal -- nothing is left to craft.
+    // calculateCraftingPlan() can't accept a literal 0 (MIN_QUANTITY's own
+    // bound), so it's still called once at MIN_QUANTITY -- but ONLY to (a)
+    // surface a real "no recipe variant at this tier" error if the
+    // requested tier doesn't exist for this item, and (b) read the real
+    // station/craftTimeSeconds display strings for the tier line. Every
+    // list-shaped field it returns (directInputs, nestedCrafts,
+    // totalRawMaterials, totalTimeSeconds) describes a genuine 1-unit plan
+    // and must NOT be reused here. A prior version spread those fields
+    // through unchanged (only zeroing quantity/crafts/leftover), which
+    // rendered a self-contradictory embed every single time this branch
+    // fired: "Still need to produce: 0" / "You can complete all N
+    // requested" at the top, but ALSO a non-zero Shortfall table, a phantom
+    // "Nested Craft" section, and a non-zero Duration line below it --
+    // confirmed via an actual rendered-embed trace, not just a unit test.
+    // applyOnHandCredit() is skipped entirely here (crediting a
+    // zero-quantity plan doesn't mean anything); the zero-credit result
+    // shape is constructed directly instead.
+    const probePlan = calculateCraftingPlan(itemKey, MIN_QUANTITY, { stationTier, craftingContract });
+    credited = {
+      ...probePlan,
+      quantity,
+      effectiveQuantity: 0,
+      crafts: 0,
+      leftover: 0,
+      directInputs: [],
+      nestedCrafts: {},
+      totalRawMaterials: [],
+      totalTimeSeconds: 0,
+      shortfall: new Map(),
+      maxCompletable: { units: Math.min(quantity, targetItemOnHand), limitingNode: undefined }
+    };
+    durations = [];
+  } else {
+    const plan = calculateCraftingPlan(itemKey, effectiveQuantity, { stationTier, craftingContract });
+    const hasIngredientCredit = ingredientOnHandEntries.length > 0;
+    credited = hasIngredientCredit || targetItemOnHand > 0
+      ? applyOnHandCredit(plan, ingredientOnHandEntries, { quantity, targetItemOnHand })
+      : plan;
+    durations = estimateDuration(credited, { stationCount });
+  }
+
+  return { plan: credited, durations, onHandEntries: rawOnHandEntries };
+}
+
+// Autocomplete response handler for /dune data calculator's "item" and
+// "on-hand-N" options. "on-hand-N" is dependent on "item" -- it can only
+// suggest nodes from that item's own recipe tree (recipeTreeNodes()), so it
+// reads the already-filled "item" value off the SAME in-progress interaction
+// via interaction.options.getString("item"). Discord caps autocomplete
+// responses at 25 choices; every branch below respects that.
+export async function handleCalculatorAutocomplete(interaction) {
+  const focused = interaction.options.getFocused(true); // { name, value }
+  const query = String(focused.value || "").toLowerCase();
+
+  if (focused.name === "item") {
+    const matches = Object.entries(CRAFTING_RECIPES)
+      .filter(([, recipe]) => recipe.displayName.toLowerCase().includes(query))
+      .sort(([, a], [, b]) => a.tier - b.tier || a.displayName.localeCompare(b.displayName))
+      .slice(0, 25)
+      .map(([key, recipe]) => ({ name: recipe.displayName, value: key }));
+    await interaction.respond(matches);
+    return;
+  }
+
+  if (/^on-hand-\d$/.test(focused.name)) {
+    const selectedItem = interaction.options.getString("item");
+    if (!selectedItem || !Object.hasOwn(CRAFTING_RECIPES, selectedItem)) {
+      await interaction.respond([{ name: "Select an item first", value: "__none__" }]);
+      return;
+    }
+    const nodes = recipeTreeNodes(selectedItem)
+      .filter((n) => n.displayName.toLowerCase().includes(query))
+      .slice(0, 25)
+      .map((n) => ({ name: n.displayName, value: n.key }));
+    await interaction.respond(nodes);
+    return;
+  }
+
+  await interaction.respond([]);
+}
+
 function setupPayload(config, interaction) {
   const clientId = process.env.DISCORD_CLIENT_ID || config?.discord?.clientId || "";
   const guildId = interaction?.guildId || "";
@@ -1200,6 +1374,7 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "data:population", desc: "Show aggregate player count.", role: "player" },
     { name: "data:backups", desc: "List recent backup metadata.", role: "player" },
     { name: "data:maps", desc: "Show active game maps.", role: "player" },
+    { name: "data:calculator", desc: "Calculate crafting requirements — optionally track a goal against what you have on hand.", role: "player" },
     // ── player ──
     { name: "player:link", desc: "Link your Discord to your game character.", role: "player" },
     { name: "player:verify", desc: "Verify a pending character link with a code.", role: "player" },
@@ -1488,7 +1663,8 @@ export function getCommandRegistry() {
       commands: [
         { name: "population", desc: "Show server population statistics", role: "player" },
         { name: "backups", desc: "List recent database backups", role: "player" },
-        { name: "maps", desc: "Show active game maps", role: "player" }
+        { name: "maps", desc: "Show active game maps", role: "player" },
+        { name: "calculator <item>", desc: "Calculate crafting requirements, optionally against what you have on hand", role: "player" }
       ]
     },
     {
