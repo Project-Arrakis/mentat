@@ -6,7 +6,7 @@
 // Reference Algorithm section for the decompiled source and citation) --
 // do not re-derive the rounding/modifier rules independently.
 
-import { CRAFTING_RECIPES, LEAF_RESOURCES } from "./craftingData.js";
+import { CRAFTING_RECIPES, LEAF_RESOURCES, TIER_KEYS } from "./craftingData.js";
 
 export const MIN_QUANTITY = 1;
 export const MAX_QUANTITY = 100000;
@@ -45,6 +45,29 @@ function craftsNeeded(requiredQuantity, outputPerCraft) {
 // `stationTier` reflect the tier actually used), so it is not the "silent
 // fallback" the root-level rule forbids -- it's the only tier that exists
 // for that item.
+// Picks the best (largest) station tier an item actually has, in TIER_KEYS
+// order (large > medium > small). Used as the default when a caller omits
+// station-tier, so a plain request never fails for the 9 of 15 items (every
+// Chemical Refinery recipe -- Stravidium Fiber, Cobalt Paste, Silicone
+// Block, all three Vehicle Fuel Cells, Spice-infused Fuel Cell, both
+// Lubricants) that have no Large variant, because "Large Chemical
+// Refinery" isn't a real placeable in the game at all -- confirmed
+// directly against dune.gaming.tools' own placeables listing (2026-09-29):
+// only Small and Medium Chemical Refinery exist, so Medium genuinely is
+// each of those 9 items' best available tier, not a gap in this data.
+export function bestAvailableTier(itemKey, recipes = CRAFTING_RECIPES) {
+  if (!Object.hasOwn(recipes, itemKey)) {
+    throw new Error(`Unknown item: "${itemKey}".`);
+  }
+  const variants = recipes[itemKey].variants;
+  for (let i = TIER_KEYS.length - 1; i >= 0; i--) {
+    if (Object.hasOwn(variants, TIER_KEYS[i])) {
+      return TIER_KEYS[i];
+    }
+  }
+  throw new Error(`${recipes[itemKey].displayName} has no recipe variants at all.`);
+}
+
 function resolveVariant(recipe, stationTier, { allowTierFallback }) {
   let variant = recipe.variants[stationTier];
   let resolvedTier = stationTier;

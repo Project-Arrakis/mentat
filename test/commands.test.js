@@ -885,6 +885,32 @@ test("data:calculator plain request returns an embed with the pooled totals (no 
   assert.match(text, /33,750|33750/);
 });
 
+// Regression for the "default to large" UX bug: 9 of 15 items have no Large
+// variant at all (no "Large Chemical Refinery" placeable exists in the
+// game -- verified 2026-09-29 against dune.gaming.tools' placeables
+// listing), so the plainest possible invocation used to fail immediately
+// for the majority of items. station-tier omitted entirely (not "large")
+// must now succeed by auto-selecting the item's own best tier (medium).
+test("data:calculator with no station-tier specified succeeds for a Chemical-Refinery-only item (no Large variant exists)", async () => {
+  const interaction = calculatorInteraction({ item: "silicone_block", quantity: 10, "station-tier": undefined });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  const handled = await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  assert.equal(handled, true);
+  const text = JSON.stringify(edited?.embeds?.[0]);
+  assert.doesNotMatch(text, /no recipe variant at this tier/i);
+  assert.match(text, /Medium Chemical Refinery/i);
+});
+
+test("data:calculator with no station-tier specified still defaults to large for an Ore-Refinery item", async () => {
+  const interaction = calculatorInteraction({ item: "copper_ingot", quantity: 10, "station-tier": undefined });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  const text = JSON.stringify(edited?.embeds?.[0]);
+  assert.match(text, /Large Ore Refinery/i);
+});
+
 test("data:calculator with on-hand values reports a shortfall, not the plain total", async () => {
   const interaction = calculatorInteraction({
     "on-hand-1": "titanium_ore",

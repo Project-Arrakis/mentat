@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { calculateCraftingPlan, walkRecipeTree, applyOnHandCredit, estimateDuration, recipeTreeNodes, MIN_QUANTITY, MAX_QUANTITY } from "../src/craftingCalculator.js";
+import { calculateCraftingPlan, walkRecipeTree, applyOnHandCredit, estimateDuration, recipeTreeNodes, bestAvailableTier, MIN_QUANTITY, MAX_QUANTITY } from "../src/craftingCalculator.js";
 
 function totalOf(plan, resource) {
   return plan.totalRawMaterials.find((r) => r.resource === resource)?.quantity ?? 0;
@@ -66,6 +66,35 @@ test("unknown item key rejects with a typed, catchable error", () => {
 for (const poisonedKey of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
   test(`walkRecipeTree: prototype-property item key "${poisonedKey}" rejects instead of resolving`, () => {
     assert.throws(() => walkRecipeTree(poisonedKey, 5, "large", false), /Unknown item/);
+  });
+}
+
+// bestAvailableTier() -- picks the largest tier an item actually has, used as
+// the default when station-tier is omitted. Verified 2026-09-29 directly
+// against dune.gaming.tools' placeables listing: no "Large Chemical
+// Refinery" exists in the game at all (only Ore Refinery has all 3 tiers),
+// so every Chemical-Refinery-only item's correct default is Medium, not
+// Large. Every one of the 15 real items is covered here, not just samples,
+// since a wrong default for even one item is a real player-facing bug.
+test("bestAvailableTier: the 6 Ore Refinery items (all 3 tiers or Large+Medium) default to large", () => {
+  for (const key of ["copper_ingot", "iron_ingot", "steel_ingot", "aluminum_ingot", "duraluminum_ingot", "plastanium_ingot"]) {
+    assert.equal(bestAvailableTier(key), "large", `${key} should default to large`);
+  }
+});
+
+test("bestAvailableTier: the 9 Chemical Refinery items (no Large variant exists in the game) default to medium", () => {
+  for (const key of ["stravidium_fiber", "cobalt_paste", "silicone_block", "small_fuel_cell", "medium_fuel_cell", "large_fuel_cell", "spice_fuel_cell", "low_grade_lubricant", "industrial_lubricant"]) {
+    assert.equal(bestAvailableTier(key), "medium", `${key} should default to medium (no Large Chemical Refinery exists)`);
+  }
+});
+
+test("bestAvailableTier: unknown item throws", () => {
+  assert.throws(() => bestAvailableTier("not_a_real_item"), /Unknown item/);
+});
+
+for (const poisonedKey of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+  test(`bestAvailableTier: prototype-property item key "${poisonedKey}" rejects instead of resolving`, () => {
+    assert.throws(() => bestAvailableTier(poisonedKey), /Unknown item/);
   });
 }
 

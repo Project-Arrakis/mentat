@@ -24,7 +24,7 @@ import { getGuildStatus, getGuildRoles, getGuildSettings, incrementCommandCount,
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
 import { multiTenantActorTier, tierAtLeast, resolveGuildOwnerId, isInteractionGuildOwner, actorFromInteraction } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
-import { calculateCraftingPlan, applyOnHandCredit, estimateDuration, recipeTreeNodes, MIN_QUANTITY, MAX_QUANTITY } from "./craftingCalculator.js";
+import { calculateCraftingPlan, applyOnHandCredit, estimateDuration, recipeTreeNodes, bestAvailableTier, MIN_QUANTITY, MAX_QUANTITY } from "./craftingCalculator.js";
 import { CRAFTING_RECIPES } from "./craftingData.js";
 
 // Mechanical WRITE_ACTIONS -> discord.js subcommand registration -- shared
@@ -1190,7 +1190,7 @@ function executeCalculator({ interaction }) {
     throw new Error(`Unknown item: '${itemKey}'. Try /dune data calculator and use the autocomplete suggestions.`);
   }
   const quantity = interaction.options.getInteger("quantity") ?? MIN_QUANTITY;
-  const stationTier = interaction.options.getString("station-tier") ?? "large";
+  const stationTier = interaction.options.getString("station-tier") ?? bestAvailableTier(itemKey);
   const craftingContract = interaction.options.getBoolean("crafting-contract") ?? false;
   const stationCount = interaction.options.getInteger("station-count") ?? 1;
 

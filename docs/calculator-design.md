@@ -70,7 +70,7 @@ explicitly out of scope here — see Explicit Non-Goals below.
 /dune data calculator
   item:<autocomplete, one of 15 known recipe keys>
   quantity:<integer, 1-100000, default 1>
-  [station-tier:<Large|Medium|Small, default Large>]
+  [station-tier:<Large|Medium|Small, default: the item's own best available tier>]
   [crafting-contract:<boolean, default false>]
   [on-hand-1:<autocomplete, scoped to item's own recipe tree>] [on-hand-1-quantity:<integer, 0-100000>]
   [on-hand-2:<autocomplete>] [on-hand-2-quantity:<integer>]
@@ -88,7 +88,7 @@ Discord's 25-option-per-command cap.
 |--------|------|----------|--------|
 | `item` | string (autocomplete) | yes | must resolve to one of the 15 known recipe keys |
 | `quantity` | integer | no (default 1) | `setMinValue(1)` / `setMaxValue(100000)` — raised from the original design's 10,000; see §Quantity Bound below for why this is safe |
-| `station-tier` | string choice | no (default `Large`) | `Large`, `Medium`, `Small` — only tiers with a **confirmed real recipe variant** for the selected item are offered/honored (unchanged from v1 — see the per-item tier table below) |
+| `station-tier` | string choice | no (default: the item's own best available tier, largest first — see below) | `Large`, `Medium`, `Small` — only tiers with a **confirmed real recipe variant** for the selected item are offered/honored (unchanged from v1 — see the per-item tier table below) |
 | `crafting-contract` | boolean | no (default `false`) | Applies the verified -25% ingredient-quantity reduction (see §Modifiers below, unchanged from v1) |
 | `on-hand-N` (1-6) | string (autocomplete) | no | must resolve to a node in the **chosen `item`'s own recipe tree** — the target item itself, any intermediate craftable in its chain, or any raw/leaf ingredient (including Water). Autocomplete options change based on which `item` is already selected (dependent/cascading autocomplete — see §Autocomplete Behavior). Each `on-hand-N` slot must name a *different* node; a duplicate is a validation error (see §Error UX). |
 
@@ -222,6 +222,20 @@ Full exact ingredient quantities per tier are in the
 [Implementation Prompt](calculator-implementation-prompt.md)'s recipe table
 — this document intentionally shows only tier *availability*, not every
 number, to stay a design reference rather than a data dump.
+
+**Default-tier selection uses this exact table.** When `station-tier` is
+omitted, the command defaults to the selected item's own best (largest)
+available tier from this table — Large for the 6 Ore-Refinery items,
+Medium for all 9 Chemical-Refinery items — rather than hard-defaulting to
+Large and erroring for the 9 items that have never had one. An earlier
+implementation pass hardcoded the "large" default without consulting this
+already-documented table, so the plainest possible invocation
+(`/dune data calculator item:Silicone Block`) failed immediately for 9 of
+15 items despite the correct tier data already being known and recorded
+here — fixed 2026-09-29 (independently re-verified live against
+dune.gaming.tools' placeables listing the same day, confirming this
+table's every row and the Large-Chemical-Refinery-doesn't-exist fact are
+still accurate).
 
 **Chained items (this revision's correction):** the original draft of this
 revision assumed only three items chain through a nested craftable
