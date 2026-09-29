@@ -1704,11 +1704,17 @@ export async function handleGoalAutocomplete(interaction, db) {
     // stand-in config object behaves identically to the real one without
     // having to plumb `config` through the autocomplete routing path just
     // for this one flag.
-    const personal = listGoalsByOwner(db, { ownerType: "player", ownerId: interaction.user.id, includeCompleted: false })
+    // mentat#426: delete is the only way to free a lifetime-cap slot, and a
+    // completed goal still occupies one, so delete's suggestions must include
+    // completed goals (labelled "(done)"). Guarded with ?. because not every
+    // caller's options object exposes getSubcommand.
+    const subcommand = interaction.options.getSubcommand?.();
+    const includeCompleted = subcommand === "delete";
+    const personal = listGoalsByOwner(db, { ownerType: "player", ownerId: interaction.user.id, includeCompleted })
       .map((g) => ({ ...g, __label: "" }));
     let guild = [];
     if (interaction.guildId && isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId)) {
-      guild = listGoalsByOwner(db, { ownerType: "guild", ownerId: interaction.guildId, includeCompleted: false })
+      guild = listGoalsByOwner(db, { ownerType: "guild", ownerId: interaction.guildId, includeCompleted })
         .map((g) => ({ ...g, __label: "Guild: " }));
     }
     // Personal first, then guild -- both can appear in the same list for an
@@ -1717,7 +1723,7 @@ export async function handleGoalAutocomplete(interaction, db) {
     const goals = [...personal, ...guild]
       .filter((g) => String(g.id).includes(query) || (GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? "").toLowerCase().includes(query))
       .slice(0, 25)
-      .map((g) => ({ name: `${g.__label}#${g.id} ${GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? g.item_id}`, value: g.id }));
+      .map((g) => ({ name: `${g.__label}#${g.id} ${GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? g.item_id}${g.status === "completed" ? " (done)" : ""}`, value: g.id }));
     await interaction.respond(goals);
     return;
   }

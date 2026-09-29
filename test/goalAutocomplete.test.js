@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { handleGoalAutocomplete } from "../src/commands.js";
 import { createDatabase, upsertGuild } from "../src/database.js";
-import { createGoal } from "../src/database.js";
+import { createGoal, completeGoal } from "../src/database.js";
 
 // NOTE: no `scope` param here (deliberately). None of the 3 real
 // subcommands with an `id` autocomplete field (on-hand, progress, delete)
@@ -12,7 +12,7 @@ import { createGoal } from "../src/database.js";
 // probe instead. See src/commands.js's `id` branch comment for the full
 // story (this was a bug in the original task-10 design, corrected the same
 // session it was found).
-function mockGoalAutocompleteInteraction({ focusedName, focusedValue = "", userId = "u1", guildId = "guild-1", guildOwnerId = "someone-else", memberRoles = [] }) {
+function mockGoalAutocompleteInteraction({ focusedName, focusedValue = "", userId = "u1", guildId = "guild-1", guildOwnerId = "someone-else", memberRoles = [], subcommand = "on-hand" }) {
   const responded = [];
   return {
     isAutocomplete: () => true,
@@ -23,7 +23,7 @@ function mockGoalAutocompleteInteraction({ focusedName, focusedValue = "", userI
     user: { id: userId },
     options: {
       getSubcommandGroup: () => "goal",
-      getSubcommand: () => "on-hand", // overridden per-test where relevant via focusedName logic in the handler
+      getSubcommand: () => subcommand,
       getFocused: (full) => (full ? { name: focusedName, value: focusedValue } : focusedValue),
       getString: () => null,
       getInteger: () => null
@@ -173,4 +173,46 @@ test("node autocomplete never leaks another owner's goal", async () => {
   interaction.options.getInteger = (name) => (name === "id" ? goalId : null);
   await handleGoalAutocomplete(interaction, db);
   assert.equal(interaction._responded.length, 0);
+});
+
+// ── mentat#426: delete autocomplete includes completed goals ──
+test("id autocomplete for delete includes completed personal goals, labeled (done); on-hand and progress do not", async () => {
+  const db = createDatabase(":memory:");
+  const activeId = createGoal(db, { ownerType: "player", ownerId: "u1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "u1" });
+  const doneId = createGoal(db, { ownerType: "player", ownerId: "u1", itemId: "AzuriteOre", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "u1" });
+  completeGoal(db, { id: doneId });
+  const del = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "u1", subcommand: "delete" });
+  await handleGoalAutocomplete(del, db);
+  assert.deepEqual(del._responded.map((c) => c.value).sort(), [activeId, doneId].sort());
+  const doneChoice = del._responded.find((c) => c.value === doneId);
+  assert.match(doneChoice.name, /\(done\)$/);
+  assert.doesNotMatch(del._responded.find((c) => c.value === activeId).name, /done/);
+  for (const sub of ["on-hand", "progress"]) {
+    const i = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "u1", subcommand: sub });
+    await handleGoalAutocomplete(i, db);
+    assert.deepEqual(i._responded.map((c) => c.value), [activeId], `${sub} must still list only active goals`);
+  }
+});
+
+test("id autocomplete for delete includes completed guild goals for an admin only, never for a non-admin", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "guild-1", guildName: "Test", consoleUrl: "https://example.test", adapterToken: "t", status: "active" });
+  const gid = createGoal(db, { ownerType: "guild", ownerId: "guild-1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "owner" });
+  completeGoal(db, { id: gid });
+  const admin = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "owner", guildOwnerId: "owner", subcommand: "delete" });
+  await handleGoalAutocomplete(admin, db);
+  assert.equal(admin._responded.length, 1);
+  assert.match(admin._responded[0].name, /^Guild: #\d+ .*\(done\)$/);
+  const member = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "member", guildOwnerId: "owner", subcommand: "delete" });
+  await handleGoalAutocomplete(member, db);
+  assert.equal(member._responded.length, 0);
+});
+
+test("id autocomplete tolerates an options object with no getSubcommand", async () => {
+  const db = createDatabase(":memory:");
+  createGoal(db, { ownerType: "player", ownerId: "u1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "u1" });
+  const i = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "u1" });
+  delete i.options.getSubcommand;
+  await handleGoalAutocomplete(i, db);
+  assert.equal(i._responded.length, 1);
 });
