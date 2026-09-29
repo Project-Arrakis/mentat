@@ -732,7 +732,13 @@ git commit -m "feat(calculator): calculateCraftingPlan with verified ceiling-rou
 
 ```js
 // append to test/craftingCalculator.test.js
-import { calculateCraftingPlan, applyOnHandCredit, MAX_QUANTITY } from "../src/craftingCalculator.js";
+// Do NOT add a new `import ... from "../src/craftingCalculator.js"` line here --
+// calculateCraftingPlan and MAX_QUANTITY are already imported at the top of
+// this file (Task 2). Re-importing the same bindings in a second import
+// statement from the same module is a fatal SyntaxError ("Identifier has
+// already been declared"), not just style noise. Instead, add
+// `applyOnHandCredit` to the EXISTING top-of-file import line, so it reads:
+// import { calculateCraftingPlan, walkRecipeTree, applyOnHandCredit, MIN_QUANTITY, MAX_QUANTITY } from "../src/craftingCalculator.js";
 
 test("applyOnHandCredit: crediting a flat ingredient directly -- subtraction only, no cascade", () => {
   const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
@@ -1183,6 +1189,23 @@ test("formatCalculatorEmbed: crafting-contract footer shown only when active", (
   const embed = formatCalculatorEmbed(plan, estimateDuration(plan, { stationCount: 1 }), { onHandEntries: [] });
   assert.match(JSON.stringify(embed.data ?? embed), /Crafting Contract active/);
 });
+
+test("formatCalculatorEmbed: shows both the original goal and effectiveQuantity when target-item-itself on-hand credit was applied", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 20, { stationTier: "large" }); // effectiveQuantity, per Step A
+  const credited = applyOnHandCredit(plan, [], { quantity: 25, targetItemOnHand: 5 });
+  const embed = formatCalculatorEmbed(credited, estimateDuration(credited, { stationCount: 1 }), { onHandEntries: [{ node: "plastanium_ingot", quantity: 5 }] });
+  const text = JSON.stringify(embed.data ?? embed);
+  assert.match(text, /Goal: 25/);
+  assert.match(text, /Already have: 5/);
+  assert.match(text, /Still need to produce: 20/);
+});
+
+test("formatCalculatorEmbed: omits the goal/effectiveQuantity line entirely when no target-item credit was given", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [{ node: "titanium_ore", quantity: 40 }], { quantity: 25 });
+  const embed = formatCalculatorEmbed(credited, estimateDuration(credited, { stationCount: 1 }), { onHandEntries: [{ node: "titanium_ore", quantity: 40 }] });
+  assert.doesNotMatch(JSON.stringify(embed.data ?? embed), /Already have:/);
+});
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -1212,6 +1235,15 @@ export function formatCalculatorEmbed(plan, durations, { onHandEntries = [] } = 
   if (hasOnHand) {
     const onHandSummary = onHandEntries.map((e) => `${e.quantity.toLocaleString()} ${resourceDisplayName(e.node)}`).join(", ");
     lines.push(`On hand: ${onHandSummary}`);
+  }
+  // Required by docs/calculator-architecture.md's Shortfall Traversal Design:
+  // "The response still displays the original quantity (the stated goal)
+  // alongside effectiveQuantity". Only shown when a target-item-itself
+  // on-hand credit actually changed it -- when no such credit was given,
+  // plan.effectiveQuantity === plan.quantity and this line would be a
+  // no-op restatement, so it's correctly omitted by this condition.
+  if (plan.effectiveQuantity !== undefined && plan.effectiveQuantity !== plan.quantity) {
+    lines.push(`Goal: ${plan.quantity.toLocaleString()} · Already have: ${(plan.quantity - plan.effectiveQuantity).toLocaleString()} · Still need to produce: ${plan.effectiveQuantity.toLocaleString()}`);
   }
 
   const resourceRows = (entries) => entries.map(([resource, quantity]) => {
