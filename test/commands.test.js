@@ -843,3 +843,111 @@ test("helpPayload: WRITE_HELP_ENTRIES matches LEGACY_WRITE_STUBS exactly -- same
     assert.ok(legacyNames.has(name), `WRITE_HELP_ENTRIES lists write:${name}, which is not a real LEGACY_WRITE_STUBS entry -- a phantom command /dune help would advertise that cannot actually be typed`);
   }
 });
+
+// ── data:calculator (Task 7: Slash Command Wiring) ──
+import { calculateCraftingPlan } from "../src/craftingCalculator.js"; // sanity import, not required for assertions below
+
+function calculatorOptions(overrides = {}) {
+  const values = {
+    item: "plastanium_ingot",
+    quantity: 25,
+    "station-tier": "large",
+    "crafting-contract": false,
+    ...overrides
+  };
+  return {
+    getSubcommandGroup: () => "data",
+    getSubcommand: () => "calculator",
+    getString: (name) => (typeof values[name] === "string" ? values[name] : null),
+    getInteger: (name) => (typeof values[name] === "number" ? values[name] : null),
+    getBoolean: (name) => (typeof values[name] === "boolean" ? values[name] : null)
+  };
+}
+
+function calculatorInteraction(overrides = {}) {
+  // A distinct userId per call -- checkCooldown/applyCooldown key off
+  // interaction.user.id (see the module-level cooldownMap comments
+  // elsewhere in this file), so every test hitting the same "data:calculator"
+  // command key must use its own user or later tests get blocked by the
+  // earlier test's cooldown.
+  const interaction = mockInteraction("data", "calculator", { options: calculatorOptions(overrides), user: { id: `calc-${Math.random()}` } });
+  return interaction;
+}
+
+test("data:calculator plain request returns an embed with the pooled totals (no adapter call)", async () => {
+  const interaction = calculatorInteraction();
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  const handled = await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  assert.equal(handled, true);
+  const text = JSON.stringify(edited?.embeds?.[0]);
+  assert.match(text, /33,750|33750/);
+});
+
+test("data:calculator with on-hand values reports a shortfall, not the plain total", async () => {
+  const interaction = calculatorInteraction({
+    "on-hand-1": "titanium_ore",
+    "on-hand-1-quantity": 2000
+  });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  const text = JSON.stringify(edited?.embeds?.[0]);
+  assert.match(text, /goal/i);
+});
+
+test("data:calculator rejects an unknown item with a plain, non-fabricated error", async () => {
+  const interaction = calculatorInteraction({ item: "not_a_real_item" });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  assert.match(edited?.embeds?.[0]?.data?.description || "", /Unknown item/);
+});
+
+test("data:calculator rejects two on-hand slots naming the same node", async () => {
+  const interaction = calculatorInteraction({
+    "on-hand-1": "water", "on-hand-1-quantity": 100,
+    "on-hand-2": "water", "on-hand-2-quantity": 50
+  });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  assert.match(edited?.embeds?.[0]?.data?.description || "", /both name/i);
+});
+
+test("data:calculator rejects an on-hand-N-quantity supplied without a matching on-hand-N", async () => {
+  const interaction = calculatorInteraction({ "on-hand-1-quantity": 100 }); // no on-hand-1
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  assert.match(edited?.embeds?.[0]?.data?.description || "", /on-hand-1/);
+});
+
+test("data:calculator target-item-itself on-hand value reduces effectiveQuantity (Step A)", async () => {
+  const interaction = calculatorInteraction({
+    quantity: 25,
+    "on-hand-1": "plastanium_ingot",
+    "on-hand-1-quantity": 5
+  });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  // effectiveQuantity=20 -> pooled water for 20 plastanium: 20*1250 + 20*100 = 27000
+  assert.match(JSON.stringify(edited?.embeds?.[0]), /27,000|27000/);
+});
+
+// Note: 17 options, not 16 -- item, quantity, station-tier, crafting-contract
+// (4) + 6 on-hand-N/on-hand-N-quantity pairs (12) + station-count (1) = 17.
+// (Task 7 implementation note: the task brief's own illustrative count of
+// "16" undercounted station-count by one; verified by literally enumerating
+// every .addStringOption/.addIntegerOption/.addBooleanOption call in the
+// registration code -- station-count is a real, required option per the
+// brief's own prose description and the estimateDuration()/stationCount
+// wiring, so the option was kept and the expected count corrected instead.)
+test("buildDuneCommand: data:calculator is registered with all 17 options", () => {
+  const built = buildDuneCommand().toJSON();
+  const dataGroup = built.options.find((o) => o.name === "data");
+  const calculator = dataGroup.options.find((o) => o.name === "calculator");
+  assert.ok(calculator, "data:calculator must be registered");
+  assert.equal(calculator.options.length, 17);
+});

@@ -93,3 +93,30 @@ test("formatError includes status without leaking sensitive response fields", ()
   assert.doesNotMatch(formatted, /Bearer secret/);
   assert.doesNotMatch(formatted, /76561198000000000/);
 });
+
+// data:calculator (mentat Task 7) regression: the crafting calculator's
+// shortfall structure is a real Map (craftingCalculator.js's own
+// prototype-pollution-prevention citation, finding S-2). Before this fix,
+// redactSecrets() silently turned any Map into `{}` (Object.entries() on a
+// Map returns no own enumerable properties), destroying the whole structure
+// before /dune data calculator's embed formatter ever saw it -- a real,
+// reproduced production bug (see src/commands.js's executeCalculator()),
+// not a hypothetical one.
+test("redactSecrets preserves Map instances (and still redacts within them)", () => {
+  const shortfall = new Map([["water", 33750], ["titanium_ore", 0]]);
+  const redacted = redactSecrets({ plan: { shortfall } });
+
+  assert.ok(redacted.plan.shortfall instanceof Map, "a Map value must stay a Map, not collapse to {}");
+  assert.equal(redacted.plan.shortfall.get("water"), 33750);
+  assert.equal(redacted.plan.shortfall.get("titanium_ore"), 0);
+  assert.equal(redacted.plan.shortfall.size, 2);
+});
+
+test("redactSecrets redacts a credential-like key inside a Map", () => {
+  const m = new Map([["token", "shh"], ["status", "ok"]]);
+  const redacted = redactSecrets(m);
+
+  assert.ok(redacted instanceof Map);
+  assert.equal(redacted.get("token"), "[REDACTED]");
+  assert.equal(redacted.get("status"), "ok");
+});

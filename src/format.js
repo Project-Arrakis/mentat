@@ -43,6 +43,25 @@ export function redactSecrets(value, seen = new WeakSet()) {
 
   if (Array.isArray(value)) return value.map((item) => redactSecrets(item, seen));
 
+  // mentat data:calculator (Task 7): the crafting calculator's shortfall
+  // structure is a real Map (see craftingCalculator.js's own
+  // prototype-pollution-prevention citation, finding S-2 -- it is
+  // deliberately never a plain object). Object.entries()/Object.fromEntries()
+  // below silently return `{}` for a Map (Maps have no own enumerable
+  // string-keyed properties), which was found to SILENTLY DESTROY the whole
+  // shortfall structure by the time the embed formatter ever saw it -- every
+  // /dune data calculator call with an on-hand value would throw
+  // "plan.shortfall.entries is not a function" in production. Preserve Map-
+  // ness while still applying the same per-entry redaction as the plain-
+  // object branch below.
+  if (value instanceof Map) {
+    const result = new Map();
+    for (const [key, item] of value.entries()) {
+      result.set(key, shouldRedactKey(key) ? REDACTED : redactSecrets(item, seen));
+    }
+    return result;
+  }
+
   return Object.fromEntries(Object.entries(value).map(([key, item]) => {
     if (shouldRedactKey(key)) return [key, REDACTED];
     return [key, redactSecrets(item, seen)];
