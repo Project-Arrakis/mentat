@@ -1768,8 +1768,15 @@ export async function handleGoalAutocomplete(interaction, db) {
     // guild read a guild goal, so progress suggestions skip the admin gate.
     // on-hand/delete are mutations and keep it. Always scoped to the
     // caller's own interaction.guildId, never another guild.
+    // Autocomplete bypasses executeDuneCommand's isCommandAllowed gate
+    // (index.js), so progress must re-apply that SAME role check here: in a
+    // restricted guild a member with no Mentat role is denied goal:progress
+    // and must not see guild goal ids/names in suggestions either. db is
+    // non-null (guarded above), so the multi-tenant branch is what runs.
     const guildVisible = interaction.guildId
-      && (subcommand === "progress" || isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId));
+      && (subcommand === "progress"
+        ? isCommandAllowed(interaction, "goal:progress", { multiTenant: !!db }, db, interaction.guildId)
+        : isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId));
     if (guildVisible) {
       guild = listGoalsByOwner(db, { ownerType: "guild", ownerId: interaction.guildId, includeCompleted })
         .map((g) => ({ ...g, __label: "Guild: " }));

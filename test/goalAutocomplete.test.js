@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { handleGoalAutocomplete } from "../src/commands.js";
-import { createDatabase, upsertGuild } from "../src/database.js";
+import { handleGoalAutocomplete, isCommandAllowed } from "../src/commands.js";
+import { createDatabase, upsertGuild, addGuildRole, updateGuildSettings } from "../src/database.js";
 import { createGoal, completeGoal } from "../src/database.js";
 
 // NOTE: no `scope` param here (deliberately). None of the 3 real
@@ -222,9 +222,10 @@ test("id autocomplete: a non-admin guild member sees guild goals for progress on
   const db = createDatabase(":memory:");
   upsertGuild(db, { guildId: "guild-1", guildName: "Test", consoleUrl: "https://example.test", adapterToken: "t", status: "active" });
   const gid = createGoal(db, { ownerType: "guild", ownerId: "guild-1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "owner" });
+  addGuildRole(db, "guild-1", "observer", "player-role");
   const seen = {};
   for (const sub of ["progress", "on-hand", "delete"]) {
-    const i = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "plain-member", guildOwnerId: "owner", subcommand: sub });
+    const i = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "plain-member", guildOwnerId: "owner", memberRoles: ["player-role"], subcommand: sub });
     await handleGoalAutocomplete(i, db);
     seen[sub] = i._responded;
   }
@@ -240,7 +241,8 @@ test("id autocomplete for progress never shows another guild's goals to a member
   upsertGuild(db, { guildId: "guild-2", guildName: "B", consoleUrl: "https://example.test", adapterToken: "t2", status: "active" });
   const a = createGoal(db, { ownerType: "guild", ownerId: "guild-1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "x" });
   const b = createGoal(db, { ownerType: "guild", ownerId: "guild-2", itemId: "AzuriteOre", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "y" });
-  const i = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "member-a", guildId: "guild-1", subcommand: "progress" });
+  addGuildRole(db, "guild-1", "observer", "player-role");
+  const i = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "member-a", guildId: "guild-1", memberRoles: ["player-role"], subcommand: "progress" });
   await handleGoalAutocomplete(i, db);
   assert.deepEqual(i._responded.map((c) => c.value), [a]);
   assert.ok(!i._responded.some((c) => c.value === b));
@@ -248,4 +250,56 @@ test("id autocomplete for progress never shows another guild's goals to a member
   const dm = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "member-a", guildId: null, subcommand: "progress" });
   await handleGoalAutocomplete(dm, db);
   assert.equal(dm._responded.length, 0);
+});
+
+// Security: autocomplete bypasses isCommandAllowed (index.js), so the handler
+// must re-derive the command's own role gate. Restricted mode + no role must
+// NOT leak guild goal ids/names.
+test("progress autocomplete: a role-less member in a restricted guild sees no guild goals", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "guild-1", guildName: "Test", consoleUrl: "https://example.test", adapterToken: "t", status: "active" });
+  addGuildRole(db, "guild-1", "admin", "admin-role");
+  createGoal(db, { ownerType: "guild", ownerId: "guild-1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "owner" });
+  const i = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "nobody", guildOwnerId: "owner", memberRoles: [], subcommand: "progress" });
+  await handleGoalAutocomplete(i, db);
+  assert.deepEqual(i._responded, []);
+});
+
+test("admin still sees guild goals for on-hand/delete; role-holder sees them for progress only", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "guild-1", guildName: "Test", consoleUrl: "https://example.test", adapterToken: "t", status: "active" });
+  addGuildRole(db, "guild-1", "admin", "admin-role");
+  addGuildRole(db, "guild-1", "observer", "player-role");
+  createGoal(db, { ownerType: "guild", ownerId: "guild-1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "owner" });
+  const counts = async (roles, sub) => {
+    const i = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "u", guildOwnerId: "owner", memberRoles: roles, subcommand: sub });
+    await handleGoalAutocomplete(i, db);
+    return i._responded.length;
+  };
+  assert.equal(await counts(["admin-role"], "on-hand"), 1);
+  assert.equal(await counts(["admin-role"], "delete"), 1);
+  assert.equal(await counts(["player-role"], "progress"), 1);
+  assert.equal(await counts(["player-role"], "on-hand"), 0);
+  assert.equal(await counts(["player-role"], "delete"), 0);
+});
+
+test("invariant: progress autocomplete shows guild goals iff isCommandAllowed(goal:progress) allows the actor", async () => {
+  const combos = [];
+  for (const mode of ["restricted", "open"]) {
+    for (const roles of [[], ["player-role"], ["admin-role"], ["stranger-role"]]) {
+      for (const isOwner of [false, true]) combos.push({ mode, roles, isOwner });
+    }
+  }
+  for (const { mode, roles, isOwner } of combos) {
+    const db = createDatabase(":memory:");
+    upsertGuild(db, { guildId: "guild-1", guildName: "Test", consoleUrl: "https://example.test", adapterToken: "t", status: "active" });
+    addGuildRole(db, "guild-1", "admin", "admin-role");
+    addGuildRole(db, "guild-1", "observer", "player-role");
+    updateGuildSettings(db, "guild-1", { rbac_mode: mode });
+    createGoal(db, { ownerType: "guild", ownerId: "guild-1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "x" });
+    const i = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "actor", guildOwnerId: isOwner ? "actor" : "someone", memberRoles: roles, subcommand: "progress" });
+    const allowed = isCommandAllowed(i, "goal:progress", { multiTenant: true }, db, "guild-1");
+    await handleGoalAutocomplete(i, db);
+    assert.equal(i._responded.length > 0, allowed, `mode=${mode} roles=${roles} owner=${isOwner}`);
+  }
 });
