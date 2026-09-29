@@ -15,7 +15,7 @@ planning in a private spreadsheet. The driving goal across all three phases
 is the same question, asked at increasing levels of automation: **"I want N
 of item X — what do I still need, and am I actually on track?"**
 
-## Phase 1 — Crafting Calculator (implemented, PR open)
+## Phase 1 — Crafting Calculator (shipped)
 
 A `/dune data calculator` Discord command: pure, stateless local math over a
 bundled, verified recipe table for 15 craftable items. Given a goal quantity
@@ -27,8 +27,8 @@ database writes, no persisted state — every value is typed in fresh each
 time.
 
 **Status:** implemented via subagent-driven-development (10 tasks, per-task
-review, final whole-branch review with 2 fix rounds) — [`mentat`#417](https://github.com/Project-Arrakis/mentat/pull/417),
-CI green, awaiting merge.
+review, final whole-branch review with 2 fix rounds) — merged as
+[`mentat`#417](https://github.com/Project-Arrakis/mentat/pull/417) (2026-09-29).
 
 - [Design](calculator-design.md) — command shape, the shortfall/bottleneck/duration calculation with worked examples, response layout, error handling
 - [Architecture](calculator-architecture.md) — file layout, the verified reference algorithm, the on-hand-credit traversal design
@@ -82,10 +82,12 @@ every claim below is a quoted query/table, not an inference):
   entire job stays "answer one exact number," all domain logic stays in
   mentat.
 
-**Status:** investigated, not designed. No design doc exists yet — this
-section will link to one whenever this enhancement is actually prioritized.
+**Status:** investigated, not designed, not prioritized. No design doc exists
+yet — this section will link to one whenever this enhancement is actually
+prioritized. It is the only remaining phase, and it is optional: Phase 3
+shipped without it.
 
-## Phase 3 — Goal Setting & Progress Tracking (not yet designed)
+## Phase 3 — Goal Setting & Progress Tracking (shipped)
 
 Lets a player or a guild officer/leader set a persistent farming goal (e.g.
 "10,000 Duraluminum"), then check progress over time. This introduces
@@ -168,11 +170,27 @@ self-reported/unverified contribution-claim command (same trust model as
 Phase 1's manual on-hand entry), and is explicitly out of scope for the
 initial Phase 3 design rather than a silent omission.
 
-**Status:** scoped only, in conversation — no design doc exists yet. This
-section will link to one once brainstorming for this phase begins. No
-longer blocked on Phase 2 (see the no-longer-depends-on-Phase-2 note
-above) — Phase 3 can be designed and built independently, whenever
-prioritized.
+**Status:** shipped — `/dune goal create|on-hand|list|progress|delete`, merged
+as [`mentat`#430](https://github.com/Project-Arrakis/mentat/pull/430)
+(2026-09-29). Built via subagent-driven-development (14 tasks plus one
+inserted task, each independently reviewed, then a whole-branch review that
+found and fixed one Critical bug: raw-resource items could not be created as
+goals). What is implemented matches the decisions above: manual on-hand entry
+(Option 1), one goal model where an order is a goal with `due-at` set, and
+aggregate-only guild progress. Guild goal management is gated to admin-tier
+access or Discord server ownership; reading a guild goal's progress is open
+to any guild member. Any catalog item can be a goal: the 15 craftable ones
+get full Phase 1 crafting math, everything else is a simple count.
+
+- [Design spec](superpowers/specs/2026-09-29-goal-order-tracking-design.md) — Eight-Hats Layer 1 audited (`mentat`#420)
+- [Implementation plan](superpowers/plans/2026-09-29-goal-order-tracking-phase3.md)
+- [Change note](changes/PR-0430-goal-order-tracking.md)
+- Follow-ups (none blocking): `mentat`#422 (player/server groups mix player and moderator actions), #423 (splitting `/dune` into multiple top-level commands), #424 (write subcommands missing from `/dune core help`), #425-#429 (minor goal findings)
+
+**Constraint for any further `/dune` subcommand:** Discord's 8000-character
+command-definition limit. The write-group build measures 7473/8000 (soft
+target 7500, enforced by a test in `test/commands.test.js`), so the next new
+subcommand needs description trims or the split in #423.
 
 ## Origin note
 
