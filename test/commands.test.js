@@ -905,6 +905,21 @@ test("data:calculator rejects an unknown item with a plain, non-fabricated error
   assert.match(edited?.embeds?.[0]?.data?.description || "", /Unknown item/);
 });
 
+// CRAFTING_RECIPES is a plain frozen object, so a bare `CRAFTING_RECIPES[itemKey]`
+// bracket-access lookup resolves inherited Object.prototype members ("constructor",
+// "toString", "hasOwnProperty", "__proto__") as truthy and bypasses the "Unknown
+// item" guard entirely -- confirmed via /code-review high on PR #417, the exact
+// prototype-pollution class this same PR already fixed once elsewhere (S-2).
+for (const poisonedKey of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+  test(`data:calculator rejects the prototype-property item key "${poisonedKey}" instead of crashing`, async () => {
+    const interaction = calculatorInteraction({ item: poisonedKey });
+    let edited;
+    interaction.editReply = async (payload) => { edited = payload; };
+    await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+    assert.match(edited?.embeds?.[0]?.data?.description || "", /Unknown item/);
+  });
+}
+
 test("data:calculator rejects two on-hand slots naming the same node", async () => {
   const interaction = calculatorInteraction({
     "on-hand-1": "water", "on-hand-1-quantity": 100,

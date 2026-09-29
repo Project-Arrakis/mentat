@@ -1186,7 +1186,7 @@ function readOnHandEntries(interaction) {
 
 function executeCalculator({ interaction }) {
   const itemKey = interaction.options.getString("item");
-  if (!CRAFTING_RECIPES[itemKey]) {
+  if (!Object.hasOwn(CRAFTING_RECIPES, itemKey)) {
     throw new Error(`Unknown item: '${itemKey}'. Try /dune data calculator and use the autocomplete suggestions.`);
   }
   const quantity = interaction.options.getInteger("quantity") ?? MIN_QUANTITY;
@@ -1282,7 +1282,7 @@ export async function handleCalculatorAutocomplete(interaction) {
 
   if (/^on-hand-\d$/.test(focused.name)) {
     const selectedItem = interaction.options.getString("item");
-    if (!selectedItem || !CRAFTING_RECIPES[selectedItem]) {
+    if (!selectedItem || !Object.hasOwn(CRAFTING_RECIPES, selectedItem)) {
       await interaction.respond([{ name: "Select an item first", value: "__none__" }]);
       return;
     }

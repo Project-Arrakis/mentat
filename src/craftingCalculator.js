@@ -70,10 +70,10 @@ export function walkRecipeTree(itemKey, quantity, stationTier, craftingContract,
   if (visiting.has(itemKey)) {
     throw new Error(`Circular recipe dependency detected involving "${itemKey}".`);
   }
-  const recipe = recipes[itemKey];
-  if (!recipe) {
+  if (!Object.hasOwn(recipes, itemKey)) {
     throw new Error(`Unknown item: "${itemKey}".`);
   }
+  const recipe = recipes[itemKey];
   // Root call (empty `visiting`) is strict -- no tier fallback. A nested
   // call (non-empty `visiting`, since the caller always adds itself before
   // recursing) may fall back to whatever tier the nested item actually has.

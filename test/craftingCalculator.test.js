@@ -55,6 +55,20 @@ test("unknown item key rejects with a typed, catchable error", () => {
   assert.throws(() => calculateCraftingPlan("not_a_real_item", 5, {}), /Unknown item/);
 });
 
+// walkRecipeTree's `recipes` param (default CRAFTING_RECIPES) is a plain object,
+// so a bare bracket-access lookup resolves inherited Object.prototype members
+// ("constructor", "toString", etc.) as truthy instead of throwing "Unknown item"
+// -- confirmed via /code-review high on PR #417, currently unreachable via the
+// one production call path (commands.js always calls recipeTreeNodes() first,
+// which has its own guard) but real for any future/direct caller of
+// calculateCraftingPlan()/walkRecipeTree(), and for the synthetic-recipe-graph
+// test callers this function is explicitly exported to support.
+for (const poisonedKey of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+  test(`walkRecipeTree: prototype-property item key "${poisonedKey}" rejects instead of resolving`, () => {
+    assert.throws(() => walkRecipeTree(poisonedKey, 5, "large", false), /Unknown item/);
+  });
+}
+
 test("station-tier with no known variant for the item returns an explicit error, never a silent fallback", () => {
   assert.throws(() => calculateCraftingPlan("plastanium_ingot", 5, { stationTier: "small" }), /no recipe variant at this tier/i);
   assert.throws(() => calculateCraftingPlan("stravidium_fiber", 5, { stationTier: "large" }), /no recipe variant at this tier/i);
