@@ -8,7 +8,7 @@
 
 ### 2. Progress autocomplete shows guild goals to non-admins ✅ (#425)
 **Problem:** `executeGoalProgress` lets any member with a Mentat role read a guild goal, but the autocomplete applied the admin gate to every subcommand.
-**Solution:** For `progress` only, the caller's own guild's goals are suggested to any member with a Mentat role (the same `isCommandAllowed` check the command applies; a role-less member of a restricted guild sees nothing), not just admins. `on-hand` and `delete` keep it. Suggestions are always scoped to the caller's own `guildId`.
+**Solution:** For `progress` only, the caller's own guild's goals are suggested to any member with a Mentat role (the same `isCommandAllowed` check the command applies: a Mentat role holder, or anyone in an open-mode guild; a role-less member of a restricted guild sees nothing), not just admins. `on-hand` and `delete` keep it. Suggestions are always scoped to the caller's own `guildId`.
 
 ### 3. `goal list` signals "ingredients ready" ✅ (#427)
 **Problem:** The list percentage counts only finished-item stock, so a craftable goal with a full ingredient set on hand read 0%.

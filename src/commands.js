@@ -1583,10 +1583,13 @@ function executeGoalList({ interaction, config, db }) {
 }
 
 // ── goal:progress (Task 8) ──
-// Read access is open to any guild member -- unlike create/on-hand, this
+// Read access is open to any guild member the command pipeline lets through
+// (i.e. one holding a Mentat role, or any member in an open-mode guild --
+// isCommandAllowed runs before this function). Unlike create/on-hand, this
 // deliberately does NOT call requireGuildGoalAccess()/isAdminActor() once a
 // real guild-scoped match is found, matching goal:list's own precedent
-// immediately above and the plan's RBAC table (list/progress = any member).
+// immediately above and the plan's RBAC table (list/progress = any member
+// the role gate admits).
 function executeGoalProgress({ interaction, config, db }) {
   const id = interaction.options.getInteger("id");
   let goal = getGoalScoped(db, { id, ownerType: "player", ownerId: interaction.user.id });
@@ -1747,9 +1750,10 @@ export async function handleGoalAutocomplete(interaction, db) {
     // use: always show the caller's own personal goals, and ALSO show the
     // guild's goals if the caller is in a guild and passes the same
     // admin-tier gate requireGuildGoalAccess enforces for any real
-    // guild-goal mutation/read. A non-admin must see ONLY their own
-    // personal goals -- zero guild goals, never a partial or filtered
-    // guild list. `{ multiTenant: !!db }` mirrors index.js's own db
+    // guild-goal mutation. For on-hand/delete a non-admin must see ONLY
+    // their own personal goals -- zero guild goals, never a partial or
+    // filtered guild list. (progress differs: see the guildVisible rule
+    // below, which defers to the command's own isCommandAllowed gate.) `{ multiTenant: !!db }` mirrors index.js's own db
     // construction rule (`config.multiTenant ? createDatabase(...) :
     // null` -- db is truthy iff config.multiTenant is true), so this
     // stand-in config object behaves identically to the real one without
@@ -1768,9 +1772,11 @@ export async function handleGoalAutocomplete(interaction, db) {
     const personal = order(listGoalsByOwner(db, { ownerType: "player", ownerId: interaction.user.id, includeCompleted }))
       .map((g) => ({ ...g, __label: "" }));
     let guild = [];
-    // mentat#425: executeGoalProgress deliberately lets ANY member of the
-    // guild read a guild goal, so progress suggestions skip the admin gate.
-    // on-hand/delete are mutations and keep it. Always scoped to the
+    // mentat#425: executeGoalProgress lets any member the command pipeline
+    // admits (a Mentat role holder, or anyone in an open-mode guild) read a
+    // guild goal, so progress suggestions use that SAME isCommandAllowed
+    // check rather than the admin gate. on-hand/delete are mutations and
+    // keep the admin gate. Always scoped to the
     // caller's own interaction.guildId, never another guild.
     // Autocomplete bypasses executeDuneCommand's isCommandAllowed gate
     // (index.js), so progress must re-apply that SAME role check here: in a
