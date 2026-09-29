@@ -29,12 +29,52 @@ test("formatCalculatorEmbed: max-completable line uses the warning emoji when sh
   const shortEmbed = formatCalculatorEmbed(shortCredit, estimateDuration(shortCredit, { stationCount: 1 }), { onHandEntries: [{ node: "titanium_ore", quantity: 40 }] });
   assert.match(JSON.stringify(shortEmbed.data ?? shortEmbed), /⚠️/);
 
-  const sufficientCredit = applyOnHandCredit(plan, [
+  // The success (✅) emoji requires ALL real shortfall to be zero, not just
+  // maxCompletable reaching the goal -- see the "qualified vs unqualified"
+  // tests below for the case where crediting only some ingredients still
+  // reaches the goal via maxCompletable but leaves other real shortfall.
+  const sufficientEntries = [
     { node: "titanium_ore", quantity: 2000 },
-    { node: "stravidium_fiber", quantity: 25 }
-  ], { quantity: 25 });
-  const sufficientEmbed = formatCalculatorEmbed(sufficientCredit, estimateDuration(sufficientCredit, { stationCount: 1 }), { onHandEntries: [{ node: "titanium_ore", quantity: 2000 }, { node: "stravidium_fiber", quantity: 25 }] });
+    { node: "stravidium_fiber", quantity: 25 },
+    { node: "water", quantity: 100000 },
+    { node: "stravidium_mass", quantity: 1000 }
+  ];
+  const sufficientCredit = applyOnHandCredit(plan, sufficientEntries, { quantity: 25 });
+  const sufficientEmbed = formatCalculatorEmbed(sufficientCredit, estimateDuration(sufficientCredit, { stationCount: 1 }), { onHandEntries: sufficientEntries });
   assert.match(JSON.stringify(sufficientEmbed.data ?? sufficientEmbed), /✅/);
+});
+
+// [Final-review fix 3 follow-up] the qualified line must never claim
+// on-hand items are "enough"/✅ when real shortfall remains -- that's a
+// contradiction in terms, not just an unqualified success claim. Use an
+// info-only ℹ️ line instead whenever any real shortfall line is nonzero.
+test("formatCalculatorEmbed: qualified line never claims success (✅/'enough') when real shortfall remains", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  // Only titanium_ore is credited (hugely) -- water and stravidium_mass are
+  // never credited at all, so real shortfall remains for both.
+  const credited = applyOnHandCredit(plan, [{ node: "titanium_ore", quantity: 2000 }], { quantity: 25 });
+  assert.equal(credited.maxCompletable.units, 25, "sanity check: maxCompletable reaches the full goal");
+  assert.ok([...credited.shortfall.values()].some((v) => v > 0), "sanity check: real shortfall remains for uncredited ingredients");
+  const embed = formatCalculatorEmbed(credited, estimateDuration(credited, { stationCount: 1 }), { onHandEntries: [{ node: "titanium_ore", quantity: 2000 }] });
+  const text = JSON.stringify(embed.data ?? embed);
+  assert.match(text, /ℹ️/);
+  assert.doesNotMatch(text, /✅.*enough|enough.*✅/i, "must not pair a success emoji with an 'enough' claim while shortfall remains");
+  assert.match(text, /gather the remaining shortfall/i, "the line must direct the player to the real shortfall, not claim completion");
+});
+
+// [Final-review fix 3 follow-up] crediting ONLY the target item itself (no
+// ingredient credit at all) still reaches maxCompletable.units===quantity
+// via targetItemOnHand, but every ingredient's shortfall is real and
+// untouched -- the message must not claim on-hand items are "enough".
+test("formatCalculatorEmbed: target-item-only credit does not claim on-hand items are enough when ingredient shortfall is untouched", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 20, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [], { quantity: 25, targetItemOnHand: 5 });
+  assert.equal(credited.maxCompletable.units, 25, "sanity check: maxCompletable reaches the full goal via targetItemOnHand");
+  assert.ok([...credited.shortfall.values()].every((v) => v > 0), "sanity check: every ingredient's shortfall is untouched");
+  const embed = formatCalculatorEmbed(credited, estimateDuration(credited, { stationCount: 1 }), { onHandEntries: [] });
+  const text = JSON.stringify(embed.data ?? embed);
+  assert.doesNotMatch(text, /✅.*enough|enough.*✅/i, "must not claim on-hand items are enough when no ingredient was credited at all");
+  assert.match(text, /ℹ️/);
 });
 
 // [Final-review fix 3] `maxCompletable` only reflects CREDITED nodes -- if a
@@ -52,8 +92,8 @@ test("formatCalculatorEmbed: qualifies the success line when real shortfall rema
   assert.ok([...credited.shortfall.values()].some((v) => v > 0), "sanity check: real shortfall remains for uncredited ingredients");
   const embed = formatCalculatorEmbed(credited, estimateDuration(credited, { stationCount: 1 }), { onHandEntries: [{ node: "titanium_ore", quantity: 2000 }] });
   const text = JSON.stringify(embed.data ?? embed);
-  assert.match(text, /✅/);
-  assert.match(text, /still gather the shortfall/i, "the ✅ line must be qualified, not claim the goal is fully done");
+  assert.match(text, /ℹ️/);
+  assert.match(text, /gather the remaining shortfall/i, "the line must be qualified, not claim the goal is fully done");
 });
 
 test("formatCalculatorEmbed: keeps the unqualified success line when no shortfall remains at all", () => {
@@ -76,7 +116,7 @@ test("formatCalculatorEmbed: keeps the unqualified success line when no shortfal
   });
   const text = JSON.stringify(embed.data ?? embed);
   assert.match(text, /✅ You can complete all 25 requested\./);
-  assert.doesNotMatch(text, /still gather the shortfall/i);
+  assert.doesNotMatch(text, /gather the remaining shortfall/i);
 });
 
 test("formatCalculatorEmbed: leftover line shown for multi-output items when leftover > 0", () => {

@@ -1756,15 +1756,15 @@ export function formatCalculatorEmbed(plan, durations, { onHandEntries = [] } = 
     if (plan.maxCompletable.units >= plan.quantity) {
       // [Final-review fix 3] `maxCompletable` only reflects CREDITED nodes --
       // a player can credit just one ingredient (or only the target item
-      // itself) and still see this ✅ fire, even though the Shortfall table
-      // above still lists real, nonzero shortfall for OTHER ingredients they
-      // never credited. Qualify the message whenever that's the case, so it
-      // doesn't read as "you're done" when there's still real shortfall to
-      // gather.
+      // itself) and still see this line fire, even though the Shortfall
+      // table above still lists real, nonzero shortfall for OTHER
+      // ingredients they never credited. In that case it is not true that
+      // their on-hand items are "enough" for the goal -- real shortfall
+      // remains -- so this must not read as a success/✅ claim at all.
       const hasRemainingShortfall = plan.shortfall !== undefined
         && [...plan.shortfall.values()].some((v) => v > 0);
       if (hasRemainingShortfall) {
-        lines.push(`✅ Your on-hand items are enough for all ${plan.quantity.toLocaleString()} — still gather the shortfall lines above.`);
+        lines.push(`ℹ️ No shortage from your credited on-hand items toward all ${plan.quantity.toLocaleString()} — gather the remaining shortfall lines above to finish.`);
       } else {
         lines.push(`✅ You can complete all ${plan.quantity.toLocaleString()} requested.`);
       }
