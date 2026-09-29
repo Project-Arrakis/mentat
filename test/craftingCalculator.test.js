@@ -308,20 +308,33 @@ test("estimateDuration: stationCount divides crafts, rounding up", () => {
   assert.equal(durations[0].seconds, Math.ceil(500 / 3) * 3);
 });
 
-test("estimateDuration: a fully-credited plan (zero remaining crafts) reports zero duration lines", () => {
+// [Final-review fix 2] `maxCompletable` measures whether on-hand MATERIAL
+// supply is sufficient to reach the goal -- it says nothing about whether
+// the root item's own crafting has actually happened. These two tests
+// previously asserted the WRONG pre-fix behavior (a `topFullyCovered` special
+// case in estimateDuration() zeroed the root's duration line any time
+// `maxCompletable.units >= quantity`, even though real crafts, per
+// `plan.crafts`, still needed to run). Inverted below to assert the real,
+// correct behavior: root duration always reflects `plan.crafts`, regardless
+// of how much raw material is on hand.
+test("estimateDuration: root duration reflects real remaining crafts even when material supply is more than sufficient", () => {
+  // Copper Ingot x5 @ large needs 2 copper_ore/craft = 10 total. Crediting
+  // 100 copper_ore (a large excess) makes maxCompletable.units cover the
+  // goal many times over, but the 5 root Copper Ingot crafts themselves
+  // still have not happened -- the Duration line must still show them.
   const plan = calculateCraftingPlan("copper_ingot", 5, { stationTier: "large" });
   const credited = applyOnHandCredit(plan, [{ node: "copper_ore", quantity: 100 }], { quantity: 5 });
+  assert.ok(credited.maxCompletable.units >= 5, "sanity check: material supply covers (and exceeds) the goal");
   const durations = estimateDuration(credited, { stationCount: 1 });
-  assert.equal(durations.length, 0);
+  assert.equal(durations.length, 1, "5 real crafts still need to run at the Ore Refinery, even with material supply to spare");
+  assert.equal(durations[0].station, "Ore Refinery");
+  assert.equal(durations[0].craftsRemaining, 5);
+  assert.equal(durations[0].seconds, 5 * 3);
 });
 
 test("estimateDuration: a partially-credited root (maxCompletable.units < quantity) still reports the FULL remaining craft count, not a partial reduction", () => {
   // Copper Ingot x10 @ large needs 2 copper_ore/craft = 20 total. Crediting
-  // 19 (one short) leaves maxCompletable.units = 9 < quantity (10) -- this is
-  // the exact "root defined but not fully covered" branch the maxCompletable
-  // fix introduced, which the single-craft-short boundary below exercises
-  // directly (mutating `>=` to `>`, or `plan.quantity` to
-  // `plan.effectiveQuantity`, would flip this test).
+  // 19 (one short) leaves maxCompletable.units = 9 < quantity (10).
   const plan = calculateCraftingPlan("copper_ingot", 10, { stationTier: "large" });
   const credited = applyOnHandCredit(plan, [{ node: "copper_ore", quantity: 19 }], { quantity: 10 });
   assert.equal(credited.maxCompletable.units, 9, "sanity check on the worked example's own arithmetic");
@@ -332,20 +345,19 @@ test("estimateDuration: a partially-credited root (maxCompletable.units < quanti
   assert.equal(durations[0].seconds, 10 * 3);
 });
 
-test("estimateDuration: exact-boundary full credit (maxCompletable.units === quantity) reports zero duration lines", () => {
+test("estimateDuration: exact-boundary full material credit (maxCompletable.units === quantity) still reports the real root craft count", () => {
   // Same recipe, credited with EXACTLY the 20 copper_ore needed (not a large
-  // excess like the fully-credited test above) -- this is the other side of
-  // the >= boundary the maxCompletable fix relies on; a `>` mutation would
-  // wrongly still report this as fully covered too (since maxCompletable.units
-  // would still equal quantity, 10 === 10), but a `plan.effectiveQuantity`
-  // swap would not, since effectiveQuantity is also 10 here -- combined with
-  // the partial-credit test above, this pins the exact `>=` + `plan.quantity`
-  // pairing the fix depends on.
+  // excess like the test above) -- material supply exactly meets the goal,
+  // but the 10 root Copper Ingot crafts themselves still haven't run, so the
+  // Duration line must still show all 10, not zero.
   const plan = calculateCraftingPlan("copper_ingot", 10, { stationTier: "large" });
   const credited = applyOnHandCredit(plan, [{ node: "copper_ore", quantity: 20 }], { quantity: 10 });
   assert.equal(credited.maxCompletable.units, 10, "sanity check on the worked example's own arithmetic");
   const durations = estimateDuration(credited, { stationCount: 1 });
-  assert.equal(durations.length, 0);
+  assert.equal(durations.length, 1);
+  assert.equal(durations[0].station, "Ore Refinery");
+  assert.equal(durations[0].craftsRemaining, 10, "material supply meeting the goal exactly does not mean the crafting is done");
+  assert.equal(durations[0].seconds, 10 * 3);
 });
 
 test("recipeTreeNodes: Copper Ingot (flat item) returns itself + copper ore only", () => {

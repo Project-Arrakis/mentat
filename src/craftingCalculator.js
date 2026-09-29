@@ -262,7 +262,8 @@ function isLeafExclusiveToIntermediate(leafKey, nestedPlan, rootPlan) {
 // above) -- a shared leaf like Water is deliberately never added here, so it
 // can never trigger findFirstBlockingEntry()'s skip rule. depth-1 only,
 // matching every other accepted limitation in this file (real data has no
-// depth-2+ nesting -- Task 1's own data-integrity test enforces this).
+// depth-2+ nesting -- test/craftingData.test.js's "no craftable item nests
+// a grandchild that is itself craftable" test enforces this).
 function buildIntermediateChildMap(plan) {
   const children = new Map();
   for (const [resource, nested] of Object.entries(plan.nestedCrafts)) {
@@ -442,19 +443,28 @@ const STATION_FAMILY = (stationName) => (stationName.includes("Chemical") ? "Che
 // or an applyOnHandCredit()-credited plan (has `shortfall`/`maxCompletable`
 // fields spread on top of the same base shape).
 //
-// IMPORTANT: the root item's own remaining craft count can NOT be read from
-// `plan.shortfall` -- flattenPlanNodes() (see applyOnHandCredit() above)
-// deliberately excludes `plan.itemKey` from the shortfall map, since
-// crediting the target item itself is out of scope for onHandEntries (it's
-// resolved into `effectiveQuantity`/`targetItemOnHand` by the caller before
-// applyOnHandCredit() is ever invoked -- see that function's own citation of
-// finding S-2/the round-3 regression). Whether the root is fully covered is
-// instead read off `plan.maxCompletable`, which already combines BOTH the
-// direct target-item credit and the ingredient-supply credit into one
-// "total units achievable" figure: if that figure covers the full
-// (originally requested) `plan.quantity`, zero root crafts remain; if
-// `maxCompletable` is undefined (no credit applied at all, or a plain,
-// never-credited plan), the full planned craft count remains.
+// IMPORTANT [Final-review fix 2]: the root item's own remaining craft count
+// can NOT be read from `plan.shortfall` -- flattenPlanNodes() (see
+// applyOnHandCredit() above) deliberately excludes `plan.itemKey` from the
+// shortfall map, since crediting the target item itself is out of scope for
+// onHandEntries (it's resolved into `effectiveQuantity`/`targetItemOnHand`
+// by the caller before applyOnHandCredit() is ever invoked -- see that
+// function's own citation of finding S-2/the round-3 regression).
+//
+// The root's remaining craft count is simply `plan.crafts` -- it was already
+// computed from `effectiveQuantity` (the goal minus any direct on-hand
+// credit toward the target item itself) by the caller's
+// `calculateCraftingPlan(itemKey, effectiveQuantity, ...)` call, so it
+// already reflects "crafts still needed for the root." `plan.maxCompletable`
+// answers a DIFFERENT question -- whether on-hand INGREDIENT/MATERIAL supply
+// is sufficient to reach the goal -- not whether the root crafting itself is
+// done. An earlier version of this function zeroed `topRemainingCrafts`
+// whenever `maxCompletable.units >= plan.quantity`, which silently dropped
+// the root item's own Duration line any time supply happened to cover the
+// goal, even though `plan.crafts` real crafts were still needed (e.g.
+// Copper Ingot x25 with copper_ore fully on hand: maxCompletable says 25
+// units achievable, but 25 real ingot crafts still have to run at the
+// Furnace -- that's not "0 duration"). Fixed: always use `plan.crafts`.
 //
 // Nested intermediates ARE represented in `plan.shortfall` (keyed by the
 // same resource key used in `plan.nestedCrafts`), so their own remaining
@@ -475,9 +485,7 @@ export function estimateDuration(plan, { stationCount = 1 } = {}) {
     byFamily.set(family, { seconds: existing.seconds + seconds, craftsRemaining: existing.craftsRemaining + crafts });
   };
 
-  const topFullyCovered = plan.maxCompletable !== undefined && plan.maxCompletable.units >= plan.quantity;
-  const topRemainingCrafts = topFullyCovered ? 0 : plan.crafts;
-  addFamily(plan.station, topRemainingCrafts, plan.craftTimeSeconds);
+  addFamily(plan.station, plan.crafts, plan.craftTimeSeconds);
 
   for (const [resource, nested] of Object.entries(plan.nestedCrafts)) {
     const nestedRemainingCrafts = !plan.shortfall
