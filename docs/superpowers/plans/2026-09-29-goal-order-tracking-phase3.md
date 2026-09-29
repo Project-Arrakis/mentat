@@ -186,21 +186,41 @@ import { GAME_ITEM_CATALOG_BY_ID } from "../src/gameItemCatalog.js";
 
 const ALL_RECIPE_AND_LEAF_KEYS = [...Object.keys(CRAFTING_RECIPES), ...Object.keys(LEAF_RESOURCES)];
 
+// "water" has NO real, discrete inventory-item entry anywhere in the vendored
+// catalog -- verified directly against the full 2,558-row source (not just
+// the deduplicated copy): no id or name containing "water", nor any
+// reasonable synonym (canteen, h2o, hydrate, filtered/purified/desalinated
+// water, etc.), resolves to a plain raw "Water" item. The catalog only has
+// water-adjacent INFRASTRUCTURE (Water Cistern, Water Shipper) and unrelated
+// items with "water" in the name -- consistent with water being drawn from
+// cisterns in the real game, not carried as a discrete inventory stack. This
+// is a genuine, confirmed gap in what the game itself itemizes, not a
+// vendoring mistake -- `water` is deliberately EXCLUDED from both bridge
+// Maps, and every consumer of this bridge (Tasks 6, 8, 10) must treat a
+// `.get(recipeKey)` miss for a real `LEAF_RESOURCES` key as this expected,
+// documented exception, never a bug to silently paper over.
+const UNMAPPABLE_LEAF_KEYS = new Set(["water"]);
+const MAPPABLE_RECIPE_AND_LEAF_KEYS = ALL_RECIPE_AND_LEAF_KEYS.filter((key) => !UNMAPPABLE_LEAF_KEYS.has(key));
+
 test("RECIPE_KEY_TO_GAME_ITEM_ID and GAME_ITEM_ID_TO_RECIPE_KEY are real Maps", () => {
   assert.ok(RECIPE_KEY_TO_GAME_ITEM_ID instanceof Map);
   assert.ok(GAME_ITEM_ID_TO_RECIPE_KEY instanceof Map);
 });
 
-test("every CRAFTING_RECIPES/LEAF_RESOURCES key has a real, catalog-verified game item id", () => {
-  for (const key of ALL_RECIPE_AND_LEAF_KEYS) {
+test("every mappable CRAFTING_RECIPES/LEAF_RESOURCES key has a real, catalog-verified game item id", () => {
+  for (const key of MAPPABLE_RECIPE_AND_LEAF_KEYS) {
     const gameItemId = RECIPE_KEY_TO_GAME_ITEM_ID.get(key);
     assert.ok(gameItemId, `${key} is missing from RECIPE_KEY_TO_GAME_ITEM_ID`);
     assert.ok(GAME_ITEM_CATALOG_BY_ID.has(gameItemId), `${key} -> "${gameItemId}" is not a real id in GAME_ITEM_CATALOG_BY_ID`);
   }
 });
 
-test("RECIPE_KEY_TO_GAME_ITEM_ID has no extra entries beyond CRAFTING_RECIPES + LEAF_RESOURCES", () => {
-  assert.equal(RECIPE_KEY_TO_GAME_ITEM_ID.size, ALL_RECIPE_AND_LEAF_KEYS.length);
+test("water is a documented exception, not silently missing", () => {
+  assert.equal(RECIPE_KEY_TO_GAME_ITEM_ID.has("water"), false, "water must not have an invented/guessed id -- it has none in the real catalog");
+});
+
+test("RECIPE_KEY_TO_GAME_ITEM_ID has no extra entries beyond the mappable keys (all of CRAFTING_RECIPES + LEAF_RESOURCES except the documented water exception)", () => {
+  assert.equal(RECIPE_KEY_TO_GAME_ITEM_ID.size, MAPPABLE_RECIPE_AND_LEAF_KEYS.length);
 });
 
 test("GAME_ITEM_ID_TO_RECIPE_KEY correctly round-trips every forward entry", () => {
@@ -314,7 +334,11 @@ export const RECIPE_KEY_TO_GAME_ITEM_ID = new Map([
   ["low_grade_lubricant", "REPLACE_WITH_VERIFIED_ID"],
   ["industrial_lubricant", "REPLACE_WITH_VERIFIED_ID"],
   // LEAF_RESOURCES
-  ["water", "REPLACE_WITH_VERIFIED_ID"],
+  // "water" is deliberately OMITTED here -- see this file's own
+  // UNMAPPABLE_LEAF_KEYS comment in the test file: no real "Water" item
+  // exists anywhere in the vendored catalog (water is drawn from cisterns
+  // in the real game, not carried as a discrete inventory stack). Do not
+  // add a guessed entry for it.
   ["copper_ore", "REPLACE_WITH_VERIFIED_ID"],
   ["iron_ore", "REPLACE_WITH_VERIFIED_ID"],
   ["carbon_ore", "REPLACE_WITH_VERIFIED_ID"],
@@ -1074,7 +1098,7 @@ Add these imports to `commands.js`'s top (adjust the existing `./database.js` im
 ```js
 import { createGoal, getGoalScoped, listGoalsByOwner, countGoalsByOwner, setGoalOnHandEntry, getGoalOnHandEntries, countGoalOnHandEntries, completeGoal, deleteGoalScoped, appendGoalAuditLog } from "./database.js";
 import { GAME_ITEM_CATALOG_BY_ID } from "./gameItemCatalog.js";
-import { GAME_ITEM_ID_TO_RECIPE_KEY } from "./gameItemIdBridge.js";
+import { GAME_ITEM_ID_TO_RECIPE_KEY, RECIPE_KEY_TO_GAME_ITEM_ID } from "./gameItemIdBridge.js";
 ```
 
 - [ ] **Step 5: Wire the dispatch**
@@ -1221,19 +1245,38 @@ test("goal:on-hand rejects a free-typed node not in the goal's own recipe tree, 
 });
 
 test("goal:on-hand rejects a 7th on-hand entry on a craftable goal", async () => {
-  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  // Add `createGoal, setGoalOnHandEntry` to this file's existing
+  // `../src/database.js` import line (line 867) if not already present --
+  // this test seeds directly through Task 4's own accessors.
+  //
+  // Real recipe data makes the natural version of this test (fill 6
+  // legitimate on-hand positions from one item's own recipe tree, then
+  // try a 7th) impossible to write today: `water` has no real game-item
+  // id at all (gameItemIdBridge.js's documented exception) and is
+  // therefore never a valid on-hand node, and once water is excluded, the
+  // DEEPEST of the 15 current recipes (industrial_lubricant) has only 5
+  // distinct non-water positions -- no current item can ever reach a 6th
+  // legitimate node through executeGoalOnHand's own validNodes gate. That
+  // doesn't mean the cap is untestable -- it means this test seeds 6 rows
+  // directly via the DB accessor (bypassing the validNodes gate on
+  // purpose, since that gate has its own dedicated test above) to isolate
+  // and verify the cap-enforcement logic itself, in real database rows,
+  // not a mock.
+  const db = multiTenantDb({});
   const userId = `onhand-cap-${Math.random()}`;
-  const goalId = await createTestGoal({ config, userId });
-  const nodes = ["REPLACE_WITH_6_REAL_INGREDIENT_KEYS_FROM_DURALUMINUM_TREE"]; // fill with 6 distinct real node keys from recipeTreeNodes for the tested item, e.g. via Task 2's bridge or the item's own key
-  let lastEdited;
-  for (const node of nodes) {
-    const interaction = goalOnHandInteraction({ id: goalId, node, quantity: 5 }, { userId });
-    interaction.editReply = async (payload) => { lastEdited = payload; };
-    await executeDuneCommand(interaction, {}, config);
+  const goalId = createGoal(db, { ownerType: "player", ownerId: userId, itemId: "Silicone", itemKind: "craftable", targetQuantity: 100, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: userId });
+  for (let i = 0; i < 6; i++) {
+    setGoalOnHandEntry(db, { goalId, node: `seed-node-${i}`, quantity: 1, updatedBy: userId });
   }
-  const seventh = goalOnHandInteraction({ id: goalId, node: "one-more-real-node-not-already-used", quantity: 5 }, { userId });
+  // "Silicone" itself (the goal's own item_id) is a real, legitimately
+  // valid node for this goal (it's the recipe tree's own root) but was
+  // never one of the 6 seeded rows above -- so this exercises the CAP
+  // rejection specifically, not the "not an ingredient" rejection a
+  // genuinely-invalid node would hit instead.
+  const seventh = goalOnHandInteraction({ id: goalId, node: "Silicone", quantity: 5 }, { userId });
+  let lastEdited;
   seventh.editReply = async (payload) => { lastEdited = payload; };
-  await executeDuneCommand(seventh, {}, config);
+  await executeDuneCommand(seventh, {}, MT_CONFIG, db);
   assert.match(JSON.stringify(lastEdited?.embeds?.[0]), /6|limit|at most/i);
 });
 
@@ -1337,14 +1380,23 @@ function executeGoalOnHand({ interaction, config, db }) {
   let validNodes;
   if (goal.item_kind === "craftable") {
     const recipeKey = GAME_ITEM_ID_TO_RECIPE_KEY.get(goal.item_id);
-    validNodes = new Set(recipeTreeNodes(recipeKey).map((n) => n.key === recipeKey ? goal.item_id : GAME_ITEM_ID_bridge_lookup(n.key)));
-    // See the note below this code block -- recipeTreeNodes() returns
-    // mentat's own snake_case recipe/leaf keys, but goal_on_hand_entries
-    // stores real game item ids. You must map every recipeTreeNodes() key
-    // through RECIPE_KEY_TO_GAME_ITEM_ID before comparing against `node`.
-    // The line above is deliberately left as a named-but-undefined helper
-    // (`GAME_ITEM_ID_bridge_lookup`) to force you to write this mapping
-    // explicitly and test it -- see the paragraph immediately below.
+    // recipeTreeNodes() returns mentat's own snake_case recipe/leaf keys,
+    // but goal_on_hand_entries stores real game item ids -- every key must
+    // be mapped through RECIPE_KEY_TO_GAME_ITEM_ID before comparing
+    // against `node`. The root node maps to goal.item_id directly (it's
+    // already the real id, that's how the goal itself was created); every
+    // other node maps through the bridge -- EXCEPT `water`, which has no
+    // real game-item id at all (gameItemIdBridge.js's documented
+    // exception) and must be filtered out, not included as a literal
+    // `undefined` entry in the Set (an `undefined` entry would make
+    // `validNodes.has(undefined)` true, and while no real Discord option
+    // value can ever BE `undefined`, leaving it in is still a real
+    // correctness bug worth avoiding deliberately, not by accident).
+    validNodes = new Set(
+      recipeTreeNodes(recipeKey)
+        .map((n) => (n.key === recipeKey ? goal.item_id : RECIPE_KEY_TO_GAME_ITEM_ID.get(n.key)))
+        .filter((gameItemId) => gameItemId !== undefined)
+    );
   } else {
     validNodes = new Set([goal.item_id]);
   }
@@ -1381,7 +1433,7 @@ function executeGoalOnHand({ interaction, config, db }) {
 }
 ```
 
-**Important, deliberately-flagged gap in the code above**: the `craftable` branch's `validNodes` construction references an undefined helper (`GAME_ITEM_ID_bridge_lookup`) — this is intentional, not an oversight, to force you to think through the key-space mismatch explicitly rather than copy-paste something subtly wrong: `recipeTreeNodes(recipeKey)` returns **mentat's own snake_case keys** (e.g. `"aluminum_ore"`), but `goal_on_hand_entries.node` and the `node` option value are **real game item ids** (e.g. whatever Task 2 verified for `aluminum_ore`). Write the real mapping — for each `recipeTreeNodes(recipeKey)` entry, if its `.key` equals `recipeKey` itself (the root item), map it to `goal.item_id`; otherwise look it up through `RECIPE_KEY_TO_GAME_ITEM_ID.get(entry.key)`. Build this as a real `Set<gameItemId>` before the `validNodes.has(node)` check. The completion-check block a few lines below has to do the same mapping in reverse (game-item-id -> recipe-key) to call `resolveEffectiveOnHandCredit()`, which expects recipe-key-shaped `node` values — trace through both directions carefully and test them (Step 2's tests exercise this).
+**Key-space mismatch, worth tracing through carefully**: `recipeTreeNodes(recipeKey)` returns **mentat's own snake_case keys** (e.g. `"aluminum_ore"`), but `goal_on_hand_entries.node` and the `node` option value are **real game item ids** (e.g. whatever Task 2 verified for `aluminum_ore`) — every key must be mapped through `RECIPE_KEY_TO_GAME_ITEM_ID` before comparing against `node`, with `water` filtered out (see the comment in the code above — it has no real id at all). The completion-check block a few lines below has to do the same mapping in **reverse** (game-item-id → recipe-key) to call `resolveEffectiveOnHandCredit()`, which expects recipe-key-shaped `node` values — since `water` can never be a stored on-hand entry (it was already excluded from `validNodes`, so `setGoalOnHandEntry` is never reached with it), the reverse mapping never has to handle it either; trace through both directions and confirm this with the tests below.
 
 - [ ] **Step 5: Wire the dispatch and confirmation embed**
 
@@ -2135,8 +2187,19 @@ export async function handleGoalAutocomplete(interaction, db) {
     const recipeKey = GAME_ITEM_ID_TO_RECIPE_KEY.get(goal.item_id);
     const nodes = recipeTreeNodes(recipeKey)
       .filter((n) => n.displayName.toLowerCase().includes(query))
-      .slice(0, 25)
-      .map((n) => ({ name: n.displayName, value: n.key === recipeKey ? goal.item_id : (RECIPE_KEY_TO_GAME_ITEM_ID.get(n.key) ?? n.key) }));
+      .map((n) => ({ name: n.displayName, value: n.key === recipeKey ? goal.item_id : RECIPE_KEY_TO_GAME_ITEM_ID.get(n.key) }))
+      // `water` (and any other future recipe-tree node with no real game-item
+      // id -- see gameItemIdBridge.js's documented exception) must never be
+      // suggested here: it can never actually be submitted to /dune goal
+      // on-hand (executeGoalOnHand's own validNodes excludes it the same
+      // way), so offering it would suggest a value the command itself then
+      // rejects as "not an ingredient" -- confusing, not helpful. A
+      // fallback to the raw recipe key here (an earlier draft used `?? n.key`)
+      // would be actively wrong, not just incomplete: it would suggest
+      // mentat's own internal key ("water") as if it were a real,
+      // selectable game item id.
+      .filter((choice) => choice.value !== undefined)
+      .slice(0, 25);
     await interaction.respond(nodes);
   }
 }
