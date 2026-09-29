@@ -104,6 +104,35 @@ test("the 5 known chained items nest exactly as documented", () => {
   }
 });
 
+// [Final-review fix 8] Previously, craftingCalculator.js's
+// buildIntermediateChildMap() comment claimed "Task 1's own data-integrity
+// test enforces this [depth-1 nesting]", but no such test existed -- the
+// test above only checks that the 5 known chained items nest their known
+// child correctly, never that a nested item's OWN inputs are all leaves
+// (i.e., that nesting never goes past depth 1). This test makes that claim
+// true: for every craftable item, every craftable (nested) input's own
+// recipe must have zero craftable inputs of its own, in every variant.
+test("no craftable item nests a grandchild that is itself craftable (enforces true depth-1 nesting)", () => {
+  for (const key of ITEM_KEYS) {
+    const recipe = CRAFTING_RECIPES[key];
+    for (const variant of Object.values(recipe.variants)) {
+      for (const input of variant.inputs) {
+        if (!input.craftable) continue;
+        const childRecipe = CRAFTING_RECIPES[input.resource];
+        assert.ok(childRecipe, `${key}'s nested "${input.resource}" has no recipe entry in CRAFTING_RECIPES`);
+        for (const childVariant of Object.values(childRecipe.variants)) {
+          const hasCraftableGrandchild = childVariant.inputs.some((gi) => gi.craftable);
+          assert.equal(
+            hasCraftableGrandchild,
+            false,
+            `${key} -> ${input.resource} has its own craftable input, which would be a depth-2+ nesting the calculator does not support`
+          );
+        }
+      }
+    }
+  }
+});
+
 test("outputPerCraft matches the 3 known multi-output items, 1 for everything else", () => {
   const multiOutput = { spice_fuel_cell: 10, low_grade_lubricant: 5, industrial_lubricant: 10 };
   for (const key of ITEM_KEYS) {
