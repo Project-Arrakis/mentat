@@ -314,3 +314,36 @@ test("estimateDuration: a fully-credited plan (zero remaining crafts) reports ze
   const durations = estimateDuration(credited, { stationCount: 1 });
   assert.equal(durations.length, 0);
 });
+
+test("estimateDuration: a partially-credited root (maxCompletable.units < quantity) still reports the FULL remaining craft count, not a partial reduction", () => {
+  // Copper Ingot x10 @ large needs 2 copper_ore/craft = 20 total. Crediting
+  // 19 (one short) leaves maxCompletable.units = 9 < quantity (10) -- this is
+  // the exact "root defined but not fully covered" branch the maxCompletable
+  // fix introduced, which the single-craft-short boundary below exercises
+  // directly (mutating `>=` to `>`, or `plan.quantity` to
+  // `plan.effectiveQuantity`, would flip this test).
+  const plan = calculateCraftingPlan("copper_ingot", 10, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [{ node: "copper_ore", quantity: 19 }], { quantity: 10 });
+  assert.equal(credited.maxCompletable.units, 9, "sanity check on the worked example's own arithmetic");
+  const durations = estimateDuration(credited, { stationCount: 1 });
+  assert.equal(durations.length, 1);
+  assert.equal(durations[0].station, "Ore Refinery");
+  assert.equal(durations[0].craftsRemaining, 10, "not fully covered -- the full planned craft count remains, never a partial reduction");
+  assert.equal(durations[0].seconds, 10 * 3);
+});
+
+test("estimateDuration: exact-boundary full credit (maxCompletable.units === quantity) reports zero duration lines", () => {
+  // Same recipe, credited with EXACTLY the 20 copper_ore needed (not a large
+  // excess like the fully-credited test above) -- this is the other side of
+  // the >= boundary the maxCompletable fix relies on; a `>` mutation would
+  // wrongly still report this as fully covered too (since maxCompletable.units
+  // would still equal quantity, 10 === 10), but a `plan.effectiveQuantity`
+  // swap would not, since effectiveQuantity is also 10 here -- combined with
+  // the partial-credit test above, this pins the exact `>=` + `plan.quantity`
+  // pairing the fix depends on.
+  const plan = calculateCraftingPlan("copper_ingot", 10, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [{ node: "copper_ore", quantity: 20 }], { quantity: 10 });
+  assert.equal(credited.maxCompletable.units, 10, "sanity check on the worked example's own arithmetic");
+  const durations = estimateDuration(credited, { stationCount: 1 });
+  assert.equal(durations.length, 0);
+});
