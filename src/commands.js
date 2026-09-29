@@ -1649,31 +1649,41 @@ export async function handleGoalAutocomplete(interaction, db) {
   }
 
   if (focused.name === "id") {
-    const scope = interaction.options.getString("scope");
-    let ownerType, ownerId;
-    if (scope === "guild") {
-      // Independently re-derives goal:on-hand/goal:delete's own guild-scope
-      // gate (requireGuildGoalAccess): admin tier or real guild ownership,
-      // never a plain guild member. `{ multiTenant: !!db }` mirrors
-      // index.js's own db construction rule (`config.multiTenant ?
-      // createDatabase(...) : null` -- db is truthy if and only if
-      // config.multiTenant is true), so this stand-in config object behaves
-      // identically to the real one without having to plumb `config`
-      // through the autocomplete routing path just for this one flag.
-      if (!interaction.guildId || !isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId)) {
-        // Must return an EMPTY array, not an error and not a partial list --
-        // a non-admin must never learn that guild goals exist at all.
-        await interaction.respond([]);
-        return;
-      }
-      ownerType = "guild"; ownerId = interaction.guildId;
-    } else {
-      ownerType = "player"; ownerId = interaction.user.id;
+    // CORRECTED (found while reviewing this task's own output): none of the
+    // 3 real subcommands with an `id` autocomplete field (on-hand,
+    // progress, delete) has a `scope` option at all -- only create/list
+    // have `scope`, and neither of those has `id`. Branching on
+    // interaction.options.getString("scope") here was therefore built on an
+    // assumption that is never true for any real caller of this branch; it
+    // always silently resolved to personal-only. Fixed to drop the
+    // scope-based branch entirely and instead mirror the exact same
+    // personal-then-guild binding rule the real commands
+    // (executeGoalOnHand/executeGoalProgress/executeGoalDelete) already
+    // use: always show the caller's own personal goals, and ALSO show the
+    // guild's goals if the caller is in a guild and passes the same
+    // admin-tier gate requireGuildGoalAccess enforces for any real
+    // guild-goal mutation/read. A non-admin must see ONLY their own
+    // personal goals -- zero guild goals, never a partial or filtered
+    // guild list. `{ multiTenant: !!db }` mirrors index.js's own db
+    // construction rule (`config.multiTenant ? createDatabase(...) :
+    // null` -- db is truthy iff config.multiTenant is true), so this
+    // stand-in config object behaves identically to the real one without
+    // having to plumb `config` through the autocomplete routing path just
+    // for this one flag.
+    const personal = listGoalsByOwner(db, { ownerType: "player", ownerId: interaction.user.id, includeCompleted: false })
+      .map((g) => ({ ...g, __label: "" }));
+    let guild = [];
+    if (interaction.guildId && isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId)) {
+      guild = listGoalsByOwner(db, { ownerType: "guild", ownerId: interaction.guildId, includeCompleted: false })
+        .map((g) => ({ ...g, __label: "Guild: " }));
     }
-    const goals = listGoalsByOwner(db, { ownerType, ownerId, includeCompleted: false })
+    // Personal first, then guild -- both can appear in the same list for an
+    // admin, so each entry is labeled to disambiguate which is which before
+    // the user picks one.
+    const goals = [...personal, ...guild]
       .filter((g) => String(g.id).includes(query) || (GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? "").toLowerCase().includes(query))
       .slice(0, 25)
-      .map((g) => ({ name: `#${g.id} ${GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? g.item_id}`, value: g.id }));
+      .map((g) => ({ name: `${g.__label}#${g.id} ${GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? g.item_id}`, value: g.id }));
     await interaction.respond(goals);
     return;
   }
