@@ -2116,6 +2116,17 @@ export function getCommandRegistry() {
       ]
     },
     {
+      group: "goal",
+      title: "The Long Game — Farming Goals",
+      commands: [
+        { name: "create", desc: "Create a personal or guild farming goal", role: "player" },
+        { name: "on-hand <id> <node>", desc: "Update your on-hand quantity for a goal", role: "player" },
+        { name: "list", desc: "List your (or your guild's) goals", role: "player" },
+        { name: "progress <id>", desc: "Full progress detail for one goal", role: "player" },
+        { name: "delete <id>", desc: "Delete a goal", role: "player" }
+      ]
+    },
+    {
       group: "logs",
       title: "Logs Explorer — Server Logs",
       // #217/C4 + #217/A8: roles corrected to match real enforcement

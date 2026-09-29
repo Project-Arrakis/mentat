@@ -8,6 +8,7 @@ import {
   commandDefinitions,
   executeDuneCommand,
   extractRoleIds,
+  getCommandRegistry,
   helpPayload,
   isAdminActor,
   isCommandAllowed,
@@ -113,6 +114,26 @@ test("helpPayload mirrors the full registered command surface (64 non-write comm
     [...registered].sort(),
     "help surface must be exactly the registered non-write surface - not a strict subset"
   );
+});
+
+// Task 11 (Phase 3): both public command surfaces must list every goal:*
+// subcommand -- this is the exact gap class Phase 1's Task 7 review already
+// found once (a real command silently missing from help/the registry).
+test("helpPayload lists every goal:* subcommand", () => {
+  const payload = helpPayload({ multiTenant: false, discord: { rbac: { mode: "open" } } }, { member: { roles: [] }, user: { id: "u1" } }, null, null);
+  const names = [...payload.available, ...payload.locked];
+  for (const sub of ["create", "on-hand", "list", "progress", "delete"]) {
+    assert.ok(names.includes(`goal:${sub}`), `helpPayload is missing goal:${sub}`);
+  }
+});
+
+test("getCommandRegistry lists the goal group", () => {
+  const registry = getCommandRegistry();
+  const goalGroup = registry.find((g) => g.group === "goal");
+  assert.ok(goalGroup, "getCommandRegistry is missing the goal group entirely");
+  for (const sub of ["create", "on-hand", "list", "progress", "delete"]) {
+    assert.ok(goalGroup.commands.some((c) => c.name.startsWith(sub)), `getCommandRegistry's goal group is missing ${sub}`);
+  }
 });
 
 // helpPayload must include the write group only when writes are enabled
