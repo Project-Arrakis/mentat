@@ -12,7 +12,7 @@ import { logInfo, logError } from "./logger.js";
 import { resolveCompatEnv } from "./compatEnv.js";
 import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegistryMetadata } from "./registryLoader.js";
 import { countSubcommands } from "./catalogTransform.js";
-import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed, formatCalculatorEmbed, formatGoalCreateEmbed, formatGoalOnHandEmbed, formatGoalListEmbed, formatGoalProgressEmbed } from "./embedFormat.js";
+import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed, formatCalculatorEmbed, formatGoalCreateEmbed, formatGoalOnHandEmbed, formatGoalListEmbed, formatGoalProgressEmbed, formatGoalDeleteEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { WRITE_ACTIONS, findWriteAction, discordOptionName } from "./writeActions.js";
@@ -238,6 +238,8 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
         .addBooleanOption((o) => o.setName("include-completed").setDescription("Completed.")))
       .addSubcommand((c) => c.setName("progress").setDescription("Progress detail.")
         .addIntegerOption((o) => o.setName("id").setDescription("Id.").setRequired(true).setAutocomplete(true)))
+      .addSubcommand((c) => c.setName("delete").setDescription("Delete a goal.")
+        .addIntegerOption((o) => o.setName("id").setDescription("Goal id.").setRequired(true).setAutocomplete(true)))
     )
 
     // ── logs group ──
@@ -559,6 +561,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = executeGoalList({ interaction, config, db });
     } else if (key === "goal:progress") {
       payload = executeGoalProgress({ interaction, config, db });
+    } else if (key === "goal:delete") {
+      payload = executeGoalDelete({ interaction, config, db });
     }
     // ── player group ──
     // Split out of data (2026-07-24) -- see the block comment above
@@ -880,6 +884,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatGoalListEmbed(payload);
     } else if (subcommand === "progress" && group === "goal") {
       embed = formatGoalProgressEmbed(payload);
+    } else if (subcommand === "delete" && group === "goal") {
+      embed = formatGoalDeleteEmbed(payload);
     } else if (subcommand === "link") {
       embed = formatLinkEmbed(payload);
     } else if (subcommand === "verify") {
@@ -1544,6 +1550,38 @@ function executeGoalProgress({ interaction, config, db }) {
   return { kind: "craftable", goal, itemName, plan: credited, durations, onHandEntries: mappedEntries };
 }
 
+// ── goal:delete (Task 9) ──
+// Same personal-then-guild binding-rule pattern as Tasks 6/8: probe the
+// player-owned scope first, then guild -- isAdminActor() (via
+// requireGuildGoalAccess) is only ever invoked once a REAL guild-scoped
+// match is already confirmed, so a cross-tenant/cross-owner id never
+// leaks anything and never reaches the access check at all.
+function executeGoalDelete({ interaction, config, db }) {
+  const id = interaction.options.getInteger("id");
+  let goal = getGoalScoped(db, { id, ownerType: "player", ownerId: interaction.user.id });
+  let ownerType = "player", ownerId = interaction.user.id;
+  if (!goal && interaction.guildId) {
+    const guildCandidate = getGoalScoped(db, { id, ownerType: "guild", ownerId: interaction.guildId });
+    if (guildCandidate) {
+      requireGuildGoalAccess(interaction, config, db);
+      goal = guildCandidate;
+      ownerType = "guild"; ownerId = interaction.guildId;
+    }
+  }
+  if (!goal) {
+    throw new Error(`Goal #${id} not found.`);
+  }
+
+  // Audit row written BEFORE the delete, in the spirit of "record before
+  // acting on a destructive change" -- goal_id is not a foreign key on
+  // goal_audit_log specifically so this row (and every earlier one for
+  // this goal) survives the delete that follows.
+  appendGoalAuditLog(db, { goalId: id, action: "delete", actorId: interaction.user.id });
+  deleteGoalScoped(db, { id, ownerType, ownerId });
+
+  return { ok: true, id };
+}
+
 // Autocomplete response handler for /dune data calculator's "item" and
 // "on-hand-N" options. "on-hand-N" is dependent on "item" -- it can only
 // suggest nodes from that item's own recipe tree (recipeTreeNodes()), so it
@@ -1677,6 +1715,7 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "goal:on-hand", desc: "Update your current on-hand quantity of one ingredient for a goal.", role: "player" },
     { name: "goal:list", desc: "List your (or your guild's) active goals.", role: "player" },
     { name: "goal:progress", desc: "Full progress detail for one goal.", role: "player" },
+    { name: "goal:delete", desc: "Delete a goal.", role: "player" },
     // ── logs ──
     { name: "logs:dune-cache", desc: "Show dune-cache container logs.", role: "player" },
     { name: "logs:dune-generated", desc: "Show dune-generated container logs.", role: "player" },

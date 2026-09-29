@@ -1880,3 +1880,15 @@ export function formatGoalProgressEmbed(payload) {
   const innerDescription = inner.data?.description ?? inner.description ?? "";
   return duneEmbed({ title: `Goal Progress — #${goal.id}`, color: "spice", description: [...header, "", innerDescription].join("\n") });
 }
+
+// ── goal:delete (Task 9) ──
+// "error" (a named DUNE_COLORS key), not the task brief's own literal
+// 0xe74c3c -- same trap formatGoalOnHandEmbed/formatGoalProgressEmbed's
+// comments already warn about: duneEmbed() resolves `color` through
+// DUNE_COLORS[color] by string key, so a bare hex number would miss that
+// lookup and silently fall back to the default spice color instead of the
+// red this confirmation is meant to show. DUNE_COLORS.error === 0xE74C3C,
+// the exact value the brief asked for -- just spelled as its named key.
+export function formatGoalDeleteEmbed(payload) {
+  return duneEmbed({ title: "Goal Deleted", color: "error", description: `Goal #${payload.id} deleted.` });
+}

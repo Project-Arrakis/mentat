@@ -115,6 +115,7 @@ of them.
 | `/dune goal on-hand <id> <node> <quantity>` | Update your current on-hand quantity of one ingredient (or the goal's own item, for a simple goal) for a goal. A craftable goal may track up to 6 distinct on-hand nodes; a simple goal only its own item. Crossing the target auto-completes the goal. Guild-scoped goals require admin-tier access or server ownership. |
 | `/dune goal list <scope> [include-completed]` | List your (or your guild's) goals, with a live progress percentage for each active goal and an overdue flag for any active order past its `due-at`. Readable by any guild member -- not admin-gated. A stale/unrenderable goal row shows as unavailable rather than breaking the rest of the list. |
 | `/dune goal progress <id>` | Full progress detail for one goal. A simple goal shows on-hand vs. target; a craftable goal reuses the crafting calculator's own shortfall/nested-craft/duration breakdown, credited against the goal's tracked on-hand entries. Readable by any guild member -- not admin-gated. |
+| `/dune goal delete <id>` | Delete a goal, cascading its on-hand entries. Guild-scoped goals require admin-tier access or server ownership, same as create/on-hand. |
 
 ### 📋 `logs` — Container Logs
 
