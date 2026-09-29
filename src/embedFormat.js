@@ -1,5 +1,6 @@
 import { EmbedBuilder } from "discord.js";
 import { ARRAKIS_TERMS, FACTION_QUOTES, randomQuote, randomComputationOpener } from "./quotes.js";
+import { CRAFTING_RECIPES, LEAF_RESOURCES } from "./craftingData.js";
 
 // Atreides: Green & Gold — Nobility, Honor, Nature
 // Harkonnen: Red & Black — Ruthlessness, Ambition, Power
@@ -1606,5 +1607,153 @@ export function formatSyncCommandsEmbed(payload) {
       ? "🟢 **In sync** — Core's catalog matches the bot's committed registry. No action needed."
       : "🟡 **Drift detected** — Core's catalog differs from the committed registry.\n**Next step:** regenerate the artifact (`npm run registry:generate`) against this Core and deploy it. Slash-command registration only changes on deploy — this check is read-only.",
     fields
+  });
+}
+
+// ── Crafting Calculator ──
+// See docs/calculator-design.md's §Response Shape for the two full worked
+// transcripts (plain, and with-on-hand-values) this formatter's output
+// matches in substance. Consumes either a plain calculateCraftingPlan()
+// result (no shortfall/maxCompletable/effectiveQuantity fields present) or
+// an applyOnHandCredit()-credited plan (same base shape, plus those three
+// fields spread on top) -- both shapes must be handled by this one
+// function, per Task 6's brief.
+function calculatorResourceDisplayName(key) {
+  return LEAF_RESOURCES[key] ?? CRAFTING_RECIPES[key]?.displayName ?? key;
+}
+
+function calculatorResourceRows(entries, onHandEntries) {
+  return entries.map(([resource, quantity]) => {
+    const displayName = calculatorResourceDisplayName(resource);
+    const onHandEntry = onHandEntries.find((e) => e.node === resource);
+    let note = "";
+    if (onHandEntry) {
+      // design.md §Response Shape's "New" bullet: the shortfall section
+      // always explains WHY a line is zero -- never a bare `0` with no
+      // context, which would misleadingly read as "not needed."
+      note = quantity === 0
+        ? ` (${onHandEntry.quantity.toLocaleString()} on hand — fully covered)`
+        : ` (${onHandEntry.quantity.toLocaleString()} on hand, ${quantity.toLocaleString()} more needed)`;
+    }
+    const pad = " ".repeat(Math.max(1, 20 - displayName.length));
+    return `• ${displayName}${pad}${quantity.toLocaleString()}${note}`;
+  }).join("\n");
+}
+
+export function formatCalculatorEmbed(plan, durations, { onHandEntries = [] } = {}) {
+  const recipe = CRAFTING_RECIPES[plan.itemKey];
+  const hasOnHand = onHandEntries.length > 0;
+  const title = `🧮 Crafting Calculator — ${plan.quantity.toLocaleString()}× ${recipe.displayName}${hasOnHand ? " (goal)" : ""}`;
+
+  const lines = [];
+  if (hasOnHand) {
+    lines.push(`Tier: ${plan.station}`);
+  } else {
+    // design.md §Response Shape's plain worked example: "Craft time: 500s
+    // (25 batches × 20s)" -- total station time across every batch of the
+    // root item, not just one batch's own craft time.
+    const totalCraftSeconds = plan.crafts * plan.craftTimeSeconds;
+    const batchWord = plan.crafts === 1 ? "batch" : "batches";
+    lines.push(`Tier: ${plan.station} · Craft time: ${totalCraftSeconds.toLocaleString()}s (${plan.crafts.toLocaleString()} ${batchWord} × ${plan.craftTimeSeconds}s)`);
+  }
+  if (hasOnHand) {
+    const onHandSummary = onHandEntries
+      .map((e) => `${e.quantity.toLocaleString()} ${calculatorResourceDisplayName(e.node)}`)
+      .join(", ");
+    lines.push(`On hand: ${onHandSummary}`);
+  }
+
+  // Required by docs/calculator-architecture.md's Shortfall Traversal
+  // Design ("Step 1"): the response always displays both the original
+  // `quantity` (the stated goal) and `effectiveQuantity` (what's actually
+  // left to produce) whenever a target-item-itself on-hand credit changed
+  // it. When no such credit was given, effectiveQuantity === quantity
+  // (including the plain no-credit case, where effectiveQuantity is
+  // undefined entirely) and this line is correctly omitted as a no-op
+  // restatement.
+  if (plan.effectiveQuantity !== undefined && plan.effectiveQuantity !== plan.quantity) {
+    const alreadyHave = plan.quantity - plan.effectiveQuantity;
+    lines.push(`Goal: ${plan.quantity.toLocaleString()} · Already have: ${alreadyHave.toLocaleString()} · Still need to produce: ${plan.effectiveQuantity.toLocaleString()}`);
+  }
+
+  if (hasOnHand) {
+    lines.push("");
+    lines.push("🗒️ **Shortfall (after on-hand credit, pooled across every level)**");
+    lines.push(calculatorResourceRows([...plan.shortfall.entries()], onHandEntries));
+  } else {
+    lines.push("");
+    lines.push("📦 **Direct Inputs (per this craft)**");
+    lines.push(calculatorResourceRows(plan.directInputs.map((i) => [i.resource, i.quantity]), onHandEntries));
+  }
+
+  for (const [nestedKey, nested] of Object.entries(plan.nestedCrafts)) {
+    let remainingCrafts = nested.crafts;
+    if (hasOnHand) {
+      const nestedShortfall = plan.shortfall.get(nestedKey) ?? 0;
+      const outputPerCraft = CRAFTING_RECIPES[nestedKey]?.outputPerCraft ?? 1;
+      remainingCrafts = Math.ceil(nestedShortfall / outputPerCraft);
+    }
+    if (remainingCrafts <= 0) continue; // fully covered by on-hand credit -- nothing left to report
+
+    lines.push("");
+    lines.push(`🔧 **Nested Craft: ${remainingCrafts.toLocaleString()}× ${calculatorResourceDisplayName(nestedKey)}**`);
+    if (!hasOnHand) {
+      lines.push(`Station: ${nested.station} · Craft time: ${(nested.crafts * nested.craftTimeSeconds).toLocaleString()}s`);
+    }
+    // Only ingredients genuinely unique to this level are shown here --
+    // anything already pooled into the top-level shortfall/raw-materials
+    // section above is never repeated (design.md's Revision note).
+    const uniqueToThisLevel = nested.directInputs.filter((i) => !i.craftable);
+    lines.push(calculatorResourceRows(uniqueToThisLevel.map((i) => [i.resource, i.quantity]), onHandEntries));
+  }
+
+  if (!hasOnHand) {
+    lines.push("");
+    lines.push("🗒️ **Total Raw Materials to Gather**");
+    lines.push(calculatorResourceRows(plan.totalRawMaterials.map((r) => [r.resource, r.quantity]), onHandEntries));
+  }
+
+  if (plan.maxCompletable !== undefined) {
+    lines.push("");
+    if (plan.maxCompletable.units >= plan.quantity) {
+      lines.push(`✅ You can complete all ${plan.quantity.toLocaleString()} requested.`);
+    } else {
+      const limitingName = plan.maxCompletable.limitingNode ? calculatorResourceDisplayName(plan.maxCompletable.limitingNode) : "on-hand supply";
+      const short = plan.quantity - plan.maxCompletable.units;
+      lines.push(`⚠️ You can complete at most ${plan.maxCompletable.units.toLocaleString()} ${recipe.displayName} with current ${limitingName} on hand — short ${short.toLocaleString()}.`);
+    }
+  }
+
+  if (plan.leftover > 0) {
+    lines.push("");
+    lines.push(`+${plan.leftover.toLocaleString()} leftover (rounded up to whole crafts)`);
+  }
+
+  if (durations.length > 0) {
+    lines.push("");
+    const durationText = durations
+      .map((d) => `${d.station} ${d.seconds.toLocaleString()}s (${Math.floor(d.seconds / 60)}m ${d.seconds % 60}s)`)
+      .join(" · ");
+    lines.push(`⏱️ Duration: ${durationText}`);
+  }
+
+  if (plan.craftingContract) {
+    lines.push("");
+    lines.push("Crafting Contract active (-25% materials)");
+  }
+
+  // design.md §Response Shape's discoverability-footer fix: a first-time
+  // user who only ever runs the plain form still gets pointed at the
+  // goal-tracking capability directly in the response. Omitted once a
+  // user is already using it (any on-hand-N value supplied).
+  if (!hasOnHand) {
+    lines.push("");
+    lines.push("💡 Tip: add on-hand-1 (and up to 5 more) to track a goal against what you already have — see /dune data calculator's own description.");
+  }
+
+  return duneEmbed({
+    title,
+    color: plan.maxCompletable !== undefined && plan.maxCompletable.units < plan.quantity ? "warning" : "spice",
+    description: lines.join("\n").slice(0, 4000)
   });
 }
