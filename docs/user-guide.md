@@ -62,7 +62,7 @@ Select one, then choose a command from within that group.
 | `/dune data population` | Shows how many players are online |
 | `/dune data backups` | Lists recent game backups |
 | `/dune data maps` | Shows which game maps are running |
-| `/dune data calculator <item> [quantity] [station-tier] [crafting-contract] [on-hand-1..6] [on-hand-N-quantity] [station-count]` | Calculates crafting requirements for an item, optionally tracking a goal against ingredients you already have on hand |
+| `/dune data calculator <item> [quantity] [station-tier] [crafting-contract] [on-hand-1..6] [on-hand-N-quantity] [station-count]` | Calculates crafting requirements for an item, optionally tracking a goal against ingredients you already have on hand. The `on-hand-N` slots are optional and can be in any order. |
 
 ### 🔗 `player` — Character Linking, Identity & Game Data
 
