@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { calculateCraftingPlan, walkRecipeTree, applyOnHandCredit, estimateDuration, recipeTreeNodes, bestAvailableTier, MIN_QUANTITY, MAX_QUANTITY } from "../src/craftingCalculator.js";
+import { calculateCraftingPlan, walkRecipeTree, applyOnHandCredit, resolveEffectiveOnHandCredit, estimateDuration, recipeTreeNodes, bestAvailableTier, MIN_QUANTITY, MAX_QUANTITY } from "../src/craftingCalculator.js";
 
 function totalOf(plan, resource) {
   return plan.totalRawMaterials.find((r) => r.resource === resource)?.quantity ?? 0;
@@ -401,6 +401,45 @@ test("estimateDuration: exact-boundary full material credit (maxCompletable.unit
   assert.equal(durations[0].station, "Ore Refinery");
   assert.equal(durations[0].craftsRemaining, 10, "material supply meeting the goal exactly does not mean the crafting is done");
   assert.equal(durations[0].seconds, 10 * 3);
+});
+
+// resolveEffectiveOnHandCredit() -- Task 3 extraction of executeCalculator()'s
+// own "Step A" logic (commands.js), so goal progress can reuse it without
+// duplicating or (as an earlier design draft did) skipping it.
+test("resolveEffectiveOnHandCredit: crediting the target item itself reduces effectiveQuantity, never calls calculateCraftingPlan with the raw target", () => {
+  const credited = resolveEffectiveOnHandCredit("copper_ingot", 25, [{ node: "copper_ingot", quantity: 10 }], { stationTier: "large", craftingContract: false });
+  assert.equal(credited.effectiveQuantity, 15);
+  assert.equal(credited.quantity, 25);
+});
+
+test("resolveEffectiveOnHandCredit: target-item credit covering the whole goal returns a genuinely empty plan, not a phantom 1-unit plan", () => {
+  const credited = resolveEffectiveOnHandCredit("copper_ingot", 25, [{ node: "copper_ingot", quantity: 25 }], { stationTier: "large", craftingContract: false });
+  assert.equal(credited.effectiveQuantity, 0);
+  assert.equal(credited.crafts, 0);
+  assert.deepEqual(credited.directInputs, []);
+  assert.deepEqual(credited.totalRawMaterials, []);
+  assert.equal(credited.totalTimeSeconds, 0);
+  assert.equal(credited.shortfall.size, 0);
+  assert.equal(credited.maxCompletable.units, 25);
+});
+
+test("resolveEffectiveOnHandCredit: no on-hand entries at all returns the plain uncredited plan", () => {
+  const credited = resolveEffectiveOnHandCredit("copper_ingot", 25, [], { stationTier: "large", craftingContract: false });
+  assert.equal(credited.effectiveQuantity, 25);
+  assert.equal(credited.crafts, 25);
+});
+
+test("resolveEffectiveOnHandCredit: ingredient credit (not the target item) applies applyOnHandCredit as before", () => {
+  const credited = resolveEffectiveOnHandCredit("copper_ingot", 25, [{ node: "copper_ore", quantity: 40 }], { stationTier: "large", craftingContract: false });
+  assert.ok(credited.shortfall.has("copper_ore"));
+  assert.equal(credited.effectiveQuantity, 25);
+});
+
+test("resolveEffectiveOnHandCredit: an invalid station tier still throws the real 'no recipe variant' error even at effectiveQuantity 0", () => {
+  assert.throws(
+    () => resolveEffectiveOnHandCredit("stravidium_fiber", 5, [{ node: "stravidium_fiber", quantity: 5 }], { stationTier: "large", craftingContract: false }),
+    /no recipe variant at this tier/i
+  );
 });
 
 test("recipeTreeNodes: Copper Ingot (flat item) returns itself + copper ore only", () => {

@@ -454,6 +454,55 @@ export function applyOnHandCredit(plan, onHandEntries = [], { quantity, targetIt
   };
 }
 
+// Extracted from commands.js's executeCalculator() (Task 3, Phase 3 plan) --
+// "Step A" per docs/calculator-architecture.md's Shortfall Traversal Design.
+// Resolves any on-hand credit toward the target item ITSELF (a legitimate
+// input recipeTreeNodes() explicitly offers, since it includes the root
+// item) before ever calling calculateCraftingPlan(), which cannot accept a
+// literal 0 quantity. This is a pure extraction -- zero behavior change for
+// Phase 1's own /dune data calculator, which now calls this function
+// instead of inlining the same logic. Shared so goal progress (Phase 3)
+// gets this exact, already-tested handling for free, instead of an earlier
+// design draft's mistake of skipping it entirely.
+export function resolveEffectiveOnHandCredit(itemKey, quantity, onHandEntries, { stationTier = "large", craftingContract = false } = {}) {
+  const targetEntry = onHandEntries.find((e) => e.node === itemKey);
+  const targetItemOnHand = targetEntry?.quantity ?? 0;
+  const effectiveQuantity = Math.max(0, quantity - targetItemOnHand);
+  const ingredientOnHandEntries = onHandEntries.filter((e) => e.node !== itemKey);
+
+  if (effectiveQuantity === 0) {
+    // The target-item-itself on-hand credit alone already covers the whole
+    // goal -- nothing left to craft. calculateCraftingPlan() can't accept a
+    // literal 0 (MIN_QUANTITY's own bound), so it's still called once at
+    // MIN_QUANTITY -- but ONLY to (a) surface a real "no recipe variant at
+    // this tier" error if the requested tier doesn't exist for this item,
+    // and (b) read the real station/craftTimeSeconds display strings. Every
+    // list-shaped field it returns describes a genuine 1-unit plan and must
+    // NOT be reused here -- construct the zero-credit result directly.
+    const probePlan = calculateCraftingPlan(itemKey, MIN_QUANTITY, { stationTier, craftingContract });
+    return {
+      ...probePlan,
+      quantity,
+      effectiveQuantity: 0,
+      crafts: 0,
+      leftover: 0,
+      directInputs: [],
+      nestedCrafts: {},
+      totalRawMaterials: [],
+      totalTimeSeconds: 0,
+      shortfall: new Map(),
+      maxCompletable: { units: Math.min(quantity, targetItemOnHand), limitingNode: undefined }
+    };
+  }
+
+  const plan = calculateCraftingPlan(itemKey, effectiveQuantity, { stationTier, craftingContract });
+  const hasIngredientCredit = ingredientOnHandEntries.length > 0;
+  const credited = hasIngredientCredit || targetItemOnHand > 0
+    ? applyOnHandCredit(plan, ingredientOnHandEntries, { quantity, targetItemOnHand })
+    : plan;
+  return { ...credited, effectiveQuantity };
+}
+
 const STATION_FAMILY = (stationName) => (stationName.includes("Chemical") ? "Chemical Refinery" : "Ore Refinery");
 
 // Reports total in-game station time still needed to finish `plan`, grouped

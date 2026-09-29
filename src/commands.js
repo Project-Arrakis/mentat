@@ -24,7 +24,7 @@ import { getGuildStatus, getGuildRoles, getGuildSettings, incrementCommandCount,
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
 import { multiTenantActorTier, tierAtLeast, resolveGuildOwnerId, isInteractionGuildOwner, actorFromInteraction } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
-import { calculateCraftingPlan, applyOnHandCredit, estimateDuration, recipeTreeNodes, bestAvailableTier, MIN_QUANTITY, MAX_QUANTITY } from "./craftingCalculator.js";
+import { calculateCraftingPlan, applyOnHandCredit, resolveEffectiveOnHandCredit, estimateDuration, recipeTreeNodes, bestAvailableTier, MIN_QUANTITY, MAX_QUANTITY } from "./craftingCalculator.js";
 import { CRAFTING_RECIPES } from "./craftingData.js";
 
 // Mechanical WRITE_ACTIONS -> discord.js subcommand registration -- shared
@@ -1202,60 +1202,8 @@ function executeCalculator({ interaction }) {
     }
   }
 
-  // Step A: resolve target-item-itself credit BEFORE calling
-  // calculateCraftingPlan() -- see docs/calculator-architecture.md's
-  // Shortfall Traversal Design "Step 1".
-  const targetEntry = rawOnHandEntries.find((e) => e.node === itemKey);
-  const targetItemOnHand = targetEntry?.quantity ?? 0;
-  const effectiveQuantity = Math.max(0, quantity - targetItemOnHand);
-  const ingredientOnHandEntries = rawOnHandEntries.filter((e) => e.node !== itemKey);
-
-  let credited;
-  let durations;
-
-  if (effectiveQuantity === 0) {
-    // [Critical fix, post-review] The target-item-itself on-hand credit
-    // alone already covers the whole goal -- nothing is left to craft.
-    // calculateCraftingPlan() can't accept a literal 0 (MIN_QUANTITY's own
-    // bound), so it's still called once at MIN_QUANTITY -- but ONLY to (a)
-    // surface a real "no recipe variant at this tier" error if the
-    // requested tier doesn't exist for this item, and (b) read the real
-    // station/craftTimeSeconds display strings for the tier line. Every
-    // list-shaped field it returns (directInputs, nestedCrafts,
-    // totalRawMaterials, totalTimeSeconds) describes a genuine 1-unit plan
-    // and must NOT be reused here. A prior version spread those fields
-    // through unchanged (only zeroing quantity/crafts/leftover), which
-    // rendered a self-contradictory embed every single time this branch
-    // fired: "Still need to produce: 0" / "You can complete all N
-    // requested" at the top, but ALSO a non-zero Shortfall table, a phantom
-    // "Nested Craft" section, and a non-zero Duration line below it --
-    // confirmed via an actual rendered-embed trace, not just a unit test.
-    // applyOnHandCredit() is skipped entirely here (crediting a
-    // zero-quantity plan doesn't mean anything); the zero-credit result
-    // shape is constructed directly instead.
-    const probePlan = calculateCraftingPlan(itemKey, MIN_QUANTITY, { stationTier, craftingContract });
-    credited = {
-      ...probePlan,
-      quantity,
-      effectiveQuantity: 0,
-      crafts: 0,
-      leftover: 0,
-      directInputs: [],
-      nestedCrafts: {},
-      totalRawMaterials: [],
-      totalTimeSeconds: 0,
-      shortfall: new Map(),
-      maxCompletable: { units: Math.min(quantity, targetItemOnHand), limitingNode: undefined }
-    };
-    durations = [];
-  } else {
-    const plan = calculateCraftingPlan(itemKey, effectiveQuantity, { stationTier, craftingContract });
-    const hasIngredientCredit = ingredientOnHandEntries.length > 0;
-    credited = hasIngredientCredit || targetItemOnHand > 0
-      ? applyOnHandCredit(plan, ingredientOnHandEntries, { quantity, targetItemOnHand })
-      : plan;
-    durations = estimateDuration(credited, { stationCount });
-  }
+  const credited = resolveEffectiveOnHandCredit(itemKey, quantity, rawOnHandEntries, { stationTier, craftingContract });
+  const durations = credited.effectiveQuantity === 0 ? [] : estimateDuration(credited, { stationCount });
 
   return { plan: credited, durations, onHandEntries: rawOnHandEntries };
 }
