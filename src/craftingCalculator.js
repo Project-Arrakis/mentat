@@ -151,30 +151,109 @@ export function calculateCraftingPlan(itemKey, quantity, { stationTier = "large"
 // S-2). A free-typed on-hand-N value that bypassed Discord's autocomplete
 // could otherwise carry "__proto__"/"constructor"/"prototype" and resolve
 // against real inherited properties instead of undefined.
+//
+// This is deliberately separate from buildBranchIndex() below: this
+// function's pooled totals drive the `shortfall` map (how much of each
+// resource is still needed, in that resource's own units); buildBranchIndex()
+// drives `maxCompletable` (how many whole ROOT crafts a given on-hand
+// quantity actually supports, which needs real per-craft/output-per-craft
+// math, not a pooled ratio -- see its own comment for why).
 function flattenPlanNodes(plan) {
-  // Returns a Map<nodeKey, { pooledQuantity, isIntermediate, ratio }>
-  // covering the target item itself, every intermediate craftable, and
-  // every raw leaf -- everything an on-hand-N value could legally name.
+  // Returns a Map<nodeKey, { pooledQuantity, isIntermediate }> covering the
+  // target item itself, every intermediate craftable, and every raw leaf --
+  // everything an on-hand-N value could legally name.
   const nodes = new Map();
-  nodes.set(plan.itemKey, { pooledQuantity: plan.quantity, isIntermediate: false, isTarget: true });
+  nodes.set(plan.itemKey, { pooledQuantity: plan.quantity, isIntermediate: false });
   for (const [resource, nested] of Object.entries(plan.nestedCrafts)) {
-    nodes.set(resource, { pooledQuantity: nested.quantity, isIntermediate: true, ratio: nested.quantity / plan.quantity });
+    nodes.set(resource, { pooledQuantity: nested.quantity, isIntermediate: true });
   }
   for (const entry of plan.totalRawMaterials) {
-    nodes.set(entry.resource, { pooledQuantity: entry.quantity, isIntermediate: false, ratio: entry.quantity / plan.quantity });
+    nodes.set(entry.resource, { pooledQuantity: entry.quantity, isIntermediate: false });
   }
   return nodes;
 }
 
+// Builds the structure applyOnHandCredit() uses to convert an on-hand
+// quantity into whole root-crafts, respecting each recipe's real
+// outputPerCraft (Critical #1: a pooled-quantity/requested-quantity ratio
+// silently assumes outputPerCraft===1, which is false for e.g. Spice-infused
+// Fuel Cell at 10/craft, Low-grade Lubricant at 5/craft) and combining every
+// credited node within the SAME dependency chain additively before that
+// chain competes against any other, independent chain via min() (Critical
+// #2: crediting both an intermediate and its own leaf input are substitutes
+// along one chain, not two separate constraints).
+//
+// A "branch" is one direct input of the root item -- a raw leaf is its own
+// one-node branch; a craftable input is a branch containing itself plus its
+// own (today, always depth-1) leaf inputs. Real production data has no
+// depth-2+ nesting (Task 1's own data-integrity test enforces this), so this
+// intentionally does not recurse past one level -- same accepted-limitation
+// posture as the cycle guard in walkRecipeTree(). outputPerCraft itself
+// isn't part of the plan shape Task 2 returns, so it's derived from the
+// identity crafts*outputPerCraft = quantity + leftover, which always holds
+// exactly for both the root plan and any nested plan.
+function buildBranchIndex(plan) {
+  const branches = new Map();
+  const index = new Map(); // Map<node, { branchNode, role: "self"|"leaf", perCraftQtyInIntermediate? }>
+
+  for (const input of plan.directInputs) {
+    const perCraftQtyAtRoot = input.quantity / plan.crafts;
+    if (!input.craftable) {
+      branches.set(input.resource, { type: "leaf", node: input.resource, perCraftQtyAtRoot });
+      index.set(input.resource, { branchNode: input.resource, role: "self" });
+      continue;
+    }
+    const nestedPlan = plan.nestedCrafts[input.resource];
+    const intermediateOutputPerCraft = (nestedPlan.quantity + nestedPlan.leftover) / nestedPlan.crafts;
+    const leafPerCraftQty = new Map();
+    for (const nestedInput of nestedPlan.directInputs) {
+      if (nestedInput.craftable) continue; // depth-1 only -- see accepted limitation above
+      leafPerCraftQty.set(nestedInput.resource, nestedInput.quantity / nestedPlan.crafts);
+    }
+    branches.set(input.resource, { type: "intermediate", node: input.resource, perCraftQtyAtRoot, intermediateOutputPerCraft, leafPerCraftQty });
+    index.set(input.resource, { branchNode: input.resource, role: "self" });
+  }
+
+  // A raw resource consumed both directly by the root AND nested inside a
+  // craftable input (e.g. Water under both Duraluminum Ingot itself and its
+  // nested Aluminum Ingot) has no single physically-correct branch to
+  // resolve to -- there is no way to know which use a pooled on-hand credit
+  // is "really" satisfying. Resolved deterministically in favor of the
+  // direct-root use (never overwriting an index entry pass one already set)
+  // -- a documented simplification, not a silent bug.
+  for (const branch of branches.values()) {
+    if (branch.type !== "intermediate") continue;
+    for (const [leafNode, perCraftQtyInIntermediate] of branch.leafPerCraftQty.entries()) {
+      if (index.has(leafNode)) continue;
+      index.set(leafNode, { branchNode: branch.node, role: "leaf", perCraftQtyInIntermediate });
+    }
+  }
+
+  return { branches, index };
+}
+
 export function applyOnHandCredit(plan, onHandEntries = [], { quantity, targetItemOnHand = 0 } = {}) {
-  // [SECURITY, finding S-1] Re-validate every on-hand quantity here,
-  // independently of whatever the Discord option or the caller already
+  // [SECURITY, finding S-1 + Important #4] Re-validate every caller-supplied
+  // number here, independently of whatever the Discord option layer already
   // checked -- same reasoning as calculateCraftingPlan()'s own quantity
   // re-validation.
+  validateQuantity(quantity, { min: MIN_QUANTITY, max: MAX_QUANTITY, label: "quantity" });
+  validateQuantity(targetItemOnHand, { min: 0, max: MAX_QUANTITY, label: "targetItemOnHand" });
+
+  const seenNodes = new Set();
   for (const entry of onHandEntries) {
     if (!Number.isInteger(entry.quantity) || entry.quantity < 0 || entry.quantity > MAX_QUANTITY) {
       throw new Error(`On-hand quantity for "${entry.node}" must be a whole number between 0 and ${MAX_QUANTITY} (got "${entry.quantity}").`);
     }
+    // [SECURITY, Important #1] Task 7's Discord-option layer is also meant
+    // to reject a duplicate on-hand-N node, but per this file's own
+    // defense-in-depth posture (see S-1/S-2), never trust a single caller
+    // alone -- a duplicate here would otherwise silently double-subtract
+    // from `shortfall` and double-count toward `maxCompletable`.
+    if (seenNodes.has(entry.node)) {
+      throw new Error(`Duplicate on-hand entry for "${entry.node}" -- each ingredient may only be credited once.`);
+    }
+    seenNodes.add(entry.node);
   }
 
   const nodeMap = flattenPlanNodes(plan); // Map, per finding S-2
@@ -184,12 +263,13 @@ export function applyOnHandCredit(plan, onHandEntries = [], { quantity, targetIt
     shortfall.set(key, info.pooledQuantity);
   }
 
-  let supplyConstrainedUnits = Infinity;
-  let limitingNode;
+  const { branches, index } = buildBranchIndex(plan); // both Maps, per finding S-2
+  const rootOutputPerCraft = (plan.quantity + plan.leftover) / plan.crafts;
+  const branchContribution = new Map(); // Map<branchNode, { units, entries: [node, ...] }>
 
   for (const entry of onHandEntries) {
-    const info = nodeMap.get(entry.node); // Map.get -- never `nodeMap[entry.node]`
-    if (!info || entry.node === plan.itemKey) {
+    const located = index.get(entry.node); // Map.get -- never `index[entry.node]`
+    if (!located) {
       throw new Error(`"${entry.node}" is not an ingredient of ${plan.itemKey}.`);
     }
 
@@ -197,12 +277,12 @@ export function applyOnHandCredit(plan, onHandEntries = [], { quantity, targetIt
     const newShortfall = Math.max(0, currentShortfall - entry.quantity);
     shortfall.set(entry.node, newShortfall);
 
+    const info = nodeMap.get(entry.node);
     if (info.isIntermediate) {
-      // Cascade: this dataset's every nested item has outputPerCraft baked
-      // into `nested.crafts` already, so scaling each of the nested item's
-      // own raw inputs proportionally to the shortfall reduction (rather
-      // than recomputing a separate reducedCrafts count) is simpler and
-      // exactly equivalent -- then re-pool the scaled amounts.
+      // Cascade: crediting an intermediate craftable proportionally reduces
+      // its own (depth-1) raw inputs' pooled shortfall too, since that much
+      // of the intermediate no longer needs to be crafted from scratch.
+      // Never cascades upward past the intermediate itself.
       const nested = plan.nestedCrafts[entry.node];
       const creditRatio = currentShortfall === 0 ? 0 : (currentShortfall - newShortfall) / currentShortfall;
       for (const input of nested.directInputs) {
@@ -212,23 +292,50 @@ export function applyOnHandCredit(plan, onHandEntries = [], { quantity, targetIt
       }
     }
 
-    // Supply-constrained maxCompletable: on-hand quantity / per-target-unit ratio.
-    const ratio = info.ratio ?? 1;
-    const supportedUnits = Math.floor(entry.quantity / ratio);
-    if (supportedUnits < supplyConstrainedUnits) {
-      supplyConstrainedUnits = supportedUnits;
-      limitingNode = entry.node;
+    // [Critical #1/#2 fix] Convert this entry's on-hand quantity into
+    // "available units of its branch's own top-level node," accumulating
+    // additively with any other credited node in the SAME branch (e.g. an
+    // intermediate credited directly, plus its own leaf credited too) --
+    // branches only ever compete against EACH OTHER via min() below, never
+    // against sub-parts of themselves.
+    const branch = branches.get(located.branchNode);
+    const unitsOfBranchTop = located.role === "self"
+      ? entry.quantity
+      : Math.floor(entry.quantity / located.perCraftQtyInIntermediate) * branch.intermediateOutputPerCraft;
+
+    const contribution = branchContribution.get(located.branchNode) ?? { units: 0, entries: [] };
+    contribution.units += unitsOfBranchTop;
+    contribution.entries.push(entry.node);
+    branchContribution.set(located.branchNode, contribution);
+  }
+
+  // [Critical #1 fix] Whole-craft granularity: floor to full crafts of the
+  // branch's own root-facing recipe line BEFORE multiplying back out by the
+  // root's real outputPerCraft -- e.g. 1 Silicone Block on hand against
+  // Industrial-grade Lubricant (needs 4/craft, outputs 10/craft) supports
+  // ZERO completable units, not floor(1/4*10)=2.
+  let supplyConstrainedUnits = Infinity;
+  let limitingNode;
+  for (const [branchNode, contribution] of branchContribution.entries()) {
+    const branch = branches.get(branchNode);
+    const rootCraftsSupportable = Math.floor(contribution.units / branch.perCraftQtyAtRoot);
+    const rootUnitsSupportable = rootCraftsSupportable * rootOutputPerCraft;
+    if (rootUnitsSupportable < supplyConstrainedUnits) {
+      supplyConstrainedUnits = rootUnitsSupportable;
+      limitingNode = contribution.entries.length === 1 ? contribution.entries[0] : branchNode;
     }
   }
 
+  // [Important #2 fix] Always compute both terms -- when onHandEntries is
+  // empty, supplyConstrainedUnits is still correctly Infinity (the loop
+  // above never ran), so `targetItemOnHand + Infinity = Infinity` and
+  // `Math.min(quantity, Infinity) = quantity` fall out correctly without a
+  // separate branch for the empty-entries case.
   let maxCompletable;
   if (targetItemOnHand > 0 || onHandEntries.length > 0) {
-    const combined = onHandEntries.length > 0
-      ? targetItemOnHand + supplyConstrainedUnits
-      : targetItemOnHand;
     maxCompletable = {
-      units: Math.min(quantity, combined),
-      limitingNode: onHandEntries.length > 0 ? limitingNode : undefined
+      units: Math.min(quantity, targetItemOnHand + supplyConstrainedUnits),
+      limitingNode
     };
   }
 

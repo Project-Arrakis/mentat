@@ -121,6 +121,12 @@ test("applyOnHandCredit: crediting the intermediate craftable itself -- cascades
   const credited = applyOnHandCredit(plan, [{ node: "stravidium_fiber", quantity: 8 }], { quantity: 25 });
   assert.equal(credited.maxCompletable.units, 8, "8 stravidium fiber on hand -> 8 plastanium completable (1:1 ratio)");
   assert.equal(credited.maxCompletable.limitingNode, "stravidium_fiber");
+  // Important #5: the cascade must actually reduce the pooled shortfall of
+  // stravidium_fiber's OWN inputs proportionally (8/25 of fiber's total
+  // requirement is offset), not just move maxCompletable -- a broken
+  // cascade could still pass the assertions above.
+  assert.equal(credited.shortfall.get("water"), 33750 - 8 * 100, "fiber's own Water per craft (100) * 8 offset crafts");
+  assert.equal(credited.shortfall.get("stravidium_mass"), 75 - 8 * 3, "fiber's own Stravidium Mass per craft (3) * 8 offset crafts");
 });
 
 test("applyOnHandCredit: crediting a leaf resource underneath the intermediate -- no cascade upward, pooled subtraction only (worked example)", () => {
@@ -175,4 +181,61 @@ test("applyOnHandCredit: no on-hand values at all -- maxCompletable is undefined
   const plan = calculateCraftingPlan("copper_ingot", 5, { stationTier: "large" });
   const credited = applyOnHandCredit(plan, [], { quantity: 5 });
   assert.equal(credited.maxCompletable, undefined);
+});
+
+test("applyOnHandCredit: multi-output recipe, undercounting direction (Critical #1) -- 1 Silicone Block can't start a 4-per-craft recipe", () => {
+  const plan = calculateCraftingPlan("industrial_lubricant", 10, { stationTier: "medium" });
+  const credited = applyOnHandCredit(plan, [{ node: "silicone_block", quantity: 1 }], { quantity: 10 });
+  assert.equal(credited.maxCompletable.units, 0, "1 of 4 needed per craft can't complete even one craft, so 0 output units, not floor(1/4*10)=2");
+});
+
+test("applyOnHandCredit: multi-output recipe, full-requirement boundary (Critical #1) -- capped at the requested quantity, not the raw craft output", () => {
+  const plan = calculateCraftingPlan("spice_fuel_cell", 11, { stationTier: "medium" });
+  const credited = applyOnHandCredit(plan, [{ node: "water", quantity: 400 }], { quantity: 11 });
+  // 400 water / 200 per craft = 2 full crafts = 20 raw output units, but
+  // capped at the requested 11 -- not 20.
+  assert.equal(credited.maxCompletable.units, 11);
+});
+
+test("applyOnHandCredit: multi-output recipe, partial supply (Critical #1)", () => {
+  const plan = calculateCraftingPlan("spice_fuel_cell", 11, { stationTier: "medium" });
+  const credited = applyOnHandCredit(plan, [{ node: "water", quantity: 200 }], { quantity: 11 });
+  // 200 water / 200 per craft = 1 full craft = 10 output units.
+  assert.equal(credited.maxCompletable.units, 10);
+});
+
+test("applyOnHandCredit: crediting an intermediate AND a leaf beneath it combine, they don't compete via min() (Critical #2, worked example)", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [
+    { node: "stravidium_fiber", quantity: 8 },
+    { node: "stravidium_mass", quantity: 60 }
+  ], { quantity: 25 });
+  // 8 already-refined fiber + floor(60/3)=20 more fiber from the mass =
+  // 28 fiber-equivalent, which covers all 25 needed -- not min(8,20)=8.
+  assert.equal(credited.maxCompletable.units, 25);
+});
+
+test("applyOnHandCredit: a duplicate on-hand node is rejected, not silently double-counted (Important #1)", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  assert.throws(
+    () => applyOnHandCredit(plan, [
+      { node: "titanium_ore", quantity: 10 },
+      { node: "titanium_ore", quantity: 20 }
+    ], { quantity: 25 }),
+    /duplicate/i
+  );
+});
+
+test("applyOnHandCredit: quantity and targetItemOnHand are validated independently (Important #4)", () => {
+  const plan = calculateCraftingPlan("copper_ingot", 5, { stationTier: "large" });
+  for (const bad of [NaN, -1, 1.5]) {
+    assert.throws(() => applyOnHandCredit(plan, [], { quantity: bad }), Error, `quantity=${bad} should throw`);
+    assert.throws(() => applyOnHandCredit(plan, [], { quantity: 5, targetItemOnHand: bad }), Error, `targetItemOnHand=${bad} should throw`);
+  }
+});
+
+test("applyOnHandCredit: empty on-hand entries + target-item credit -- supply term is unbounded, not zero (Important #2)", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" }); // effectiveQuantity === quantity here
+  const credited = applyOnHandCredit(plan, [], { quantity: 25, targetItemOnHand: 5 });
+  assert.equal(credited.maxCompletable.units, 25, "no ingredient credit at all means the supply term is unbounded (Infinity), so units is capped only by quantity");
 });
