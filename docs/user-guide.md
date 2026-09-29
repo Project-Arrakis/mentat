@@ -34,7 +34,7 @@ Select one, then choose a command from within that group.
 |---------|-------------|
 | `/dune core about` | Shows bot version, security info, and connection details |
 | `/dune core ping` | Tests how fast the bot can reach your game server |
-| `/dune core help` | Lists all commands you have permission to use |
+| `/dune core help` | Lists all commands you have permission to use; when operator write commands are enabled they are listed too (locked unless you hold the required tier) |
 | `/dune core setup` | How to add this bot to your own Discord server |
 
 ### 🌍 `server` — Game Server Health

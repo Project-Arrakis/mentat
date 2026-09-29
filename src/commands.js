@@ -1828,6 +1828,17 @@ export const WRITE_HELP_ENTRIES = [
   { name: "write:cache", desc: "Clear server caches.", role: "admin" }
 ];
 
+// [mentat#424] Derived mechanically from WRITE_ACTIONS (never hand-listed)
+// so a newly added write action can not be forgotten in /dune help -- the
+// hand-maintained list this replaces missed 28 registered, dispatchable
+// subcommands (base/map/carepackage/guild/operations/bot groups plus the
+// write subcommands merged into player and server). `writeTier` is the
+// action's real gate, consumed by helpPayload() to classify each entry as
+// available/locked exactly as writeHandler.js would authorize it.
+export const WRITE_ACTION_HELP_ENTRIES = WRITE_ACTIONS.map((e) => ({
+  name: `${e.group}:${e.name}`, desc: e.desc, role: e.tier, writeTier: e.tier
+}));
+
 export function helpPayload(config, interaction, db = null, guildId = null) {
   const all = [
     // ── core ──
@@ -1915,14 +1926,25 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
   // (buildDuneCommand() appends it conditionally) -- list it here only in
   // that same case so help always mirrors what is actually registered.
   if (writesEnabled(config)) {
-    all.push(...WRITE_HELP_ENTRIES);
+    const listed = new Set(all.map((c) => c.name));
+    for (const entry of [...WRITE_HELP_ENTRIES, ...WRITE_ACTION_HELP_ENTRIES]) {
+      if (!listed.has(entry.name)) { listed.add(entry.name); all.push(entry); }
+    }
   }
   const available = []; const locked = [];
   for (const cmd of all) {
     // Write commands are gated by write-owner/write-admin roles
     // (canWrite()), not the normal observer/admin RBAC used by
     // isCommandAllowed() -- classify them with their real gate.
-    if (cmd.name.startsWith("write:")) {
+    if (cmd.writeTier === "host-operator") {
+      // bot:self-update: authorized ONLY by the configured bot host operator
+      // identity (writeHandler.js), never by canWrite() -- mirror that here.
+      const operatorId = config?.discord?.botOperatorUserId;
+      if (operatorId && interaction?.user?.id === operatorId) available.push(cmd); else locked.push(cmd);
+    } else if (cmd.writeTier) {
+      // WRITE_ACTIONS-derived entries: gated by their real per-action tier.
+      if (canWrite(interaction, config, cmd.writeTier, db, guildId)) available.push(cmd); else locked.push(cmd);
+    } else if (cmd.name.startsWith("write:")) {
       if (canWrite(interaction, config, null, db, guildId)) available.push(cmd); else locked.push(cmd);
     } else if (cmd.name === "admin:broadcast") {
       // broadcast is also gated by canWrite() (via canBroadcast(), moderator
@@ -2086,6 +2108,14 @@ export function requiredRoleIdsForCommand(command, rbac) { return rbac?.commandR
 // registers — never the internal Core-catalog registry, which both
 // diverges from the real command tree (#196) and leaks Core's adapter
 // routes/capabilities/methods to unauthenticated callers (#203).
+//
+// [mentat#424] DELIBERATELY EXCLUDES every write group/subcommand
+// (WRITE_ACTIONS and the legacy `write` group), even though /dune help
+// lists them for authorized callers. This feed is unauthenticated and
+// public: advertising operator-only mutation commands (kick, ban, server
+// stop, map despawn, ...) to anonymous callers is the same class of leak
+// as #203. Do not "fix" the apparent help/registry asymmetry by adding
+// them; test/helpWriteVisibility.test.js fails if a write group appears.
 export function getCommandRegistry() {
   return [
     {
