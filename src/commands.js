@@ -1761,7 +1761,11 @@ export async function handleGoalAutocomplete(interaction, db) {
     // caller's options object exposes getSubcommand.
     const subcommand = interaction.options.getSubcommand?.();
     const includeCompleted = subcommand === "delete";
-    const personal = listGoalsByOwner(db, { ownerType: "player", ownerId: interaction.user.id, includeCompleted })
+    // delete only: newest first (id is monotonic), so someone near the
+    // 50-goal lifetime cap sees their newest goals within Discord's
+    // 25-choice cap. Grouping (personal, then guild) is preserved.
+    const order = (rows) => (subcommand === "delete" ? [...rows].sort((a, b) => b.id - a.id) : rows);
+    const personal = order(listGoalsByOwner(db, { ownerType: "player", ownerId: interaction.user.id, includeCompleted }))
       .map((g) => ({ ...g, __label: "" }));
     let guild = [];
     // mentat#425: executeGoalProgress deliberately lets ANY member of the
@@ -1778,7 +1782,7 @@ export async function handleGoalAutocomplete(interaction, db) {
         ? isCommandAllowed(interaction, "goal:progress", { multiTenant: !!db }, db, interaction.guildId)
         : isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId));
     if (guildVisible) {
-      guild = listGoalsByOwner(db, { ownerType: "guild", ownerId: interaction.guildId, includeCompleted })
+      guild = order(listGoalsByOwner(db, { ownerType: "guild", ownerId: interaction.guildId, includeCompleted }))
         .map((g) => ({ ...g, __label: "Guild: " }));
     }
     // Personal first, then guild -- both can appear in the same list for an

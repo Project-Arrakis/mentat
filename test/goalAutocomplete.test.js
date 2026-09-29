@@ -303,3 +303,19 @@ test("invariant: progress autocomplete shows guild goals iff isCommandAllowed(go
     assert.equal(i._responded.length > 0, allowed, `mode=${mode} roles=${roles} owner=${isOwner}`);
   }
 });
+
+test("delete autocomplete lists newest goals first so the 25-choice cap keeps the newest", async () => {
+  const db = createDatabase(":memory:");
+  const ids = [];
+  for (let n = 0; n < 30; n++) {
+    ids.push(createGoal(db, { ownerType: "player", ownerId: "u1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "u1" }));
+  }
+  const del = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "u1", subcommand: "delete" });
+  await handleGoalAutocomplete(del, db);
+  assert.equal(del._responded.length, 25);
+  assert.equal(del._responded[0].value, ids[29], "newest first");
+  assert.ok(!del._responded.some((c) => c.value === ids[0]));
+  const prog = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "u1", subcommand: "progress" });
+  await handleGoalAutocomplete(prog, db);
+  assert.equal(prog._responded[0].value, ids[0], "other subcommands keep oldest-first");
+});
