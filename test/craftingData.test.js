@@ -11,8 +11,10 @@ test("CRAFTING_RECIPES has exactly 15 items", () => {
 test("every recipe variant has a source.url and source.verifiedAt", () => {
   for (const key of ITEM_KEYS) {
     const recipe = CRAFTING_RECIPES[key];
-    assert.ok(recipe.source?.url, `${key} missing source.url`);
-    assert.ok(recipe.source?.verifiedAt, `${key} missing source.verifiedAt`);
+    for (const [tierKey, variant] of Object.entries(recipe.variants)) {
+      assert.ok(variant.source?.url, `${key}.${tierKey} missing source.url`);
+      assert.ok(variant.source?.verifiedAt, `${key}.${tierKey} missing source.verifiedAt`);
+    }
   }
 });
 
