@@ -18,7 +18,7 @@ import {
 } from "../src/commands.js";
 import { createDatabase, upsertGuild, addGuildRole, updateGuildSettings, getGoalScoped, createGoal, setGoalOnHandEntry } from "../src/database.js";
 import { WRITE_ACTIONS, findWriteAction } from "../src/writeActions.js";
-import { GAME_ITEM_CATALOG_BY_ID } from "../src/gameItemCatalog.js";
+import { GAME_ITEM_CATALOG, GAME_ITEM_CATALOG_BY_ID } from "../src/gameItemCatalog.js";
 import { clearCooldown } from "../src/cooldown.js";
 
 const packageVersion = JSON.parse(
@@ -1242,6 +1242,29 @@ test("goal:create enforces the 5-active-personal-goal cap with an actionable, id
   const text = JSON.stringify(lastEdited?.embeds?.[0]);
   assert.match(text, /5|cap|limit/i);
   assert.match(text, /\bid\b|#\d/i, "rejection must list existing goals with actionable ids, not just a bare count");
+});
+
+// ── goal:create redaction safety (Task 12) ──
+//
+// Proves, not builds: goal-related Discord payloads (Tasks 5-9) must never
+// trip format.js's redactSecrets() false-positive class, where a real item
+// name containing "Token"/"Secret" gets wrongly [REDACTED]'d because a
+// payload used a caller-supplied string as an object key or built a
+// "Name: quantity"-style label string before redaction. GAME_ITEM_CATALOG
+// has real entries with "Token" in the name (e.g. "Raider Token") -- pick
+// one live rather than fabricating a fixture item.
+test("a goal targeting an item whose name contains 'Token' renders its real name, not [REDACTED]", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const tokenItem = GAME_ITEM_CATALOG.find((e) => e.name.includes("Token"));
+  assert.ok(tokenItem, "test setup problem: no catalog item with 'Token' in its name found");
+  const interaction = goalCreateInteraction({ item: tokenItem.id, quantity: 5 });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, config, db);
+  const text = JSON.stringify(edited?.embeds?.[0]);
+  assert.match(text, new RegExp(tokenItem.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.doesNotMatch(text, /\[REDACTED\]/);
 });
 
 // ── goal:on-hand (Task 6) ──
