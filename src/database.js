@@ -140,6 +140,63 @@ CREATE TABLE IF NOT EXISTS live_messages (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (guild_id, message_key)
 );
+
+-- goals / goal_on_hand_entries / goal_audit_log (Phase 3, mentat goal/order
+-- tracking -- see docs/superpowers/specs/2026-09-29-goal-order-tracking-design.md).
+-- Purely additive (CREATE TABLE IF NOT EXISTS); no SCHEMA_VERSION bump
+-- needed, matching the live_messages/key_versions precedent -- db.exec(SCHEMA)
+-- runs unconditionally on every startup, so these appear automatically for
+-- existing installs. Rollback, if ever needed: DROP TABLE IF EXISTS
+-- goal_audit_log; DROP TABLE IF EXISTS goal_on_hand_entries; DROP TABLE IF
+-- EXISTS goals; (child-then-parent order) -- zero blast radius on any other
+-- feature, all three tables are mutually isolated from the rest of this schema.
+CREATE TABLE IF NOT EXISTS goals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_type TEXT NOT NULL CHECK (owner_type IN ('player', 'guild')),
+  owner_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  item_kind TEXT NOT NULL CHECK (item_kind IN ('craftable', 'simple')),
+  -- Capped at 100,000, matching craftingCalculator.js's real MAX_QUANTITY --
+  -- a higher cap here is schema-legal but permanently breaks
+  -- resolveEffectiveOnHandCredit()/calculateCraftingPlan() for that goal.
+  target_quantity INTEGER NOT NULL CHECK (target_quantity BETWEEN 1 AND 100000),
+  station_tier TEXT,
+  crafting_contract INTEGER NOT NULL DEFAULT 0,
+  due_at TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'archived')),
+  -- created_by is audit-only -- NEVER used for authorization. Permission
+  -- checks always compare against owner_id. See this table's own accessor
+  -- functions (getGoalScoped/deleteGoalScoped) for the enforced invariant.
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_goals_owner ON goals(owner_type, owner_id, status);
+
+CREATE TABLE IF NOT EXISTS goal_on_hand_entries (
+  goal_id INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+  node TEXT NOT NULL,
+  quantity INTEGER NOT NULL CHECK (quantity BETWEEN 0 AND 100000),
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (goal_id, node)
+);
+
+-- Append-only audit log. goal_id is deliberately NOT a foreign key -- this
+-- table must survive a goal's hard-delete so a dispute about a deleted goal
+-- still has something to check.
+CREATE TABLE IF NOT EXISTS goal_audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  goal_id INTEGER NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('create', 'on_hand_update', 'complete', 'delete')),
+  actor_id TEXT NOT NULL,
+  node TEXT,
+  previous_quantity INTEGER,
+  new_quantity INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_goal_audit_log_goal ON goal_audit_log(goal_id);
 `;
 
 // ── Schema hardening (v7): what's NOT in the schema above, and why ──────
@@ -1248,6 +1305,74 @@ export function getGuildFaction(db, guildId) {
 
 export function setGuildFaction(db, guildId, faction) {
   db.prepare("UPDATE guild_settings SET faction = ? WHERE guild_id = ?").run(faction, guildId);
+}
+
+// ── goals / goal_on_hand_entries / goal_audit_log (Phase 3) ──
+export function createGoal(db, { ownerType, ownerId, itemId, itemKind, targetQuantity, stationTier, craftingContract, dueAt, createdBy }) {
+  const result = db.prepare(`
+    INSERT INTO goals (owner_type, owner_id, item_id, item_kind, target_quantity, station_tier, crafting_contract, due_at, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(ownerType, ownerId, itemId, itemKind, targetQuantity, stationTier ?? null, craftingContract ? 1 : 0, dueAt ?? null, createdBy);
+  return result.lastInsertRowid;
+}
+
+export function getGoalScoped(db, { id, ownerType, ownerId }) {
+  return db.prepare("SELECT * FROM goals WHERE id = ? AND owner_type = ? AND owner_id = ?").get(id, ownerType, ownerId);
+}
+
+export function listGoalsByOwner(db, { ownerType, ownerId, includeCompleted = false }) {
+  if (includeCompleted) {
+    return db.prepare("SELECT * FROM goals WHERE owner_type = ? AND owner_id = ? ORDER BY created_at").all(ownerType, ownerId);
+  }
+  return db.prepare("SELECT * FROM goals WHERE owner_type = ? AND owner_id = ? AND status = 'active' ORDER BY created_at").all(ownerType, ownerId);
+}
+
+export function countGoalsByOwner(db, { ownerType, ownerId, statuses }) {
+  const placeholders = statuses.map(() => "?").join(",");
+  const row = db.prepare(`SELECT COUNT(*) AS n FROM goals WHERE owner_type = ? AND owner_id = ? AND status IN (${placeholders})`).get(ownerType, ownerId, ...statuses);
+  return row.n;
+}
+
+export function setGoalOnHandEntry(db, { goalId, node, quantity, updatedBy }) {
+  const previous = db.prepare("SELECT quantity, updated_by, updated_at FROM goal_on_hand_entries WHERE goal_id = ? AND node = ?").get(goalId, node);
+  db.prepare(`
+    INSERT INTO goal_on_hand_entries (goal_id, node, quantity, updated_by, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+    ON CONFLICT (goal_id, node) DO UPDATE SET
+      quantity = excluded.quantity,
+      updated_by = excluded.updated_by,
+      updated_at = excluded.updated_at
+  `).run(goalId, node, quantity, updatedBy);
+  if (!previous) return null;
+  return { previousQuantity: previous.quantity, previousUpdatedBy: previous.updated_by, previousUpdatedAt: previous.updated_at };
+}
+
+export function getGoalOnHandEntries(db, goalId) {
+  return db.prepare("SELECT * FROM goal_on_hand_entries WHERE goal_id = ?").all(goalId);
+}
+
+export function countGoalOnHandEntries(db, goalId) {
+  return db.prepare("SELECT COUNT(*) AS n FROM goal_on_hand_entries WHERE goal_id = ?").get(goalId).n;
+}
+
+export function completeGoal(db, { id }) {
+  db.prepare("UPDATE goals SET status = 'completed', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(id);
+}
+
+export function deleteGoalScoped(db, { id, ownerType, ownerId }) {
+  const result = db.prepare("DELETE FROM goals WHERE id = ? AND owner_type = ? AND owner_id = ?").run(id, ownerType, ownerId);
+  return result.changes > 0;
+}
+
+export function appendGoalAuditLog(db, { goalId, action, actorId, node = null, previousQuantity = null, newQuantity = null }) {
+  db.prepare(`
+    INSERT INTO goal_audit_log (goal_id, action, actor_id, node, previous_quantity, new_quantity)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(goalId, action, actorId, node, previousQuantity, newQuantity);
+}
+
+export function getGoalAuditLog(db, goalId) {
+  return db.prepare("SELECT * FROM goal_audit_log WHERE goal_id = ? ORDER BY created_at, id").all(goalId);
 }
 
 // Resets every piece of ephemeral, in-memory-only state introduced by the

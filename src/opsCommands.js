@@ -3,25 +3,25 @@ export const OPS_COMMANDS = Object.freeze({
     route: "ops-activity",
     path: "/api/integrations/discord/ops/activity",
     method: "POST",
-    description: "Show player activity statistics (online counts, sessions, per-guild, per-map)."
+    description: "Activity: online counts, sessions, per-guild, per-map."
   },
   combat: {
     route: "ops-combat",
     path: "/api/integrations/discord/ops/combat",
     method: "POST",
-    description: "Show combat and death statistics (PvP/PvE, deaths by cause, K/D)."
+    description: "Combat/death stats (PvP/PvE, cause, K/D)."
   },
   resources: {
     route: "ops-resources",
     path: "/api/integrations/discord/ops/resources",
     method: "POST",
-    description: "Show resource field statistics (spice, water, minerals, solar, organic)."
+    description: "Resource fields (spice, water, minerals, solar, organic)."
   },
   economy: {
     route: "ops-economy",
     path: "/api/integrations/discord/ops/economy",
     method: "POST",
-    description: "Show economy statistics (currency, orders, taxes)."
+    description: "Economy stats (currency, orders, taxes)."
   },
   // Renamed from "inventory" to "armory" (2026-07-26) after real user
   // confusion with /dune player inventory -- the two commands sound
@@ -40,31 +40,31 @@ export const OPS_COMMANDS = Object.freeze({
     route: "ops-inventory",
     path: "/api/integrations/discord/ops/inventory",
     method: "POST",
-    description: "Show server-wide aggregate inventory/crafting stats (not personal -- see /dune player inventory)."
+    description: "Server-wide inventory/crafting stats (not personal -- see player inventory)."
   },
   location: {
     route: "ops-location",
     path: "/api/integrations/discord/ops/location",
     method: "POST",
-    description: "Show map location activity (markers, density, territories)."
+    description: "Location activity (markers, density, territories)."
   },
   soc: {
     route: "ops-soc",
     path: "/api/integrations/discord/ops/soc",
     method: "POST",
-    description: "Show OPS bridge health and request statistics."
+    description: "OPS bridge health and request stats."
   },
   prometheus: {
     route: "ops-prometheus",
     path: "/api/integrations/discord/ops/prometheus",
     method: "POST",
-    description: "Show container and infrastructure metrics (CPU, memory, restarts)."
+    description: "Container/infra metrics (CPU, memory, restarts)."
   },
   dashboard: {
     route: "ops-dashboard",
     path: "/api/integrations/discord/ops/dashboard",
     method: "POST",
-    description: "Show aggregated operational dashboard summary."
+    description: "Operational dashboard summary."
   },
   // NOTE: this subcommand deliberately does NOT follow the ops-<name>
   // route pattern. There is no /ops/announcements route on Core (verified
@@ -77,13 +77,13 @@ export const OPS_COMMANDS = Object.freeze({
     route: "announcements",
     path: "/api/integrations/discord/announcements",
     method: "POST",
-    description: "Show recent server and game announcements."
+    description: "Server and game announcements."
   },
   alerts: {
     route: "ops-alerts",
     path: "/api/v1/alerts",
     method: "GET",
-    description: "Show currently firing Prometheus/Alertmanager alerts (queries Prometheus directly)."
+    description: "Firing Prometheus/Alertmanager alerts."
   }
 });
 

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
-import { createDatabase, getGuild, getGuildStatus, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, deleteOauthSession, saveStatsSnapshot, getStatsSnapshot, getGuildFaction, setGuildFaction, verifyGuildStatsPushSecret, setGuildStatsSharingSecret, clearGuildStatsSharingSecret, getGuildStatsSharingStatus, upsertGuildStatsSnapshot, getActiveGuildStatsAggregate, isValidStatsPushValue, rollbackSchemaV7ToV6, _resetEphemeralStateForTests, createPendingOwnerConfirmation, getPendingOwnerConfirmation, resolvePendingOwnerConfirmation, getPendingOwnerConfirmationStatus, findPendingOwnerConfirmationByGuildId, getLiveMessage, setLiveMessage, deleteLiveMessage } from "../src/database.js";
+import { createDatabase, getGuild, getGuildStatus, upsertGuild, createOauthSession, getOauthSession, updateOauthSession, deleteOauthSession, saveStatsSnapshot, getStatsSnapshot, getGuildFaction, setGuildFaction, verifyGuildStatsPushSecret, setGuildStatsSharingSecret, clearGuildStatsSharingSecret, getGuildStatsSharingStatus, upsertGuildStatsSnapshot, getActiveGuildStatsAggregate, isValidStatsPushValue, rollbackSchemaV7ToV6, _resetEphemeralStateForTests, createPendingOwnerConfirmation, getPendingOwnerConfirmation, resolvePendingOwnerConfirmation, getPendingOwnerConfirmationStatus, findPendingOwnerConfirmationByGuildId, getLiveMessage, setLiveMessage, deleteLiveMessage, createGoal, getGoalScoped, listGoalsByOwner, countGoalsByOwner, setGoalOnHandEntry, getGoalOnHandEntries, countGoalOnHandEntries, completeGoal, deleteGoalScoped, appendGoalAuditLog, getGoalAuditLog } from "../src/database.js";
 import { _resetKeyCacheForTests, _resetKEKCacheForTests, decryptWithDEK } from "../src/secretsCrypto.js";
 
 const VALID_KEY_HEX = "c".repeat(64);
@@ -995,4 +995,118 @@ test("deleteLiveMessage removes the row so a later getLiveMessage returns undefi
   setLiveMessage(db, "guild-1", "coriolis", "channel-1", "message-1");
   deleteLiveMessage(db, "guild-1", "coriolis");
   assert.equal(getLiveMessage(db, "guild-1", "coriolis"), undefined);
+});
+
+// ── goals / goal_on_hand_entries / goal_audit_log (Phase 3) ──
+
+test("createGoal + getGoalScoped: a created goal is readable by its real owner", () => {
+  const db = createDatabase(":memory:");
+  const id = createGoal(db, { ownerType: "player", ownerId: "player-1", itemId: "duraluminumrod", itemKind: "craftable", targetQuantity: 10000, stationTier: "large", craftingContract: false, dueAt: null, createdBy: "player-1" });
+  assert.ok(Number.isInteger(id));
+  const goal = getGoalScoped(db, { id, ownerType: "player", ownerId: "player-1" });
+  assert.equal(goal.item_id, "duraluminumrod");
+  assert.equal(goal.target_quantity, 10000);
+  assert.equal(goal.status, "active");
+});
+
+test("getGoalScoped: a mismatched owner (wrong owner_id) returns undefined, not the row", () => {
+  const db = createDatabase(":memory:");
+  const id = createGoal(db, { ownerType: "player", ownerId: "player-1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 100, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "player-1" });
+  assert.equal(getGoalScoped(db, { id, ownerType: "player", ownerId: "player-2" }), undefined);
+  assert.equal(getGoalScoped(db, { id, ownerType: "guild", ownerId: "player-1" }), undefined, "owner_type must also be checked, not just owner_id");
+});
+
+test("getGoalScoped: a nonexistent id returns undefined", () => {
+  const db = createDatabase(":memory:");
+  assert.equal(getGoalScoped(db, { id: 999999, ownerType: "player", ownerId: "player-1" }), undefined);
+});
+
+test("listGoalsByOwner: excludes completed/archived by default, includes them with includeCompleted", () => {
+  const db = createDatabase(":memory:");
+  const activeId = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 100, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" });
+  const doneId = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 50, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" });
+  completeGoal(db, { id: doneId });
+  const activeOnly = listGoalsByOwner(db, { ownerType: "player", ownerId: "p1" });
+  assert.deepEqual(activeOnly.map((g) => g.id), [activeId]);
+  const all = listGoalsByOwner(db, { ownerType: "player", ownerId: "p1", includeCompleted: true });
+  assert.equal(all.length, 2);
+});
+
+test("countGoalsByOwner: counts only the requested statuses", () => {
+  const db = createDatabase(":memory:");
+  const id1 = createGoal(db, { ownerType: "guild", ownerId: "g1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "u1" });
+  createGoal(db, { ownerType: "guild", ownerId: "g1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "u1" });
+  completeGoal(db, { id: id1 });
+  assert.equal(countGoalsByOwner(db, { ownerType: "guild", ownerId: "g1", statuses: ["active"] }), 1);
+  assert.equal(countGoalsByOwner(db, { ownerType: "guild", ownerId: "g1", statuses: ["active", "completed"] }), 2);
+});
+
+test("target_quantity CHECK rejects above 100000", () => {
+  const db = createDatabase(":memory:");
+  assert.throws(() => createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 100001, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" }));
+});
+
+test("owner_type CHECK rejects an invalid value", () => {
+  const db = createDatabase(":memory:");
+  assert.throws(() => createGoal(db, { ownerType: "not-a-real-type", ownerId: "p1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" }));
+});
+
+test("setGoalOnHandEntry: first write returns null for 'previous', second write returns the real previous value", () => {
+  const db = createDatabase(":memory:");
+  const id = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "duraluminumrod", itemKind: "craftable", targetQuantity: 10000, stationTier: "large", craftingContract: false, dueAt: null, createdBy: "p1" });
+  const first = setGoalOnHandEntry(db, { goalId: id, node: "titanium_ore", quantity: 100, updatedBy: "p1" });
+  assert.equal(first, null);
+  const second = setGoalOnHandEntry(db, { goalId: id, node: "titanium_ore", quantity: 250, updatedBy: "p2" });
+  assert.equal(second.previousQuantity, 100);
+  assert.equal(second.previousUpdatedBy, "p1");
+  assert.ok(second.previousUpdatedAt);
+  const entries = getGoalOnHandEntries(db, id);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].quantity, 250);
+  assert.equal(entries[0].updated_by, "p2");
+});
+
+test("goal_on_hand_entries quantity CHECK rejects above 100000", () => {
+  const db = createDatabase(":memory:");
+  const id = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" });
+  assert.throws(() => setGoalOnHandEntry(db, { goalId: id, node: "flour_sand", quantity: 100001, updatedBy: "p1" }));
+});
+
+test("countGoalOnHandEntries reflects real row count", () => {
+  const db = createDatabase(":memory:");
+  const id = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "duraluminumrod", itemKind: "craftable", targetQuantity: 10000, stationTier: "large", craftingContract: false, dueAt: null, createdBy: "p1" });
+  assert.equal(countGoalOnHandEntries(db, id), 0);
+  setGoalOnHandEntry(db, { goalId: id, node: "titanium_ore", quantity: 100, updatedBy: "p1" });
+  setGoalOnHandEntry(db, { goalId: id, node: "jasmium_crystal", quantity: 50, updatedBy: "p1" });
+  assert.equal(countGoalOnHandEntries(db, id), 2);
+});
+
+test("deleteGoalScoped: cascades to goal_on_hand_entries, refuses a mismatched owner, returns whether a row was deleted", () => {
+  const db = createDatabase(":memory:");
+  const id = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "duraluminumrod", itemKind: "craftable", targetQuantity: 10000, stationTier: "large", craftingContract: false, dueAt: null, createdBy: "p1" });
+  setGoalOnHandEntry(db, { goalId: id, node: "titanium_ore", quantity: 100, updatedBy: "p1" });
+  assert.equal(deleteGoalScoped(db, { id, ownerType: "player", ownerId: "p2" }), false, "wrong owner must not delete");
+  assert.equal(deleteGoalScoped(db, { id, ownerType: "player", ownerId: "p1" }), true);
+  assert.equal(getGoalScoped(db, { id, ownerType: "player", ownerId: "p1" }), undefined);
+  assert.equal(getGoalOnHandEntries(db, id).length, 0, "on-hand entries must cascade-delete with the goal");
+});
+
+test("appendGoalAuditLog + getGoalAuditLog: a deleted goal's audit rows survive the delete (not cascaded)", () => {
+  const db = createDatabase(":memory:");
+  const id = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "duraluminumrod", itemKind: "craftable", targetQuantity: 10000, stationTier: "large", craftingContract: false, dueAt: null, createdBy: "p1" });
+  appendGoalAuditLog(db, { goalId: id, action: "create", actorId: "p1" });
+  appendGoalAuditLog(db, { goalId: id, action: "on_hand_update", actorId: "p1", node: "titanium_ore", previousQuantity: 0, newQuantity: 100 });
+  deleteGoalScoped(db, { id, ownerType: "player", ownerId: "p1" });
+  appendGoalAuditLog(db, { goalId: id, action: "delete", actorId: "p1" });
+  const log = getGoalAuditLog(db, id);
+  assert.equal(log.length, 3, "audit log must survive the goal's own deletion");
+  assert.equal(log[0].action, "create");
+  assert.equal(log[1].node, "titanium_ore");
+  assert.equal(log[2].action, "delete");
+});
+
+test("appendGoalAuditLog action CHECK rejects an invalid action name", () => {
+  const db = createDatabase(":memory:");
+  const id = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" });
+  assert.throws(() => appendGoalAuditLog(db, { goalId: id, action: "not-a-real-action", actorId: "p1" }));
 });
