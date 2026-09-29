@@ -26,7 +26,7 @@ import { multiTenantActorTier, tierAtLeast, resolveGuildOwnerId, isInteractionGu
 import { createSteamLinkSession } from "./steamLinkStore.js";
 import { calculateCraftingPlan, applyOnHandCredit, resolveEffectiveOnHandCredit, estimateDuration, recipeTreeNodes, bestAvailableTier, MIN_QUANTITY, MAX_QUANTITY } from "./craftingCalculator.js";
 import { CRAFTING_RECIPES } from "./craftingData.js";
-import { GAME_ITEM_CATALOG_BY_ID } from "./gameItemCatalog.js";
+import { GAME_ITEM_CATALOG, GAME_ITEM_CATALOG_BY_ID } from "./gameItemCatalog.js";
 import { GAME_ITEM_ID_TO_RECIPE_KEY, RECIPE_KEY_TO_GAME_ITEM_ID } from "./gameItemIdBridge.js";
 
 // Mechanical WRITE_ACTIONS -> discord.js subcommand registration -- shared
@@ -1612,6 +1612,111 @@ export async function handleCalculatorAutocomplete(interaction) {
       .filter((n) => n.displayName.toLowerCase().includes(query))
       .slice(0, 25)
       .map((n) => ({ name: n.displayName, value: n.key }));
+    await interaction.respond(nodes);
+    return;
+  }
+
+  await interaction.respond([]);
+}
+
+// Autocomplete response handler for /dune goal's "item", "id", and "node"
+// options.
+//
+// CRITICAL: interaction.isAutocomplete?.() routing in index.js bypasses
+// executeDuneCommand()'s normal isCommandAllowed()/cooldown pipeline
+// entirely -- confirmed by reading index.js directly. That means every
+// branch below must independently re-derive the exact same
+// ownership/admin-tier scoping the real goal:on-hand/goal:list/goal:progress/
+// goal:delete commands already enforce (see executeGoalOnHand/
+// executeGoalDelete's own personal-then-guild binding-rule comments above),
+// or a player could see another owner's/guild's goal ids and item labels
+// just by typing in an autocomplete field -- a live information leak in the
+// suggestions themselves, even though the real command would still
+// correctly reject the actual submission. `created_by` is never used for
+// authorization anywhere in this function, same as every other goal
+// command -- it's an audit-trail field only (see goal_audit_log).
+export async function handleGoalAutocomplete(interaction, db) {
+  const focused = interaction.options.getFocused(true); // { name, value }
+  const query = String(focused.value ?? "").toLowerCase();
+
+  if (focused.name === "item") {
+    const matches = GAME_ITEM_CATALOG
+      .filter((entry) => entry.name.toLowerCase().includes(query))
+      .slice(0, 25)
+      .map((entry) => ({ name: entry.name, value: entry.id }));
+    await interaction.respond(matches);
+    return;
+  }
+
+  if (focused.name === "id") {
+    const scope = interaction.options.getString("scope");
+    let ownerType, ownerId;
+    if (scope === "guild") {
+      // Independently re-derives goal:on-hand/goal:delete's own guild-scope
+      // gate (requireGuildGoalAccess): admin tier or real guild ownership,
+      // never a plain guild member. `{ multiTenant: !!db }` mirrors
+      // index.js's own db construction rule (`config.multiTenant ?
+      // createDatabase(...) : null` -- db is truthy if and only if
+      // config.multiTenant is true), so this stand-in config object behaves
+      // identically to the real one without having to plumb `config`
+      // through the autocomplete routing path just for this one flag.
+      if (!interaction.guildId || !isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId)) {
+        // Must return an EMPTY array, not an error and not a partial list --
+        // a non-admin must never learn that guild goals exist at all.
+        await interaction.respond([]);
+        return;
+      }
+      ownerType = "guild"; ownerId = interaction.guildId;
+    } else {
+      ownerType = "player"; ownerId = interaction.user.id;
+    }
+    const goals = listGoalsByOwner(db, { ownerType, ownerId, includeCompleted: false })
+      .filter((g) => String(g.id).includes(query) || (GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? "").toLowerCase().includes(query))
+      .slice(0, 25)
+      .map((g) => ({ name: `#${g.id} ${GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? g.item_id}`, value: g.id }));
+    await interaction.respond(goals);
+    return;
+  }
+
+  if (focused.name === "node") {
+    const goalId = interaction.options.getInteger("id");
+    if (!goalId) {
+      await interaction.respond([{ name: "Select a goal id first", value: 0 }]);
+      return;
+    }
+    // Same personal-then-guild binding-rule pattern as executeGoalOnHand/
+    // executeGoalDelete: probe the player-owned scope first, then guild
+    // (with the same admin-tier gate) -- a cross-tenant/cross-owner id
+    // matches neither and never reaches (or leaks anything from) the access
+    // check at all.
+    let goal = getGoalScoped(db, { id: goalId, ownerType: "player", ownerId: interaction.user.id });
+    if (!goal && interaction.guildId && isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId)) {
+      goal = getGoalScoped(db, { id: goalId, ownerType: "guild", ownerId: interaction.guildId });
+    }
+    if (!goal) {
+      await interaction.respond([]);
+      return;
+    }
+    if (goal.item_kind === "simple") {
+      const name = GAME_ITEM_CATALOG_BY_ID.get(goal.item_id)?.name ?? goal.item_id;
+      await interaction.respond([{ name, value: goal.item_id }]);
+      return;
+    }
+    // Craftable: same recipeTreeNodes()/RECIPE_KEY_TO_GAME_ITEM_ID mapping
+    // executeGoalOnHand's validNodes builds, with the exact same `water`
+    // exclusion for the exact same reason -- see gameItemIdBridge.js's
+    // documented exception. Filtering out `choice.value === undefined`
+    // (rather than falling back to the raw recipe key, e.g. `?? n.key`) is
+    // load-bearing: a fallback would suggest mentat's own internal key
+    // ("water") as if it were a real, selectable game item id, which
+    // /dune goal on-hand would then reject as "not an ingredient" -- a
+    // suggestion the command itself can never actually accept.
+    const recipeKey = GAME_ITEM_ID_TO_RECIPE_KEY.get(goal.item_id);
+    const nodes = recipeTreeNodes(recipeKey)
+      .filter((n) => n.displayName.toLowerCase().includes(query))
+      .map((n) => ({ name: n.displayName, value: n.key === recipeKey ? goal.item_id : RECIPE_KEY_TO_GAME_ITEM_ID.get(n.key) }))
+      .filter((choice) => choice.value !== undefined)
+      .slice(0, 25);
     await interaction.respond(nodes);
     return;
   }
