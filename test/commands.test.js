@@ -1732,6 +1732,72 @@ test("goal:list never shows 'ingredients ready' for a simple goal", async () => 
   assert.doesNotMatch(await listTextFor(db, config, userId), /ingredients ready/i);
 });
 
+// ── mentat#428: goal writes are atomic ──
+// Failures are forced with real SQLite triggers (RAISE(ABORT)) so the
+// statement that fails is a genuine DB error mid-sequence, not a stub.
+function auditRows(db, goalId) {
+  return db.prepare("SELECT action FROM goal_audit_log WHERE goal_id = ? ORDER BY id").all(goalId).map((r) => r.action);
+}
+
+test("goal:create is atomic: a failing audit insert leaves no orphan goal", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  db.exec("CREATE TRIGGER fail_create_audit BEFORE INSERT ON goal_audit_log WHEN NEW.action = 'create' BEGIN SELECT RAISE(ABORT, 'boom-create'); END");
+  const userId = `atomic-create-${Math.random()}`;
+  const i = goalCreateInteraction({ item: "AzuriteOre", quantity: 10 }, { userId });
+  let edited;
+  i.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(i, {}, config, db);
+  assert.match(JSON.stringify(edited?.embeds?.[0]), /boom-create/);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goals").get().n, 0, "no orphan goal row");
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goal_audit_log").get().n, 0);
+});
+
+test("goal:delete is atomic: a failing delete rolls back the delete audit row and the goal survives", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `atomic-delete-${Math.random()}`;
+  const goalId = await createTestGoal(db, { config, userId, itemId: "AzuriteOre", quantity: 10 });
+  db.exec("CREATE TRIGGER fail_goal_delete BEFORE DELETE ON goals BEGIN SELECT RAISE(ABORT, 'boom-delete'); END");
+  const i = goalDeleteInteraction({ id: goalId }, { userId });
+  let edited;
+  i.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(i, {}, config, db);
+  assert.match(JSON.stringify(edited?.embeds?.[0]), /boom-delete/);
+  assert.ok(getGoalScoped(db, { id: goalId, ownerType: "player", ownerId: userId }), "goal must still exist");
+  assert.deepEqual(auditRows(db, goalId), ["create"], "no orphan delete audit row");
+});
+
+test("goal:on-hand is atomic: a failing audit insert rolls back the on-hand entry", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `atomic-onhand-${Math.random()}`;
+  const goalId = await createTestGoal(db, { config, userId, itemId: "AzuriteOre", quantity: 10 });
+  db.exec("CREATE TRIGGER fail_onhand_audit BEFORE INSERT ON goal_audit_log WHEN NEW.action = 'on_hand_update' BEGIN SELECT RAISE(ABORT, 'boom-onhand'); END");
+  const i = goalOnHandInteraction({ id: goalId, node: "AzuriteOre", quantity: 4 }, { userId });
+  let edited;
+  i.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(i, {}, config, db);
+  assert.match(JSON.stringify(edited?.embeds?.[0]), /boom-onhand/);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goal_on_hand_entries WHERE goal_id = ?").get(goalId).n, 0, "no orphan on-hand entry");
+});
+
+test("goal:on-hand is atomic across completion: a failing 'complete' audit insert rolls back entry, audit and status", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `atomic-complete-${Math.random()}`;
+  const goalId = await createTestGoal(db, { config, userId, itemId: "AzuriteOre", quantity: 10 });
+  db.exec("CREATE TRIGGER fail_complete_audit BEFORE INSERT ON goal_audit_log WHEN NEW.action = 'complete' BEGIN SELECT RAISE(ABORT, 'boom-complete'); END");
+  const i = goalOnHandInteraction({ id: goalId, node: "AzuriteOre", quantity: 10 }, { userId });
+  let edited;
+  i.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(i, {}, config, db);
+  assert.match(JSON.stringify(edited?.embeds?.[0]), /boom-complete/);
+  assert.equal(getGoalScoped(db, { id: goalId, ownerType: "player", ownerId: userId }).status, "active", "goal must not be left completed");
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goal_on_hand_entries WHERE goal_id = ?").get(goalId).n, 0);
+  assert.deepEqual(auditRows(db, goalId), ["create"]);
+});
+
 // ── goal:progress (Task 8) ──
 // goalProgressOptions() defines getBoolean() (the brief's own draft omitted
 // it) -- executeDuneCommand's diagnostic-mode check unconditionally calls
