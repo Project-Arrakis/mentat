@@ -1497,6 +1497,32 @@ function executeGoalOnHand({ interaction, config, db }) {
   return { ok: true, goalId: id, node, nodeName, quantity, previous, completed };
 }
 
+// mentat#427: "ingredients ready" for goal:list -- true when the on-hand
+// ingredient credit already covers everything needed to craft the whole
+// remaining quantity. Deliberately NOT derived from maxCompletable: that
+// oracle treats an uncredited ingredient as unconstrained, so crediting only
+// one of two leaves reports the full quantity as completable (verified
+// against resolveEffectiveOnHandCredit()). Instead: some ingredient must be
+// credited (shortfall map present) AND every on-hand-able leaf -- a
+// non-craftable node that has a real game-item id -- has shortfall 0.
+// `water` has no game-item id (gameItemIdBridge.js's documented exception),
+// so it can never be credited and is ignored, exactly as goal:on-hand's
+// validNodes excludes it; otherwise any recipe needing water could never be
+// "ready". Intermediates are ignored: crediting their leaf inputs leaves the
+// intermediate's own shortfall entry non-zero, and crediting the
+// intermediate itself cascades to its leaves anyway.
+function ingredientsReady(credited) {
+  if (credited.effectiveQuantity === 0 || !(credited.shortfall instanceof Map)) return false;
+  let sawLeaf = false;
+  for (const [key, remaining] of credited.shortfall) {
+    if (Object.hasOwn(credited.nestedCrafts ?? {}, key)) continue;
+    if (!RECIPE_KEY_TO_GAME_ITEM_ID.has(key)) continue;
+    sawLeaf = true;
+    if (remaining > 0) return false;
+  }
+  return sawLeaf;
+}
+
 // ── goal:list (Task 7) ──
 // Readable by any guild member -- unlike create/on-hand, this reuses only
 // requireGuildGoalAccess's own inGuild()/guildId DM-guard (inlined below,
@@ -1521,7 +1547,7 @@ function executeGoalList({ interaction, config, db }) {
         const entries = getGoalOnHandEntries(db, goal.id).map((e) => ({ node: e.node === goal.item_id ? recipeKey : (GAME_ITEM_ID_TO_RECIPE_KEY.get(e.node) ?? e.node), quantity: e.quantity }));
         const credited = resolveEffectiveOnHandCredit(recipeKey, goal.target_quantity, entries, { stationTier: goal.station_tier, craftingContract: !!goal.crafting_contract });
         const pct = Math.round(((goal.target_quantity - credited.effectiveQuantity) / goal.target_quantity) * 100);
-        progressText = ` — ${pct}%`;
+        progressText = ` — ${pct}%${ingredientsReady(credited) ? " — ingredients ready" : ""}`;
       } else if (goal.item_kind === "simple" && goal.status === "active") {
         const onHand = getGoalOnHandEntries(db, goal.id).find((e) => e.node === goal.item_id)?.quantity ?? 0;
         const pct = Math.round((Math.min(onHand, goal.target_quantity) / goal.target_quantity) * 100);

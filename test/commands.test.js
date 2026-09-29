@@ -1658,6 +1658,80 @@ test("goal:list one poisoned/unrenderable goal row shows 'unavailable' for that 
   assert.match(text, /unavailable/i, "the poisoned row must degrade gracefully, not vanish silently");
 });
 
+// ── mentat#427: goal:list "ingredients ready" marker ──
+// "Ready" is defined from the real resolveEffectiveOnHandCredit() shortfall
+// map (verified by experiment): maxCompletable alone is NOT usable, because
+// an uncredited ingredient is unconstrained in that oracle (crediting only
+// Jasmium for a Duraluminum goal reports units === quantity while Aluminum
+// Ore is untouched). Ready = at least one ingredient credited AND every
+// on-hand-able leaf (non-craftable node with a game-item id) has shortfall 0.
+// Water has no game-item id and can never be credited, so it is ignored;
+// intermediates are ignored because crediting their leaf inputs leaves the
+// intermediate's own shortfall entry non-zero forever.
+async function listTextFor(db, config, userId) {
+  const listInteraction = goalListInteraction({ scope: "personal" }, { userId });
+  let listEdited;
+  listInteraction.editReply = async (payload) => { listEdited = payload; };
+  await executeDuneCommand(listInteraction, {}, config, db);
+  return JSON.stringify(listEdited?.embeds?.[0]);
+}
+
+function seedCraftableGoal(db, userId, { itemId, quantity, tier, entries }) {
+  const id = createGoal(db, { ownerType: "player", ownerId: userId, itemId, itemKind: "craftable", targetQuantity: quantity, stationTier: tier, craftingContract: false, dueAt: null, createdBy: userId });
+  for (const [node, qty] of entries) setGoalOnHandEntry(db, { goalId: id, node, quantity: qty, updatedBy: userId });
+  return id;
+}
+
+test("goal:list marks a craftable goal 'ingredients ready' when every non-water ingredient is fully covered (water ignored)", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `ready-full-${Math.random()}`;
+  // silicone_block x10 @ medium needs 30 flour_sand + 500 water; water can never be on-hand.
+  seedCraftableGoal(db, userId, { itemId: "Silicone", quantity: 10, tier: "medium", entries: [["FlourSand", 30]] });
+  const text = await listTextFor(db, config, userId);
+  assert.match(text, /0%/);
+  assert.match(text, /ingredients ready/i);
+});
+
+test("goal:list marks 'ingredients ready' when an intermediate is credited and covers its own leaf inputs", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `ready-inter-${Math.random()}`;
+  seedCraftableGoal(db, userId, { itemId: "DuraluminumRod", quantity: 10, tier: "large", entries: [["JasmiumCrystal", 1000], ["AluminiumBar", 1000]] });
+  assert.match(await listTextFor(db, config, userId), /ingredients ready/i);
+});
+
+test("goal:list does NOT mark ready for partial coverage, uncovered leaves, no ingredients, or a complete goal", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const cases = {
+    partial: { itemId: "Silicone", quantity: 10, tier: "medium", entries: [["FlourSand", 29]] },
+    // Jasmium alone: maxCompletable.units would claim 10 here, Aluminum Ore is uncovered.
+    "uncovered leaf": { itemId: "DuraluminumRod", quantity: 10, tier: "large", entries: [["JasmiumCrystal", 1000]] },
+    none: { itemId: "Silicone", quantity: 10, tier: "medium", entries: [] }
+  };
+  for (const [label, spec] of Object.entries(cases)) {
+    const userId = `notready-${label.replace(" ", "-")}-${Math.random()}`;
+    seedCraftableGoal(db, userId, spec);
+    assert.doesNotMatch(await listTextFor(db, config, userId), /ingredients ready/i, label);
+  }
+  // Complete goal (finished item on hand >= target): no marker, shown as 100%.
+  const doneUser = `notready-done-${Math.random()}`;
+  seedCraftableGoal(db, doneUser, { itemId: "Silicone", quantity: 10, tier: "medium", entries: [["Silicone", 10], ["FlourSand", 30]] });
+  const doneText = await listTextFor(db, config, doneUser);
+  assert.match(doneText, /100%/);
+  assert.doesNotMatch(doneText, /ingredients ready/i);
+});
+
+test("goal:list never shows 'ingredients ready' for a simple goal", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `ready-simple-${Math.random()}`;
+  const id = createGoal(db, { ownerType: "player", ownerId: userId, itemId: "AzuriteOre", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: userId });
+  setGoalOnHandEntry(db, { goalId: id, node: "AzuriteOre", quantity: 5, updatedBy: userId });
+  assert.doesNotMatch(await listTextFor(db, config, userId), /ingredients ready/i);
+});
+
 // ── goal:progress (Task 8) ──
 // goalProgressOptions() defines getBoolean() (the brief's own draft omitted
 // it) -- executeDuneCommand's diagnostic-mode check unconditionally calls
