@@ -61,6 +61,44 @@ introduces genuinely new persisted state (goals, owned by a player or a
 guild) and real permission questions (who can set a goal on behalf of a
 guild) that Phase 1 and 2 deliberately don't touch.
 
+**One goal model, not two.** A guild "order" (e.g. "need 10,000 Plastanium
+for next week's Deep Desert base") is the same object as an open-ended goal,
+distinguished only by an optional `dueAt` — `null` for a standing goal,
+set for a time-boxed order. Same progress tracking, same code path either
+way; no separate order subsystem.
+
+**Scope decision (2026-09-29): guild goals/orders track aggregate progress
+only, not per-member contribution — deferred to a later phase.** Personal
+goals get full attribution for free, since ownership and contribution are
+the same thing for a single player (there's only one person who could have
+made progress on it). Guild goals are different: investigated directly
+against a live game server (`dune-prod2`, 2026-09-29) whether *who
+deposited what* into a shared guild storage container could be tracked
+automatically, and found it currently cannot be, at the engine level, not
+as a Core or mentat gap:
+- `dune.item_audit_log` (the real, already-used-elsewhere Postgres table
+  that logs every inventory item INSERT/DELETE/UPDATE) carries no
+  player/actor column on its own rows — the only attribution path is
+  `inventory_id → dune.inventories.actor_id`, which for a personal
+  inventory is the player (clean), but for a shared guild container
+  resolves to the container/base itself (confirmed via `guildStorageQuery()`'s
+  own join pattern), not to whichever member actually walked up and
+  deposited items.
+- A live 6-hour stdout log sample from `dune-server-survival-1` was checked
+  directly for any per-player container-interaction line — none exists.
+  `LogInventorySystem` (869 lines in the window) is entirely a benign
+  stat-rehydration warning with no player/container identity; no other log
+  category carries item-transaction-with-actor granularity either.
+
+So Phase 3 ships guild goals/orders as **aggregate-only**: total progress
+toward the target (via the same container-diff mechanism Phase 2 already
+needs), no per-member contribution breakdown, no "who gets credit" split.
+Per-member attribution — if ever wanted — is real future work gated on
+either the game exposing better instrumentation, or an explicit
+self-reported/unverified contribution-claim command (same trust model as
+Phase 1's manual on-hand entry), and is explicitly out of scope for the
+initial Phase 3 design rather than a silent omission.
+
 **Status:** scoped only, in conversation — no design doc exists yet. This
 section will link to one once brainstorming for this phase begins, after
 Phase 2 is designed (Phase 3 depends on Phase 2's live-stock read path
