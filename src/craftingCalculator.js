@@ -151,17 +151,16 @@ export function calculateCraftingPlan(itemKey, quantity, { stationTier = "large"
 // S-2). A free-typed on-hand-N value that bypassed Discord's autocomplete
 // could otherwise carry "__proto__"/"constructor"/"prototype" and resolve
 // against real inherited properties instead of undefined.
-//
-// This is deliberately separate from buildBranchIndex() below: this
-// function's pooled totals drive the `shortfall` map (how much of each
-// resource is still needed, in that resource's own units); buildBranchIndex()
-// drives `maxCompletable` (how many whole ROOT crafts a given on-hand
-// quantity actually supports, which needs real per-craft/output-per-craft
-// math, not a pooled ratio -- see its own comment for why).
 function flattenPlanNodes(plan) {
   // Returns a Map<nodeKey, { pooledQuantity, isIntermediate }> covering the
   // target item itself, every intermediate craftable, and every raw leaf --
-  // everything an on-hand-N value could legally name.
+  // everything an on-hand-N value could legally name. `pooledQuantity` for a
+  // raw leaf comes from `plan.totalRawMaterials`, which is ALREADY pooled
+  // across every level of the tree (e.g. Water under both Plastanium Ingot's
+  // own recipe AND its nested Stravidium Fiber recipe) -- this is what makes
+  // reusing this exact structure at any candidate quantity (see
+  // computeShortfallMap() below) correctly handle cross-level pooling by
+  // construction, with no separate per-branch bookkeeping needed.
   const nodes = new Map();
   nodes.set(plan.itemKey, { pooledQuantity: plan.quantity, isIntermediate: false });
   for (const [resource, nested] of Object.entries(plan.nestedCrafts)) {
@@ -173,63 +172,137 @@ function flattenPlanNodes(plan) {
   return nodes;
 }
 
-// Builds the structure applyOnHandCredit() uses to convert an on-hand
-// quantity into whole root-crafts, respecting each recipe's real
-// outputPerCraft (Critical #1: a pooled-quantity/requested-quantity ratio
-// silently assumes outputPerCraft===1, which is false for e.g. Spice-infused
-// Fuel Cell at 10/craft, Low-grade Lubricant at 5/craft) and combining every
-// credited node within the SAME dependency chain additively before that
-// chain competes against any other, independent chain via min() (Critical
-// #2: crediting both an intermediate and its own leaf input are substitutes
-// along one chain, not two separate constraints).
+// Applies every on-hand credit against `plan`'s pooled node totals, cascading
+// an intermediate craftable's own credit proportionally into its own
+// (depth-1) raw inputs -- never upward past the intermediate itself. This is
+// the one, single source of shortfall-subtraction truth: both the `shortfall`
+// map applyOnHandCredit() returns AND the binary-search coverage oracle below
+// call this same function, just against plans sized for different candidate
+// quantities -- see docs/calculator-architecture.md's Shortfall Traversal
+// Design citation. Throws if any `onHandEntries[].node` isn't anywhere in
+// `plan`'s tree (finding S-2's "__proto__" case included, since a Map lookup
+// for an unset key is always `undefined`, never `Object.prototype`).
+function computeShortfallMap(plan, onHandEntries) {
+  const nodeMap = flattenPlanNodes(plan); // Map, per finding S-2
+  const shortfall = new Map();
+  for (const [key, info] of nodeMap.entries()) {
+    if (key === plan.itemKey) continue; // target item's own shortfall isn't tracked here -- see effectiveQuantity
+    shortfall.set(key, info.pooledQuantity);
+  }
+
+  for (const entry of onHandEntries) {
+    const info = nodeMap.get(entry.node); // Map.get -- never `nodeMap[entry.node]`
+    if (!info) {
+      throw new Error(`"${entry.node}" is not an ingredient of ${plan.itemKey}.`);
+    }
+
+    const currentShortfall = shortfall.get(entry.node) ?? 0;
+    const newShortfall = Math.max(0, currentShortfall - entry.quantity);
+    shortfall.set(entry.node, newShortfall);
+
+    if (info.isIntermediate) {
+      // Cascade: crediting an intermediate craftable proportionally reduces
+      // its own (depth-1) raw inputs' pooled shortfall too, since that much
+      // of the intermediate no longer needs to be crafted from scratch.
+      // Never cascades upward past the intermediate itself.
+      const nested = plan.nestedCrafts[entry.node];
+      const creditRatio = currentShortfall === 0 ? 0 : (currentShortfall - newShortfall) / currentShortfall;
+      for (const input of nested.directInputs) {
+        if (input.craftable) continue;
+        const reduction = Math.round(input.quantity * creditRatio);
+        shortfall.set(input.resource, Math.max(0, (shortfall.get(input.resource) ?? 0) - reduction));
+      }
+    }
+  }
+
+  return shortfall;
+}
+
+// Map<intermediateNode, Set<leafChildNode>> -- the recipe TREE SHAPE (which
+// resources are craftable, which are leaves, which leaves belong to which
+// intermediate) is invariant to quantity, so this is built once from
+// whatever plan is on hand and reused across every candidate quantity the
+// binary search below tries. depth-1 only, matching every other accepted
+// limitation in this file (real data has no depth-2+ nesting -- Task 1's own
+// data-integrity test enforces this).
+function buildIntermediateChildMap(plan) {
+  const children = new Map();
+  for (const [resource, nested] of Object.entries(plan.nestedCrafts)) {
+    const leafChildren = new Set();
+    for (const input of nested.directInputs) {
+      if (!input.craftable) leafChildren.add(input.resource);
+    }
+    children.set(resource, leafChildren);
+  }
+  return children;
+}
+
+// Returns the first on-hand entry (in onHandEntries order) whose credit does
+// NOT fully cover quantity `n`'s requirement, or undefined if every entry is
+// covered. This is the coverage oracle both isFullyCoveredAt() and
+// applyOnHandCredit()'s own limitingNode lookup share.
 //
-// A "branch" is one direct input of the root item -- a raw leaf is its own
-// one-node branch; a craftable input is a branch containing itself plus its
-// own (today, always depth-1) leaf inputs. Real production data has no
-// depth-2+ nesting (Task 1's own data-integrity test enforces this), so this
-// intentionally does not recurse past one level -- same accepted-limitation
-// posture as the cycle guard in walkRecipeTree(). outputPerCraft itself
-// isn't part of the plan shape Task 2 returns, so it's derived from the
-// identity crafts*outputPerCraft = quantity + leftover, which always holds
-// exactly for both the root plan and any nested plan.
-function buildBranchIndex(plan) {
-  const branches = new Map();
-  const index = new Map(); // Map<node, { branchNode, role: "self"|"leaf", perCraftQtyInIntermediate? }>
+// [Critical #2] An intermediate credited ALONGSIDE one of its own (depth-1)
+// leaf inputs must have those two credits COMBINE, not compete: e.g.
+// crediting Stravidium Fiber 8 (the intermediate) and Stravidium Mass 60 (its
+// own leaf) together should read as "28 fiber-equivalent," not two
+// independent constraints capped at 8. The naive fix -- just check every
+// credited node's own shortfall map entry -- does NOT achieve this, because
+// computeShortfallMap()'s cascade only flows DOWNWARD (intermediate credit
+// reduces its leaf's shortfall) and never back UP (a leaf's own direct credit
+// never reduces the intermediate's own tracked shortfall entry): hand-traced
+// against the Fiber-8/Mass-60 example, Fiber's own shortfall entry stays at
+// `quantity - 8` forever, which would wrongly cap coverage at 8 forever if
+// checked directly. The algebraically-verified fix is to skip an
+// intermediate's own shortfall check whenever one of its own leaf children is
+// ALSO credited, and trust that leaf's own (cascade-adjusted) shortfall
+// check instead -- for the depth-1, single-credited-leaf case this reduces to
+// exactly `leafPooledQty * (1 - directIntermediateCredit / intermediatePooledQty) <= leafCredit`,
+// which is the same combination formula the round-1 branch-index fix used,
+// arrived at independently and confirmed algebraically equivalent (up to
+// integer rounding) rather than assumed.
+function findFirstBlockingEntry(itemKey, n, options, onHandEntries, intermediateChildren) {
+  if (n <= 0) return undefined;
+  const planAtN = calculateCraftingPlan(itemKey, n, options);
+  const shortfallAtN = computeShortfallMap(planAtN, onHandEntries);
+  const creditedNodes = new Set(onHandEntries.map((entry) => entry.node)); // Set, per finding S-2
 
-  for (const input of plan.directInputs) {
-    const perCraftQtyAtRoot = input.quantity / plan.crafts;
-    if (!input.craftable) {
-      branches.set(input.resource, { type: "leaf", node: input.resource, perCraftQtyAtRoot });
-      index.set(input.resource, { branchNode: input.resource, role: "self" });
-      continue;
+  for (const entry of onHandEntries) {
+    const leafChildren = intermediateChildren.get(entry.node);
+    if (leafChildren && [...leafChildren].some((child) => creditedNodes.has(child))) {
+      continue; // combined with a credited child -- trust that child's own check instead
     }
-    const nestedPlan = plan.nestedCrafts[input.resource];
-    const intermediateOutputPerCraft = (nestedPlan.quantity + nestedPlan.leftover) / nestedPlan.crafts;
-    const leafPerCraftQty = new Map();
-    for (const nestedInput of nestedPlan.directInputs) {
-      if (nestedInput.craftable) continue; // depth-1 only -- see accepted limitation above
-      leafPerCraftQty.set(nestedInput.resource, nestedInput.quantity / nestedPlan.crafts);
-    }
-    branches.set(input.resource, { type: "intermediate", node: input.resource, perCraftQtyAtRoot, intermediateOutputPerCraft, leafPerCraftQty });
-    index.set(input.resource, { branchNode: input.resource, role: "self" });
+    if ((shortfallAtN.get(entry.node) ?? 0) > 0) return entry.node;
   }
+  return undefined;
+}
 
-  // A raw resource consumed both directly by the root AND nested inside a
-  // craftable input (e.g. Water under both Duraluminum Ingot itself and its
-  // nested Aluminum Ingot) has no single physically-correct branch to
-  // resolve to -- there is no way to know which use a pooled on-hand credit
-  // is "really" satisfying. Resolved deterministically in favor of the
-  // direct-root use (never overwriting an index entry pass one already set)
-  // -- a documented simplification, not a silent bug.
-  for (const branch of branches.values()) {
-    if (branch.type !== "intermediate") continue;
-    for (const [leafNode, perCraftQtyInIntermediate] of branch.leafPerCraftQty.entries()) {
-      if (index.has(leafNode)) continue;
-      index.set(leafNode, { branchNode: branch.node, role: "leaf", perCraftQtyInIntermediate });
+function isFullyCoveredAt(itemKey, n, options, onHandEntries, intermediateChildren) {
+  return findFirstBlockingEntry(itemKey, n, options, onHandEntries, intermediateChildren) === undefined;
+}
+
+// [Critical #1] Binary search over candidate quantities, using
+// isFullyCoveredAt() (built directly on calculateCraftingPlan() +
+// computeShortfallMap(), both already-verified-correct pooling/rounding
+// logic) as the oracle, rather than deriving a second, parallel ratio-based
+// formula. This naturally respects each recipe's real outputPerCraft/
+// whole-craft granularity for free -- calculateCraftingPlan(itemKey, n, ...)
+// already does real ceiling-rounding batching at every candidate `n`, so
+// there is no separate output-per-craft math to get wrong. Monotonic by
+// construction (pooled raw-material requirements never decrease as `n`
+// increases), so binary search is valid.
+function binarySearchMaxCompletable(itemKey, options, onHandEntries, quantity, intermediateChildren) {
+  let lo = 0;
+  let hi = quantity;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi + 1) / 2);
+    if (isFullyCoveredAt(itemKey, mid, options, onHandEntries, intermediateChildren)) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
     }
   }
-
-  return { branches, index };
+  return lo;
 }
 
 export function applyOnHandCredit(plan, onHandEntries = [], { quantity, targetItemOnHand = 0 } = {}) {
@@ -256,79 +329,37 @@ export function applyOnHandCredit(plan, onHandEntries = [], { quantity, targetIt
     seenNodes.add(entry.node);
   }
 
-  const nodeMap = flattenPlanNodes(plan); // Map, per finding S-2
-  const shortfall = new Map();
-  for (const [key, info] of nodeMap.entries()) {
-    if (key === plan.itemKey) continue; // target item's own shortfall isn't tracked here -- see effectiveQuantity
-    shortfall.set(key, info.pooledQuantity);
-  }
+  // The `shortfall` this function returns is always reported against the
+  // GIVEN plan (whatever quantity it was computed at) -- this also serves as
+  // this function's node-existence validation (throws "is not an ingredient
+  // of ..." for any unknown node), independent of the binary search below.
+  const shortfall = computeShortfallMap(plan, onHandEntries);
 
-  const { branches, index } = buildBranchIndex(plan); // both Maps, per finding S-2
-  const rootOutputPerCraft = (plan.quantity + plan.leftover) / plan.crafts;
-  const branchContribution = new Map(); // Map<branchNode, { units, entries: [node, ...] }>
-
-  for (const entry of onHandEntries) {
-    const located = index.get(entry.node); // Map.get -- never `index[entry.node]`
-    if (!located) {
-      throw new Error(`"${entry.node}" is not an ingredient of ${plan.itemKey}.`);
-    }
-
-    const currentShortfall = shortfall.get(entry.node) ?? 0;
-    const newShortfall = Math.max(0, currentShortfall - entry.quantity);
-    shortfall.set(entry.node, newShortfall);
-
-    const info = nodeMap.get(entry.node);
-    if (info.isIntermediate) {
-      // Cascade: crediting an intermediate craftable proportionally reduces
-      // its own (depth-1) raw inputs' pooled shortfall too, since that much
-      // of the intermediate no longer needs to be crafted from scratch.
-      // Never cascades upward past the intermediate itself.
-      const nested = plan.nestedCrafts[entry.node];
-      const creditRatio = currentShortfall === 0 ? 0 : (currentShortfall - newShortfall) / currentShortfall;
-      for (const input of nested.directInputs) {
-        if (input.craftable) continue;
-        const reduction = Math.round(input.quantity * creditRatio);
-        shortfall.set(input.resource, Math.max(0, (shortfall.get(input.resource) ?? 0) - reduction));
-      }
-    }
-
-    // [Critical #1/#2 fix] Convert this entry's on-hand quantity into
-    // "available units of its branch's own top-level node," accumulating
-    // additively with any other credited node in the SAME branch (e.g. an
-    // intermediate credited directly, plus its own leaf credited too) --
-    // branches only ever compete against EACH OTHER via min() below, never
-    // against sub-parts of themselves.
-    const branch = branches.get(located.branchNode);
-    const unitsOfBranchTop = located.role === "self"
-      ? entry.quantity
-      : Math.floor(entry.quantity / located.perCraftQtyInIntermediate) * branch.intermediateOutputPerCraft;
-
-    const contribution = branchContribution.get(located.branchNode) ?? { units: 0, entries: [] };
-    contribution.units += unitsOfBranchTop;
-    contribution.entries.push(entry.node);
-    branchContribution.set(located.branchNode, contribution);
-  }
-
-  // [Critical #1 fix] Whole-craft granularity: floor to full crafts of the
-  // branch's own root-facing recipe line BEFORE multiplying back out by the
-  // root's real outputPerCraft -- e.g. 1 Silicone Block on hand against
-  // Industrial-grade Lubricant (needs 4/craft, outputs 10/craft) supports
-  // ZERO completable units, not floor(1/4*10)=2.
+  // [Critical, round 2] supplyConstrainedUnits is now found via binary
+  // search against the real recipe tree at each candidate quantity, NOT a
+  // derived per-branch ratio -- a prior branch-index approach routed a
+  // resource pooled across BOTH the root's own recipe AND a nested
+  // intermediate's recipe (e.g. Water under Plastanium Ingot directly AND
+  // under its nested Stravidium Fiber) into only the root's own branch,
+  // silently ignoring the nested contribution and overstating completability
+  // (the dangerous direction for a player's farming decision). Reusing
+  // computeShortfallMap()'s pooled totals (built from
+  // calculateCraftingPlan()'s own already-verified totalRawMaterials pooling)
+  // as the coverage oracle fixes this by construction.
   let supplyConstrainedUnits = Infinity;
   let limitingNode;
-  for (const [branchNode, contribution] of branchContribution.entries()) {
-    const branch = branches.get(branchNode);
-    const rootCraftsSupportable = Math.floor(contribution.units / branch.perCraftQtyAtRoot);
-    const rootUnitsSupportable = rootCraftsSupportable * rootOutputPerCraft;
-    if (rootUnitsSupportable < supplyConstrainedUnits) {
-      supplyConstrainedUnits = rootUnitsSupportable;
-      limitingNode = contribution.entries.length === 1 ? contribution.entries[0] : branchNode;
+  if (onHandEntries.length > 0) {
+    const options = { stationTier: plan.stationTier, craftingContract: plan.craftingContract };
+    const intermediateChildren = buildIntermediateChildMap(plan); // Map, per finding S-2
+    supplyConstrainedUnits = binarySearchMaxCompletable(plan.itemKey, options, onHandEntries, quantity, intermediateChildren);
+    if (supplyConstrainedUnits < quantity) {
+      limitingNode = findFirstBlockingEntry(plan.itemKey, supplyConstrainedUnits + 1, options, onHandEntries, intermediateChildren);
     }
   }
 
   // [Important #2 fix] Always compute both terms -- when onHandEntries is
-  // empty, supplyConstrainedUnits is still correctly Infinity (the loop
-  // above never ran), so `targetItemOnHand + Infinity = Infinity` and
+  // empty, supplyConstrainedUnits is still correctly Infinity (the binary
+  // search above never ran), so `targetItemOnHand + Infinity = Infinity` and
   // `Math.min(quantity, Infinity) = quantity` fall out correctly without a
   // separate branch for the empty-entries case.
   let maxCompletable;

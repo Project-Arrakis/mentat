@@ -215,6 +215,24 @@ test("applyOnHandCredit: crediting an intermediate AND a leaf beneath it combine
   assert.equal(credited.maxCompletable.units, 25);
 });
 
+test("applyOnHandCredit: crediting a leaf pooled across BOTH the root's own recipe and a nested intermediate's recipe (Water under Plastanium + Stravidium Fiber) -- round 2 regression", () => {
+  // Water is consumed directly by Plastanium Ingot's own recipe (1250/craft)
+  // AND by its nested Stravidium Fiber recipe (100/craft) -- pooled total
+  // 1350/unit. A branch-based approach that routes Water into only the
+  // root's own branch would silently ignore the nested 100/craft and
+  // overstate completability (the dangerous direction for a player's
+  // farming decision) -- this must resolve against the TRUE pooled total.
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [{ node: "water", quantity: 20000 }], { quantity: 25 });
+  // 20000 / 1350 = 14.81 -> 14 whole units completable.
+  assert.equal(credited.maxCompletable.units, 14);
+
+  const creditedPartial = applyOnHandCredit(plan, [{ node: "water", quantity: 31250 }], { quantity: 25 });
+  // 31250 / 1350 = 23.15 -> 23, NOT 25 -- confirms this isn't silently
+  // capped at the requested quantity by an under-counted per-unit rate.
+  assert.equal(creditedPartial.maxCompletable.units, 23);
+});
+
 test("applyOnHandCredit: a duplicate on-hand node is rejected, not silently double-counted (Important #1)", () => {
   const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
   assert.throws(
