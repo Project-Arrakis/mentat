@@ -490,3 +490,31 @@ export function estimateDuration(plan, { stationCount = 1 } = {}) {
 
   return [...byFamily.entries()].map(([station, { seconds, craftsRemaining }]) => ({ station, seconds, craftsRemaining }));
 }
+
+export function recipeTreeNodes(itemKey) {
+  const recipe = CRAFTING_RECIPES[itemKey];
+  if (!recipe) {
+    throw new Error(`Unknown item: "${itemKey}".`);
+  }
+  const seen = new Map();
+  seen.set(itemKey, recipe.displayName);
+  // Union of every variant's inputs (a node might only appear in one tier's
+  // variant, e.g. Jasmium Crystal count differs by tier but the node itself
+  // is the same across tiers) -- walk every variant, not just one.
+  for (const variant of Object.values(recipe.variants)) {
+    for (const input of variant.inputs) {
+      const displayName = LEAF_RESOURCES[input.resource] ?? CRAFTING_RECIPES[input.resource]?.displayName ?? input.resource;
+      seen.set(input.resource, displayName);
+      if (input.craftable) {
+        const nestedRecipe = CRAFTING_RECIPES[input.resource];
+        for (const nestedVariant of Object.values(nestedRecipe.variants)) {
+          for (const nestedInput of nestedVariant.inputs) {
+            const nestedDisplayName = LEAF_RESOURCES[nestedInput.resource] ?? CRAFTING_RECIPES[nestedInput.resource]?.displayName ?? nestedInput.resource;
+            seen.set(nestedInput.resource, nestedDisplayName);
+          }
+        }
+      }
+    }
+  }
+  return [...seen.entries()].map(([key, displayName]) => ({ key, displayName }));
+}

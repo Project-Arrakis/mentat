@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { calculateCraftingPlan, walkRecipeTree, applyOnHandCredit, estimateDuration, MIN_QUANTITY, MAX_QUANTITY } from "../src/craftingCalculator.js";
+import { calculateCraftingPlan, walkRecipeTree, applyOnHandCredit, estimateDuration, recipeTreeNodes, MIN_QUANTITY, MAX_QUANTITY } from "../src/craftingCalculator.js";
 
 function totalOf(plan, resource) {
   return plan.totalRawMaterials.find((r) => r.resource === resource)?.quantity ?? 0;
@@ -346,4 +346,23 @@ test("estimateDuration: exact-boundary full credit (maxCompletable.units === qua
   assert.equal(credited.maxCompletable.units, 10, "sanity check on the worked example's own arithmetic");
   const durations = estimateDuration(credited, { stationCount: 1 });
   assert.equal(durations.length, 0);
+});
+
+test("recipeTreeNodes: Copper Ingot (flat item) returns itself + copper ore only", () => {
+  const nodes = recipeTreeNodes("copper_ingot").map((n) => n.key).sort();
+  assert.deepEqual(nodes, ["copper_ingot", "copper_ore"].sort());
+});
+
+test("recipeTreeNodes: Plastanium Ingot (chained) returns itself, direct ingredients, and the nested craftable's own ingredients", () => {
+  const nodes = recipeTreeNodes("plastanium_ingot").map((n) => n.key).sort();
+  assert.deepEqual(nodes, ["plastanium_ingot", "water", "titanium_ore", "stravidium_fiber", "stravidium_mass"].sort());
+});
+
+test("recipeTreeNodes: Industrial-grade Lubricant, the verified worst case, returns exactly 6 nodes", () => {
+  const nodes = recipeTreeNodes("industrial_lubricant");
+  assert.equal(nodes.length, 6);
+});
+
+test("recipeTreeNodes: unknown item throws", () => {
+  assert.throws(() => recipeTreeNodes("not_a_real_item"), /Unknown item/);
 });
