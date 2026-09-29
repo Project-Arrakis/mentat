@@ -1153,6 +1153,113 @@ git commit -m "feat(goals): /dune goal create"
 
 ---
 
+## Task 5.5: Trim Existing Command Descriptions to Restore Discord Budget Headroom
+
+**Files:**
+- Modify: `src/commands.js` (description text only — no option/subcommand names, no behavior changes)
+- Modify: `test/commands.test.js` (the char-budget test's own comment/target)
+
+**Interfaces:** None new.
+
+**Why this task exists, inserted mid-plan:** Task 5 measured the real total after adding just `create` (the largest of the 5 planned `goal` subcommands) at **7952/8000** — only 48 chars of headroom. The remaining 4 subcommands (`on-hand`, `list`, `progress`, `delete`) need roughly 417 more chars combined, which would land the full feature at ~8369, **369 over Discord's hard limit**. This was found and escalated to the user mid-implementation (not something Task 6's implementer should independently discover and patch around) — the user chose to free room by trimming existing, unrelated command descriptions rather than splitting `/dune` into multiple top-level commands (a real, larger architectural fix, filed as `mentat`#423 for future consideration, deliberately not undertaken here) or cutting the goal feature's own scope. Two other real findings surfaced during that review and were filed separately, unrelated to this task: `mentat`#422 (player/server groups mix player-facing and moderator actions) and `mentat`#424 (32 write subcommands invisible to `/dune core help`) — do not fix those here, they're out of scope for this feature.
+
+- [ ] **Step 1: Measure the current baseline**
+
+Run:
+```bash
+node --input-type=module --eval '
+import { commandDefinitions } from "./src/commands.js";
+function discordCommandCharBudget(node) {
+  let total = 0;
+  if (typeof node.name === "string") total += node.name.length;
+  if (typeof node.description === "string") total += node.description.length;
+  if (Array.isArray(node.choices)) for (const c of node.choices) { if (typeof c.name === "string") total += c.name.length; if (typeof c.value === "string") total += c.value.length; }
+  if (Array.isArray(node.options)) for (const o of node.options) total += discordCommandCharBudget(o);
+  return total;
+}
+const [dune] = commandDefinitions({ includeWriteGroup: true });
+console.log("Total:", discordCommandCharBudget(dune));
+'
+```
+Expected: `7952` (matches Task 5's own measured total — confirms nothing has drifted since).
+
+- [ ] **Step 2: Trim descriptions in the 5 largest groups**
+
+The 36 descriptions below (all in `player`, `data`, `ops`, `write`, `server` — the 5 largest non-goal groups) are every description over 40 characters in those groups, extracted directly from the live code via the same measurement script above, with each one's exact current length and full text. Shorten each one's wording — drop redundant lead-ins ("Show ", "Set ", "the current "), compress parentheticals, cut words that don't change meaning — without changing what it actually says or misleading a reader. Two of the 36 are literal enumerations of valid values, not prose (`write/post-schedule`'s `type` option: `"status/status-summary/readiness/services/none"`; `server/restart-service`'s `service` option: `"Service name (gateway/survival-1/overmap)"`) — these can only be trimmed superficially (e.g. drop "name" from the second one) since the enumerated values themselves are real, meaningful content, not filler.
+
+```
+97|ops/armory|Show server-wide aggregate inventory/crafting stats (not personal -- see /dune player inventory).
+93|player/unlink/character|Player controller ID from /dune player characters (omit to unlink your single-link character)
+83|ops/alerts|Show currently firing Prometheus/Alertmanager alerts (queries Prometheus directly).
+78|ops/activity|Show player activity statistics (online counts, sessions, per-guild, per-map).
+74|data/calculator|Calculate crafting requirements, optionally against what you have on hand.
+72|ops/resources|Show resource field statistics (spice, water, minerals, solar, organic).
+68|player|Your character: linking, inventory, storage, and account management.
+66|ops/prometheus|Show container and infrastructure metrics (CPU, memory, restarts).
+65|ops/combat|Show combat and death statistics (PvP/PvE, deaths by cause, K/D).
+62|server/coriolis|Show the current Coriolis storm seed and next-cycle countdown.
+60|player/warn|Broadcast a warning message to everyone on a map (not a DM).
+59|ops/location|Show map location activity (markers, density, territories).
+58|write|Write commands — gated behind DUNE_DISCORD_WRITES_ENABLED.
+58|write/alert-channel|Set the alert channel for readiness/service notifications.
+52|server/maintenance|Show current maintenance note or window (read-only).
+50|server/status/diagnostic|Admin-only: full diagnostic with containers table.
+50|server/atlas|Show per-sietch PvP/PvE and live sandstorm status.
+50|data/population|Show aggregate player count and server population.
+50|ops/economy|Show economy statistics (currency, orders, taxes).
+46|data/calculator/station-tier|Station size (only tiers this item has apply).
+46|data/calculator/station-count|Stations running at once (time estimate only).
+46|ops/soc|Show OPS bridge health and request statistics.
+46|ops/dashboard|Show aggregated operational dashboard summary.
+45|ops|Operational observability from the OPS addon.
+45|write/post-schedule/type|status/status-summary/readiness/services/none
+44|data/maps|Show active game maps with state and uptime.
+44|player/verify|Verify a pending character link with a code.
+44|player/storage|View your storage containers grouped by map.
+43|data/calculator/crafting-contract|Apply the -25% Crafting Contract reduction.
+42|server/readiness-detail|Show grouped readiness detail with issues.
+42|player/default|Set your default character for this guild.
+42|player/kick/player-id|Player ID (Funcom-style, e.g. Server#4242)
+42|ops/announcements|Show recent server and game announcements.
+41|server/restart-service/service|Service name (gateway/survival-1/overmap)
+41|data|Server population, backups, and map data.
+41|player/link|Link your Discord to your game character.
+```
+
+Worked examples (apply this same pattern to the rest — don't stop once you hit the target below, keep trimming through this whole list so the margin is real, not exactly-scraped):
+- `ops/alerts`: "Show currently firing Prometheus/Alertmanager alerts (queries Prometheus directly)." → "Currently firing Prometheus/Alertmanager alerts."
+- `player/warn`: "Broadcast a warning message to everyone on a map (not a DM)." → "Warn everyone on a map (not a DM)."
+- `ops/combat`: "Show combat and death statistics (PvP/PvE, deaths by cause, K/D)." → "Combat/death stats (PvP/PvE, cause, K/D)."
+- `ops` (group): "Operational observability from the OPS addon." → "OPS addon observability."
+
+- [ ] **Step 3: Re-measure and iterate until the target is met**
+
+Re-run Step 1's script after each batch of edits. **Target: non-goal-groups total ≤ 7225** (this leaves ~775 chars of headroom for the full 5-subcommand `goal` group, which needs ~654 by the plan's own earlier estimate — comfortable margin, not a repeat of Task 5's 48-char scrape). To check the non-goal total specifically while `goal` only has `create` registered, subtract 227 (the `goal` group's current cost) from the script's printed total — i.e. keep trimming until the script prints `7452` or lower. Do not stop at the bare minimum; the whole point of this task is to stop the pattern of each subsequent task fighting over shrinking headroom.
+
+- [ ] **Step 4: Strengthen `due-at`'s discoverability (cheap, real UX fix, same theme)**
+
+The user separately flagged that a player wanting to place what's conceptually an "order" (a time-boxed request — e.g. "500 titanium ore by Friday") has no obvious reason to look under a command named `goal`. A full fix (a dedicated `/goal order` entry point) needs real budget headroom this task doesn't have to spare and is deferred to `mentat`#423 if/when the command-surface split happens. The cheap, real, do-it-now fix: in `buildDuneCommand()`'s `goal:create` registration (Task 5's own code), change the `due-at` option's description from `"Optional deadline (YYYY-MM-DD) -- makes this a time-boxed order."` to `"Deadline (YYYY-MM-DD) -- set this to place a time-boxed order."` (same length or shorter, more actionable — leads with the action a user wanting to place an order should take, not a passive description). Also add one sentence to `helpPayload()`'s `goal:create` entry (added in Task 5) making the same point, e.g. appending `" Set due-at to place a time-boxed order."` if there's room, or folding it into the existing description if not.
+
+- [ ] **Step 5: Run the full test suite**
+
+Run: `node --test test/*.test.js`
+Expected: all pass. Update the char-budget test's own comment (currently references the 7800→7975 change from Task 5) to note the further reduction from this task, and change its asserted soft target from `7975` back down to something reflecting the new real baseline plus the full goal group's eventual cost — since `goal` only has `create` registered at this point in the plan, assert `total <= 7225 + 227` (i.e. `7452`) for now; Task 14's own final-integration step already re-checks this budget once all 5 subcommands exist and will tighten this further if needed.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/commands.js test/commands.test.js
+git commit -m "chore(commands): trim existing description text to restore Discord budget headroom
+
+Frees real margin for the remaining /dune goal subcommands (Tasks 6-9)
+instead of each one independently fighting over shrinking headroom the
+way Task 5 had to. Pure text trims -- no option names, no behavior
+changes. See mentat#422/#423/#424 for the related findings this
+review surfaced but deliberately left out of scope here."
+```
+
+---
+
 ## Task 6: `/dune goal on-hand`
 
 **Files:**
