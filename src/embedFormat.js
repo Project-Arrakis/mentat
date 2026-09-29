@@ -1686,6 +1686,31 @@ export function formatCalculatorEmbed(plan, durations, { onHandEntries = [] } = 
     lines.push(calculatorResourceRows(plan.directInputs.map((i) => [i.resource, i.quantity]), onHandEntries));
   }
 
+  // [Final-review fix 4] A raw resource pooled across MULTIPLE levels of the
+  // tree (e.g. Water, consumed directly by the root AND by a nested
+  // intermediate's own recipe -- see craftingCalculator.js's
+  // isLeafExclusiveToIntermediate() for the same exclusivity concept applied
+  // to completability math) must appear exactly once, in the top-level
+  // Shortfall/Total-Raw-Materials section, never repeated under a nested
+  // craft's own detail rows. The prior filter (`!input.craftable`) only
+  // excluded further-craftable inputs -- it did NOT exclude a raw leaf that's
+  // simply shared with the root or another nested level, so a shared
+  // resource like Water was shown a second time here despite this loop's own
+  // comment claiming otherwise. Count every non-craftable resource's
+  // occurrences across the root's own directInputs and every nested level's
+  // directInputs; only a resource appearing in exactly one place is
+  // genuinely "unique to this level."
+  const leafOccurrences = new Map();
+  const countLeaf = (resource) => leafOccurrences.set(resource, (leafOccurrences.get(resource) ?? 0) + 1);
+  for (const input of plan.directInputs) {
+    if (!input.craftable) countLeaf(input.resource);
+  }
+  for (const nested of Object.values(plan.nestedCrafts)) {
+    for (const input of nested.directInputs) {
+      if (!input.craftable) countLeaf(input.resource);
+    }
+  }
+
   for (const [nestedKey, nested] of Object.entries(plan.nestedCrafts)) {
     let remainingCrafts = nested.crafts;
     if (hasOnHand) {
@@ -1696,15 +1721,28 @@ export function formatCalculatorEmbed(plan, durations, { onHandEntries = [] } = 
     if (remainingCrafts <= 0) continue; // fully covered by on-hand credit -- nothing left to report
 
     lines.push("");
-    lines.push(`🔧 **Nested Craft: ${remainingCrafts.toLocaleString()}× ${calculatorResourceDisplayName(nestedKey)}**`);
-    if (!hasOnHand) {
+    if (hasOnHand) {
+      // [Final-review fix 4] In on-hand-credit mode, the Shortfall section
+      // above already shows the real, credited/adjusted numbers for every
+      // ingredient this nested craft needs -- rendering this level's
+      // UNADJUSTED plan.directInputs here (the prior behavior) produced
+      // directly contradictory numbers for the same ingredient in the same
+      // embed (e.g. Shortfall says "Stravidium Mass 0 -- fully covered"
+      // while this section said "75 more needed"). Show just the header
+      // (item, quantity, and station -- since the per-mode Station line
+      // above is skipped in on-hand mode) and point back at the Shortfall
+      // table instead of repeating numbers that can disagree with it.
+      lines.push(`🔧 **Nested Craft: ${remainingCrafts.toLocaleString()}× ${calculatorResourceDisplayName(nestedKey)}, ${nested.station}** (see Shortfall above for ingredient amounts)`);
+    } else {
+      lines.push(`🔧 **Nested Craft: ${remainingCrafts.toLocaleString()}× ${calculatorResourceDisplayName(nestedKey)}**`);
       lines.push(`Station: ${nested.station} · Craft time: ${(nested.crafts * nested.craftTimeSeconds).toLocaleString()}s`);
+      // Only ingredients genuinely unique to this level are shown here --
+      // anything already pooled into the top-level Total Raw Materials
+      // section above (or shown separately at the root's own Direct Inputs
+      // section) is never repeated.
+      const uniqueToThisLevel = nested.directInputs.filter((i) => !i.craftable && leafOccurrences.get(i.resource) === 1);
+      lines.push(calculatorResourceRows(uniqueToThisLevel.map((i) => [i.resource, i.quantity]), onHandEntries));
     }
-    // Only ingredients genuinely unique to this level are shown here --
-    // anything already pooled into the top-level shortfall/raw-materials
-    // section above is never repeated (design.md's Revision note).
-    const uniqueToThisLevel = nested.directInputs.filter((i) => !i.craftable);
-    lines.push(calculatorResourceRows(uniqueToThisLevel.map((i) => [i.resource, i.quantity]), onHandEntries));
   }
 
   if (!hasOnHand) {
@@ -1716,7 +1754,20 @@ export function formatCalculatorEmbed(plan, durations, { onHandEntries = [] } = 
   if (plan.maxCompletable !== undefined) {
     lines.push("");
     if (plan.maxCompletable.units >= plan.quantity) {
-      lines.push(`✅ You can complete all ${plan.quantity.toLocaleString()} requested.`);
+      // [Final-review fix 3] `maxCompletable` only reflects CREDITED nodes --
+      // a player can credit just one ingredient (or only the target item
+      // itself) and still see this ✅ fire, even though the Shortfall table
+      // above still lists real, nonzero shortfall for OTHER ingredients they
+      // never credited. Qualify the message whenever that's the case, so it
+      // doesn't read as "you're done" when there's still real shortfall to
+      // gather.
+      const hasRemainingShortfall = plan.shortfall !== undefined
+        && [...plan.shortfall.values()].some((v) => v > 0);
+      if (hasRemainingShortfall) {
+        lines.push(`✅ Your on-hand items are enough for all ${plan.quantity.toLocaleString()} — still gather the shortfall lines above.`);
+      } else {
+        lines.push(`✅ You can complete all ${plan.quantity.toLocaleString()} requested.`);
+      }
     } else {
       const limitingName = plan.maxCompletable.limitingNode ? calculatorResourceDisplayName(plan.maxCompletable.limitingNode) : "on-hand supply";
       const short = plan.quantity - plan.maxCompletable.units;

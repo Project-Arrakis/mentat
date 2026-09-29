@@ -37,6 +37,48 @@ test("formatCalculatorEmbed: max-completable line uses the warning emoji when sh
   assert.match(JSON.stringify(sufficientEmbed.data ?? sufficientEmbed), /✅/);
 });
 
+// [Final-review fix 3] `maxCompletable` only reflects CREDITED nodes -- if a
+// player credits only ONE ingredient among several the item actually needs,
+// `maxCompletable.units` can still reach the full goal (uncredited nodes are
+// treated as unconstrained supply) even though the Shortfall table right
+// below still lists real, nonzero shortfall for the ingredients they never
+// credited. The ✅ line must say so, not claim the goal is fully done.
+test("formatCalculatorEmbed: qualifies the success line when real shortfall remains despite maxCompletable covering the goal", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  // Only titanium_ore is credited (hugely) -- water and stravidium_mass are
+  // never credited at all, so real shortfall remains for both.
+  const credited = applyOnHandCredit(plan, [{ node: "titanium_ore", quantity: 2000 }], { quantity: 25 });
+  assert.equal(credited.maxCompletable.units, 25, "sanity check: maxCompletable reaches the full goal");
+  assert.ok([...credited.shortfall.values()].some((v) => v > 0), "sanity check: real shortfall remains for uncredited ingredients");
+  const embed = formatCalculatorEmbed(credited, estimateDuration(credited, { stationCount: 1 }), { onHandEntries: [{ node: "titanium_ore", quantity: 2000 }] });
+  const text = JSON.stringify(embed.data ?? embed);
+  assert.match(text, /✅/);
+  assert.match(text, /still gather the shortfall/i, "the ✅ line must be qualified, not claim the goal is fully done");
+});
+
+test("formatCalculatorEmbed: keeps the unqualified success line when no shortfall remains at all", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [
+    { node: "titanium_ore", quantity: 2000 },
+    { node: "stravidium_fiber", quantity: 25 },
+    { node: "water", quantity: 100000 },
+    { node: "stravidium_mass", quantity: 1000 }
+  ], { quantity: 25 });
+  assert.equal(credited.maxCompletable.units, 25, "sanity check: maxCompletable reaches the full goal");
+  assert.ok([...credited.shortfall.values()].every((v) => v === 0), "sanity check: no real shortfall remains anywhere");
+  const embed = formatCalculatorEmbed(credited, estimateDuration(credited, { stationCount: 1 }), {
+    onHandEntries: [
+      { node: "titanium_ore", quantity: 2000 },
+      { node: "stravidium_fiber", quantity: 25 },
+      { node: "water", quantity: 100000 },
+      { node: "stravidium_mass", quantity: 1000 }
+    ]
+  });
+  const text = JSON.stringify(embed.data ?? embed);
+  assert.match(text, /✅ You can complete all 25 requested\./);
+  assert.doesNotMatch(text, /still gather the shortfall/i);
+});
+
 test("formatCalculatorEmbed: leftover line shown for multi-output items when leftover > 0", () => {
   const plan = calculateCraftingPlan("low_grade_lubricant", 12, { stationTier: "medium" });
   const embed = formatCalculatorEmbed(plan, estimateDuration(plan, { stationCount: 1 }), { onHandEntries: [] });
@@ -64,4 +106,41 @@ test("formatCalculatorEmbed: omits the goal/effectiveQuantity line entirely when
   const credited = applyOnHandCredit(plan, [{ node: "titanium_ore", quantity: 40 }], { quantity: 25 });
   const embed = formatCalculatorEmbed(credited, estimateDuration(credited, { stationCount: 1 }), { onHandEntries: [{ node: "titanium_ore", quantity: 40 }] });
   assert.doesNotMatch(JSON.stringify(embed.data ?? embed), /Already have:/);
+});
+
+// [Final-review fix 4] In on-hand-credit mode, the Nested Craft section used
+// to render the nested item's raw, UNADJUSTED per-craft ingredient amounts,
+// directly contradicting the Shortfall section above it for the same
+// ingredient (e.g. Shortfall: "Stravidium Mass 0 -- fully covered" vs Nested
+// Craft: "Stravidium Mass 75"). The nested section must no longer print
+// per-ingredient rows in on-hand mode at all -- just a header pointing back
+// at the Shortfall table.
+test("formatCalculatorEmbed: nested craft section does not contradict the shortfall section in on-hand mode", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  // Credit stravidium_mass generously -- this fully covers the raw
+  // ingredient the nested Stravidium Fiber craft needs, so the Shortfall
+  // line for it reads "fully covered." The prior, buggy Nested Craft
+  // section would still show the raw, uncredited 75-needed figure for the
+  // same resource in the same response.
+  const credited = applyOnHandCredit(plan, [{ node: "stravidium_mass", quantity: 1000 }], { quantity: 25 });
+  const embed = formatCalculatorEmbed(credited, estimateDuration(credited, { stationCount: 1 }), { onHandEntries: [{ node: "stravidium_mass", quantity: 1000 }] });
+  const description = embed.data.description;
+  assert.match(description, /Stravidium Mass\s+0 \(1,000 on hand — fully covered\)/, "Shortfall line must show the real, credited number");
+  const nestedSection = description.slice(description.indexOf("Nested Craft"));
+  assert.doesNotMatch(nestedSection, /Stravidium Mass/, "the Nested Craft section must not repeat a raw, uncredited number for an ingredient the Shortfall section already reports");
+  assert.match(nestedSection, /Nested Craft: 25× Stravidium Fiber, Medium Chemical Refinery/);
+});
+
+// [Final-review fix 4] A raw resource pooled across multiple levels of the
+// tree (Water, shared between the root Plastanium craft and its nested
+// Stravidium Fiber craft) must appear exactly once in the whole embed in
+// on-hand mode -- in the Shortfall section, never repeated under the Nested
+// Craft section.
+test("formatCalculatorEmbed: a pooled resource shared across levels (Water) appears exactly once in on-hand mode", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [{ node: "titanium_ore", quantity: 2000 }], { quantity: 25 });
+  const embed = formatCalculatorEmbed(credited, estimateDuration(credited, { stationCount: 1 }), { onHandEntries: [{ node: "titanium_ore", quantity: 2000 }] });
+  const description = embed.data.description;
+  const waterMentions = description.match(/Water/g) ?? [];
+  assert.equal(waterMentions.length, 1, `expected Water to appear exactly once, found ${waterMentions.length}: ${description}`);
 });
