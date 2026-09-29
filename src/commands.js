@@ -12,7 +12,7 @@ import { logInfo, logError } from "./logger.js";
 import { resolveCompatEnv } from "./compatEnv.js";
 import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegistryMetadata } from "./registryLoader.js";
 import { countSubcommands } from "./catalogTransform.js";
-import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed, formatCalculatorEmbed, formatGoalCreateEmbed, formatGoalOnHandEmbed } from "./embedFormat.js";
+import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed, formatCalculatorEmbed, formatGoalCreateEmbed, formatGoalOnHandEmbed, formatGoalListEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { WRITE_ACTIONS, findWriteAction, discordOptionName } from "./writeActions.js";
@@ -179,7 +179,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
         .addSubcommand((c) => c.setName("default").setDescription("Default character for this guild.")
           .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
         .addSubcommand((c) => c.setName("unlink").setDescription("Unlink a character from Discord.")
-          .addStringOption((o) => o.setName("character").setDescription("Controller ID from player characters (omit if single-linked)")))
+          .addStringOption((o) => o.setName("character").setDescription("Controller ID (omit if single-linked)")))
         // Read-only, auto-detected from your real in-game faction (Core's
         // players-faction route, dune-awakening-selfhost-docker#696) -- there
         // is deliberately no argument here. This used to be a settable
@@ -231,6 +231,11 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
         .addIntegerOption((o) => o.setName("id").setDescription("Id.").setRequired(true).setAutocomplete(true))
         .addStringOption((o) => o.setName("node").setDescription("Item.").setRequired(true).setAutocomplete(true))
         .addIntegerOption((o) => o.setName("quantity").setDescription("Qty.").setRequired(true).setMinValue(0).setMaxValue(MAX_QUANTITY)))
+      .addSubcommand((c) => c.setName("list").setDescription("List.")
+        .addStringOption((o) => o.setName("scope").setDescription("Scope.").setRequired(true).addChoices(
+          { name: "Personal", value: "personal" }, { name: "Guild", value: "guild" }
+        ))
+        .addBooleanOption((o) => o.setName("include-completed").setDescription("Completed.")))
     )
 
     // ── logs group ──
@@ -259,12 +264,12 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
 
     // ── admin group ──
     .addSubcommandGroup((g) => g.setName("admin").setDescription("Admin-only diagnostics and management.")
-      .addSubcommand((c) => c.setName("doctor").setDescription("Comprehensive system diagnostic across all subsystems."))
-      .addSubcommand((c) => c.setName("sync-commands").setDescription("Check Core's command catalog for drift against the bot's registry."))
+      .addSubcommand((c) => c.setName("doctor").setDescription("Full diagnostic across all subsystems."))
+      .addSubcommand((c) => c.setName("sync-commands").setDescription("Check Core's command catalog for registry drift."))
       .addSubcommand((c) => c.setName("cooldowns").setDescription("Show active command cooldowns."))
       .addSubcommand((c) => c.setName("latency").setDescription("Show adapter request latency history."))
       .addSubcommand((c) => c.setName("events").setDescription("Show recent server incidents and events."))
-      .addSubcommand((c) => c.setName("roles").setDescription("Show configured admin/player roles, with current Discord role names."))
+      .addSubcommand((c) => c.setName("roles").setDescription("Show admin/player roles with current Discord names."))
       .addSubcommand((c) => c.setName("broadcast").setDescription("Send a message to all in-game players (moderator+).")
         .addStringOption((o) => o.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500))))
 
@@ -548,6 +553,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = executeGoalCreate({ interaction, config, db });
     } else if (key === "goal:on-hand") {
       payload = executeGoalOnHand({ interaction, config, db });
+    } else if (key === "goal:list") {
+      payload = executeGoalList({ interaction, config, db });
     }
     // ── player group ──
     // Split out of data (2026-07-24) -- see the block comment above
@@ -865,6 +872,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatGoalCreateEmbed(payload);
     } else if (subcommand === "on-hand" && group === "goal") {
       embed = formatGoalOnHandEmbed(payload);
+    } else if (subcommand === "list" && group === "goal") {
+      embed = formatGoalListEmbed(payload);
     } else if (subcommand === "link") {
       embed = formatLinkEmbed(payload);
     } else if (subcommand === "verify") {
@@ -1452,6 +1461,46 @@ function executeGoalOnHand({ interaction, config, db }) {
   return { ok: true, goalId: id, node, quantity, previous, completed };
 }
 
+// ── goal:list (Task 7) ──
+// Readable by any guild member -- unlike create/on-hand, this reuses only
+// requireGuildGoalAccess's own inGuild()/guildId DM-guard (inlined below,
+// same error text) and deliberately skips its isAdminActor() gate.
+function executeGoalList({ interaction, config, db }) {
+  const scope = interaction.options.getString("scope");
+  const includeCompleted = interaction.options.getBoolean("include-completed") ?? false;
+  const ownerType = scope === "guild" ? "guild" : "player";
+  const ownerId = scope === "guild" ? interaction.guildId : interaction.user.id;
+
+  if (scope === "guild" && (!interaction.inGuild?.() || !interaction.guildId)) {
+    throw new Error("Guild goals require running this command in a server, not a DM.");
+  }
+
+  const goals = listGoalsByOwner(db, { ownerType, ownerId, includeCompleted });
+  const rows = goals.map((goal) => {
+    try {
+      const itemName = GAME_ITEM_CATALOG_BY_ID.get(goal.item_id)?.name ?? goal.item_id;
+      let progressText = "";
+      if (goal.item_kind === "craftable" && goal.status === "active") {
+        const recipeKey = GAME_ITEM_ID_TO_RECIPE_KEY.get(goal.item_id);
+        const entries = getGoalOnHandEntries(db, goal.id).map((e) => ({ node: e.node === goal.item_id ? recipeKey : (GAME_ITEM_ID_TO_RECIPE_KEY.get(e.node) ?? e.node), quantity: e.quantity }));
+        const credited = resolveEffectiveOnHandCredit(recipeKey, goal.target_quantity, entries, { stationTier: goal.station_tier, craftingContract: !!goal.crafting_contract });
+        const pct = Math.round(((goal.target_quantity - credited.effectiveQuantity) / goal.target_quantity) * 100);
+        progressText = ` — ${pct}%`;
+      } else if (goal.item_kind === "simple" && goal.status === "active") {
+        const onHand = getGoalOnHandEntries(db, goal.id).find((e) => e.node === goal.item_id)?.quantity ?? 0;
+        const pct = Math.round((Math.min(onHand, goal.target_quantity) / goal.target_quantity) * 100);
+        progressText = ` — ${pct}%`;
+      }
+      const overdue = goal.due_at !== null && goal.status === "active" && new Date(`${goal.due_at}T00:00:00Z`).getTime() < Date.now();
+      return `#${goal.id} ${itemName} (target ${goal.target_quantity.toLocaleString()}, ${goal.status})${progressText}${overdue ? " ⚠️ OVERDUE" : ""}`;
+    } catch {
+      return `#${goal.id} — unavailable (this goal's data is stale, contact an admin)`;
+    }
+  });
+
+  return { ok: true, scope, rows };
+}
+
 // Autocomplete response handler for /dune data calculator's "item" and
 // "on-hand-N" options. "on-hand-N" is dependent on "item" -- it can only
 // suggest nodes from that item's own recipe tree (recipeTreeNodes()), so it
@@ -1583,6 +1632,7 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     // ── goal (Phase 3) ──
     { name: "goal:create", desc: "Create a new farming goal or order. Set due-at to place a time-boxed order.", role: "player" },
     { name: "goal:on-hand", desc: "Update your current on-hand quantity of one ingredient for a goal.", role: "player" },
+    { name: "goal:list", desc: "List your (or your guild's) active goals.", role: "player" },
     // ── logs ──
     { name: "logs:dune-cache", desc: "Show dune-cache container logs.", role: "player" },
     { name: "logs:dune-generated", desc: "Show dune-generated container logs.", role: "player" },

@@ -1841,3 +1841,9 @@ export function formatGoalOnHandEmbed(payload) {
   // not.
   return duneEmbed({ title: "On-Hand Updated", color: payload.completed ? "success" : "spice", description: lines.join("\n") });
 }
+
+// ── goal:list (Task 7) ──
+export function formatGoalListEmbed(payload) {
+  const description = payload.rows.length > 0 ? payload.rows.join("\n") : "No goals yet — create one with /dune goal create.";
+  return duneEmbed({ title: `${payload.scope === "guild" ? "Guild" : "Your"} Goals`, color: "spice", description });
+}

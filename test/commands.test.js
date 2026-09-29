@@ -1427,6 +1427,83 @@ test("goal:on-hand crossing the target auto-completes the goal", async () => {
   assert.match(JSON.stringify(overEdited?.embeds?.[0]), /complete/i);
 });
 
+// ── goal:list (Task 7) ──
+function goalListOptions(overrides = {}) {
+  const values = { scope: "personal", "include-completed": null, ...overrides };
+  return {
+    getSubcommandGroup: () => "goal",
+    getSubcommand: () => "list",
+    getString: (name) => (typeof values[name] === "string" ? values[name] : null),
+    getBoolean: (name) => (typeof values[name] === "boolean" ? values[name] : null)
+  };
+}
+
+function goalListInteraction(overrides = {}, { userId = `list-${Math.random()}`, guildId = "guild-1" } = {}) {
+  return mockInteraction("goal", "list", { options: goalListOptions(overrides), user: { id: userId }, guildId, guild: { ownerId: "someone-else" }, member: { roles: [] } });
+}
+
+test("goal:list shows an overdue flag only for an active order past its due date, never a completed one", async () => {
+  // Real db threaded through explicitly (createDatabase(":memory:")),
+  // matching the goal:on-hand tests' own established convention above --
+  // the single-tenant "open" rbac path has no reachable db of its own, so
+  // this backdates due_at directly via the db accessor after creating the
+  // goal through the normal path, rather than fighting isValidDueAt()'s
+  // own past-date rejection at creation time.
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `overdue-${Math.random()}`;
+  const pastDue = goalCreateInteraction({ item: "Silicone", quantity: 10, "due-at": null }, { userId });
+  let created;
+  pastDue.editReply = async (payload) => { created = payload; };
+  await executeDuneCommand(pastDue, {}, config, db);
+  const goalId = Number(JSON.stringify(created).match(/Goal #(\d+)/)[1]);
+  db.prepare("UPDATE goals SET due_at = ? WHERE id = ?").run("2020-01-01", goalId);
+
+  const listInteraction = goalListInteraction({ scope: "personal" }, { userId });
+  let listEdited;
+  listInteraction.editReply = async (payload) => { listEdited = payload; };
+  await executeDuneCommand(listInteraction, {}, config, db);
+  assert.match(JSON.stringify(listEdited?.embeds?.[0]), /overdue/i);
+});
+
+test("goal:list never flags a standing goal (due_at null) as overdue", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `standing-${Math.random()}`;
+  const createInteraction = goalCreateInteraction({ item: "Silicone", quantity: 10 }, { userId });
+  createInteraction.editReply = async () => {};
+  await executeDuneCommand(createInteraction, {}, config, db);
+  const listInteraction = goalListInteraction({ scope: "personal" }, { userId });
+  let listEdited;
+  listInteraction.editReply = async (payload) => { listEdited = payload; };
+  await executeDuneCommand(listInteraction, {}, config, db);
+  assert.doesNotMatch(JSON.stringify(listEdited?.embeds?.[0]), /overdue/i);
+});
+
+test("goal:list one poisoned/unrenderable goal row shows 'unavailable' for that line without breaking the rest of the list", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `poisoned-${Math.random()}`;
+  const goodInteraction = goalCreateInteraction({ item: "Silicone", quantity: 10 }, { userId });
+  goodInteraction.editReply = async () => {};
+  await executeDuneCommand(goodInteraction, {}, config, db);
+  // Simulate a stale/poisoned row directly via createGoal() -- a craftable
+  // goal whose station_tier has no matching recipe variant at all for its
+  // item, so resolveEffectiveOnHandCredit()'s progress-% calculation throws
+  // when this row is listed. Bypasses executeGoalCreate's own tier
+  // validation on purpose (that validation has its own dedicated test
+  // elsewhere) to isolate and verify this list-time resilience path.
+  createGoal(db, { ownerType: "player", ownerId: userId, itemId: "Silicone", itemKind: "craftable", targetQuantity: 50, stationTier: "not-a-real-tier", craftingContract: false, dueAt: null, createdBy: userId });
+
+  const listInteraction = goalListInteraction({ scope: "personal" }, { userId });
+  let listEdited;
+  listInteraction.editReply = async (payload) => { listEdited = payload; };
+  await executeDuneCommand(listInteraction, {}, config, db);
+  const text = JSON.stringify(listEdited?.embeds?.[0]);
+  assert.match(text, /silicone/i, "the good row must still render");
+  assert.match(text, /unavailable/i, "the poisoned row must degrade gracefully, not vanish silently");
+});
+
 // [Final-review fix 1] Discord enforces a hard 8000-char budget across a
 // command's own name+description plus every option's name+description
 // (recursively through subcommands/subcommand groups) and every choice's
