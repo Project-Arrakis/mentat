@@ -936,6 +936,45 @@ test("data:calculator target-item-itself on-hand value reduces effectiveQuantity
   assert.match(JSON.stringify(edited?.embeds?.[0]), /27,000|27000/);
 });
 
+// [Critical fix regression, post-review] When the target-item-itself
+// on-hand credit alone fully covers the goal (effectiveQuantity === 0), a
+// prior version of executeCalculator() reused a real MIN_QUANTITY=1 plan's
+// nestedCrafts/totalRawMaterials/directInputs/totalTimeSeconds unchanged --
+// only quantity/crafts/leftover were zeroed. That rendered a genuinely
+// self-contradictory embed EVERY time this exact scenario occurred: the top
+// correctly said "Still need to produce: 0" / "You can complete all N
+// requested", but the body below it still showed a non-zero Shortfall
+// table (real 1-unit ingredient amounts), a phantom "Nested Craft" section,
+// and a non-zero Duration line. Confirmed via an actual re-rendered embed
+// trace (quantity 25, on-hand-1 = the item itself = 25) before and after
+// the fix -- this test locks in the fixed, internally-consistent shape.
+test("data:calculator target-item-itself credit fully covering the goal renders a genuinely empty plan, not a phantom one (Critical fix)", async () => {
+  const interaction = calculatorInteraction({
+    quantity: 25,
+    "on-hand-1": "plastanium_ingot",
+    "on-hand-1-quantity": 25
+  });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
+  const description = edited?.embeds?.[0]?.data?.description || "";
+
+  // Correct top-of-embed content is still present.
+  assert.match(description, /Still need to produce: 0/);
+  assert.match(description, /You can complete all 25 requested/);
+
+  // No phantom nested-craft section and no non-zero duration line.
+  assert.doesNotMatch(description, /Nested Craft/);
+  assert.doesNotMatch(description, /⏱️ Duration/);
+
+  // No resource line should show up at all -- the old bug showed real
+  // MIN_QUANTITY=1 plan data (Water, Titanium Ore, Stravidium Fiber/Mass)
+  // in the "shortfall" table despite the goal being fully covered.
+  assert.doesNotMatch(description, /Water/);
+  assert.doesNotMatch(description, /Titanium Ore/);
+  assert.doesNotMatch(description, /Stravidium/);
+});
+
 // Note: 17 options, not 16 -- item, quantity, station-tier, crafting-contract
 // (4) + 6 on-hand-N/on-hand-N-quantity pairs (12) + station-count (1) = 17.
 // (Task 7 implementation note: the task brief's own illustrative count of

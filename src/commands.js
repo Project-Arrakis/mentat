@@ -1206,19 +1206,52 @@ function executeCalculator({ interaction }) {
   const effectiveQuantity = Math.max(0, quantity - targetItemOnHand);
   const ingredientOnHandEntries = rawOnHandEntries.filter((e) => e.node !== itemKey);
 
-  // calculateCraftingPlan() can't accept 0 (MIN_QUANTITY's own bound) -- when
-  // the target-item-itself credit alone already covers the whole goal,
-  // compute a real plan at MIN_QUANTITY for shape/station/recipe info, then
-  // zero out its reported quantity/crafts/leftover for display.
-  const rawPlan = calculateCraftingPlan(itemKey, effectiveQuantity || MIN_QUANTITY, { stationTier, craftingContract });
-  const plan = effectiveQuantity === 0 ? { ...rawPlan, quantity: 0, crafts: 0, leftover: 0 } : rawPlan;
+  let credited;
+  let durations;
 
-  const hasIngredientCredit = ingredientOnHandEntries.length > 0;
-  const credited = hasIngredientCredit || targetItemOnHand > 0
-    ? applyOnHandCredit(plan, ingredientOnHandEntries, { quantity, targetItemOnHand })
-    : plan;
-
-  const durations = estimateDuration(credited, { stationCount });
+  if (effectiveQuantity === 0) {
+    // [Critical fix, post-review] The target-item-itself on-hand credit
+    // alone already covers the whole goal -- nothing is left to craft.
+    // calculateCraftingPlan() can't accept a literal 0 (MIN_QUANTITY's own
+    // bound), so it's still called once at MIN_QUANTITY -- but ONLY to (a)
+    // surface a real "no recipe variant at this tier" error if the
+    // requested tier doesn't exist for this item, and (b) read the real
+    // station/craftTimeSeconds display strings for the tier line. Every
+    // list-shaped field it returns (directInputs, nestedCrafts,
+    // totalRawMaterials, totalTimeSeconds) describes a genuine 1-unit plan
+    // and must NOT be reused here. A prior version spread those fields
+    // through unchanged (only zeroing quantity/crafts/leftover), which
+    // rendered a self-contradictory embed every single time this branch
+    // fired: "Still need to produce: 0" / "You can complete all N
+    // requested" at the top, but ALSO a non-zero Shortfall table, a phantom
+    // "Nested Craft" section, and a non-zero Duration line below it --
+    // confirmed via an actual rendered-embed trace, not just a unit test.
+    // applyOnHandCredit() is skipped entirely here (crediting a
+    // zero-quantity plan doesn't mean anything); the zero-credit result
+    // shape is constructed directly instead.
+    const probePlan = calculateCraftingPlan(itemKey, MIN_QUANTITY, { stationTier, craftingContract });
+    credited = {
+      ...probePlan,
+      quantity,
+      effectiveQuantity: 0,
+      crafts: 0,
+      leftover: 0,
+      directInputs: [],
+      nestedCrafts: {},
+      totalRawMaterials: [],
+      totalTimeSeconds: 0,
+      shortfall: new Map(),
+      maxCompletable: { units: Math.min(quantity, targetItemOnHand), limitingNode: undefined }
+    };
+    durations = [];
+  } else {
+    const plan = calculateCraftingPlan(itemKey, effectiveQuantity, { stationTier, craftingContract });
+    const hasIngredientCredit = ingredientOnHandEntries.length > 0;
+    credited = hasIngredientCredit || targetItemOnHand > 0
+      ? applyOnHandCredit(plan, ingredientOnHandEntries, { quantity, targetItemOnHand })
+      : plan;
+    durations = estimateDuration(credited, { stationCount });
+  }
 
   return { plan: credited, durations, onHandEntries: rawOnHandEntries };
 }
