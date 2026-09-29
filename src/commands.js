@@ -1691,7 +1691,12 @@ export async function handleGoalAutocomplete(interaction, db) {
   if (focused.name === "node") {
     const goalId = interaction.options.getInteger("id");
     if (!goalId) {
-      await interaction.respond([{ name: "Select a goal id first", value: 0 }]);
+      // "node" is a String-type Discord option -- the placeholder's value
+      // must be a string, matching handleCalculatorAutocomplete's own
+      // identical-situation precedent (its on-hand-N placeholder uses
+      // value: "__none__"). A bare Number here (the original `value: 0`)
+      // is a real type mismatch, not just a style choice.
+      await interaction.respond([{ name: "Select a goal id first", value: "__none__" }]);
       return;
     }
     // Same personal-then-guild binding-rule pattern as executeGoalOnHand/

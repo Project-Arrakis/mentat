@@ -113,18 +113,38 @@ test("node autocomplete with no goal id selected yet returns a single non-select
   await handleGoalAutocomplete(interaction, db);
   assert.equal(interaction._responded.length, 1);
   assert.match(interaction._responded[0].name, /select a goal id first/i);
+  // Code review finding: "node" is a String-type option -- a Number value
+  // here (the original code used `value: 0`) is a real type mismatch, not
+  // a style nitpick. Matches handleCalculatorAutocomplete's own
+  // string-sentinel precedent for the identical situation.
+  assert.equal(typeof interaction._responded[0].value, "string", "the placeholder's value must be a string, matching the node option's String type");
 });
 
 test("node autocomplete for a craftable goal never suggests water (or any other node with no real bridge mapping)", async () => {
   const db = createDatabase(":memory:");
-  // small_fuel_cell's recipe tree includes `water` (LEAF_RESOURCES.water),
-  // which has no real game-item id -- see gameItemIdBridge.js's documented
-  // exception. Bridge id for small_fuel_cell is "FuelCanister".
-  const goalId = createGoal(db, { ownerType: "player", ownerId: "u1", itemId: "FuelCanister", itemKind: "craftable", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "u1" });
+  // CORRECTED (code review, /code-review high): the original fixture here
+  // was small_fuel_cell/FuelCanister -- but recipeTreeNodes("small_fuel_cell")
+  // actually returns only [small_fuel_cell, fuel_cell], no `water` node at
+  // all, so this test passed vacuously regardless of whether the
+  // `.filter((choice) => choice.value !== undefined)` exclusion existed.
+  // medium_fuel_cell's recipe tree genuinely includes `water`
+  // (LEAF_RESOURCES.water, which has no real game-item id -- see
+  // gameItemIdBridge.js's documented exception) -- verified directly via
+  // `recipeTreeNodes("medium_fuel_cell")` returning
+  // [medium_fuel_cell, water, fuel_cell]. Bridge id for medium_fuel_cell is
+  // "FuelCanister_Medium"; fuel_cell maps to "Oil".
+  const goalId = createGoal(db, { ownerType: "player", ownerId: "u1", itemId: "FuelCanister_Medium", itemKind: "craftable", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "u1" });
   const interaction = mockGoalAutocompleteInteraction({ focusedName: "node", focusedValue: "", userId: "u1" });
   interaction.options.getInteger = (name) => (name === "id" ? goalId : null);
   await handleGoalAutocomplete(interaction, db);
-  assert.ok(interaction._responded.length > 0, "sanity check: the craftable goal's own recipe tree produced real suggestions");
+  // Exactly 2, not merely ">0" -- recipeTreeNodes returns 3 raw nodes
+  // (root, water, fuel_cell); this assertion only holds if the `water`
+  // node (which maps to `undefined`) is actually filtered out. Removing
+  // the exclusion would make this length 3, failing this assertion --
+  // unlike the vacuous original fixture, this test genuinely depends on
+  // the filter existing.
+  assert.equal(interaction._responded.length, 2, "root item + fuel_cell (mapped to Oil) -- water must be excluded, not left in as a 3rd entry");
+  assert.deepEqual(interaction._responded.map((c) => c.value).sort(), ["FuelCanister_Medium", "Oil"].sort());
   assert.ok(!interaction._responded.some((c) => c.value === "water"), "must never suggest the raw internal recipe key as a fallback value");
   assert.ok(interaction._responded.every((c) => c.value !== undefined), "must never suggest a choice with an undefined value");
 });
