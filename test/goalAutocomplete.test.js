@@ -216,3 +216,36 @@ test("id autocomplete tolerates an options object with no getSubcommand", async 
   await handleGoalAutocomplete(i, db);
   assert.equal(i._responded.length, 1);
 });
+
+// ── mentat#425: progress autocomplete shows guild goals to any member ──
+test("id autocomplete: a non-admin guild member sees guild goals for progress only, not on-hand or delete", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "guild-1", guildName: "Test", consoleUrl: "https://example.test", adapterToken: "t", status: "active" });
+  const gid = createGoal(db, { ownerType: "guild", ownerId: "guild-1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "owner" });
+  const seen = {};
+  for (const sub of ["progress", "on-hand", "delete"]) {
+    const i = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "plain-member", guildOwnerId: "owner", subcommand: sub });
+    await handleGoalAutocomplete(i, db);
+    seen[sub] = i._responded;
+  }
+  assert.deepEqual(seen.progress.map((c) => c.value), [gid]);
+  assert.match(seen.progress[0].name, /^Guild: /);
+  assert.equal(seen["on-hand"].length, 0);
+  assert.equal(seen.delete.length, 0);
+});
+
+test("id autocomplete for progress never shows another guild's goals to a member of this guild", async () => {
+  const db = createDatabase(":memory:");
+  upsertGuild(db, { guildId: "guild-1", guildName: "A", consoleUrl: "https://example.test", adapterToken: "t", status: "active" });
+  upsertGuild(db, { guildId: "guild-2", guildName: "B", consoleUrl: "https://example.test", adapterToken: "t2", status: "active" });
+  const a = createGoal(db, { ownerType: "guild", ownerId: "guild-1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "x" });
+  const b = createGoal(db, { ownerType: "guild", ownerId: "guild-2", itemId: "AzuriteOre", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "y" });
+  const i = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "member-a", guildId: "guild-1", subcommand: "progress" });
+  await handleGoalAutocomplete(i, db);
+  assert.deepEqual(i._responded.map((c) => c.value), [a]);
+  assert.ok(!i._responded.some((c) => c.value === b));
+  // A DM (no guildId) sees no guild goals at all.
+  const dm = mockGoalAutocompleteInteraction({ focusedName: "id", userId: "member-a", guildId: null, subcommand: "progress" });
+  await handleGoalAutocomplete(dm, db);
+  assert.equal(dm._responded.length, 0);
+});

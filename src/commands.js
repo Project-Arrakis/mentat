@@ -1713,7 +1713,13 @@ export async function handleGoalAutocomplete(interaction, db) {
     const personal = listGoalsByOwner(db, { ownerType: "player", ownerId: interaction.user.id, includeCompleted })
       .map((g) => ({ ...g, __label: "" }));
     let guild = [];
-    if (interaction.guildId && isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId)) {
+    // mentat#425: executeGoalProgress deliberately lets ANY member of the
+    // guild read a guild goal, so progress suggestions skip the admin gate.
+    // on-hand/delete are mutations and keep it. Always scoped to the
+    // caller's own interaction.guildId, never another guild.
+    const guildVisible = interaction.guildId
+      && (subcommand === "progress" || isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId));
+    if (guildVisible) {
       guild = listGoalsByOwner(db, { ownerType: "guild", ownerId: interaction.guildId, includeCompleted })
         .map((g) => ({ ...g, __label: "Guild: " }));
     }
