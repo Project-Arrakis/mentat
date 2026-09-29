@@ -152,17 +152,28 @@ export function calculateCraftingPlan(itemKey, quantity, { stationTier = "large"
 // could otherwise carry "__proto__"/"constructor"/"prototype" and resolve
 // against real inherited properties instead of undefined.
 function flattenPlanNodes(plan) {
-  // Returns a Map<nodeKey, { pooledQuantity, isIntermediate }> covering the
-  // target item itself, every intermediate craftable, and every raw leaf --
-  // everything an on-hand-N value could legally name. `pooledQuantity` for a
-  // raw leaf comes from `plan.totalRawMaterials`, which is ALREADY pooled
-  // across every level of the tree (e.g. Water under both Plastanium Ingot's
-  // own recipe AND its nested Stravidium Fiber recipe) -- this is what makes
-  // reusing this exact structure at any candidate quantity (see
-  // computeShortfallMap() below) correctly handle cross-level pooling by
-  // construction, with no separate per-branch bookkeeping needed.
+  // Returns a Map<nodeKey, { pooledQuantity, isIntermediate }> covering every
+  // intermediate craftable and every raw leaf -- everything an on-hand-N
+  // value could legally name. `pooledQuantity` for a raw leaf comes from
+  // `plan.totalRawMaterials`, which is ALREADY pooled across every level of
+  // the tree (e.g. Water under both Plastanium Ingot's own recipe AND its
+  // nested Stravidium Fiber recipe) -- this is what makes reusing this exact
+  // structure at any candidate quantity (see computeShortfallMap() below)
+  // correctly handle cross-level pooling by construction, with no separate
+  // per-branch bookkeeping needed.
+  //
+  // [SECURITY/round-3 regression] Deliberately excludes the target item
+  // itself (`plan.itemKey`): crediting the target item's own already-
+  // completed units is Task 7's Step A's job (resolved into
+  // `effectiveQuantity`/`targetItemOnHand` before this function is ever
+  // called), and must never be accepted as an "ingredient" credit here. A
+  // prior version of this map DID include `plan.itemKey`, which let a
+  // `{ node: plan.itemKey, ... }` on-hand entry silently succeed instead of
+  // throwing -- omitting it here means computeShortfallMap()'s existing
+  // "not an ingredient" check (a plain `nodeMap.get()` miss) rejects it
+  // automatically, with no separate special-case check to remember to keep
+  // in sync.
   const nodes = new Map();
-  nodes.set(plan.itemKey, { pooledQuantity: plan.quantity, isIntermediate: false });
   for (const [resource, nested] of Object.entries(plan.nestedCrafts)) {
     nodes.set(resource, { pooledQuantity: nested.quantity, isIntermediate: true });
   }
@@ -183,10 +194,9 @@ function flattenPlanNodes(plan) {
 // `plan`'s tree (finding S-2's "__proto__" case included, since a Map lookup
 // for an unset key is always `undefined`, never `Object.prototype`).
 function computeShortfallMap(plan, onHandEntries) {
-  const nodeMap = flattenPlanNodes(plan); // Map, per finding S-2
+  const nodeMap = flattenPlanNodes(plan); // Map, per finding S-2 -- never includes plan.itemKey
   const shortfall = new Map();
   for (const [key, info] of nodeMap.entries()) {
-    if (key === plan.itemKey) continue; // target item's own shortfall isn't tracked here -- see effectiveQuantity
     shortfall.set(key, info.pooledQuantity);
   }
 
@@ -218,21 +228,52 @@ function computeShortfallMap(plan, onHandEntries) {
   return shortfall;
 }
 
-// Map<intermediateNode, Set<leafChildNode>> -- the recipe TREE SHAPE (which
-// resources are craftable, which are leaves, which leaves belong to which
-// intermediate) is invariant to quantity, so this is built once from
-// whatever plan is on hand and reused across every candidate quantity the
-// binary search below tries. depth-1 only, matching every other accepted
-// limitation in this file (real data has no depth-2+ nesting -- Task 1's own
-// data-integrity test enforces this).
+// [round-3 fix] Returns true only if `leafKey` is consumed EXACTLY ONCE
+// anywhere in the whole tree (root's own directInputs, plus every nested
+// intermediate's own directInputs) -- and that one place is `nestedPlan`
+// itself. This gates findFirstBlockingEntry()'s skip-and-trust-the-leaf's-
+// own-check rule below: the rule is only sound when the credited leaf is
+// EXCLUSIVE to the intermediate being credited alongside it (e.g. Stravidium
+// Mass, used only by Stravidium Fiber's own recipe). A SHARED leaf -- Water
+// is consumed directly by the root AND by every nested intermediate, in all
+// 5 real chained items (Plastanium+Fiber, Steel+Iron, Duraluminum+Aluminum,
+// both Lubricants+Silicone Block) -- already has its OWN contribution to
+// completable units correctly captured by its own independent pooled check
+// (round 2's water-only fix); skipping the intermediate's check ON TOP of
+// that both double-counts and discards real information. Confirmed as a real
+// regression: crediting Stravidium Fiber 8 + a large Water amount together
+// was wrongly returning full completion instead of still being capped at 8
+// by Fiber's own (unskippable, since Water isn't exclusive to it) check.
+function isLeafExclusiveToIntermediate(leafKey, nestedPlan, rootPlan) {
+  let count = 0;
+  if (rootPlan.directInputs.some((input) => input.resource === leafKey)) count++;
+  for (const nested of Object.values(rootPlan.nestedCrafts)) {
+    if (nested.directInputs.some((input) => input.resource === leafKey)) count++;
+  }
+  return count === 1 && nestedPlan.directInputs.some((input) => input.resource === leafKey);
+}
+
+// Map<intermediateNode, Set<exclusiveLeafChildNode>> -- the recipe TREE
+// SHAPE (which resources are craftable, which are leaves, which leaves
+// belong to which intermediate, and which of those are exclusive to it) is
+// invariant to quantity, so this is built once from whatever plan is on hand
+// and reused across every candidate quantity the binary search below tries.
+// Only EXCLUSIVE leaf children are included (see isLeafExclusiveToIntermediate()
+// above) -- a shared leaf like Water is deliberately never added here, so it
+// can never trigger findFirstBlockingEntry()'s skip rule. depth-1 only,
+// matching every other accepted limitation in this file (real data has no
+// depth-2+ nesting -- Task 1's own data-integrity test enforces this).
 function buildIntermediateChildMap(plan) {
   const children = new Map();
   for (const [resource, nested] of Object.entries(plan.nestedCrafts)) {
-    const leafChildren = new Set();
+    const exclusiveLeafChildren = new Set();
     for (const input of nested.directInputs) {
-      if (!input.craftable) leafChildren.add(input.resource);
+      if (input.craftable) continue;
+      if (isLeafExclusiveToIntermediate(input.resource, nested, plan)) {
+        exclusiveLeafChildren.add(input.resource);
+      }
     }
-    children.set(resource, leafChildren);
+    children.set(resource, exclusiveLeafChildren);
   }
   return children;
 }
@@ -256,11 +297,21 @@ function buildIntermediateChildMap(plan) {
 // checked directly. The algebraically-verified fix is to skip an
 // intermediate's own shortfall check whenever one of its own leaf children is
 // ALSO credited, and trust that leaf's own (cascade-adjusted) shortfall
-// check instead -- for the depth-1, single-credited-leaf case this reduces to
-// exactly `leafPooledQty * (1 - directIntermediateCredit / intermediatePooledQty) <= leafCredit`,
+// check instead -- for the depth-1, single-credited-EXCLUSIVE-leaf case this
+// reduces to exactly
+// `leafPooledQty * (1 - directIntermediateCredit / intermediatePooledQty) <= leafCredit`,
 // which is the same combination formula the round-1 branch-index fix used,
 // arrived at independently and confirmed algebraically equivalent (up to
 // integer rounding) rather than assumed.
+//
+// [round-3 fix] This skip is only sound when the credited leaf is EXCLUSIVE
+// to the intermediate -- `intermediateChildren` (from buildIntermediateChildMap())
+// is pre-filtered to only ever contain exclusive leaves, so a SHARED leaf
+// (Water) can never appear here and can never trigger the skip; it always
+// falls through to its own independent pooled check below, exactly as when
+// credited alone. See isLeafExclusiveToIntermediate()'s own comment for the
+// regression this specifically fixes (Fiber + a large Water credit together
+// was wrongly returning full completion before this gate was added).
 function findFirstBlockingEntry(itemKey, n, options, onHandEntries, intermediateChildren) {
   if (n <= 0) return undefined;
   const planAtN = calculateCraftingPlan(itemKey, n, options);
@@ -268,9 +319,9 @@ function findFirstBlockingEntry(itemKey, n, options, onHandEntries, intermediate
   const creditedNodes = new Set(onHandEntries.map((entry) => entry.node)); // Set, per finding S-2
 
   for (const entry of onHandEntries) {
-    const leafChildren = intermediateChildren.get(entry.node);
-    if (leafChildren && [...leafChildren].some((child) => creditedNodes.has(child))) {
-      continue; // combined with a credited child -- trust that child's own check instead
+    const exclusiveLeafChildren = intermediateChildren.get(entry.node);
+    if (exclusiveLeafChildren && [...exclusiveLeafChildren].some((child) => creditedNodes.has(child))) {
+      continue; // combined with a credited, EXCLUSIVE child -- trust that child's own check instead
     }
     if ((shortfallAtN.get(entry.node) ?? 0) > 0) return entry.node;
   }

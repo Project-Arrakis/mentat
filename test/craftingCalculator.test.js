@@ -233,6 +233,33 @@ test("applyOnHandCredit: crediting a leaf pooled across BOTH the root's own reci
   assert.equal(creditedPartial.maxCompletable.units, 23);
 });
 
+test("applyOnHandCredit: crediting an intermediate AND a SHARED (non-exclusive) leaf must NOT combine -- the intermediate's own check still binds (round 3 regression)", () => {
+  // Water is shared between Plastanium Ingot's own recipe and its nested
+  // Stravidium Fiber recipe (unlike Stravidium Mass, which is exclusive to
+  // Fiber) -- crediting Fiber 8 alongside a large Water amount must NOT
+  // trigger the same "combine" treatment as Fiber + Mass does. Fiber's own
+  // check (n <= 8) must still bind independently, since Water's own
+  // contribution is already fully captured by its own pooled check.
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [
+    { node: "stravidium_fiber", quantity: 8 },
+    { node: "water", quantity: 32950 }
+  ], { quantity: 25 });
+  assert.equal(credited.maxCompletable.units, 8, "Water is shared, not exclusive to Fiber -- must not let a huge Water credit paper over an insufficient Fiber credit");
+  assert.equal(credited.maxCompletable.limitingNode, "stravidium_fiber");
+});
+
+test("applyOnHandCredit: crediting the target item itself through onHandEntries is rejected, not silently accepted (round 3 regression)", () => {
+  // Task 7's Step A is supposed to filter this out before ever calling
+  // applyOnHandCredit() -- this is the defense-in-depth backstop, same
+  // posture as S-1/S-2/Important #1.
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  assert.throws(
+    () => applyOnHandCredit(plan, [{ node: "plastanium_ingot", quantity: 10 }], { quantity: 25 }),
+    /not an ingredient/i
+  );
+});
+
 test("applyOnHandCredit: a duplicate on-hand node is rejected, not silently double-counted (Important #1)", () => {
   const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
   assert.throws(
