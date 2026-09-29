@@ -1141,7 +1141,7 @@ git commit -m "feat(goals): /dune goal create"
 
 - [ ] **Step 1: Register the subcommand**
 
-Add to the `goal` group's builder chain from Task 5 (after `.addSubcommand((c) => c.setName("create")...)`):
+Task 5's registration ends with a standalone `)` on its own line, right after `create`'s own closing (`...crafting-contract reduction (craftable items only).")))`) — that standalone `)` is the outer `.addSubcommandGroup(...)` call's own closing paren, and it stays exactly where Task 5 left it through every later task; nothing later ever edits or moves it. Using Edit, insert this new block immediately after `create`'s closing and before that standalone `)`:
 
 ```js
       .addSubcommand((c) => c.setName("on-hand").setDescription("Update your current on-hand quantity of one ingredient for a goal.")
@@ -1149,6 +1149,8 @@ Add to the `goal` group's builder chain from Task 5 (after `.addSubcommand((c) =
         .addStringOption((o) => o.setName("node").setDescription("Which ingredient (or the goal's own item, for a simple goal).").setRequired(true).setAutocomplete(true))
         .addIntegerOption((o) => o.setName("quantity").setDescription("Your current total on hand.").setRequired(true).setMinValue(0).setMaxValue(MAX_QUANTITY)))
 ```
+
+This block is self-contained: its own trailing 3 closing parens (after `MAX_QUANTITY`) close `setMaxValue`, `addIntegerOption`, and `addSubcommand` — not the group. Tasks 7, 8, and 9 each insert their own subcommand the same way, in the same spot (immediately before that same still-untouched standalone `)`), never touching each other's closing parens.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -1702,10 +1704,20 @@ test("goal:progress: reused core matches Phase 1 byte-for-byte for the same inpu
   await executeDuneCommand(progressInteraction, {}, config);
   const goalText = JSON.stringify(progressEdited?.embeds?.[0]);
 
-  // Both must agree on the real, shared numbers -- the shortfall for
-  // titanium/water/fiber, and the max-completable line.
-  assert.match(goalText, /short 15|at most 10/i);
-  assert.match(phase1Text, /short 15|at most 10/i);
+  // Both must agree on the real, shared numbers this scenario actually
+  // produces -- verified directly by running calculateCraftingPlan/
+  // applyOnHandCredit for these exact inputs (25x plastanium_ingot, large
+  // tier, 2000 titanium_ore on hand) before this plan was finalized:
+  // titanium_ore's shortfall is fully covered (0 remaining, "2,000 on hand
+  // -- fully covered"), water's raw shortfall is 33,750 (comma-formatted,
+  // via toLocaleString()), and nothing is bottlenecked (maxCompletable
+  // covers the full 25). "33,750" is the strongest, least-generic signal
+  // to assert on -- it can only appear if the same underlying calculation
+  // ran with the same inputs.
+  assert.match(goalText, /33,750/);
+  assert.match(phase1Text, /33,750/);
+  assert.match(goalText, /fully covered/i);
+  assert.match(phase1Text, /fully covered/i);
 });
 
 test("goal:progress wrapper's own chrome (goal title, due-date line) is present and correct -- not covered by the byte-for-byte reuse claim above", async () => {
@@ -1830,10 +1842,10 @@ git commit -m "feat(goals): /dune goal progress, reusing Phase 1's full calculat
 
 ```js
       .addSubcommand((c) => c.setName("delete").setDescription("Delete a goal.")
-        .addIntegerOption((o) => o.setName("id").setDescription("Goal id.").setRequired(true).setAutocomplete(true))))
+        .addIntegerOption((o) => o.setName("id").setDescription("Goal id.").setRequired(true).setAutocomplete(true)))
 ```
 
-(Note the closing `)` at the end — this is the last subcommand in the `goal` group's builder chain from Task 5, so it closes both `.addSubcommand(...)` and the outer `.addSubcommandGroup((g) => ...)`.)
+**Paren count matters here — get this exactly right.** This ends in exactly 3 closing parens after `true` (closing `setAutocomplete`, then `addIntegerOption`, then `addSubcommand`), the same self-contained pattern every other subcommand in this group uses (`create`, `on-hand`, `list`, `progress`). It does **not** close the outer `.addSubcommandGroup(...)` call — that was already closed by a standalone `)` on its own line at the very end of Task 5's original registration, which has never been touched or removed by Tasks 6-8 and must not be touched by this task either. Insert this `delete` block the same way Tasks 6-8 inserted theirs: immediately after `progress`'s own closing (`...setAutocomplete(true)))`, from Task 8) and **before** that still-untouched final `)` line. An earlier draft of this task incorrectly added a 4th closing paren here on the theory that the "last" subcommand needs to close the group itself — it doesn't; verify with `node --check src/commands.js` (or just run the test suite in Step 4) if in doubt, since an extra or missing paren here is a silent trap that only surfaces as a confusing syntax error location far from its actual cause.
 
 - [ ] **Step 2: Write the failing tests**
 
