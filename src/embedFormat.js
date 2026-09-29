@@ -1808,3 +1808,19 @@ export function formatCalculatorEmbed(plan, durations, { onHandEntries = [] } = 
     description: lines.join("\n").slice(0, 4000)
   });
 }
+
+// ── goal:create confirmation (Phase 3) ──
+// Genuinely new UI, not reused from the Phase 1 calculator embed above --
+// this confirms a persisted goal was created, not a one-off calculation.
+export function formatGoalCreateEmbed(payload) {
+  const lines = [
+    `🎯 **Goal #${payload.id} created**`,
+    `${payload.itemName} — target ${payload.quantity.toLocaleString()}`,
+    payload.kindConfirmationLine
+  ];
+  if (payload.dueAt) lines.push(`Due: ${payload.dueAt} (this is an order, not a standing goal)`);
+  // "success" (not a raw hex literal) -- duneEmbed() resolves `color`
+  // through DUNE_COLORS by string key; a bare 0x2ecc71 number would miss
+  // that lookup entirely and silently fall back to the default spice blue.
+  return duneEmbed({ title: "Goal Created", color: "success", description: lines.join("\n") });
+}

@@ -12,7 +12,7 @@ import { logInfo, logError } from "./logger.js";
 import { resolveCompatEnv } from "./compatEnv.js";
 import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegistryMetadata } from "./registryLoader.js";
 import { countSubcommands } from "./catalogTransform.js";
-import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed, formatCalculatorEmbed } from "./embedFormat.js";
+import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed, formatCalculatorEmbed, formatGoalCreateEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
 import { handleWriteCommand } from "./writeHandler.js";
 import { WRITE_ACTIONS, findWriteAction, discordOptionName } from "./writeActions.js";
@@ -20,12 +20,14 @@ import { writesEnabled, canWrite, writeRoleIds } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES, PLANNED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
-import { getGuildStatus, getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
+import { getGuildStatus, getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction, createGoal, getGoalScoped, listGoalsByOwner, countGoalsByOwner, setGoalOnHandEntry, getGoalOnHandEntries, countGoalOnHandEntries, completeGoal, deleteGoalScoped, appendGoalAuditLog } from "./database.js";
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
 import { multiTenantActorTier, tierAtLeast, resolveGuildOwnerId, isInteractionGuildOwner, actorFromInteraction } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
 import { calculateCraftingPlan, applyOnHandCredit, resolveEffectiveOnHandCredit, estimateDuration, recipeTreeNodes, bestAvailableTier, MIN_QUANTITY, MAX_QUANTITY } from "./craftingCalculator.js";
 import { CRAFTING_RECIPES } from "./craftingData.js";
+import { GAME_ITEM_CATALOG_BY_ID } from "./gameItemCatalog.js";
+import { GAME_ITEM_ID_TO_RECIPE_KEY, RECIPE_KEY_TO_GAME_ITEM_ID } from "./gameItemIdBridge.js";
 
 // Mechanical WRITE_ACTIONS -> discord.js subcommand registration -- shared
 // by every write-capable group builder (whether that group is genuinely new
@@ -204,6 +206,28 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       if (includeWriteGroup) addWriteSubcommands(g, "player");
       return g;
     })
+
+    // ── goal group (Phase 3) ──
+    // Descriptions here are deliberately terse (Discord's 8000-char
+    // per-command budget, see the regression test below) -- same
+    // discipline as the data:calculator subcommand above. This group's own
+    // full complement of 6 options plus 5 choice pairs already costs ~120
+    // chars before a single description byte is written, so there is far
+    // less room per-field than calculator had; the full explanation lives
+    // in docs, not repeated per option here.
+    .addSubcommandGroup((g) => g.setName("goal").setDescription("Goals.")
+      .addSubcommand((c) => c.setName("create").setDescription("Create a goal.")
+        .addStringOption((o) => o.setName("scope").setDescription("Personal/guild.").setRequired(true).addChoices(
+          { name: "Personal", value: "personal" }, { name: "Guild", value: "guild" }
+        ))
+        .addStringOption((o) => o.setName("item").setDescription("Item.").setRequired(true).setAutocomplete(true))
+        .addIntegerOption((o) => o.setName("quantity").setDescription("Quantity.").setRequired(true).setMinValue(MIN_QUANTITY).setMaxValue(MAX_QUANTITY))
+        .addStringOption((o) => o.setName("due-at").setDescription("Deadline (YYYY-MM-DD)."))
+        .addStringOption((o) => o.setName("station-tier").setDescription("Station size.").addChoices(
+          { name: "Large", value: "large" }, { name: "Medium", value: "medium" }, { name: "Small", value: "small" }
+        ))
+        .addBooleanOption((o) => o.setName("crafting-contract").setDescription("-25% Crafting Contract.")))
+    )
 
     // ── logs group ──
     .addSubcommandGroup((g) => g.setName("logs").setDescription("View logs from specific game services.")
@@ -514,6 +538,10 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = { maps: status?.result?.maps || [] };
     } else if (key === "data:calculator") {
       payload = executeCalculator({ interaction });
+    }
+    // ── goal group (Phase 3) ──
+    else if (key === "goal:create") {
+      payload = executeGoalCreate({ interaction, config, db });
     }
     // ── player group ──
     // Split out of data (2026-07-24) -- see the block comment above
@@ -827,6 +855,8 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatMapsEmbed(payload);
     } else if (subcommand === "calculator") {
       embed = formatCalculatorEmbed(payload.plan, payload.durations, { onHandEntries: payload.onHandEntries });
+    } else if (subcommand === "create" && group === "goal") {
+      embed = formatGoalCreateEmbed(payload);
     } else if (subcommand === "link") {
       embed = formatLinkEmbed(payload);
     } else if (subcommand === "verify") {
@@ -1208,6 +1238,101 @@ function executeCalculator({ interaction }) {
   return { plan: credited, durations, onHandEntries: rawOnHandEntries };
 }
 
+// ── goal:create (Phase 3) ──
+// Module-level caps -- shared with Tasks 6/9, which also enforce/report
+// against them, so they must not drift into per-function-local constants.
+const GOAL_PERSONAL_ACTIVE_CAP = 5;
+const GOAL_GUILD_ACTIVE_CAP = 10;
+const GOAL_LIFETIME_CAP = 50;
+
+function isValidDueAt(raw) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const parsed = new Date(`${raw}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const todayUtc = new Date(); todayUtc.setUTCHours(0, 0, 0, 0);
+  return parsed.getTime() >= todayUtc.getTime();
+}
+
+// requireGuildGoalAccess: shared by Tasks 6/9 (any guild-scoped goal
+// mutation, not just create) -- signature and both failure messages are
+// load-bearing for those tasks' own tests, do not change without checking
+// their callers. Throws (never returns a boolean) so every caller gets the
+// same "propagates to executeDuneCommand's top-level catch" behavior as
+// every other validation error in this function.
+function requireGuildGoalAccess(interaction, config, db) {
+  if (!interaction.inGuild?.() || !interaction.guildId) {
+    throw new Error("Guild goals require running this command in a server, not a DM.");
+  }
+  if (!isAdminActor(interaction, config, db, interaction.guildId)) {
+    throw new Error("Managing a guild goal requires admin-tier access or server ownership. If you're the server owner but this still fails, ask whoever set up the bot to open the setup portal (the link sent when the bot was added) and configure an Admin Role.");
+  }
+}
+
+function executeGoalCreate({ interaction, config, db }) {
+  const scope = interaction.options.getString("scope");
+  const itemId = interaction.options.getString("item");
+  const quantity = interaction.options.getInteger("quantity");
+  const dueAtRaw = interaction.options.getString("due-at");
+  const stationTierOption = interaction.options.getString("station-tier");
+  const craftingContractOption = interaction.options.getBoolean("crafting-contract");
+
+  if (!GAME_ITEM_CATALOG_BY_ID.has(itemId)) {
+    throw new Error(`Unknown item: '${itemId}'. Try /dune goal create and use the autocomplete suggestions.`);
+  }
+  const itemName = GAME_ITEM_CATALOG_BY_ID.get(itemId).name;
+
+  let dueAt = null;
+  if (dueAtRaw !== null) {
+    if (!isValidDueAt(dueAtRaw)) {
+      throw new Error(`'${dueAtRaw}' is not a valid, non-past due-at date. Use the format YYYY-MM-DD.`);
+    }
+    dueAt = dueAtRaw;
+  }
+
+  const recipeKey = GAME_ITEM_ID_TO_RECIPE_KEY.get(itemId);
+  const itemKind = recipeKey ? "craftable" : "simple";
+
+  if (itemKind === "simple" && (stationTierOption !== null || craftingContractOption !== null)) {
+    throw new Error(`${itemName} has no known crafting recipe -- station-tier/crafting-contract don't apply.`);
+  }
+
+  let stationTier = null;
+  let craftingContract = false;
+  let kindConfirmationLine;
+  if (itemKind === "craftable") {
+    stationTier = stationTierOption ?? bestAvailableTier(recipeKey);
+    craftingContract = craftingContractOption ?? false;
+    // Validate the tier actually exists for this item (throws "no recipe
+    // variant at this tier" otherwise), matching Phase 1's own validation.
+    calculateCraftingPlan(recipeKey, MIN_QUANTITY, { stationTier, craftingContract });
+    kindConfirmationLine = "Tracking with full crafting math.";
+  } else {
+    kindConfirmationLine = "Tracking as a simple count -- no known crafting recipe for this item.";
+  }
+
+  const ownerType = scope === "guild" ? "guild" : "player";
+  const ownerId = scope === "guild" ? interaction.guildId : interaction.user.id;
+
+  if (scope === "guild") {
+    requireGuildGoalAccess(interaction, config, db);
+  }
+
+  const activeCap = scope === "guild" ? GOAL_GUILD_ACTIVE_CAP : GOAL_PERSONAL_ACTIVE_CAP;
+  const activeCount = countGoalsByOwner(db, { ownerType, ownerId, statuses: ["active"] });
+  const lifetimeCount = countGoalsByOwner(db, { ownerType, ownerId, statuses: ["active", "completed", "archived"] });
+  if (activeCount >= activeCap || lifetimeCount >= GOAL_LIFETIME_CAP) {
+    const existing = listGoalsByOwner(db, { ownerType, ownerId, includeCompleted: true });
+    const listing = existing.map((g) => `#${g.id} ${GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? g.item_id} (${g.status})`).join(", ");
+    const which = activeCount >= activeCap ? `the ${activeCap}-active-goal limit` : `the ${GOAL_LIFETIME_CAP}-goal lifetime limit`;
+    throw new Error(`You've hit ${which}. Delete one first: ${listing}`);
+  }
+
+  const id = createGoal(db, { ownerType, ownerId, itemId, itemKind, targetQuantity: quantity, stationTier, craftingContract, dueAt, createdBy: interaction.user.id });
+  appendGoalAuditLog(db, { goalId: id, action: "create", actorId: interaction.user.id });
+
+  return { ok: true, id, itemName, quantity, itemKind, kindConfirmationLine, dueAt };
+}
+
 // Autocomplete response handler for /dune data calculator's "item" and
 // "on-hand-N" options. "on-hand-N" is dependent on "item" -- it can only
 // suggest nodes from that item's own recipe tree (recipeTreeNodes()), so it
@@ -1336,6 +1461,8 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "player:inventory", desc: "View your personal inventory.", role: "player" },
     { name: "player:storage", desc: "View your storage containers grouped by map.", role: "player" },
     { name: "player:find", desc: "Search for items across your containers.", role: "player" },
+    // ── goal (Phase 3) ──
+    { name: "goal:create", desc: "Create a new farming goal or order.", role: "player" },
     // ── logs ──
     { name: "logs:dune-cache", desc: "Show dune-cache container logs.", role: "player" },
     { name: "logs:dune-generated", desc: "Show dune-generated container logs.", role: "player" },

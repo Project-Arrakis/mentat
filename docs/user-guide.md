@@ -107,6 +107,12 @@ You can link more than one character to your Discord account — run the
 command once per character, and see `/dune player characters` to view all
 of them.
 
+### 🎯 `goal` — Farming Goals & Orders
+
+| Command | What It Does |
+|---------|-------------|
+| `/dune goal create <scope> <item> <quantity> [due-at] [station-tier] [crafting-contract]` | Create a personal or guild farming goal (or, with `due-at` set, a time-boxed order) against any game item. Craftable items are tracked with full crafting math (`station-tier`/`crafting-contract` apply); everything else is tracked as a simple count. Guild-scoped goals require admin-tier access or server ownership. |
+
 ### 📋 `logs` — Container Logs
 
 | Command | What It Does |
