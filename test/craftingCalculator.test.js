@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { calculateCraftingPlan, walkRecipeTree, applyOnHandCredit, MIN_QUANTITY, MAX_QUANTITY } from "../src/craftingCalculator.js";
+import { calculateCraftingPlan, walkRecipeTree, applyOnHandCredit, estimateDuration, MIN_QUANTITY, MAX_QUANTITY } from "../src/craftingCalculator.js";
 
 function totalOf(plan, resource) {
   return plan.totalRawMaterials.find((r) => r.resource === resource)?.quantity ?? 0;
@@ -283,4 +283,34 @@ test("applyOnHandCredit: empty on-hand entries + target-item credit -- supply te
   const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" }); // effectiveQuantity === quantity here
   const credited = applyOnHandCredit(plan, [], { quantity: 25, targetItemOnHand: 5 });
   assert.equal(credited.maxCompletable.units, 25, "no ingredient credit at all means the supply term is unbounded (Infinity), so units is capped only by quantity");
+});
+
+test("estimateDuration: single-station-type worked example (Copper Ingot x500) -- exactly one line, no phantom Chemical Refinery line", () => {
+  const plan = calculateCraftingPlan("copper_ingot", 500, { stationTier: "large" });
+  const durations = estimateDuration(plan, { stationCount: 1 });
+  assert.equal(durations.length, 1);
+  assert.equal(durations[0].station, "Ore Refinery");
+  assert.equal(durations[0].seconds, 500 * 3);
+});
+
+test("estimateDuration: two station families reported independently, never summed (Plastanium worked example)", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  const durations = estimateDuration(plan, { stationCount: 1 });
+  const ore = durations.find((d) => d.station === "Ore Refinery");
+  const chem = durations.find((d) => d.station === "Chemical Refinery");
+  assert.equal(ore.seconds, 25 * 20);
+  assert.equal(chem.seconds, 25 * 10);
+});
+
+test("estimateDuration: stationCount divides crafts, rounding up", () => {
+  const plan = calculateCraftingPlan("copper_ingot", 500, { stationTier: "large" });
+  const durations = estimateDuration(plan, { stationCount: 3 });
+  assert.equal(durations[0].seconds, Math.ceil(500 / 3) * 3);
+});
+
+test("estimateDuration: a fully-credited plan (zero remaining crafts) reports zero duration lines", () => {
+  const plan = calculateCraftingPlan("copper_ingot", 5, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [{ node: "copper_ore", quantity: 100 }], { quantity: 5 });
+  const durations = estimateDuration(credited, { stationCount: 1 });
+  assert.equal(durations.length, 0);
 });

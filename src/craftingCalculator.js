@@ -429,3 +429,64 @@ export function applyOnHandCredit(plan, onHandEntries = [], { quantity, targetIt
     maxCompletable
   };
 }
+
+const STATION_FAMILY = (stationName) => (stationName.includes("Chemical") ? "Chemical Refinery" : "Ore Refinery");
+
+// Reports total in-game station time still needed to finish `plan`, grouped
+// by station family ("Ore Refinery" / "Chemical Refinery" -- see
+// STATION_FAMILY above), never summing the two families together and never
+// emitting a zero-second line for a family with nothing left to craft.
+//
+// `plan` may be either a plain calculateCraftingPlan() result (no on-hand
+// credit applied at all -- every planned craft still counts as remaining)
+// or an applyOnHandCredit()-credited plan (has `shortfall`/`maxCompletable`
+// fields spread on top of the same base shape).
+//
+// IMPORTANT: the root item's own remaining craft count can NOT be read from
+// `plan.shortfall` -- flattenPlanNodes() (see applyOnHandCredit() above)
+// deliberately excludes `plan.itemKey` from the shortfall map, since
+// crediting the target item itself is out of scope for onHandEntries (it's
+// resolved into `effectiveQuantity`/`targetItemOnHand` by the caller before
+// applyOnHandCredit() is ever invoked -- see that function's own citation of
+// finding S-2/the round-3 regression). Whether the root is fully covered is
+// instead read off `plan.maxCompletable`, which already combines BOTH the
+// direct target-item credit and the ingredient-supply credit into one
+// "total units achievable" figure: if that figure covers the full
+// (originally requested) `plan.quantity`, zero root crafts remain; if
+// `maxCompletable` is undefined (no credit applied at all, or a plain,
+// never-credited plan), the full planned craft count remains.
+//
+// Nested intermediates ARE represented in `plan.shortfall` (keyed by the
+// same resource key used in `plan.nestedCrafts`), so their own remaining
+// count uses a binary "fully covered (shortfall === 0) -> 0 remaining,
+// anything else -> full planned craft count remains" rule -- matching the
+// same coarse, non-proportional precision this duration estimate is meant
+// to provide (a partially-credited intermediate still needs its own full
+// batch of crafts to be run at the station, station time isn't divisible
+// per-unit the way raw material counts are).
+export function estimateDuration(plan, { stationCount = 1 } = {}) {
+  const byFamily = new Map(); // family -> { seconds, craftsRemaining }
+
+  const addFamily = (stationName, crafts, craftTimeSeconds) => {
+    if (crafts <= 0) return;
+    const family = STATION_FAMILY(stationName);
+    const seconds = Math.ceil(crafts / stationCount) * craftTimeSeconds;
+    const existing = byFamily.get(family) || { seconds: 0, craftsRemaining: 0 };
+    byFamily.set(family, { seconds: existing.seconds + seconds, craftsRemaining: existing.craftsRemaining + crafts });
+  };
+
+  const topFullyCovered = plan.maxCompletable !== undefined && plan.maxCompletable.units >= plan.quantity;
+  const topRemainingCrafts = topFullyCovered ? 0 : plan.crafts;
+  addFamily(plan.station, topRemainingCrafts, plan.craftTimeSeconds);
+
+  for (const [resource, nested] of Object.entries(plan.nestedCrafts)) {
+    const nestedRemainingCrafts = !plan.shortfall
+      ? nested.crafts // no on-hand credit applied at all -- everything remains
+      : (plan.shortfall.get(resource) ?? 0) > 0
+        ? nested.crafts
+        : 0;
+    addFamily(nested.station, nestedRemainingCrafts, nested.craftTimeSeconds);
+  }
+
+  return [...byFamily.entries()].map(([station, { seconds, craftsRemaining }]) => ({ station, seconds, craftsRemaining }));
+}
