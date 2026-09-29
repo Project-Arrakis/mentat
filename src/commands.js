@@ -135,18 +135,22 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("backups").setDescription("List recent backup metadata (read-only)."))
       .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime."))
       .addSubcommand((c) => {
-        c.setName("calculator").setDescription("Calculate crafting requirements — optionally track a goal against what you already have on hand.")
-          .addStringOption((o) => o.setName("item").setDescription("Which item are you calculating for?").setRequired(true).setAutocomplete(true))
-          .addIntegerOption((o) => o.setName("quantity").setDescription("How many total do you need (your goal)?").setMinValue(MIN_QUANTITY).setMaxValue(MAX_QUANTITY))
-          .addStringOption((o) => o.setName("station-tier").setDescription("Station size (only tiers this item actually has are honored)").addChoices(
+        // Descriptions here are deliberately terse (Discord's 8000-char
+        // per-command budget, see test/commands.test.js's regression test) --
+        // the full explanation lives in docs/calculator-design.md and this
+        // subcommand's own top-level description, not repeated per option.
+        c.setName("calculator").setDescription("Calculate crafting requirements, optionally against what you have on hand.")
+          .addStringOption((o) => o.setName("item").setDescription("Item to calculate for.").setRequired(true).setAutocomplete(true))
+          .addIntegerOption((o) => o.setName("quantity").setDescription("Total quantity needed (your goal).").setMinValue(MIN_QUANTITY).setMaxValue(MAX_QUANTITY))
+          .addStringOption((o) => o.setName("station-tier").setDescription("Station size (only tiers this item has apply).").addChoices(
             { name: "Large", value: "large" }, { name: "Medium", value: "medium" }, { name: "Small", value: "small" }
           ))
-          .addBooleanOption((o) => o.setName("crafting-contract").setDescription("Apply the -25% Crafting Contract materials reduction"));
+          .addBooleanOption((o) => o.setName("crafting-contract").setDescription("Apply the -25% Crafting Contract reduction."));
         for (let i = 1; i <= 6; i++) {
-          c.addStringOption((o) => o.setName(`on-hand-${i}`).setDescription("Any ingredient you already have some of (slot order doesn't matter).").setAutocomplete(true));
-          c.addIntegerOption((o) => o.setName(`on-hand-${i}-quantity`).setDescription("How much of that you currently have.").setMinValue(0).setMaxValue(MAX_QUANTITY));
+          c.addStringOption((o) => o.setName(`on-hand-${i}`).setDescription("Item you have (optional).").setAutocomplete(true));
+          c.addIntegerOption((o) => o.setName(`on-hand-${i}-quantity`).setDescription("Quantity you have.").setMinValue(0).setMaxValue(MAX_QUANTITY));
         }
-        c.addIntegerOption((o) => o.setName("station-count").setDescription("How many of that station type you're running at once (time estimate only, not ingredient amounts).").setMinValue(1).setMaxValue(50));
+        c.addIntegerOption((o) => o.setName("station-count").setDescription("Stations running at once (time estimate only).").setMinValue(1).setMaxValue(50));
         return c;
       }))
 
@@ -1659,7 +1663,8 @@ export function getCommandRegistry() {
       commands: [
         { name: "population", desc: "Show server population statistics", role: "player" },
         { name: "backups", desc: "List recent database backups", role: "player" },
-        { name: "maps", desc: "Show active game maps", role: "player" }
+        { name: "maps", desc: "Show active game maps", role: "player" },
+        { name: "calculator <item>", desc: "Calculate crafting requirements, optionally against what you have on hand", role: "player" }
       ]
     },
     {

@@ -5,6 +5,7 @@ import {
   aboutPayload,
   actorFromInteraction,
   buildDuneCommand,
+  commandDefinitions,
   executeDuneCommand,
   extractRoleIds,
   helpPayload,
@@ -989,4 +990,40 @@ test("buildDuneCommand: data:calculator is registered with all 17 options", () =
   const calculator = dataGroup.options.find((o) => o.name === "calculator");
   assert.ok(calculator, "data:calculator must be registered");
   assert.equal(calculator.options.length, 17);
+});
+
+// [Final-review fix 1] Discord enforces a hard 8000-char budget across a
+// command's own name+description plus every option's name+description
+// (recursively through subcommands/subcommand groups) and every choice's
+// name+value. The write-group build (register-commands.js registers this
+// whenever DUNE_DISCORD_WRITES_ENABLED=true) was measured at 8206 chars
+// before the calculator subcommand's option descriptions were trimmed --
+// over the limit, which would make Discord reject registration of the
+// ENTIRE /dune command, not just the calculator subcommand. This asserts
+// the real total (not JSON.stringify().length, which also counts syntax
+// punctuation Discord doesn't count) stays comfortably under the limit so
+// future subcommands have budget left before they blow it again.
+function discordCommandCharBudget(node) {
+  let total = 0;
+  if (typeof node.name === "string") total += node.name.length;
+  if (typeof node.description === "string") total += node.description.length;
+  if (Array.isArray(node.choices)) {
+    for (const choice of node.choices) {
+      if (typeof choice.name === "string") total += choice.name.length;
+      if (typeof choice.value === "string") total += choice.value.length;
+    }
+  }
+  if (Array.isArray(node.options)) {
+    for (const option of node.options) total += discordCommandCharBudget(option);
+  }
+  return total;
+}
+
+test("commandDefinitions: write-group /dune build stays under Discord's 8000-char command budget", () => {
+  const [dune] = commandDefinitions({ includeWriteGroup: true });
+  const total = discordCommandCharBudget(dune);
+  assert.ok(total < 8000, `write-group /dune definition is ${total} chars, exceeds Discord's hard 8000-char limit`);
+  // Leave meaningful headroom for future subcommands rather than merely
+  // scraping under the hard limit.
+  assert.ok(total <= 7800, `write-group /dune definition is ${total} chars, above the 7800 budget target -- trim option descriptions before adding more`);
 });
