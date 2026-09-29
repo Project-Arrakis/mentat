@@ -141,7 +141,7 @@ for (const poisonedKey of ["constructor", "toString", "hasOwnProperty", "__proto
 }
 
 test("a known real item (Silicone Block's game id) resolves correctly", () => {
-  const entry = GAME_ITEM_CATALOG_BY_ID.get("silicone");
+  const entry = GAME_ITEM_CATALOG_BY_ID.get("Silicone");
   assert.ok(entry, "expected 'silicone' (Silicone Block's real game id) to be in the catalog");
   assert.equal(entry.name, "Silicone Block");
 });
@@ -211,7 +211,7 @@ test("GAME_ITEM_ID_TO_RECIPE_KEY correctly round-trips every forward entry", () 
 });
 
 test("a non-recipe catalog item (e.g. a weapon) has no entry in the reverse map", () => {
-  // "silicone" IS a recipe item (Silicone Block) -- pick something that
+  // "Silicone" IS a recipe item (Silicone Block) -- pick something that
   // definitely isn't: any real catalog id not in RECIPE_KEY_TO_GAME_ITEM_ID's values.
   const recipeGameItemIds = new Set(RECIPE_KEY_TO_GAME_ITEM_ID.values());
   const nonRecipeEntry = [...GAME_ITEM_CATALOG_BY_ID.keys()].find((id) => !recipeGameItemIds.has(id));
@@ -306,7 +306,7 @@ export const RECIPE_KEY_TO_GAME_ITEM_ID = new Map([
   ["plastanium_ingot", "REPLACE_WITH_VERIFIED_ID"],
   ["stravidium_fiber", "REPLACE_WITH_VERIFIED_ID"],
   ["cobalt_paste", "REPLACE_WITH_VERIFIED_ID"],
-  ["silicone_block", "silicone"],
+  ["silicone_block", "Silicone"],
   ["small_fuel_cell", "REPLACE_WITH_VERIFIED_ID"],
   ["medium_fuel_cell", "REPLACE_WITH_VERIFIED_ID"],
   ["large_fuel_cell", "REPLACE_WITH_VERIFIED_ID"],
@@ -334,7 +334,7 @@ export const GAME_ITEM_ID_TO_RECIPE_KEY = new Map(
 );
 ```
 
-**You must replace every `"REPLACE_WITH_VERIFIED_ID"` with the real id you looked up** (the `silicone_block` row is already filled in correctly, as a worked example — `"silicone"` is Silicone Block's confirmed real id from this session's own live investigation). Do not leave any placeholder in the committed file — the Step 4 test below will fail loudly (`GAME_ITEM_CATALOG_BY_ID.has(gameItemId)` returns false for a literal placeholder string) if you miss one, which is the point: it's a real verification gate, not busywork.
+**You must replace every `"REPLACE_WITH_VERIFIED_ID"` with the real id you looked up** (the `silicone_block` row is already filled in correctly, as a worked example — `"Silicone"` is Silicone Block's confirmed real id, verified directly against Task 1's own generated `src/gameItemCatalog.data.json`, not guessed — note it is capitalized with no `_block` suffix, unlike mentat's own `silicone_block` recipe key on the left). Do not leave any placeholder in the committed file — the Step 4 test below will fail loudly (`GAME_ITEM_CATALOG_BY_ID.has(gameItemId)` returns false for a literal placeholder string) if you miss one, which is the point: it's a real verification gate, not busywork. **This also means every other `REPLACE_WITH_VERIFIED_ID` in this Map must be looked up the same way — against the real generated data file, never assumed from a display name's likely casing** (the Silicone Block mistake in an earlier draft of this plan was exactly that: assumed lowercase from the item's own recipe-key naming convention, when the real catalog entry is capitalized).
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -545,7 +545,7 @@ test("createGoal + getGoalScoped: a created goal is readable by its real owner",
 
 test("getGoalScoped: a mismatched owner (wrong owner_id) returns undefined, not the row", () => {
   const db = createDatabase(":memory:");
-  const id = createGoal(db, { ownerType: "player", ownerId: "player-1", itemId: "silicone", itemKind: "craftable", targetQuantity: 100, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "player-1" });
+  const id = createGoal(db, { ownerType: "player", ownerId: "player-1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 100, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "player-1" });
   assert.equal(getGoalScoped(db, { id, ownerType: "player", ownerId: "player-2" }), undefined);
   assert.equal(getGoalScoped(db, { id, ownerType: "guild", ownerId: "player-1" }), undefined, "owner_type must also be checked, not just owner_id");
 });
@@ -557,8 +557,8 @@ test("getGoalScoped: a nonexistent id returns undefined", () => {
 
 test("listGoalsByOwner: excludes completed/archived by default, includes them with includeCompleted", () => {
   const db = createDatabase(":memory:");
-  const activeId = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "silicone", itemKind: "craftable", targetQuantity: 100, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" });
-  const doneId = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "silicone", itemKind: "craftable", targetQuantity: 50, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" });
+  const activeId = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 100, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" });
+  const doneId = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 50, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" });
   completeGoal(db, { id: doneId });
   const activeOnly = listGoalsByOwner(db, { ownerType: "player", ownerId: "p1" });
   assert.deepEqual(activeOnly.map((g) => g.id), [activeId]);
@@ -568,8 +568,8 @@ test("listGoalsByOwner: excludes completed/archived by default, includes them wi
 
 test("countGoalsByOwner: counts only the requested statuses", () => {
   const db = createDatabase(":memory:");
-  const id1 = createGoal(db, { ownerType: "guild", ownerId: "g1", itemId: "silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "u1" });
-  createGoal(db, { ownerType: "guild", ownerId: "g1", itemId: "silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "u1" });
+  const id1 = createGoal(db, { ownerType: "guild", ownerId: "g1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "u1" });
+  createGoal(db, { ownerType: "guild", ownerId: "g1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "u1" });
   completeGoal(db, { id: id1 });
   assert.equal(countGoalsByOwner(db, { ownerType: "guild", ownerId: "g1", statuses: ["active"] }), 1);
   assert.equal(countGoalsByOwner(db, { ownerType: "guild", ownerId: "g1", statuses: ["active", "completed"] }), 2);
@@ -577,12 +577,12 @@ test("countGoalsByOwner: counts only the requested statuses", () => {
 
 test("target_quantity CHECK rejects above 100000", () => {
   const db = createDatabase(":memory:");
-  assert.throws(() => createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "silicone", itemKind: "craftable", targetQuantity: 100001, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" }));
+  assert.throws(() => createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 100001, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" }));
 });
 
 test("owner_type CHECK rejects an invalid value", () => {
   const db = createDatabase(":memory:");
-  assert.throws(() => createGoal(db, { ownerType: "not-a-real-type", ownerId: "p1", itemId: "silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" }));
+  assert.throws(() => createGoal(db, { ownerType: "not-a-real-type", ownerId: "p1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" }));
 });
 
 test("setGoalOnHandEntry: first write returns null for 'previous', second write returns the real previous value", () => {
@@ -602,7 +602,7 @@ test("setGoalOnHandEntry: first write returns null for 'previous', second write 
 
 test("goal_on_hand_entries quantity CHECK rejects above 100000", () => {
   const db = createDatabase(":memory:");
-  const id = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" });
+  const id = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" });
   assert.throws(() => setGoalOnHandEntry(db, { goalId: id, node: "flour_sand", quantity: 100001, updatedBy: "p1" }));
 });
 
@@ -641,7 +641,7 @@ test("appendGoalAuditLog + getGoalAuditLog: a deleted goal's audit rows survive 
 
 test("appendGoalAuditLog action CHECK rejects an invalid action name", () => {
   const db = createDatabase(":memory:");
-  const id = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" });
+  const id = createGoal(db, { ownerType: "player", ownerId: "p1", itemId: "Silicone", itemKind: "craftable", targetQuantity: 10, stationTier: "medium", craftingContract: false, dueAt: null, createdBy: "p1" });
   assert.throws(() => appendGoalAuditLog(db, { goalId: id, action: "not-a-real-action", actorId: "p1" }));
 });
 ```
@@ -845,7 +845,7 @@ import { getGoalScoped, listGoalsByOwner } from "../src/database.js"; // add to 
 function goalCreateOptions(overrides = {}) {
   const values = {
     scope: "personal",
-    item: "silicone",
+    item: "Silicone",
     quantity: 100,
     "due-at": null,
     "station-tier": null,
@@ -866,7 +866,7 @@ function goalCreateInteraction(overrides = {}, { userId = `goal-${Math.random()}
 }
 
 test("goal:create personal goal succeeds for any user, resolves item_kind='simple' for a non-recipe item", async () => {
-  const interaction = goalCreateInteraction({ item: "silicone", quantity: 500 });
+  const interaction = goalCreateInteraction({ item: "Silicone", quantity: 500 });
   let edited;
   interaction.editReply = async (payload) => { edited = payload; };
   const handled = await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
@@ -878,7 +878,7 @@ test("goal:create personal goal succeeds for any user, resolves item_kind='simpl
 test("goal:create resolves item_kind='craftable' for a known recipe item, defaults station-tier to its best available tier", async () => {
   const interaction = goalCreateInteraction({ item: "REPLACE_WITH_VERIFIED_SILICONE_BLOCK_ID", quantity: 100 });
   // NOTE: replace "REPLACE_WITH_VERIFIED_SILICONE_BLOCK_ID" with the real
-  // Task 2-verified game item id for silicone_block ("silicone" per Task 2's
+  // Task 2-verified game item id for silicone_block ("Silicone" per Task 2's
   // worked example) -- this placeholder exists only so you notice and fix
   // it; do not leave it in the committed test.
   let edited;
@@ -897,7 +897,7 @@ test("goal:create rejects an unknown item id", async () => {
 });
 
 test("goal:create rejects station-tier/crafting-contract for a simple-kind item, not silently ignoring them", async () => {
-  const interaction = goalCreateInteraction({ item: "silicone", "station-tier": "large" });
+  const interaction = goalCreateInteraction({ item: "Silicone", "station-tier": "large" });
   let edited;
   interaction.editReply = async (payload) => { edited = payload; };
   await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } });
@@ -957,12 +957,12 @@ test("goal:create enforces the 5-active-personal-goal cap with an actionable, id
   const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
   let lastEdited;
   for (let i = 0; i < 5; i++) {
-    const interaction = goalCreateInteraction({ item: "silicone", quantity: 10 + i }, { userId });
+    const interaction = goalCreateInteraction({ item: "Silicone", quantity: 10 + i }, { userId });
     interaction.editReply = async (payload) => { lastEdited = payload; };
     const handled = await executeDuneCommand(interaction, {}, config);
     assert.equal(handled, true, `goal ${i + 1} of 5 should succeed`);
   }
-  const sixth = goalCreateInteraction({ item: "silicone", quantity: 999 }, { userId });
+  const sixth = goalCreateInteraction({ item: "Silicone", quantity: 999 }, { userId });
   sixth.editReply = async (payload) => { lastEdited = payload; };
   await executeDuneCommand(sixth, {}, config);
   const text = JSON.stringify(lastEdited?.embeds?.[0]);
@@ -1115,7 +1115,7 @@ Wire it into `commands.js`'s embed-selection if-chain (the `subcommand === "..."
 
 - [ ] **Step 7: Run the tests, fix the placeholder, verify green**
 
-Replace `"REPLACE_WITH_VERIFIED_SILICONE_BLOCK_ID"` in the Step 2 test with Task 2's real verified id for `silicone_block` (`"silicone"`, per Task 2's own worked example).
+Replace `"REPLACE_WITH_VERIFIED_SILICONE_BLOCK_ID"` in the Step 2 test with Task 2's real verified id for `silicone_block` (`"Silicone"`, per Task 2's own worked example).
 
 Run: `node --test test/commands.test.js`
 Expected: all pass.
@@ -1251,7 +1251,7 @@ test("goal:on-hand: a personal goal owned by someone else is rejected as not-fou
 test("goal:on-hand: a guild-A admin cannot update guild-B's goal by free-typing its id", async () => {
   const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
   // Create a guild goal under guild-1 as its real owner.
-  const guild1Owner = goalCreateInteraction({ scope: "guild", item: "silicone", quantity: 100 }, { userId: "owner-1", guildId: "guild-1" });
+  const guild1Owner = goalCreateInteraction({ scope: "guild", item: "Silicone", quantity: 100 }, { userId: "owner-1", guildId: "guild-1" });
   guild1Owner.guild = { ownerId: "owner-1" };
   guild1Owner.member = { roles: [] };
   let edited;
@@ -1260,7 +1260,7 @@ test("goal:on-hand: a guild-A admin cannot update guild-B's goal by free-typing 
   const goalId = Number(JSON.stringify(edited).match(/Goal #(\d+)/)[1]);
 
   // A different guild's admin tries to touch it.
-  const attacker = goalOnHandInteraction({ id: goalId, node: "silicone", quantity: 5 }, { userId: "admin-of-guild-2", guildId: "guild-2" });
+  const attacker = goalOnHandInteraction({ id: goalId, node: "Silicone", quantity: 5 }, { userId: "admin-of-guild-2", guildId: "guild-2" });
   attacker.guild = { ownerId: "admin-of-guild-2" };
   attacker.member = { roles: [] };
   let attackerEdited;
@@ -1272,13 +1272,13 @@ test("goal:on-hand: a guild-A admin cannot update guild-B's goal by free-typing 
 test("goal:on-hand crossing the target auto-completes the goal", async () => {
   const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
   const userId = `crossing-${Math.random()}`;
-  const createInteraction = goalCreateInteraction({ item: "silicone", quantity: 100 }, { userId });
+  const createInteraction = goalCreateInteraction({ item: "Silicone", quantity: 100 }, { userId });
   let created;
   createInteraction.editReply = async (payload) => { created = payload; };
   await executeDuneCommand(createInteraction, {}, config);
   const goalId = Number(JSON.stringify(created).match(/Goal #(\d+)/)[1]);
 
-  const underInteraction = goalOnHandInteraction({ id: goalId, node: "silicone", quantity: 99 }, { userId });
+  const underInteraction = goalOnHandInteraction({ id: goalId, node: "Silicone", quantity: 99 }, { userId });
   underInteraction.editReply = async () => {};
   await executeDuneCommand(underInteraction, {}, config);
   const goalAfterUnder = getGoalScoped(dbFromConfig(config), { id: goalId, ownerType: "player", ownerId: userId });
@@ -1289,13 +1289,13 @@ test("goal:on-hand crossing the target auto-completes the goal", async () => {
   // instead (matching the guild-goal tests above), since verifying the
   // exact-boundary completion transition needs to read the real row.
 
-  const atInteraction = goalOnHandInteraction({ id: goalId, node: "silicone", quantity: 100 }, { userId });
+  const atInteraction = goalOnHandInteraction({ id: goalId, node: "Silicone", quantity: 100 }, { userId });
   let atEdited;
   atInteraction.editReply = async (payload) => { atEdited = payload; };
   await executeDuneCommand(atInteraction, {}, config);
   assert.match(JSON.stringify(atEdited?.embeds?.[0]), /complete/i);
 
-  const overInteraction = goalOnHandInteraction({ id: goalId, node: "silicone", quantity: 150 }, { userId });
+  const overInteraction = goalOnHandInteraction({ id: goalId, node: "Silicone", quantity: 150 }, { userId });
   let overEdited;
   overInteraction.editReply = async (payload) => { overEdited = payload; };
   await executeDuneCommand(overInteraction, {}, config);
@@ -1459,7 +1459,7 @@ function goalListOptions(overrides = {}) {
 test("goal:list shows an overdue flag only for an active order past its due date, never a completed one", async () => {
   const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
   const userId = `overdue-${Math.random()}`;
-  const pastDue = goalCreateInteraction({ item: "silicone", quantity: 10, "due-at": null }, { userId });
+  const pastDue = goalCreateInteraction({ item: "Silicone", quantity: 10, "due-at": null }, { userId });
   // Create via the normal path, then hand-set an already-past due_at directly
   // through the database accessor (simulating time having passed) rather
   // than fighting isValidDueAt()'s own past-date rejection at creation time.
@@ -1483,7 +1483,7 @@ test("goal:list shows an overdue flag only for an active order past its due date
 test("goal:list never flags a standing goal (due_at null) as overdue", async () => {
   const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
   const userId = `standing-${Math.random()}`;
-  const createInteraction = goalCreateInteraction({ item: "silicone", quantity: 10 }, { userId });
+  const createInteraction = goalCreateInteraction({ item: "Silicone", quantity: 10 }, { userId });
   createInteraction.editReply = async () => {};
   await executeDuneCommand(createInteraction, {}, config);
   const listInteraction = goalListInteraction({ scope: "personal" }, { userId });
@@ -1496,7 +1496,7 @@ test("goal:list never flags a standing goal (due_at null) as overdue", async () 
 test("goal:list one poisoned/unrenderable goal row shows 'unavailable' for that line without breaking the rest of the list", async () => {
   const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
   const userId = `poisoned-${Math.random()}`;
-  const goodInteraction = goalCreateInteraction({ item: "silicone", quantity: 10 }, { userId });
+  const goodInteraction = goalCreateInteraction({ item: "Silicone", quantity: 10 }, { userId });
   goodInteraction.editReply = async () => {};
   await executeDuneCommand(goodInteraction, {}, config);
   // Simulate a stale/poisoned row directly via the db accessor -- a
@@ -1653,12 +1653,12 @@ test("goal:progress for a craftable goal, crediting the goal's own finished item
 test("goal:progress for a simple goal shows remaining = target - on-hand, no station/duration fields", async () => {
   const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
   const userId = `progress-simple-${Math.random()}`;
-  const createInteraction = goalCreateInteraction({ item: "silicone", quantity: 1000 }, { userId });
+  const createInteraction = goalCreateInteraction({ item: "Silicone", quantity: 1000 }, { userId });
   let created;
   createInteraction.editReply = async (payload) => { created = payload; };
   await executeDuneCommand(createInteraction, {}, config);
   const goalId = Number(JSON.stringify(created).match(/Goal #(\d+)/)[1]);
-  const onHandInteraction = goalOnHandInteraction({ id: goalId, node: "silicone", quantity: 300 }, { userId });
+  const onHandInteraction = goalOnHandInteraction({ id: goalId, node: "Silicone", quantity: 300 }, { userId });
   onHandInteraction.editReply = async () => {};
   await executeDuneCommand(onHandInteraction, {}, config);
   const progressInteraction = goalProgressInteraction({ id: goalId }, { userId });
@@ -1723,7 +1723,7 @@ test("goal:progress: reused core matches Phase 1 byte-for-byte for the same inpu
 test("goal:progress wrapper's own chrome (goal title, due-date line) is present and correct -- not covered by the byte-for-byte reuse claim above", async () => {
   const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
   const userId = `progress-chrome-${Math.random()}`;
-  const createInteraction = goalCreateInteraction({ item: "silicone", quantity: 100, "due-at": "2099-01-01" }, { userId });
+  const createInteraction = goalCreateInteraction({ item: "Silicone", quantity: 100, "due-at": "2099-01-01" }, { userId });
   let created;
   createInteraction.editReply = async (payload) => { created = payload; };
   await executeDuneCommand(createInteraction, {}, config);
@@ -1862,12 +1862,12 @@ function goalDeleteInteraction(overrides = {}, { userId = `delete-${Math.random(
 test("goal:delete removes the goal and cascades its on-hand entries; audit log survives", async () => {
   const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
   const userId = `delete-owner-${Math.random()}`;
-  const createInteraction = goalCreateInteraction({ item: "silicone", quantity: 10 }, { userId });
+  const createInteraction = goalCreateInteraction({ item: "Silicone", quantity: 10 }, { userId });
   let created;
   createInteraction.editReply = async (payload) => { created = payload; };
   await executeDuneCommand(createInteraction, {}, config);
   const goalId = Number(JSON.stringify(created).match(/Goal #(\d+)/)[1]);
-  const onHandInteraction = goalOnHandInteraction({ id: goalId, node: "silicone", quantity: 5 }, { userId });
+  const onHandInteraction = goalOnHandInteraction({ id: goalId, node: "Silicone", quantity: 5 }, { userId });
   onHandInteraction.editReply = async () => {};
   await executeDuneCommand(onHandInteraction, {}, config);
 
@@ -1882,7 +1882,7 @@ test("goal:delete removes the goal and cascades its on-hand entries; audit log s
 test("goal:delete rejects someone else's personal goal as not-found", async () => {
   const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
   const ownerId = `real-owner-${Math.random()}`;
-  const createInteraction = goalCreateInteraction({ item: "silicone", quantity: 10 }, { userId: ownerId });
+  const createInteraction = goalCreateInteraction({ item: "Silicone", quantity: 10 }, { userId: ownerId });
   let created;
   createInteraction.editReply = async (payload) => { created = payload; };
   await executeDuneCommand(createInteraction, {}, config);
@@ -2023,9 +2023,9 @@ function mockGoalAutocompleteInteraction({ focusedName, focusedValue = "", scope
 
 test("item autocomplete: case-insensitive substring match against the full vendored catalog", async () => {
   const db = createDatabase(":memory:");
-  const interaction = mockGoalAutocompleteInteraction({ focusedName: "item", focusedValue: "silicone" });
+  const interaction = mockGoalAutocompleteInteraction({ focusedName: "item", focusedValue: "Silicone" });
   await handleGoalAutocomplete(interaction, db);
-  assert.ok(interaction._responded.some((c) => c.value === "silicone"));
+  assert.ok(interaction._responded.some((c) => c.value === "Silicone"));
 });
 
 test("item autocomplete never exceeds Discord's 25-choice cap against the much larger catalog", async () => {
@@ -2037,8 +2037,8 @@ test("item autocomplete never exceeds Discord's 25-choice cap against the much l
 
 test("id autocomplete for scope=personal only ever suggests the caller's own goals, never another player's", async () => {
   const db = createDatabase(":memory:");
-  createGoal(db, { ownerType: "player", ownerId: "u1", itemId: "silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "u1" });
-  createGoal(db, { ownerType: "player", ownerId: "u2-someone-else", itemId: "silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "u2-someone-else" });
+  createGoal(db, { ownerType: "player", ownerId: "u1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "u1" });
+  createGoal(db, { ownerType: "player", ownerId: "u2-someone-else", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "u2-someone-else" });
   const interaction = mockGoalAutocompleteInteraction({ focusedName: "id", focusedValue: "", scope: "personal", userId: "u1" });
   await handleGoalAutocomplete(interaction, db);
   assert.equal(interaction._responded.length, 1, "must only see u1's own goal, not u2's");
@@ -2046,7 +2046,7 @@ test("id autocomplete for scope=personal only ever suggests the caller's own goa
 
 test("id autocomplete for scope=guild requires admin/owner tier before suggesting anything, even other guild members' goals", async () => {
   const db = multiTenantDbHelper();
-  createGoal(db, { ownerType: "guild", ownerId: "guild-1", itemId: "silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "someone" });
+  createGoal(db, { ownerType: "guild", ownerId: "guild-1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "someone" });
   const nonAdminInteraction = mockGoalAutocompleteInteraction({ focusedName: "id", focusedValue: "", scope: "guild", userId: "regular-member", guildId: "guild-1", guildOwnerId: "the-real-owner", memberRoles: [] });
   await handleGoalAutocomplete(nonAdminInteraction, db);
   assert.equal(nonAdminInteraction._responded.length, 0, "a non-admin must see zero guild goal suggestions, not a leaked list");
@@ -2060,11 +2060,11 @@ test("id autocomplete for scope=guild requires admin/owner tier before suggestin
 
 test("node autocomplete for a simple goal only ever offers the goal's own item, never a recipe-tree node", async () => {
   const db = createDatabase(":memory:");
-  const goalId = createGoal(db, { ownerType: "player", ownerId: "u1", itemId: "silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "u1" });
+  const goalId = createGoal(db, { ownerType: "player", ownerId: "u1", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "u1" });
   const interaction = mockGoalAutocompleteInteraction({ focusedName: "node", focusedValue: "", userId: "u1" });
   interaction.options.getInteger = (name) => (name === "id" ? goalId : null);
   await handleGoalAutocomplete(interaction, db);
-  assert.deepEqual(interaction._responded.map((c) => c.value), ["silicone"]);
+  assert.deepEqual(interaction._responded.map((c) => c.value), ["Silicone"]);
 });
 ```
 
