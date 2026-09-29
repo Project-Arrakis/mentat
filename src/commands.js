@@ -553,7 +553,16 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       payload = executeCalculator({ interaction });
     }
     // ── goal group (Phase 3) ──
-    else if (key === "goal:create") {
+    // db is null on a single-tenant deployment (index.js: `db = config.multiTenant
+    // ? createDatabase(...) : null`), but every goal:* command is registered and
+    // listed in help regardless of multiTenant. Without this guard each command
+    // below would fail deep inside its db.prepare(...) call with a raw "Cannot
+    // read properties of null (reading 'prepare')" -- a confusing internal error
+    // instead of a clear, actionable message. See handleGoalAutocomplete's
+    // matching guard for the autocomplete-side equivalent of this same gap.
+    else if (key.startsWith("goal:") && !db) {
+      throw new Error("Goal tracking requires multi-tenant/database mode, which isn't enabled on this bot instance.");
+    } else if (key === "goal:create") {
       payload = executeGoalCreate({ interaction, config, db });
     } else if (key === "goal:on-hand") {
       payload = executeGoalOnHand({ interaction, config, db });
@@ -1318,8 +1327,18 @@ function executeGoalCreate({ interaction, config, db }) {
     dueAt = dueAtRaw;
   }
 
+  // GAME_ITEM_ID_TO_RECIPE_KEY has an entry for every mappable key -- both
+  // real CRAFTING_RECIPES items AND LEAF_RESOURCES raw materials (the
+  // latter exist in the bridge only so autocomplete/on-hand tracking can
+  // resolve them, not because they have a recipe). Classifying on bridge
+  // presence alone (any past `recipeKey ? "craftable" : "simple"`) wrongly
+  // called every raw resource "craftable" and then fed its recipe key into
+  // bestAvailableTier()/calculateCraftingPlan(), which only know
+  // CRAFTING_RECIPES keys -- both throw "Unknown item" for a bare leaf key
+  // like "copper_ore". A recipe key only means "craftable" if it's also a
+  // real CRAFTING_RECIPES entry.
   const recipeKey = GAME_ITEM_ID_TO_RECIPE_KEY.get(itemId);
-  const itemKind = recipeKey ? "craftable" : "simple";
+  const itemKind = recipeKey && Object.hasOwn(CRAFTING_RECIPES, recipeKey) ? "craftable" : "simple";
 
   if (itemKind === "simple" && (stationTierOption !== null || craftingContractOption !== null)) {
     throw new Error(`${itemName} has no known crafting recipe -- station-tier/crafting-contract don't apply.`);
@@ -1470,7 +1489,12 @@ function executeGoalOnHand({ interaction, config, db }) {
     }
   }
 
-  return { ok: true, goalId: id, node, quantity, previous, completed };
+  // nodeName is a fixed field name resolving a real game-item id to its
+  // display name (same GAME_ITEM_CATALOG_BY_ID lookup create/list/progress
+  // already use) -- not a caller-supplied key, so this stays redaction-safe.
+  const nodeName = GAME_ITEM_CATALOG_BY_ID.get(node)?.name ?? node;
+
+  return { ok: true, goalId: id, node, nodeName, quantity, previous, completed };
 }
 
 // ── goal:list (Task 7) ──
@@ -1636,6 +1660,16 @@ export async function handleCalculatorAutocomplete(interaction) {
 // authorization anywhere in this function, same as every other goal
 // command -- it's an audit-trail field only (see goal_audit_log).
 export async function handleGoalAutocomplete(interaction, db) {
+  // Mirrors the executeDuneCommand goal:* dispatch guard -- db is null on a
+  // single-tenant deployment, and every lookup below (listGoalsByOwner, etc.)
+  // needs a real database. Without this, autocomplete was already caught by
+  // an outer try/catch so it didn't crash, but it silently returned zero
+  // suggestions with no way for a user to tell why. Respond with an empty
+  // list explicitly instead so it degrades cleanly.
+  if (!db) {
+    await interaction.respond([]);
+    return;
+  }
   const focused = interaction.options.getFocused(true); // { name, value }
   const query = String(focused.value ?? "").toLowerCase();
 

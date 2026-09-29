@@ -1827,7 +1827,7 @@ export function formatGoalCreateEmbed(payload) {
 
 // ── goal:on-hand confirmation (Task 6) ──
 export function formatGoalOnHandEmbed(payload) {
-  const lines = [`✅ Goal #${payload.goalId}: ${payload.node} set to ${payload.quantity.toLocaleString()}`];
+  const lines = [`✅ Goal #${payload.goalId}: ${payload.nodeName} set to ${payload.quantity.toLocaleString()}`];
   if (payload.previous) {
     lines.push(`Previous: ${payload.previous.previousQuantity.toLocaleString()} (set by <@${payload.previous.previousUpdatedBy}> at ${payload.previous.previousUpdatedAt})`);
   }

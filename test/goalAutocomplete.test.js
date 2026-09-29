@@ -149,6 +149,23 @@ test("node autocomplete for a craftable goal never suggests water (or any other 
   assert.ok(interaction._responded.every((c) => c.value !== undefined), "must never suggest a choice with an undefined value");
 });
 
+// [Whole-branch review 2026-09-29, Finding 2] db is null on a single-tenant deployment
+// (index.js: `db = config.multiTenant ? createDatabase(...) : null`), but
+// goal:* autocomplete is still wired up regardless. Before this fix, every
+// branch below db=null crashed inside a real db.prepare()/similar call --
+// caught by handleDuneAutocomplete's own outer try/catch so it didn't
+// surface as a visible error, but it silently returned zero suggestions
+// with no way for a user to tell why. Covers all 3 focused-option branches
+// ("item" doesn't technically need db, but the whole feature is
+// unavailable in single-tenant mode, so it must degrade the same way).
+test("autocomplete degrades to an empty list, not a crash, when db is null (single-tenant deployment)", async () => {
+  for (const focusedName of ["item", "id", "node"]) {
+    const interaction = mockGoalAutocompleteInteraction({ focusedName, focusedValue: "" });
+    await handleGoalAutocomplete(interaction, null);
+    assert.deepEqual(interaction._responded, [], `focused option '${focusedName}' must respond with an empty list, not throw or leak a placeholder`);
+  }
+});
+
 test("node autocomplete never leaks another owner's goal", async () => {
   const db = createDatabase(":memory:");
   const goalId = createGoal(db, { ownerType: "player", ownerId: "u2-someone-else", itemId: "Silicone", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: "u2-someone-else" });

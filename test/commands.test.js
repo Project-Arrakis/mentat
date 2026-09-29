@@ -1144,6 +1144,95 @@ test("goal:create resolves item_kind='craftable' for a known recipe item, defaul
   assert.equal(stored.station_tier, "medium");
 });
 
+// [Whole-branch review 2026-09-29, Finding 1] "AzuriteOre" (copper_ore) is a real leaf-resource
+// (raw-ore) item -- verified directly against src/gameItemIdBridge.js:
+// GAME_ITEM_ID_TO_RECIPE_KEY.get("AzuriteOre") === "copper_ore", but
+// "copper_ore" is NOT a key in CRAFTING_RECIPES (it's a LEAF_RESOURCES-only
+// entry, present in the bridge purely so autocomplete/on-hand tracking can
+// resolve it, not because it has a recipe). Before this fix, executeGoalCreate
+// classified ANY bridge hit as "craftable" and then called
+// bestAvailableTier("copper_ore")/calculateCraftingPlan("copper_ore", ...),
+// both of which only know CRAFTING_RECIPES keys and threw a confusing
+// `Unknown item: "copper_ore"` (the internal recipe key, not the real
+// AzuriteOre catalog id) -- meaning goals could never be created for ANY of
+// the 12 raw-resource items. This is distinct from the pre-existing
+// GOAL_SIMPLE_ITEM_ID ("T6FilteredFabric") test above, which covers an item
+// with NO bridge entry at all and would have passed even with the bug live.
+test("goal:create classifies a real leaf-resource item (AzuriteOre/copper_ore) as 'simple', not 'craftable', and succeeds", async () => {
+  const db = createDatabase(":memory:");
+  const interaction = goalCreateInteraction({ item: "AzuriteOre", quantity: 500 });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  const handled = await executeDuneCommand(interaction, {}, { discord: { defaultEphemeral: true, rbac: { mode: "open" } } }, db);
+  assert.equal(handled, true);
+  const text = JSON.stringify(edited?.embeds?.[0]);
+  assert.doesNotMatch(text, /error|unknown item/i);
+  assert.match(text, /simple count/i, "confirmation must state the resolved kind");
+  const [, idStr] = text.match(/Goal #(\d+) created/) || [];
+  assert.ok(idStr, "confirmation must include the created goal's id");
+  const stored = getGoalScoped(db, { id: Number(idStr), ownerType: "player", ownerId: interaction.user.id });
+  assert.equal(stored.item_kind, "simple");
+  assert.equal(stored.item_id, "AzuriteOre");
+  assert.equal(stored.station_tier, null);
+});
+
+// [Whole-branch review 2026-09-29, Finding 1] Full create -> on-hand -> list -> progress -> delete
+// journey for the same leaf-resource goal -- the reviewer noted no such
+// end-to-end test exists for ANY goal (craftable or simple), and this exact
+// classification bug is precisely the kind an end-to-end test would have
+// caught (the create-only test above would have failed too, but a journey
+// test also proves on-hand/list/progress/delete all correctly treat a real
+// leaf-resource goal as "simple" throughout its whole lifecycle).
+test("goal journey: create -> on-hand -> list -> progress -> delete for a real leaf-resource item (AzuriteOre)", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `journey-leaf-${Math.random()}`;
+
+  const createInteraction = goalCreateInteraction({ item: "AzuriteOre", quantity: 1000 }, { userId });
+  let created;
+  createInteraction.editReply = async (payload) => { created = payload; };
+  const createHandled = await executeDuneCommand(createInteraction, {}, config, db);
+  assert.equal(createHandled, true);
+  assert.doesNotMatch(JSON.stringify(created?.embeds?.[0]), /error/i);
+  const goalId = Number(JSON.stringify(created).match(/Goal #(\d+)/)[1]);
+
+  const onHandInteraction = goalOnHandInteraction({ id: goalId, node: "AzuriteOre", quantity: 400 }, { userId });
+  let onHandEdited;
+  onHandInteraction.editReply = async (payload) => { onHandEdited = payload; };
+  const onHandHandled = await executeDuneCommand(onHandInteraction, {}, config, db);
+  assert.equal(onHandHandled, true);
+  const onHandText = JSON.stringify(onHandEdited?.embeds?.[0]);
+  assert.doesNotMatch(onHandText, /error/i);
+  assert.match(onHandText, /copper ore/i, "on-hand confirmation must show the real item name, not the raw id");
+  assert.doesNotMatch(onHandText, /AzuriteOre/, "on-hand confirmation must not leak the raw catalog id");
+  clearCooldown({ userId, commandName: "goal:on-hand" });
+
+  const listInteraction = goalListInteraction({}, { userId });
+  let listEdited;
+  listInteraction.editReply = async (payload) => { listEdited = payload; };
+  const listHandled = await executeDuneCommand(listInteraction, {}, config, db);
+  assert.equal(listHandled, true);
+  assert.match(JSON.stringify(listEdited?.embeds?.[0]), new RegExp(`#${goalId}\\b`));
+
+  const progressInteraction = goalProgressInteraction({ id: goalId }, { userId });
+  let progressEdited;
+  progressInteraction.editReply = async (payload) => { progressEdited = payload; };
+  const progressHandled = await executeDuneCommand(progressInteraction, {}, config, db);
+  assert.equal(progressHandled, true);
+  const progressText = JSON.stringify(progressEdited?.embeds?.[0]);
+  assert.doesNotMatch(progressText, /error|undefined|NaN/i);
+  assert.match(progressText, /600/, "remaining should be 1000-400=600");
+  assert.doesNotMatch(progressText, /station|duration/i, "a simple-kind goal has no crafting station/duration fields");
+
+  const deleteInteraction = goalDeleteInteraction({ id: goalId }, { userId });
+  let deleteEdited;
+  deleteInteraction.editReply = async (payload) => { deleteEdited = payload; };
+  const deleteHandled = await executeDuneCommand(deleteInteraction, {}, config, db);
+  assert.equal(deleteHandled, true);
+  assert.doesNotMatch(JSON.stringify(deleteEdited?.embeds?.[0]), /error|not found/i);
+  assert.equal(getGoalScoped(db, { id: goalId, ownerType: "player", ownerId: userId }), undefined);
+});
+
 test("goal:create rejects an unknown item id", async () => {
   const db = createDatabase(":memory:");
   const interaction = goalCreateInteraction({ item: "not-a-real-item-id" });
@@ -1341,6 +1430,27 @@ test("goal:on-hand crediting the goal's own item updates and returns a confirmat
   const handled = await executeDuneCommand(interaction, {}, config, db);
   assert.equal(handled, true);
   assert.doesNotMatch(JSON.stringify(edited?.embeds?.[0]), /error/i);
+});
+
+// [Whole-branch review 2026-09-29, Finding 3] formatGoalOnHandEmbed used to
+// render payload.node directly -- the raw game-item id (e.g.
+// "DuraluminumRod") -- instead of resolving it to its real display name
+// ("Duraluminum Ingot") the way create/list/progress already do via
+// GAME_ITEM_CATALOG_BY_ID. Fixed by adding a fixed `nodeName` field
+// (GAME_ITEM_CATALOG_BY_ID.get(node)?.name ?? node) to executeGoalOnHand's
+// return payload and rendering that instead of the raw id.
+test("goal:on-hand confirmation shows the item's real display name, not the raw game-item id", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `onhand-realname-${Math.random()}`;
+  const goalId = await createTestGoal(db, { config, userId, itemId: "DuraluminumRod" });
+  const interaction = goalOnHandInteraction({ id: goalId, node: "DuraluminumRod", quantity: 100 }, { userId });
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(interaction, {}, config, db);
+  const text = JSON.stringify(edited?.embeds?.[0]);
+  assert.match(text, /Duraluminum Ingot/, "must show the real, human-readable item name");
+  assert.doesNotMatch(text, /DuraluminumRod/, "must not leak the raw internal game-item id");
 });
 
 test("goal:on-hand shows the previous value, who set it, and when, on a second update", async () => {
@@ -1756,6 +1866,33 @@ test("goal:delete on a guild goal requires admin/owner, same as create", async (
   await executeDuneCommand(nonAdmin, {}, MT_CONFIG, db);
   assert.match(JSON.stringify(nonAdminEdited?.embeds?.[0]), /admin|owner/i);
   assert.ok(getGoalScoped(db, { id: goalId, ownerType: "guild", ownerId: "guild-1" }), "the guild goal must not have been deleted by a non-admin");
+});
+
+// [Whole-branch review 2026-09-29, Finding 2] Every goal:* command is
+// registered and listed in help regardless of whether this bot instance is
+// running in multi-tenant/database mode -- but db is null when it isn't
+// (index.js: `db = config.multiTenant ? createDatabase(...) : null`).
+// Before this fix, each of these 5 commands failed deep inside a real
+// db.prepare()/similar call with a raw, confusing "Cannot read properties
+// of null (reading 'prepare')" instead of a clear, actionable message.
+test("every goal:* command rejects with a clear message, not a raw TypeError, when db is null (single-tenant deployment)", async () => {
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const cases = [
+    goalCreateInteraction({ item: "Silicone", quantity: 10 }),
+    goalOnHandInteraction({ id: 1, node: "Silicone", quantity: 5 }),
+    goalListInteraction({}),
+    goalProgressInteraction({ id: 1 }),
+    goalDeleteInteraction({ id: 1 })
+  ];
+  for (const interaction of cases) {
+    let edited;
+    interaction.editReply = async (payload) => { edited = payload; };
+    const handled = await executeDuneCommand(interaction, {}, config, null);
+    assert.equal(handled, true, `${interaction.options.getSubcommand()} should still report handled=true (a clean error reply, not an unhandled throw)`);
+    const text = JSON.stringify(edited?.embeds?.[0]);
+    assert.doesNotMatch(text, /cannot read propert|typeerror|reading 'prepare'/i, `${interaction.options.getSubcommand()} must not leak a raw null-dereference error`);
+    assert.match(text, /multi-tenant|database mode/i, `${interaction.options.getSubcommand()} must explain that this feature needs multi-tenant/database mode`);
+  }
 });
 
 // [Final-review fix 1] Discord enforces a hard 8000-char budget across a
