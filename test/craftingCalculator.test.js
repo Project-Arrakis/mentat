@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { calculateCraftingPlan, walkRecipeTree, MIN_QUANTITY, MAX_QUANTITY } from "../src/craftingCalculator.js";
+import { calculateCraftingPlan, walkRecipeTree, applyOnHandCredit, MIN_QUANTITY, MAX_QUANTITY } from "../src/craftingCalculator.js";
 
 function totalOf(plan, resource) {
   return plan.totalRawMaterials.find((r) => r.resource === resource)?.quantity ?? 0;
@@ -106,4 +106,73 @@ test("a synthetic circular-dependency fixture throws rather than hanging or stac
     item_b: { displayName: "B", outputPerCraft: 1, variants: { large: { station: "Test", craftTimeSeconds: 1, inputs: [{ resource: "item_a", quantity: 1, craftable: true }] } } }
   };
   assert.throws(() => walkRecipeTree("item_a", 5, "large", false, cyclicRecipes), /circular/i);
+});
+
+test("applyOnHandCredit: crediting a flat ingredient directly -- subtraction only, no cascade", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [{ node: "titanium_ore", quantity: 40 }], { quantity: 25 });
+  assert.equal(credited.shortfall.get("titanium_ore"), 100 - 40);
+  assert.equal(credited.maxCompletable.units, 10, "40 titanium ore / 4 per craft = 10 completable");
+  assert.equal(credited.maxCompletable.limitingNode, "titanium_ore");
+});
+
+test("applyOnHandCredit: crediting the intermediate craftable itself -- cascades down", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [{ node: "stravidium_fiber", quantity: 8 }], { quantity: 25 });
+  assert.equal(credited.maxCompletable.units, 8, "8 stravidium fiber on hand -> 8 plastanium completable (1:1 ratio)");
+  assert.equal(credited.maxCompletable.limitingNode, "stravidium_fiber");
+});
+
+test("applyOnHandCredit: crediting a leaf resource underneath the intermediate -- no cascade upward, pooled subtraction only (worked example)", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [{ node: "stravidium_mass", quantity: 60 }], { quantity: 25 });
+  assert.equal(credited.shortfall.get("stravidium_mass"), 75 - 60);
+  assert.equal(credited.maxCompletable.units, 20, "60 stravidium mass / 3 per plastanium = 20 completable");
+  assert.equal(credited.maxCompletable.limitingNode, "stravidium_mass");
+});
+
+test("applyOnHandCredit: chain-aware max completable, intermediate as the limiting node over a much larger raw-ingredient supply (worked example)", () => {
+  const plan = calculateCraftingPlan("plastanium_ingot", 25, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [
+    { node: "stravidium_fiber", quantity: 8 },
+    { node: "titanium_ore", quantity: 2000 }
+  ], { quantity: 25 });
+  assert.equal(credited.maxCompletable.units, 8);
+  assert.equal(credited.maxCompletable.limitingNode, "stravidium_fiber");
+});
+
+test("applyOnHandCredit: target-item-itself credit combined with insufficient ingredient supply", () => {
+  // 5 of 25 already done (resolved by the caller into effectiveQuantity=20
+  // and targetItemOnHand=5 BEFORE calculateCraftingPlan/applyOnHandCredit
+  // are ever called -- this test exercises applyOnHandCredit's own
+  // combination formula directly).
+  const plan = calculateCraftingPlan("plastanium_ingot", 20, { stationTier: "large" }); // effectiveQuantity
+  const credited = applyOnHandCredit(plan, [{ node: "titanium_ore", quantity: 40 }], { quantity: 25, targetItemOnHand: 5 });
+  // supply-constrained: 40/4 = 10; maxCompletable = min(25, 5 + 10) = 15
+  assert.equal(credited.maxCompletable.units, 15);
+  assert.equal(credited.effectiveQuantity, 20);
+});
+
+test("applyOnHandCredit: on-hand quantity bound re-validated independently (finding S-1)", () => {
+  const plan = calculateCraftingPlan("copper_ingot", 5, { stationTier: "large" });
+  for (const bad of [-1, MAX_QUANTITY + 1, 1.5, NaN]) {
+    assert.throws(() => applyOnHandCredit(plan, [{ node: "copper_ore", quantity: bad }], { quantity: 5 }), Error);
+  }
+});
+
+test("applyOnHandCredit: a node not in the plan's tree rejects with a clear error", () => {
+  const plan = calculateCraftingPlan("copper_ingot", 5, { stationTier: "large" });
+  assert.throws(() => applyOnHandCredit(plan, [{ node: "titanium_ore", quantity: 5 }], { quantity: 5 }), /not an ingredient/i);
+});
+
+test("applyOnHandCredit: a node key of '__proto__' is rejected as unknown, never resolved against Object.prototype (finding S-2)", () => {
+  const plan = calculateCraftingPlan("copper_ingot", 5, { stationTier: "large" });
+  assert.throws(() => applyOnHandCredit(plan, [{ node: "__proto__", quantity: 5 }], { quantity: 5 }), /not an ingredient/i);
+  assert.equal(Object.prototype.polluted, undefined, "must never actually pollute Object.prototype");
+});
+
+test("applyOnHandCredit: no on-hand values at all -- maxCompletable is undefined, not a computed 0", () => {
+  const plan = calculateCraftingPlan("copper_ingot", 5, { stationTier: "large" });
+  const credited = applyOnHandCredit(plan, [], { quantity: 5 });
+  assert.equal(credited.maxCompletable, undefined);
 });

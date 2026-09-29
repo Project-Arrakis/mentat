@@ -144,3 +144,99 @@ export function calculateCraftingPlan(itemKey, quantity, { stationTier = "large"
   validateQuantity(quantity, { min: MIN_QUANTITY, max: MAX_QUANTITY, label: "quantity" });
   return walkRecipeTree(itemKey, quantity, stationTier, craftingContract);
 }
+
+// Every node-keyed structure below is a Map, never a plain object -- see
+// docs/calculator-architecture.md's Shortfall Traversal Design citation
+// for the prototype-pollution class this specifically prevents (finding
+// S-2). A free-typed on-hand-N value that bypassed Discord's autocomplete
+// could otherwise carry "__proto__"/"constructor"/"prototype" and resolve
+// against real inherited properties instead of undefined.
+function flattenPlanNodes(plan) {
+  // Returns a Map<nodeKey, { pooledQuantity, isIntermediate, ratio }>
+  // covering the target item itself, every intermediate craftable, and
+  // every raw leaf -- everything an on-hand-N value could legally name.
+  const nodes = new Map();
+  nodes.set(plan.itemKey, { pooledQuantity: plan.quantity, isIntermediate: false, isTarget: true });
+  for (const [resource, nested] of Object.entries(plan.nestedCrafts)) {
+    nodes.set(resource, { pooledQuantity: nested.quantity, isIntermediate: true, ratio: nested.quantity / plan.quantity });
+  }
+  for (const entry of plan.totalRawMaterials) {
+    nodes.set(entry.resource, { pooledQuantity: entry.quantity, isIntermediate: false, ratio: entry.quantity / plan.quantity });
+  }
+  return nodes;
+}
+
+export function applyOnHandCredit(plan, onHandEntries = [], { quantity, targetItemOnHand = 0 } = {}) {
+  // [SECURITY, finding S-1] Re-validate every on-hand quantity here,
+  // independently of whatever the Discord option or the caller already
+  // checked -- same reasoning as calculateCraftingPlan()'s own quantity
+  // re-validation.
+  for (const entry of onHandEntries) {
+    if (!Number.isInteger(entry.quantity) || entry.quantity < 0 || entry.quantity > MAX_QUANTITY) {
+      throw new Error(`On-hand quantity for "${entry.node}" must be a whole number between 0 and ${MAX_QUANTITY} (got "${entry.quantity}").`);
+    }
+  }
+
+  const nodeMap = flattenPlanNodes(plan); // Map, per finding S-2
+  const shortfall = new Map();
+  for (const [key, info] of nodeMap.entries()) {
+    if (key === plan.itemKey) continue; // target item's own shortfall isn't tracked here -- see effectiveQuantity
+    shortfall.set(key, info.pooledQuantity);
+  }
+
+  let supplyConstrainedUnits = Infinity;
+  let limitingNode;
+
+  for (const entry of onHandEntries) {
+    const info = nodeMap.get(entry.node); // Map.get -- never `nodeMap[entry.node]`
+    if (!info || entry.node === plan.itemKey) {
+      throw new Error(`"${entry.node}" is not an ingredient of ${plan.itemKey}.`);
+    }
+
+    const currentShortfall = shortfall.get(entry.node) ?? 0;
+    const newShortfall = Math.max(0, currentShortfall - entry.quantity);
+    shortfall.set(entry.node, newShortfall);
+
+    if (info.isIntermediate) {
+      // Cascade: this dataset's every nested item has outputPerCraft baked
+      // into `nested.crafts` already, so scaling each of the nested item's
+      // own raw inputs proportionally to the shortfall reduction (rather
+      // than recomputing a separate reducedCrafts count) is simpler and
+      // exactly equivalent -- then re-pool the scaled amounts.
+      const nested = plan.nestedCrafts[entry.node];
+      const creditRatio = currentShortfall === 0 ? 0 : (currentShortfall - newShortfall) / currentShortfall;
+      for (const input of nested.directInputs) {
+        if (input.craftable) continue;
+        const reduction = Math.round(input.quantity * creditRatio);
+        shortfall.set(input.resource, Math.max(0, (shortfall.get(input.resource) ?? 0) - reduction));
+      }
+    }
+
+    // Supply-constrained maxCompletable: on-hand quantity / per-target-unit ratio.
+    const ratio = info.ratio ?? 1;
+    const supportedUnits = Math.floor(entry.quantity / ratio);
+    if (supportedUnits < supplyConstrainedUnits) {
+      supplyConstrainedUnits = supportedUnits;
+      limitingNode = entry.node;
+    }
+  }
+
+  let maxCompletable;
+  if (targetItemOnHand > 0 || onHandEntries.length > 0) {
+    const combined = onHandEntries.length > 0
+      ? targetItemOnHand + supplyConstrainedUnits
+      : targetItemOnHand;
+    maxCompletable = {
+      units: Math.min(quantity, combined),
+      limitingNode: onHandEntries.length > 0 ? limitingNode : undefined
+    };
+  }
+
+  return {
+    ...plan,
+    quantity,
+    effectiveQuantity: plan.quantity,
+    shortfall,
+    maxCompletable
+  };
+}
