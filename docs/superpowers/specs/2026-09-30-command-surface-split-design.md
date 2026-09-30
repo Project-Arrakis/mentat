@@ -9,6 +9,9 @@ flip (§7.6).
 2026-09-29: `origin/main` is `db3db83` (PR #435 merged), one commit later. Re-measured on
 `db3db83`: `/dune` is still 7473, so every budget below holds on both SHAs. The implementation
 must re-run this check before each PR (§13).
+**Citation SHAs (V2-9):** `src/` and `test/` line numbers are at `db3db83` unless labelled. This
+design branch is based on `f8709f0`, so a reader checking citations in its worktree must use
+`git show db3db83:<file>`. Where the two SHAs differ, both are given.
 **Tracking:** mentat#422 (audience mixing), mentat#423 (split `/dune`), roadmap mentat#432 (batch 3).
 **Audit register:** `docs/superpowers/specs/2026-09-30-command-surface-split-layer1-audit-register.md`.
 **Tags:** decisions are `[D#]`, risks are `[R#]`, open operator decisions are `OD#`, operator-only
@@ -42,13 +45,25 @@ Doc-accuracy fixes: §6.4's claim that reading per-guild command permissions nee
 withdrawn and marked UNVERIFIED (§6.4, P3); §3.3 item 8 is already fixed by PR #436 (`6d2275b`); the
 deploy hook's failure message never prints (CONS-1, mentat#440); counts are dated.
 
+**v2.1 (Round 2 re-verification):**
+- V2-1: new rollout step 0 pins `legacy` in the hosted `.env` before PR-3 deploys, and the hook
+  refuses an implicit change of registered layout (§7.2, §7.7).
+- V2-2, V2-3: the DM, confirm-button and Steam-callback fallbacks to the process-default Core are
+  recorded as pre-existing exceptions and tracked in **mentat#442** (§6.6, §9.10).
+- V2-4: pointer cases 2 and 3 run after the gates (§5.3).
+- V2-5: personal goals follow the user (§6.4, §6.6, §9.10).
+- V2-6: OD6(b) delta (§14).
+- V2-7: preconditions are gated on the hosted flip (§7.6).
+- V2-8: drift comparisons use the real writes state (§7.2, §7.7).
+- V2-9: before-record SHA and citation SHAs (§9.1, header).
+
 ---
 
 ## 1. Goal and non-goals
 
 ### 1.1 Goal
 1. **The budget ceiling stops being a per-feature fight.** `/dune` is 7473 of Discord's hard 8000
-   limit and the test target is 7500 (`test/commands.test.js:1976`). The target has been
+   limit and the test target is 7500 (`test/commands.test.js:2214` at `db3db83`; `:1976` at `f8709f0`). The target has been
    re-baselined four times (7800 → 7975 → 7452 → 7500), and existing descriptions were trimmed each
    time (goal options are now "Id." and "Qty."). Phase 2's `goal sync` (+20) leaves 7. Draft PR #384's
    `admin service-setup` measures **360** chars, so `main` + #384 = **7833** (over target).
@@ -257,7 +272,7 @@ INVOCATION[layout][logicalGroup] -> prefix string
   split:  player -> "/player",      goal -> "/goal",      moderation -> "/dune moderation", ...
   legacy: player -> "/dune player", goal -> "/dune goal", moderation(kick…) -> "/dune player", ...
 
-LEGACY_MOVES = literal table of 28 entries:
+LEGACY_MOVES = literal table of 28 entries (29 under OD6(b), §14):
   17 prefix moves  ("dune","player",X) -> ("player", X)   and   ("dune","goal",X) -> ("goal", X)
   11 path moves    ("dune","player","kick") -> ("moderation","kick") x7
                    ("dune","server","restart") -> ("operations","restart") x4
@@ -280,7 +295,7 @@ pointer replies and Phase 2's new strings all use it.
   `helpPayload`, the test harness and the pointer all call it. Every gate (`isCommandAllowed`,
   cooldown, `forcedPublic` at `:502`, `findWriteAction` in `handleWriteCommand`) receives the
   resolved key and logical group, never the raw Discord group.
-- Keys unchanged for 90 of 101 subcommands; only the 11 moved writes change key (`player:kick` →
+- Keys unchanged for 90 of 101 subcommands (89 under OD6(b), §14); only the 11 moved writes change key (`player:kick` →
   `moderation:kick` x7, `server:restart` → `operations:restart` x4). `WRITE_ACTIONS[].group` changes
   for exactly those 11. **Core action ids do not change**, so audit events, Core routes and
   `write/preview` payloads are untouched. Because the legacy path resolves to the same key as the new
@@ -306,9 +321,18 @@ pointer replies and Phase 2's new strings all use it.
   3. A legacy path whose target is **not registered** under the current writes setting (for
      example a moved write when `includeWriteGroup` is false): same reply as today's writes-disabled
      path, plus the pointer text.
-- **Pointer purity:** the pointer runs after `resolveInvocation` and the cheap shape checks, but
-  before any gate that could change state or consume anything: no adapter, DB, cooldown,
-  `incrementCommandCount`, confirmation or option-value read beyond presence checks. Its text comes
+- **Where each pointer runs (V2-4):**
+  - Case 1 (the `moved` shim) runs right after `resolveInvocation`, before any gate. It reveals only
+    public command names.
+  - Cases 2 and 3 run **after** the console-registration, zero-role and RBAC gates
+    (`src/commands.js:399-470`), at the point where today's handler would reject. Unregistered and
+    RBAC-denied callers therefore keep their before-record class (`not-connected`, `zero-role`,
+    `rbac-denied`). They do not learn that writes are disabled. Case 3 runs where today's
+    writes-disabled reply comes from (`src/writeHandler.js:104-105`, after the cooldown gate), so its
+    before-record class is unchanged; only the reply text gains the pointer.
+- **Pointer purity:** no pointer reads the adapter, the DB (beyond the gates that already run before
+  it), a confirmation, `incrementCommandCount`, or any option value beyond presence checks. The shim
+  (case 1) consumes no cooldown. Its text comes
   only from the literal move table (unknown names get the generic "moved to `/player`" text). A spy
   test pins all of this (§9.5). It reveals only public command names.
 - Embed selection and branches use the resolved logical group and key (§5.6), so `/goal` embeds
@@ -331,7 +355,7 @@ pointer replies and Phase 2's new strings all use it.
 
 | Resolved | Handler | Its own gate (unchanged) |
 |---|---|---|
-| `data:calculator` (or `goal:calculate` if OD6 moves it) | `handleCalculatorAutocomplete` | none needed (static recipe data) |
+| `data:calculator` (or `goal:calculate` if OD6 moves it; matched by **key, before** the `goal` group row) | `handleCalculatorAutocomplete` | none needed (static recipe data) |
 | logical group `goal` (from `/goal …` **or** legacy `/dune goal …`) | `handleGoalAutocomplete(interaction, db)` | personal by `owner_id`; guild goals only via `isAdminActor` (on-hand/delete) or `isCommandAllowed("goal:progress")` (progress, #435, `src/commands.js:1788`); `db` null → `[]` |
 | a `moved` shim | respond `[]` | shims have no options |
 | anything else | respond `[]` once | |
@@ -391,7 +415,7 @@ Tests that break outright and must change **only with a before-record row as jus
 (QA-9, ARCH-9):
 1. `test/commands.test.js:64` group-name list (includes `goal`, `player`; gains `moderation`).
 2. `test/commands.test.js` write-merge test (`registeredGroups.get("player")`, `findWriteAction("player","kick")`).
-3. `test/commands.test.js:1970-1976` single `/dune` budget test → per command and per layout.
+3. `test/commands.test.js:1970-1976` at `f8709f0` (the test ending at `:2214` at `db3db83`) single `/dune` budget test → per command and per layout.
 4. `test/writeActions.test.js:73-86` group collision; `test/writeHandler.test.js:349, 376, 502, 516, 520` pass `group: "player"` for kick/warn/give-item.
 5. PR #436's `test/helpWriteVisibility.test.js`: merged-group list `["player","server"]` (`:91`), the tree walk that assumes group→subcommand nesting, and the `commandRoleIds` override `{"player:kick": …}` (`:140`), which must become `moderation:kick` or it silently stops testing.
 6. `test/discord-bot-test-harness.js:82-118` ("registers all 25 slash commands"), which reads top-level options as groups.
@@ -411,7 +435,7 @@ the before-record, where "before" uses the old path and "after" uses both the ne
 path (which now alias-executes). No gate is weakened, reordered or bypassed.
 
 ### 6.2 Why the design preserves it structurally
-- 90 of 101 keys are unchanged; the 11 moved writes change key but their gate is the tier carried
+- 90 of 101 keys are unchanged (89 under OD6(b)); the 11 moved writes change key but their gate is the tier carried
   in the `WRITE_ACTIONS` entry (`writeHandler.js:143, 176`), and multi-tenant `isCommandAllowed` is
   not key-sensitive (`src/commands.js:1041-1049`).
 - Old and new paths resolve to the same key before any gate (§5.2), so there is one RBAC key and one
@@ -686,7 +710,8 @@ exists only if OD7 = a (V2-7). Put the token in a shell variable, never inline.
 - **Release note / CHANGELOG** ("Breaking", under the version in §8): the old → new table (17 prefixes,
   11 paths); that old paths keep working until the removal release date; the `moved` picker entries;
   self-hosters must register (the hook does it only if they use it); the Integrations note (§6.4); no
-  re-invite needed; the new env var. Plus `docs/changes/PR-NNNN-command-surface-split.md`.
+  re-invite needed; the new env var, and that the hook will not change a registered layout until it is
+  set explicitly (§7.2 item 1). Plus `docs/changes/PR-NNNN-command-surface-split.md`.
 - **In Discord, at the hosted flip:** one announcement per guild to its configured alert/digest
   channel where one exists (and to the owner by DM where not), with a 5-line player table and an
   11-line staff table and a link to the mentat-link "What moved" section. Help carries a one-line
@@ -723,12 +748,19 @@ outlives the shims (recommended: remove together at step 3).
   and stub interactions over the axes in §9.3 and writes
   `test/fixtures/authz-before-record.json` (sorted keys, stable order). Header fields: source SHA,
   node version, script sha256, row count.
-- **Pinned SHA.** The ruling named `f8709f0`. Code evidence: PR #435 (`db3db83`) changed goal
-  autocomplete scoping after `f8709f0` (`isCommandAllowed(…, "goal:progress", …)` at
-  `src/commands.js:1788` exists only from `db3db83`). The dispatch rows are generated at `f8709f0`
-  as ruled, but the **autocomplete rows** are generated at `db3db83` (or PR-1's merge base, if later),
-  because a record at `f8709f0` would encode the pre-#435 leak as "correct". The header records both
-  SHAs. This deviation is recorded in the register.
+- **Pinned SHA (v2.1, V2-9).** The ruling named `f8709f0`. Two merges after it change
+  before-record rows:
+  - PR #435 (`db3db83`) changed goal autocomplete scoping. The call at `src/commands.js:1788` exists
+    only from `db3db83`.
+  - PR #436 (a PR-1 prerequisite, head `6d2275b`) changes caller-dependent help classification in
+    `src/commands.js`.
+
+  A record taken at `f8709f0` would either equal the PR-1 base, in which case the pin is ceremonial,
+  or make PR-1 red on its first day. **All rows are therefore generated at PR-1's merge base**, which
+  contains #435 and #436. The script also runs the dispatch rows at `f8709f0` and records the result
+  as an equality cross-check. Every row outside help and goal autocomplete must be equal; any other
+  difference is investigated before PR-1 merges. The header records both SHAs and the cross-check
+  result. This supersedes Round 1 correction 10 in the register.
 - Merged in its own PR (PR-1) **before any refactor**, with a hand-written
   `test/fixtures/authz-audience-table.md` (101 rows: path → audience/tier from §3.2) and a test that
   the before-record's outcome classes agree with it (an oracle not derived from the code).
@@ -739,7 +771,7 @@ outlives the shims (recommended: remove together at step 3).
 
 ### 9.2 Pinned inventories (QA-2, QA-4, ARCH-8)
 - An **inline literal** (in the test file, not imported from `src/`) of the 17 prefix and 11 path
-  moves; `LEGACY_MOVES` must deep-equal it, and before/after rows are paired through the literal.
+  moves (plus `data:calculator` → `goal:calculate` under OD6(b)); `LEGACY_MOVES` must deep-equal it, and before/after rows are paired through the literal.
 - For the 11 moved writes, a literal `{ newKey: { tier, coreActionId, confirmPhrase, params } }`
   (for example `moderation:give-item` → owner, `player.give-item`).
 - A literal sorted list of the 101 pre-split paths; bijection with the post-split tree (new, moved,
@@ -980,6 +1012,19 @@ overridden.
    only player tool left in the staff/server command (UX-13), it feeds goal creation, and `/goal` has
    room (723 chars). Cost: one more re-learned path and a key change `data:calculator` →
    `goal:calculate` (a 29th move; the before-record covers it). **Recommendation changed to (b).**
+   **If (b) is accepted (V2-6, measured with `discordCommandCharBudget` at `db3db83`):**
+   - **Costs.** The calculator subcommand costs 723 chars, or 722 when named `calculate`. Split
+     `/dune` becomes **5568**, or **5746** with the `moved` shims (from 6291/6469). `/goal` becomes
+     **1166** (from 444). Legacy `/dune` is unchanged at 7473, because the legacy tree is frozen.
+   - **Counts.** Wherever §5.1, §5.2, §6.2 and §9.2 say 28 moves, 90 of 101 unchanged keys and 11
+     changed keys, read **29 moves, 89 unchanged, 12 changed**. `data:calculator` → `goal:calculate`
+     is a prefix-and-name move, and no tier changes, because it is player tier on both sides.
+   - **Alias status.** `/dune data calculator` is **not registered** in the split layout, so it costs
+     no budget. It stays as a stale-client alias only: it alias-executes through `resolveInvocation`
+     like the other legacy paths until PR-7.
+   - **Autocomplete routing.** The `goal:calculate` key row is matched before the logical-group `goal`
+     row (§5.5), so calculator suggestions never reach `handleGoalAutocomplete`.
+   - **Help.** The "Moved recently" block lists it among the moves.
 7. **OD7: layout default for self-hosters — open.** (a) `legacy` default in rc.6, `split` in rc.7;
    (b) `split` default from rc.6, `legacy` only as a rollback value. Evidence: with R-A, old paths
    keep executing in either layout, and v2 derives strings and the feed from the registered layout,
