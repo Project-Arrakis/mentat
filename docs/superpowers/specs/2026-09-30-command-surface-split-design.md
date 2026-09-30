@@ -537,7 +537,7 @@ Ephemeral plain text (no colour or emoji dependence), full sentences:
    and `/goal` from the picker itself. Moving `admin roles` to `core` is a follow-up (§16).
 
 ### 7.6 Operator-only preconditions (R-F, NET-4, SEC-2, CLOUD-5)
-These need the bot VM (`acp-bot`, VMID 103, `192.168.22.10`) or the bot token and are run by the
+These need the hosted bot VM (see the `meta` Live Systems section) or the bot token and are run by the
 operator (or a session the operator authorizes), read-only, and recorded as a comment on #423
 **before PR-6 (the flip)**. Put the token in a shell variable, never inline.
 
