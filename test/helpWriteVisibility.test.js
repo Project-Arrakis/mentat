@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { helpPayload, getCommandRegistry, buildDuneCommand } from "../src/commands.js";
 import { formatHelpEmbed } from "../src/embedFormat.js";
 import { WRITE_ACTIONS } from "../src/writeActions.js";
+import { LEGACY_WRITE_STUBS } from "../src/writeHandler.js";
 
 const EXPECTED_WRITE_ACTION_COUNT = 28;
 const WRITE_GROUPS = [...new Set(WRITE_ACTIONS.map((e) => e.group))];
@@ -102,7 +103,7 @@ const callerSet = (adminRoles) => ({
   public: mk("pub", []), observer: mk("o", ["ro"]), moderator: mk("m", ["rm"]),
   admin: mk("a", adminRoles), owner: mk("OWN", [], "OWN"), operator: mk("OP", [])
 });
-const legacyKeys = ["maintenance-note", "maintenance-window", "alert-channel", "alert-threshold", "digest-schedule", "post-schedule", "add-channel", "remove-channel", "cache"].map((n) => `write:${n}`);
+
 
 function realAvailable(i, cfg, db, key, tier) {
   if (!isCommandAllowed(i, key, cfg, db, "g1")) return false;
@@ -112,7 +113,7 @@ function realAvailable(i, cfg, db, key, tier) {
 function assertMatrix(label, cfg, db, callers) {
   for (const [cn, i] of Object.entries(callers)) {
     const av = new Set(helpPayload(cfg, i, db, "g1").available);
-    const keys = [...WRITE_ACTIONS.map((a) => [`${a.group}:${a.name}`, a.tier]), ...legacyKeys.map((k) => [k, null]), ["admin:broadcast", null]];
+    const keys = [...WRITE_ACTIONS.map((a) => [`${a.group}:${a.name}`, a.tier]), ...LEGACY_WRITE_STUBS.map((l) => [`write:${l.name}`, l.tier]), ["admin:broadcast", null]];
     for (const [key, tier] of keys) {
       const real = key === "admin:broadcast" ? null : realAvailable(i, cfg, db, key, tier);
       if (real === null) { if (!isCommandAllowed(i, key, cfg, db, "g1")) assert.ok(!av.has(key), `${label}/${cn}: ${key} available but RBAC-refused`); continue; }
@@ -143,4 +144,22 @@ test("help availability equals RBAC gate AND write tier (single-tenant, write-ad
       }
     }
   } finally { if (saved === undefined) delete process.env.DISCORD_WRITE_ADMIN_ROLE_IDS; else process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = saved; }
+});
+
+test("write:cache is owner-tier: locked for admin, available for owner (real tier from LEGACY_WRITE_STUBS)", () => {
+  const saved = process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
+  process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = "wa";
+  try {
+    const cfg = { multiTenant: false, discord: { writes: { enabled: true }, botOperatorUserId: "OP", rbac: { mode: "open", observerRoleIds: [], adminRoleIds: [], commandRoleIds: {} } } };
+    const admin = helpPayload(cfg, mk("a", ["wa"]), null, "g1");
+    assert.ok(admin.locked.includes("write:cache"));
+    assert.ok(admin.available.includes("write:alert-channel"));
+    assert.ok(helpPayload(cfg, ownerInteraction(), null, "g1").available.includes("write:cache"));
+  } finally { if (saved === undefined) delete process.env.DISCORD_WRITE_ADMIN_ROLE_IDS; else process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = saved; }
+});
+
+test("drift guard: help's write:* names equal LEGACY_WRITE_STUBS exactly", () => {
+  const p = helpPayload(config(), ownerInteraction());
+  const helped = [...p.available, ...p.locked].filter((n) => n.startsWith("write:")).sort();
+  assert.deepEqual(helped, LEGACY_WRITE_STUBS.map((l) => `write:${l.name}`).sort());
 });

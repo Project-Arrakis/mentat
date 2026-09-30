@@ -14,7 +14,7 @@ import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegi
 import { countSubcommands } from "./catalogTransform.js";
 import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed, formatCalculatorEmbed, formatGoalCreateEmbed, formatGoalOnHandEmbed, formatGoalListEmbed, formatGoalProgressEmbed, formatGoalDeleteEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
-import { handleWriteCommand } from "./writeHandler.js";
+import { handleWriteCommand, LEGACY_WRITE_STUBS } from "./writeHandler.js";
 import { WRITE_ACTIONS, findWriteAction, discordOptionName } from "./writeActions.js";
 import { writesEnabled, canWrite, writeRoleIds } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
@@ -1896,17 +1896,13 @@ function setupPayload(config, interaction) {
 // -- /dune help was advertising 3 commands that could not be typed) and
 // had the same pre-#403 stale descriptions for the other 7. Text now
 // copied verbatim from LEGACY_WRITE_STUBS (src/writeHandler.js).
-export const WRITE_HELP_ENTRIES = [
-  { name: "write:maintenance-note", desc: "Set a maintenance note for operators.", role: "admin" },
-  { name: "write:maintenance-window", desc: "Set a maintenance window.", role: "admin" },
-  { name: "write:alert-channel", desc: "Alert channel: readiness/service notifications.", role: "admin" },
-  { name: "write:alert-threshold", desc: "Set alert thresholds.", role: "admin" },
-  { name: "write:digest-schedule", desc: "Set the digest schedule interval.", role: "admin" },
-  { name: "write:post-schedule", desc: "Set the scheduled post type.", role: "admin" },
-  { name: "write:add-channel", desc: "Add a channel for scheduled posts.", role: "admin" },
-  { name: "write:remove-channel", desc: "Remove a channel from scheduled posts.", role: "admin" },
-  { name: "write:cache", desc: "Clear server caches.", role: "admin" }
-];
+// Derived from LEGACY_WRITE_STUBS (writeHandler.js), the table
+// handleWriteCommand actually enforces -- name, description AND tier all
+// come from there, so help can not drift from the real gate again
+// (write:cache was hand-listed as admin while enforced as owner).
+export const WRITE_HELP_ENTRIES = LEGACY_WRITE_STUBS.map((l) => ({
+  name: `write:${l.name}`, desc: l.desc, role: l.tier, writeTier: l.tier
+}));
 
 // [mentat#424] Derived mechanically from WRITE_ACTIONS (never hand-listed)
 // so a newly added write action can not be forgotten in /dune help -- the
@@ -2020,7 +2016,7 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     // then the write tier / host-operator check. "available" must mean the
     // caller may actually run it, so both gates must pass (mentat#424).
     const rbacOk = RBAC_EXEMPT_COMMANDS.has(cmd.name) || isCommandAllowed(interaction, cmd.name, config, db, guildId);
-    if ((cmd.writeTier || cmd.name.startsWith("write:") || cmd.name === "admin:broadcast") && !rbacOk) {
+    if ((cmd.writeTier || cmd.name === "admin:broadcast") && !rbacOk) {
       locked.push(cmd);
     } else if (cmd.writeTier === "host-operator") {
       // bot:self-update: authorized ONLY by the configured bot host operator
@@ -2030,8 +2026,6 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     } else if (cmd.writeTier) {
       // WRITE_ACTIONS-derived entries: gated by their real per-action tier.
       if (canWrite(interaction, config, cmd.writeTier, db, guildId)) available.push(cmd); else locked.push(cmd);
-    } else if (cmd.name.startsWith("write:")) {
-      if (canWrite(interaction, config, null, db, guildId)) available.push(cmd); else locked.push(cmd);
     } else if (cmd.name === "admin:broadcast") {
       // broadcast is also gated by canWrite() (via canBroadcast(), moderator
       // tier), not the generic isCommandAllowed() default -- without this
