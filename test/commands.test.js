@@ -16,7 +16,7 @@ import {
   requiredRoleIdsForCommand,
   statusSummaryPayload
 } from "../src/commands.js";
-import { createDatabase, upsertGuild, addGuildRole, updateGuildSettings, getGoalScoped, createGoal, setGoalOnHandEntry } from "../src/database.js";
+import { createDatabase, upsertGuild, addGuildRole, updateGuildSettings, getGoalScoped, getGoalAuditLog, createGoal, setGoalOnHandEntry } from "../src/database.js";
 import { WRITE_ACTIONS, findWriteAction } from "../src/writeActions.js";
 import { GAME_ITEM_CATALOG, GAME_ITEM_CATALOG_BY_ID } from "../src/gameItemCatalog.js";
 import { clearCooldown } from "../src/cooldown.js";
@@ -1656,6 +1656,244 @@ test("goal:list one poisoned/unrenderable goal row shows 'unavailable' for that 
   const text = JSON.stringify(listEdited?.embeds?.[0]);
   assert.match(text, /silicone/i, "the good row must still render");
   assert.match(text, /unavailable/i, "the poisoned row must degrade gracefully, not vanish silently");
+});
+
+// ── mentat#427: goal:list "ingredients ready" marker ──
+// "Ready" is defined from the real resolveEffectiveOnHandCredit() shortfall
+// map (verified by experiment): maxCompletable alone is NOT usable, because
+// an uncredited ingredient is unconstrained in that oracle (crediting only
+// Jasmium for a Duraluminum goal reports units === quantity while Aluminum
+// Ore is untouched). Ready = at least one ingredient credited AND every
+// on-hand-able leaf (non-craftable node with a game-item id) has shortfall 0.
+// Water has no game-item id and can never be credited, so it is ignored;
+// intermediates are ignored because crediting their leaf inputs leaves the
+// intermediate's own shortfall entry non-zero forever.
+async function listTextFor(db, config, userId) {
+  const listInteraction = goalListInteraction({ scope: "personal" }, { userId });
+  let listEdited;
+  listInteraction.editReply = async (payload) => { listEdited = payload; };
+  await executeDuneCommand(listInteraction, {}, config, db);
+  return JSON.stringify(listEdited?.embeds?.[0]);
+}
+
+function seedCraftableGoal(db, userId, { itemId, quantity, tier, entries }) {
+  const id = createGoal(db, { ownerType: "player", ownerId: userId, itemId, itemKind: "craftable", targetQuantity: quantity, stationTier: tier, craftingContract: false, dueAt: null, createdBy: userId });
+  for (const [node, qty] of entries) setGoalOnHandEntry(db, { goalId: id, node, quantity: qty, updatedBy: userId });
+  return id;
+}
+
+test("goal:list marks a craftable goal 'ingredients ready' when every non-water ingredient is fully covered (water ignored)", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `ready-full-${Math.random()}`;
+  // silicone_block x10 @ medium needs 30 flour_sand + 500 water; water can never be on-hand.
+  seedCraftableGoal(db, userId, { itemId: "Silicone", quantity: 10, tier: "medium", entries: [["FlourSand", 30]] });
+  const text = await listTextFor(db, config, userId);
+  assert.match(text, /0%/);
+  assert.match(text, /ingredients ready/i);
+});
+
+test("goal:list marks 'ingredients ready' when an intermediate is credited and covers its own leaf inputs", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `ready-inter-${Math.random()}`;
+  seedCraftableGoal(db, userId, { itemId: "DuraluminumRod", quantity: 10, tier: "large", entries: [["JasmiumCrystal", 1000], ["AluminiumBar", 1000]] });
+  assert.match(await listTextFor(db, config, userId), /ingredients ready/i);
+});
+
+test("goal:list does NOT mark ready for partial coverage, uncovered leaves, no ingredients, or a complete goal", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const cases = {
+    partial: { itemId: "Silicone", quantity: 10, tier: "medium", entries: [["FlourSand", 29]] },
+    // Jasmium alone: maxCompletable.units would claim 10 here, Aluminum Ore is uncovered.
+    "uncovered leaf": { itemId: "DuraluminumRod", quantity: 10, tier: "large", entries: [["JasmiumCrystal", 1000]] },
+    none: { itemId: "Silicone", quantity: 10, tier: "medium", entries: [] }
+  };
+  for (const [label, spec] of Object.entries(cases)) {
+    const userId = `notready-${label.replace(" ", "-")}-${Math.random()}`;
+    seedCraftableGoal(db, userId, spec);
+    assert.doesNotMatch(await listTextFor(db, config, userId), /ingredients ready/i, label);
+  }
+  // Complete goal (finished item on hand >= target): no marker, shown as 100%.
+  const doneUser = `notready-done-${Math.random()}`;
+  seedCraftableGoal(db, doneUser, { itemId: "Silicone", quantity: 10, tier: "medium", entries: [["Silicone", 10], ["FlourSand", 30]] });
+  const doneText = await listTextFor(db, config, doneUser);
+  assert.match(doneText, /100%/);
+  assert.doesNotMatch(doneText, /ingredients ready/i);
+});
+
+test("goal:list never shows 'ingredients ready' for a simple goal", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `ready-simple-${Math.random()}`;
+  const id = createGoal(db, { ownerType: "player", ownerId: userId, itemId: "AzuriteOre", itemKind: "simple", targetQuantity: 10, stationTier: null, craftingContract: false, dueAt: null, createdBy: userId });
+  setGoalOnHandEntry(db, { goalId: id, node: "AzuriteOre", quantity: 5, updatedBy: userId });
+  assert.doesNotMatch(await listTextFor(db, config, userId), /ingredients ready/i);
+});
+
+// ── mentat#428: goal writes are atomic ──
+// Failures are forced with real SQLite triggers (RAISE(ABORT)) so the
+// statement that fails is a genuine DB error mid-sequence, not a stub.
+function auditRows(db, goalId) {
+  return db.prepare("SELECT action FROM goal_audit_log WHERE goal_id = ? ORDER BY id").all(goalId).map((r) => r.action);
+}
+
+test("goal:create is atomic: a failing audit insert leaves no orphan goal", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  db.exec("CREATE TRIGGER fail_create_audit BEFORE INSERT ON goal_audit_log WHEN NEW.action = 'create' BEGIN SELECT RAISE(ABORT, 'boom-create'); END");
+  const userId = `atomic-create-${Math.random()}`;
+  const i = goalCreateInteraction({ item: "AzuriteOre", quantity: 10 }, { userId });
+  let edited;
+  i.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(i, {}, config, db);
+  assert.match(JSON.stringify(edited?.embeds?.[0]), /boom-create/);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goals").get().n, 0, "no orphan goal row");
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goal_audit_log").get().n, 0);
+});
+
+test("goal:delete is atomic: a failing delete rolls back the delete audit row and the goal survives", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `atomic-delete-${Math.random()}`;
+  const goalId = await createTestGoal(db, { config, userId, itemId: "AzuriteOre", quantity: 10 });
+  db.exec("CREATE TRIGGER fail_goal_delete BEFORE DELETE ON goals BEGIN SELECT RAISE(ABORT, 'boom-delete'); END");
+  const i = goalDeleteInteraction({ id: goalId }, { userId });
+  let edited;
+  i.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(i, {}, config, db);
+  assert.match(JSON.stringify(edited?.embeds?.[0]), /boom-delete/);
+  assert.ok(getGoalScoped(db, { id: goalId, ownerType: "player", ownerId: userId }), "goal must still exist");
+  assert.deepEqual(auditRows(db, goalId), ["create"], "no orphan delete audit row");
+});
+
+test("goal:on-hand is atomic: a failing audit insert rolls back the on-hand entry", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `atomic-onhand-${Math.random()}`;
+  const goalId = await createTestGoal(db, { config, userId, itemId: "AzuriteOre", quantity: 10 });
+  db.exec("CREATE TRIGGER fail_onhand_audit BEFORE INSERT ON goal_audit_log WHEN NEW.action = 'on_hand_update' BEGIN SELECT RAISE(ABORT, 'boom-onhand'); END");
+  const i = goalOnHandInteraction({ id: goalId, node: "AzuriteOre", quantity: 4 }, { userId });
+  let edited;
+  i.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(i, {}, config, db);
+  assert.match(JSON.stringify(edited?.embeds?.[0]), /boom-onhand/);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goal_on_hand_entries WHERE goal_id = ?").get(goalId).n, 0, "no orphan on-hand entry");
+});
+
+test("goal:on-hand is atomic across completion: a failing 'complete' audit insert rolls back entry, audit and status", async () => {
+  const db = createDatabase(":memory:");
+  const config = { discord: { defaultEphemeral: true, rbac: { mode: "open" } } };
+  const userId = `atomic-complete-${Math.random()}`;
+  const goalId = await createTestGoal(db, { config, userId, itemId: "AzuriteOre", quantity: 10 });
+  db.exec("CREATE TRIGGER fail_complete_audit BEFORE INSERT ON goal_audit_log WHEN NEW.action = 'complete' BEGIN SELECT RAISE(ABORT, 'boom-complete'); END");
+  const i = goalOnHandInteraction({ id: goalId, node: "AzuriteOre", quantity: 10 }, { userId });
+  let edited;
+  i.editReply = async (payload) => { edited = payload; };
+  await executeDuneCommand(i, {}, config, db);
+  assert.match(JSON.stringify(edited?.embeds?.[0]), /boom-complete/);
+  assert.equal(getGoalScoped(db, { id: goalId, ownerType: "player", ownerId: userId }).status, "active", "goal must not be left completed");
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goal_on_hand_entries WHERE goal_id = ?").get(goalId).n, 0);
+  assert.deepEqual(auditRows(db, goalId), ["create"]);
+});
+
+// ── mentat#429: end-to-end journeys through real executeDuneCommand dispatch ──
+async function runGoalCommand(interaction, config, db) {
+  let edited;
+  interaction.editReply = async (payload) => { edited = payload; };
+  const handled = await executeDuneCommand(interaction, {}, config, db);
+  assert.equal(handled, true);
+  return JSON.stringify(edited?.embeds?.[0]);
+}
+
+function guildActor(group, sub, options, { userId, guildId = "guild-1", ownerId, roles = [] }) {
+  return mockInteraction(group, sub, { options, user: { id: userId }, guildId, guild: { ownerId }, member: { roles } });
+}
+
+test("goal journey: craftable GUILD goal -- admin creates/updates/deletes, non-admin member reads only, audit trail survives", async () => {
+  // Open-mode multi-tenant guild with an observer role for the plain member
+  // so they pass the command-level gate but NOT the admin-tier gate.
+  const db = multiTenantDb({ observer: ["member-role"], rbacMode: "open" });
+  const adminId = "guild-admin-1";
+  const memberId = "guild-member-1";
+  const admin = (group, sub, options) => guildActor(group, sub, options, { userId: adminId, ownerId: adminId });
+  const member = (group, sub, options) => guildActor(group, sub, options, { userId: memberId, ownerId: adminId, roles: ["member-role"] });
+
+  // 1. Admin/owner creates a craftable guild goal.
+  const createText = await runGoalCommand(admin("goal", "create", goalCreateOptions({ scope: "guild", item: "Silicone", quantity: 10 })), MT_CONFIG, db);
+  assert.match(createText, /crafting math/i);
+  const goalId = Number(createText.match(/Goal #(\d+) created/)[1]);
+  const stored = getGoalScoped(db, { id: goalId, ownerType: "guild", ownerId: "guild-1" });
+  assert.equal(stored.item_kind, "craftable");
+  assert.equal(stored.created_by, adminId);
+
+  // 2. Admin records on-hand for two ingredients (the root item and its sand).
+  const sand = await runGoalCommand(admin("goal", "on-hand", goalOnHandOptions({ id: goalId, node: "FlourSand", quantity: 30 })), MT_CONFIG, db);
+  assert.doesNotMatch(sand, /error|not found/i);
+  assert.match(sand, /flour sand/i);
+  clearCooldown({ userId: adminId, commandName: "goal:on-hand" });
+  const root = await runGoalCommand(admin("goal", "on-hand", goalOnHandOptions({ id: goalId, node: "Silicone", quantity: 4 })), MT_CONFIG, db);
+  assert.doesNotMatch(root, /error|not found/i);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goal_on_hand_entries WHERE goal_id = ?").get(goalId).n, 2);
+
+  // 3. A non-admin member can list and read progress, and sees real numbers.
+  const listText = await runGoalCommand(member("goal", "list", goalListOptions({ scope: "guild" })), MT_CONFIG, db);
+  assert.match(listText, new RegExp(`#${goalId}\\b`));
+  assert.match(listText, /40%/, "4 of 10 finished items on hand");
+  assert.match(listText, /ingredients ready/i);
+  const progressText = await runGoalCommand(member("goal", "progress", { getSubcommandGroup: () => "goal", getSubcommand: () => "progress", getBoolean: () => false, getInteger: (n) => (n === "id" ? goalId : null) }), MT_CONFIG, db);
+  assert.doesNotMatch(progressText, /error|not found|undefined|NaN/i);
+  assert.match(progressText, /silicone/i);
+
+  // 4. The same member cannot mutate: on-hand and delete are rejected and change nothing.
+  const memberOnHand = await runGoalCommand(member("goal", "on-hand", goalOnHandOptions({ id: goalId, node: "Silicone", quantity: 10 })), MT_CONFIG, db);
+  assert.match(memberOnHand, /admin|owner/i);
+  const memberDelete = await runGoalCommand(member("goal", "delete", goalDeleteOptions({ id: goalId })), MT_CONFIG, db);
+  assert.match(memberDelete, /admin|owner/i);
+  assert.ok(getGoalScoped(db, { id: goalId, ownerType: "guild", ownerId: "guild-1" }), "goal must survive the rejected delete");
+  assert.equal(db.prepare("SELECT quantity FROM goal_on_hand_entries WHERE goal_id = ? AND node = 'Silicone'").get(goalId).quantity, 4, "rejected on-hand must not change the entry");
+
+  // 5. Admin deletes it; goal and on-hand rows are gone, audit trail survives.
+  const delText = await runGoalCommand(admin("goal", "delete", goalDeleteOptions({ id: goalId })), MT_CONFIG, db);
+  assert.doesNotMatch(delText, /error|not found/i);
+  assert.equal(getGoalScoped(db, { id: goalId, ownerType: "guild", ownerId: "guild-1" }), undefined);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goal_on_hand_entries WHERE goal_id = ?").get(goalId).n, 0);
+  const actions = getGoalAuditLog(db, goalId).map((r) => r.action);
+  assert.deepEqual(actions, ["create", "on_hand_update", "on_hand_update", "delete"]);
+  assert.ok(getGoalAuditLog(db, goalId).every((r) => r.actor_id === adminId), "rejected member attempts wrote no audit rows");
+});
+
+test("goal journey: cross-tenant -- guild A's admin cannot see, update, progress or delete guild B's goal by id", async () => {
+  const db = multiTenantDb({ admin: ["a-admin-role"], rbacMode: "open" });
+  upsertGuild(db, { guildId: "guild-2", guildName: "B", consoleUrl: "https://example.test", adapterToken: "t2", status: "active" });
+  updateGuildSettings(db, "guild-2", { rbac_mode: "open" });
+  const bOwner = "guild-b-owner";
+  const aAdmin = "guild-a-admin";
+
+  const bCreate = await runGoalCommand(guildActor("goal", "create", goalCreateOptions({ scope: "guild", item: "Silicone", quantity: 10 }), { userId: bOwner, guildId: "guild-2", ownerId: bOwner }), MT_CONFIG, db);
+  const bGoalId = Number(bCreate.match(/Goal #(\d+) created/)[1]);
+  const a = (group, sub, options) => guildActor(group, sub, options, { userId: aAdmin, guildId: "guild-1", ownerId: "guild-a-owner", roles: ["a-admin-role"] });
+
+  // Reference text for a genuinely nonexistent id.
+  const missing = await runGoalCommand(a("goal", "progress", { getSubcommandGroup: () => "goal", getSubcommand: () => "progress", getBoolean: () => false, getInteger: () => 999999 }), MT_CONFIG, db);
+  assert.match(missing, /Goal #999999 not found\./);
+
+  clearCooldown({ userId: aAdmin, commandName: "goal:progress" });
+  const idOpts = (sub) => ({ getSubcommandGroup: () => "goal", getSubcommand: () => sub, getBoolean: () => false, getInteger: (n) => (n === "id" ? bGoalId : null) });
+  const progress = await runGoalCommand(a("goal", "progress", idOpts("progress")), MT_CONFIG, db);
+  assert.match(progress, new RegExp(`Goal #${bGoalId} not found\\.`));
+  const onHand = await runGoalCommand(a("goal", "on-hand", goalOnHandOptions({ id: bGoalId, node: "Silicone", quantity: 5 })), MT_CONFIG, db);
+  assert.match(onHand, new RegExp(`Goal #${bGoalId} not found\\.`));
+  const del = await runGoalCommand(a("goal", "delete", goalDeleteOptions({ id: bGoalId })), MT_CONFIG, db);
+  assert.match(del, new RegExp(`Goal #${bGoalId} not found\\.`));
+  const list = await runGoalCommand(a("goal", "list", goalListOptions({ scope: "guild" })), MT_CONFIG, db);
+  assert.doesNotMatch(list, new RegExp(`#${bGoalId}\\b`), "guild B's goal must not appear in guild A's list");
+
+  // Nothing changed for guild B.
+  assert.ok(getGoalScoped(db, { id: bGoalId, ownerType: "guild", ownerId: "guild-2" }));
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM goal_on_hand_entries WHERE goal_id = ?").get(bGoalId).n, 0);
+  assert.deepEqual(getGoalAuditLog(db, bGoalId).map((r) => r.action), ["create"]);
 });
 
 // ── goal:progress (Task 8) ──

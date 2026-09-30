@@ -71,6 +71,7 @@ an issue instead of a pull request.
 | `UPSTREAM-discord-player-inventory` | Upstream PR | Discord adapter player inventory routes + linking + storage queries | [Red-Blink/dune-awakening-selfhost-docker#91](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/91) |
 | `PR-0417` | PR | Crafting calculator command with shortfall tracking | PR #417 |
 | `PR-0430` | PR | Goal & order tracking (Phase 3) | PR #430 |
+| `PR-0435-goal-followups` | PR | Goal follow-ups batch 1 (#425-#429) | PR #435 |
 | `PR-0436` | PR | `/dune core help` lists all write subcommands (mentat#424) | PR #436 |
 
 Every future substantive PR should add or update its matching change note before
