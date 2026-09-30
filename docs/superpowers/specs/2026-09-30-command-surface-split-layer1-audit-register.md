@@ -222,6 +222,12 @@ governance defect with no STRIDE mapping. "Cluster" is the merge key above.
 |---|---|---|---|---|---|
 | CONS-1 | Med | DoS, Tampering | K2 | **New, verified:** `scripts/deploy-post-receive.sh:132` pipes `npm run register 2>&1 \| tail -5` inside `if ( … )` with only `set -u` (`:54`) and no `pipefail`, so the status is `tail`'s. A failed registration prints "Slash commands re-registered on deploy." and the WARNING branch (`:135-139`) is unreachable. Every hat assumed the WARNING fires. | Filed in **mentat#440**; §7.2 requires `pipefail` or an explicit status check |
 
+### Operator requirements (binding, not findings; not counted above)
+
+| ID | Source | STRIDE | Requirement | Disposition |
+|---|---|---|---|---|
+| OP-1 | Operator, 2026-09-29 | Info. Disclosure, EoP (cross-tenant) | **Tenant isolation invariant:** each Discord guild is a distinct tenant bound to its own `guilds` row (encrypted `adapter_token`, own `console_url`; one shared `DISCORD_BOT_TOKEN`). No cross-guild commands. The split must add no command, option, autocomplete path or shim that takes a guild/tenant id or resolves tenant state from anything but `interaction.guildId`; guild resolution unchanged for moved and new commands; one identical global tree for all guilds; the layout flag stays global; per-guild command sets are out of scope. | **Resolved by design:** v2 §6.6 (invariant; allowlisted in-game `guild-id` on `/dune guild add\|remove` with reason), §5.7 (flag global), §6.4 (Integrations overrides are per-guild Discord state), §7.7 step 7, §9.10 (no-selector option walk, guild-from-interaction spies, two-guild fixture over all 101 paths including autocomplete and shims, unregistered-guild and DM rows). Verified: `src/database.js:19-20, 519-549`, `src/config.js:212`, `src/adapterClient.js:277-283`. |
+
 ## Cross-hat conflicts and corrections
 
 1. **Reading Integrations overrides: bot token (SEC-2) vs user token (CLOUD-4, v1 §6.4).** Not

@@ -357,6 +357,9 @@ Legacy `/dune goal` keeps its suggestions in the legacy layout (v1's `[]` regres
   `process.env`, so tests build both layouts in one run. `register-commands.js` and the bot both
   read it through `loadConfig`.
 - Logged at startup and at registration, with the registered groups, and shown in `admin doctor`.
+- **The flag is global, never per guild.** It is one process-wide value that selects the one tree
+  registered globally for every guild (§6.6). There is no per-guild layout, and none may be added in
+  this change.
 
 ### 5.8 Shared definitions and the frozen legacy tree (R-D)
 - Player and goal subcommands are built by shared adders `addPlayerSubcommands(parent)` and
@@ -444,6 +447,8 @@ path (which now alias-executes). No gate is weakened, reordered or bypassed.
   says yes per Discord's permissions-v2 model; the Cloud hat and v1 said a user token is needed). It
   is precondition **P3** (§7.6). If the read is not possible with the bot token, the fallback is to
   notify every hosted guild owner before the flip.
+- Per-guild Integrations overrides are **per-guild Discord state**. The split neither reads nor
+  copies one guild's overrides into another; each guild owner re-applies their own (§7.9).
 - **No credential change:** no new OAuth scope, permission integer, token or redirect URI; the
   existing `bot applications.commands` invite covers new top-level commands; installed guilds need
   no re-authorization.
@@ -462,6 +467,35 @@ path (which now alias-executes). No gate is weakened, reordered or bypassed.
   still on the legacy layout (see OD7).
 
 ---
+
+### 6.6 Tenant isolation invariant (operator requirement, binding)
+The bot is multi-tenant. Each Discord guild is a separate tenant bound to its own row in `guilds`:
+its own encrypted `adapter_token` and its own Core `console_url` (`src/database.js:19-20, 519-549`).
+There is one shared `DISCORD_BOT_TOKEN` (`src/config.js:212`); tenant isolation is the per-guild
+row, not a per-guild Discord identity. **Guild A must not and cannot run any command against
+guild B. There are no cross-guild commands.**
+
+The split must preserve this exactly:
+1. **No new tenant selector.** The split adds no command, option, autocomplete path, shim or
+   pointer that takes a Discord guild or tenant id, and nothing it adds resolves tenant state
+   (guild row, `adapter_token`, `console_url`, guild settings, guild roles, guild goals) from anything
+   but `interaction.guildId`.
+2. **Guild resolution is unchanged** for the moved commands and for `/player` and `/goal`: every
+   handler receives the guild from the interaction exactly as today (`src/commands.js:372` onwards,
+   `AdapterClient._resolveConfig(guildId)` at `src/adapterClient.js:277-283`). Alias-executed legacy
+   paths go through the same code, so they resolve the same guild.
+3. **Existing options that look similar are not tenant selectors**, and stay allowlisted by name with
+   this reason: `/dune guild add|remove` `guild-id` is an **in-game** Dune guild id sent to the
+   invoking tenant's own Core (`src/writeActions.js:88-97`); the `scope: guild` choice on
+   `player storage|find` and the goal commands means "the invoking Discord guild", never another one.
+4. **Commands are identical for every guild.** Registration is one global tree, the same for all
+   guilds (§7.1). A per-guild command set (for example operator-guild-only commands) would need
+   guild-scope registration and a separate design; it is **explicitly out of scope**.
+5. Existing behaviour recorded, not changed: when a guild has no row, `_resolveConfig` falls back to
+   the process config (`src/adapterClient.js:282`); the console-registration gate stops an
+   unregistered guild before any adapter call (`not-connected`, §9.3), and the before-record pins it.
+
+Tests: §9.10.
 
 ## 7. Registration and migration
 
@@ -577,7 +611,7 @@ operator (or a session the operator authorizes), read-only, and recorded as a co
    writes are on. The startup log shows `registeredLayout=split`.
 7. Functional check in **dune-dev's guild and one non-dev hosted guild**: one new path and one old
    path as owner and as a Player-tier member; one `moved` shim; `/api/commands` shows split
-   prefixes.
+   prefixes. Confirm the non-dev guild's replies come from its own Core (§6.6).
 8. Clean up any guild-scope copy created during UAT with an explicit empty `PUT` to that guild scope
    (CLOUD-5).
 9. Send the announcement (§7.9).
@@ -727,6 +761,22 @@ is exempted by a fenced marker.
 - Then `npm test`, `npm run check`, `/code-review high` (Layer 3).
 
 ---
+
+### 9.10 Tenant isolation tests (§6.6)
+- **No tenant selector:** walking `commandDefinitions()` in both layouts, no command has an option
+  named `guild`, `guild_id`, `guild-id`, `guildid`, `tenant`, `tenant_id` or `server_id`, except the
+  allowlisted `/dune guild add|remove` `guild-id` (in-game guild; reason recorded in the test).
+- **Guild only from the interaction:** a spy on `getGuildConfig`/`_resolveConfig`, the guild-settings,
+  guild-roles and goal DB readers, and every autocomplete handler asserts that every call receives
+  `interaction.guildId` and nothing derived from options.
+- **Two-guild fixture:** guilds A and B, each with its own `guilds` row (distinct `adapter_token`,
+  distinct `console_url` pointing at distinct stub Cores), settings, roles and goals. For **every one
+  of the 101 paths**, in both layouts, including alias-executed legacy paths, the `moved` shims and
+  every autocomplete route, an interaction from guild A: never reads guild B's row, token, Core URL,
+  settings, roles or goals; sends every adapter request to A's stub Core with A's token only; and
+  returns no B data. Run once with a normal A and once with A unregistered (must be `not-connected`,
+  with zero adapter calls, never falling through to B or to the process config).
+- A DM interaction (no guild) reads no guild row at all.
 
 ## 10. Interaction with open work and PR sequencing (R-H, ARCH-8, GRC-9)
 
