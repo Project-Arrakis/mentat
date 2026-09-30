@@ -199,7 +199,7 @@ governance defect with no STRIDE mapping. "Cluster" is the merge key above.
 
 | ID | Sev | STRIDE | Cluster | Summary | Disposition |
 |---|---|---|---|---|---|
-| QA-1 | Critical | Tampering, EoP | K5 | Golden oracle is the code under test; generator unspecified | Resolved §9.1 (R-E): script at `f8709f0`, header records SHA and script, own PR, CI forbids regeneration, hand-written 101-row audience table cross-checked |
+| QA-1 | Critical | Tampering, EoP | K5 | Golden oracle is the code under test; generator unspecified | Resolved §9.1 (R-E): script at `f8709f0` (autocomplete rows at `db3db83`, see correction 10), header records SHAs and script, own PR, CI forbids regeneration, hand-written 101-row audience table cross-checked |
 | QA-2 | Critical | EoP | K5 | `LEGACY_MOVES` tested by construction | Resolved §9.2 (inline literal of 17 + 11 pairs; tier and Core action id pinned for the 11 moved writes) |
 | QA-3 | High | EoP, Info. Disclosure | K5 | Caller/mode space incomplete | Resolved §9.3 (pinned axes including DM, unregistered guild, goal scope, cooldown-hit, `commandRoleIds`; row count asserted) |
 | QA-4 | High | N/A | K5 | 101 paths not pinned | Resolved §9.2 (path inventory, bijection, option parity) |
@@ -251,6 +251,12 @@ governance defect with no STRIDE mapping. "Cluster" is the merge key above.
    add roles. The real effect is fail-closed (intended grants dropped, and a restricted config with
    only per-command ids passes startup validation but denies everyone). Filed as #439 with
    STRIDE Denial of Service, not EoP.
+10. **Ruling R-E's pinned SHA (`f8709f0`) vs code evidence.** PR #435 (`db3db83`) changed goal
+    autocomplete scoping after `f8709f0` (the `isCommandAllowed(…, "goal:progress", …)` call at
+    `src/commands.js:1788` exists only from `db3db83`). A before-record taken entirely at `f8709f0`
+    would encode the pre-#435 autocomplete behaviour as correct and fail against `main`. v2 §9.1
+    therefore keeps `f8709f0` for the dispatch rows, as ruled, and generates the autocomplete rows
+    at `db3db83` (or PR-1's later merge base); the header records both SHAs.
 
 ## Layer 1 STRIDE report
 
