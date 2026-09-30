@@ -430,12 +430,17 @@ path (which now alias-executes). No gate is weakened, reordered or bypassed.
 - **`default_member_permissions` stays unset** on every command: mentat's tiers come from role
   mapping, and a Discord permission would lock out role-mapped admins.
 - **`contexts` (DM exposure):** today no command sets `contexts`/`dm_permission`, so every command is
-  usable in bot DMs and private channels. `/player` and `/goal` are guild features (goals and links
-  are per guild; multi-tenant gates need a `guildId`). v2 sets **`contexts: [Guild]`** on `/player`
+  usable in bot DMs and private channels. `/player` and `/goal` are guild features: character links
+  resolve through the guild's own Core, guild goals belong to the guild, and multi-tenant gates need
+  a `guildId`. **Personal goals are not per guild** (V2-5). `goals` has no guild column
+  (`src/database.js:153-175`), and personal goals are keyed on the user id only
+  (`listGoalsByOwner`/`getGoalScoped`, `:1319-1328`), so a user sees the same personal goals in every
+  guild. That is intended and unchanged. v2 sets **`contexts: [Guild]`** on `/player`
   and `/goal`. `/dune` is unchanged in this change. The before-record includes DM rows (§9.3); if it
   shows any `/dune player|goal` path that succeeds in a DM today for a real caller (for example a
-  single-tenant `DISCORD_ALLOWED_USER_IDS` user), that is a reason to revisit before PR-3 merges, and
-  the finding goes to #423.
+  `DISCORD_ALLOWED_USER_IDS` user, or any user with `DISCORD_RBAC_MODE=open`), that is a reason to
+  revisit before PR-3 merges, and the finding goes to #423. In multi-tenant mode such a DM reaches the
+  process-default Core today; that pre-existing gap is tracked in mentat#442 (§6.6 item 5).
 - **Integrations overrides (release blocker for hosted guilds):** per-command overrides a guild
   admin set on `/dune` do not apply to the new `/player` and `/goal` ids, so a guild that limited
   `/dune` to a role or channel would see `/player`/`/goal` open to everyone its default allows.
@@ -479,7 +484,9 @@ The split must preserve this exactly:
 1. **No new tenant selector.** The split adds no command, option, autocomplete path, shim or
    pointer that takes a Discord guild or tenant id, and nothing it adds resolves tenant state
    (guild row, `adapter_token`, `console_url`, guild settings, guild roles, guild goals) from anything
-   but `interaction.guildId`.
+   but `interaction.guildId`. Personal goals are user state rather than tenant state: they are keyed
+   on `interaction.user.id` and are the same in every guild (§6.4, V2-5). Only guild goals are tenant
+   state.
 2. **Guild resolution is unchanged** for the moved commands and for `/player` and `/goal`: every
    handler receives the guild from the interaction exactly as today (`src/commands.js:372` onwards,
    `AdapterClient._resolveConfig(guildId)` at `src/adapterClient.js:277-283`). Alias-executed legacy
@@ -491,9 +498,31 @@ The split must preserve this exactly:
 4. **Commands are identical for every guild.** Registration is one global tree, the same for all
    guilds (§7.1). A per-guild command set (for example operator-guild-only commands) would need
    guild-scope registration and a separate design; it is **explicitly out of scope**.
-5. Existing behaviour recorded, not changed: when a guild has no row, `_resolveConfig` falls back to
-   the process config (`src/adapterClient.js:282`); the console-registration gate stops an
-   unregistered guild before any adapter call (`not-connected`, §9.3), and the before-record pins it.
+5. Existing behaviour recorded, not changed. When there is no active row, `_resolveConfig` falls back
+   to the process config (`src/adapterClient.js:277-283`, `src/index.js:163-176`). For **guild slash
+   commands**, the console-registration gate stops an unregistered guild before any adapter call
+   (`not-connected`, §9.3), and the before-record pins this. `core:setup` is exempt but makes no
+   adapter call.
+
+   **Three pre-existing paths reach the process-default Core without an active tenant row** (V2-2,
+   V2-3). They are not introduced or widened by the split, and are tracked for a fix in
+   **mentat#442 (High)**:
+   - **(a) DMs.** `guildId` is null, so the registration gate (`:399`) and the zero-role gate
+     (`:449`) are skipped, and `isCommandAllowed` falls through to single-tenant RBAC
+     (`:1041, 1053-1058`). With `DISCORD_RBAC_MODE=open`, or a user in `DISCORD_ALLOWED_USER_IDS`,
+     a DM of `/dune server status` (or an alias-executed `/dune player …`) reaches
+     `DUNE_CONSOLE_API_URL`.
+   - **(b) The write-confirm button.** It calls `writeExecute(…, interaction.guildId)`
+     (`src/writeConfirmation.js:290`), and neither the guild status nor the console binding is
+     re-checked at the click. Core rejects a nonce it did not issue (410), so the effect is a
+     misdirected request, not an execution.
+   - **(c) The Steam-link callback.** It calls the adapter with `session.guildId`
+     (`src/steamLinkServer.js:363-365, 485`) and does not re-check the guild status.
+
+   The split does not rely on them, and it narrows (a) for the new commands: `/player` and `/goal`
+   carry `contexts: [Guild]`. §9.10 asserts today's behaviour for (a)–(c), marked with #442, so the
+   fixture neither passes vacuously nor blocks the split. Whichever of PR-3 and the #442 fix lands
+   second flips those rows to "zero adapter calls".
 
 Tests: §9.10.
 
@@ -573,10 +602,15 @@ Ephemeral plain text (no colour or emoji dependence), full sentences:
 ### 7.6 Operator-only preconditions (R-F, NET-4, SEC-2, CLOUD-5)
 These need the hosted bot VM (see the `meta` Live Systems section) or the bot token and are run by the
 operator (or a session the operator authorizes), read-only, and recorded as a comment on #423
-**before PR-6 (the flip)**. Put the token in a shell variable, never inline.
+**before the hosted flip (§7.7 step 5)**. That flip is an env change in either OD7 outcome; PR-6
+exists only if OD7 = a (V2-7). Put the token in a shell variable, never inline.
 
-- **P1 registration scope.** On the VM: `grep -E '^(DISCORD_GUILD_ID|DISCORD_CLIENT_ID|DUNE_DISCORD_WRITES_ENABLED)=' ~/arrakis-control-panel/.env`
-  (the deploy target's working copy named by the hook). Then with
+- **P1 registration scope and fallback exposure.** On the VM:
+  `grep -E '^(DISCORD_GUILD_ID|DISCORD_CLIENT_ID|DUNE_DISCORD_WRITES_ENABLED|DUNE_COMMAND_LAYOUT|DUNE_CONSOLE_API_URL|DISCORD_RBAC_MODE|DISCORD_ALLOWED_USER_IDS)=' ~/arrakis-control-panel/.env`
+  (the deploy target's working copy named by the hook). Also check whether
+  `DUNE_DISCORD_ADAPTER_TOKEN` or `_FILE` is set; record set or unset only, never the value.
+  `DUNE_CONSOLE_API_URL`, `DISCORD_RBAC_MODE` and `DISCORD_ALLOWED_USER_IDS` decide whether the
+  mentat#442 DM fallback is live on the hosted bot (V2-2). Record the result on #442 as well. Then with
   `TOKEN` = `DISCORD_BOT_TOKEN` (or the file named by `DISCORD_BOT_TOKEN_FILE`) and `APP` =
   `DISCORD_CLIENT_ID`:
   `curl -s -H "Authorization: Bot $TOKEN" https://discord.com/api/v10/applications/$APP/commands | jq -r '.[].name'`.
@@ -774,9 +808,32 @@ is exempted by a fenced marker.
   of the 101 paths**, in both layouts, including alias-executed legacy paths, the `moved` shims and
   every autocomplete route, an interaction from guild A: never reads guild B's row, token, Core URL,
   settings, roles or goals; sends every adapter request to A's stub Core with A's token only; and
-  returns no B data. Run once with a normal A and once with A unregistered (must be `not-connected`,
-  with zero adapter calls, never falling through to B or to the process config).
-- A DM interaction (no guild) reads no guild row at all.
+  returns no B data. The fixture also covers:
+  - **The write-confirm button round trip** for every write action (V2-3). The preview and the
+    click both hit A's stub Core only.
+  - **A shared user in both guilds** (V2-5). That user's personal goals are visible in A and in B,
+    because they are user state. A's guild goals never appear in B, and B's never appear in A.
+- **Unregistered A**, with a third stub Core as the process config, asserting zero calls to it:
+  - **Every guild slash-command path is `not-connected`**, with zero adapter calls, never falling
+    through to B or to the process config.
+  - Carve-outs, with their own expected classes (V2-4):
+    - `core:setup` is exempt from the gate (`src/commands.js:1035`). Its expected class is its setup
+      reply, with zero adapter calls.
+    - The `moved` shims give `pointer`, because they run before the gate.
+    - Autocomplete returns choices, not replies. Goal autocomplete returns A's rows only, or `[]`,
+      and the calculator returns static data. Both make zero adapter calls.
+- **Pre-existing fallbacks (§6.6 item 5, mentat#442):**
+  - **DM rows**, in multi-tenant mode × {restricted without allowed ids, `open`, allowed-user id}.
+    `/player` and `/goal` are not invocable in a DM (`contexts: [Guild]`). They reach no handler, and
+    that is asserted.
+  - For `/dune` paths, including alias-executed `/dune player|goal`, the rows assert **today's**
+    outcome. That includes the process-config adapter call where RBAC admits the caller, and each
+    such row is marked `KNOWN-GAP #442`.
+  - **The button after A's row turns suspended between preview and click**, and **the Steam callback
+    for a non-active guild**, are recorded the same way.
+  - The rows flip to "zero process-config adapter calls" in whichever of PR-3 and the #442 fix lands
+    second. A `KNOWN-GAP` row may only change toward fewer adapter calls.
+- A DM interaction reads no guild row at all.
 
 ## 10. Interaction with open work and PR sequencing (R-H, ARCH-8, GRC-9)
 
@@ -930,6 +987,8 @@ overridden.
 - Discord propagation time and stale-client behaviour (measured in UAT).
 - Whether the bot token can read per-guild command permissions (P3).
 - The hosted bot's registration scope and any stale guild-scope copies (P1, P2).
+- Whether the mentat#442 DM fallback is live on the hosted bot (it depends on `DUNE_CONSOLE_API_URL`,
+  the adapter token, `DISCORD_RBAC_MODE` and `DISCORD_ALLOWED_USER_IDS`; P1).
 - Discord's daily command-create limits under repeated global PUTs (the Cloud hat's "200/day" is
   unverified; the plan uses at most 4 global PUTs).
 - Discord's API acceptance of a command mixing subcommands and groups (only for option C).
@@ -950,3 +1009,6 @@ overridden.
 5. PR-7 removal (dated issue filed at the hosted flip).
 6. Option C later, if still wanted.
 7. `docs/discord-setup.md:89` invite `permissions=0` vs `permissions=128` elsewhere (CLOUD-6).
+8. mentat#442 (High): multi-tenant DM, write-confirm button and Steam-link callback fall back to the
+   process-default Core without an active guild row (V2-2, V2-3). Pre-existing; the §9.10 `KNOWN-GAP`
+   rows track it.
