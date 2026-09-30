@@ -19,11 +19,21 @@ Architect, Security, GRC, Network, Cloud Security, UI/UX, DBA and QA.
 | Severity | Found | Resolved in design | Resolved, pending an Open Decision | Partly deferred (justified) | Rejected outright |
 |---|---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 | 0 |
-| High | 17 | 16 | 1 (ARCH-1 → OD 1) | 0 | 0 |
-| Medium | 43 | 39 | 3 (SEC-3, CLOUD-3 → OD 1; SEC-2 → OD 6) | 1 (UX-9: the sync-all part) | 0 |
+| High | 17 | 17 | 0 | 0 | 0 |
+| Medium | 43 | 41 | 1 (SEC-2 → OD 6) | 1 (UX-9: the sync-all part) | 0 |
 | Low | 27 | 26 | 0 | 1 (NET-6: cleartext LAN hop, pre-existing) | 0 |
 | Info | 1 | 1 | 0 | 0 | 0 |
-| **Total** | **88** | **82** | **4** | **2** | **0** |
+| **Total** | **88** | **85** | **1** | **2** | **0** |
+
+**Operator decisions, 2026-09-29.**
+- OD 1 was decided as option A, a per-guild encrypted signing secret, which becomes Phase 2a (v2
+  §3.5).
+- OD 5 was decided as taking the 20-char `sync` cost now.
+- ARCH-1, SEC-3 and CLOUD-3 moved from "pending OD 1" to resolved. UX-1's sequencing question is
+  closed.
+- Phase 2a is new design material. It needs **its own Layer 1** before implementation: the
+  question list is in v2 §3.5.10, and the dispatch has not run yet. Its findings will go in a
+  separate register.
 
 No finding was rejected outright. Two **sub-claims** were rejected with evidence:
 - QA-3's claim that CI silently skips the integration tests;
@@ -46,7 +56,7 @@ correctness, UX or governance defect with no STRIDE mapping.
 
 | ID | Sev | STRIDE | Title | Disposition |
 |---|---|---|---|---|
-| ARCH-1 | High | Spoofing, DoS | Signed actor required, but mentat has one process-wide secret and goals exist only in multi-tenant mode | **Resolved in design (conditionally), Open Decision 1.** §3.3 lays out options A–D with tradeoffs and recommends C for v1 plus A as a follow-up. §3.2 enforces it with the allowlist. §3.4 covers fail-closed and lifecycle. Implementation is blocked until OD 1 is decided. |
+| ARCH-1 | High | Spoofing, DoS | Signed actor required, but mentat has one process-wide secret and goals exist only in multi-tenant mode | **Resolved in design.** OD 1 was decided on 2026-09-29 as option A, a per-guild encrypted signing secret, specified as Phase 2a (v2 §3.5), which ships before the sync command. The stock route requires a verified per-guild secret and never uses the process secret (§3.5.5–§3.5.6). Phase 2a has its own Layer 1 pending (§3.5.10). |
 | ARCH-2 | Med | N/A | Backpack silently 0 when the pawn id is unknown | Resolved §4.3.4, §4.6 (`unavailable:["backpack"]`), §6.4 table (never decrease from it), T8 |
 | ARCH-3 | Med | N/A | Preview and apply not bound; apply skips preview; decreases automatic | Resolved §6.3 (preview command + Apply buttons write exactly the previewed values), §6.4 (decreases need an explicit button, CAS) |
 | ARCH-4 | Med | DoS | No per-command cooldown; 30 s would block the apply step | Resolved §6.7 / M7 (per-command 15 s, no admin shortcut, not applied to buttons or local refusals). The v1 claim is withdrawn. |
@@ -65,7 +75,7 @@ correctness, UX or governance defect with no STRIDE mapping.
 |---|---|---|---|---|
 | SEC-1 | High | Tampering, EoP, DoS | Response object keyed by caller ids; the regex admits `__proto__`/`constructor`/`prototype` | Resolved §4.4 (reserved names rejected in any case; leading-letter regex, verified against both catalogs), §4.6 (array response), §6.4 (mentat builds a `Map` over its own nodes), T10, M-T9 |
 | SEC-2 | Med | Spoofing, Info. Disclosure | A Player-tier read makes link integrity the sole authorization; Steam-era links; guild disable state | Resolved §4.2 (a: pre-enable review gate; b: Layer 2 check of link paths). **Open Decision 6** covers what to do with the review's result. Part (c), guild disable state, is deferred (§17): it matches every sibling route (`duneDb.js:16597`–`:16600`), and v1 is limited to operator guilds. |
-| SEC-3 | Med | Spoofing, EoP | The process-global secret against per-guild Cores | Same resolution as ARCH-1 (§3.3, OD 1) |
+| SEC-3 | Med | Spoofing, EoP | The process-global secret against per-guild Cores | **Resolved in design:** Phase 2a (§3.5), with per-tenant rotation and revocation (§3.5.4, Requirement 27) and a Credentials/lifecycle section (§3.4, §3.5.3) |
 | SEC-4 | Med | DoS | 5-connection shared pool, no Core limiter, cooldown not implementable | Resolved §4.5 (semaphore → 503, per-actor 429, 2 s timeout), §6.7, T12 |
 | SEC-5 | Med | Tampering | Apply writes unvalidated values from a tenant Core | Resolved §6.4 step 1 (safe integers, own nodes only, whole-response reject), M-T9, FM16 |
 | SEC-6 | Med | Info. Disclosure | Pawn id `'0'` could read `actor_id = 0` inventories | Resolved §4.3.4 (`NULL`, never `0`), T8, UAT step 1 count |
@@ -126,7 +136,7 @@ correctness, UX or governance defect with no STRIDE mapping.
 |---|---|---|---|---|
 | CLOUD-1 | High | Spoofing, DoS | Unconfigured versus denied collapsed; the mentat secret silently empty | Resolved §3.4 (mentat never sends unsigned; startup warning disables the feature), §6.5 (per-code messages), M-T4, M-T16 |
 | CLOUD-2 | High | Spoofing, Repudiation | Actor-secret lifecycle not designed | Resolved §3.4 (provisioning, identical both sides, rotation order and expected 403 window, runbook), §12, U12 |
-| CLOUD-3 | Med | Spoofing, EoP | Shared single secret across tenants | Same resolution as ARCH-1 (§3.3, OD 1) |
+| CLOUD-3 | Med | Spoofing, EoP | Shared single secret across tenants | **Resolved in design:** Phase 2a (§3.5). Each Core generates its own secret, and mentat stores it per guild, encrypted. |
 | CLOUD-4 | Med | DoS | Kill switch needs a restart; a typo crashes startup | Resolved §3.2 (restart stated, Requirement 7; malformed entries are a warning, not a crash), §13 rollback text |
 | CLOUD-5 | Med | Info. Disclosure, EoP | The no-target invariant has no structural guard | Resolved §4.1 C4 (warning comment on the capability), T3 (real-Postgres regression test) |
 | CLOUD-6 | Low | Info. Disclosure | New async handler must not log actor, headers or body | Resolved §9, M-T17 |
@@ -137,7 +147,7 @@ correctness, UX or governance defect with no STRIDE mapping.
 
 | ID | Sev | STRIDE | Title | Disposition |
 |---|---|---|---|---|
-| UX-1 | High | N/A | Command budget unaccounted | Resolved §F8 and OD 5. Re-verified by measurement: 7473 today. The design costs **20 chars** (`sync`, "Live stock.", `id`, "Id."), giving 7493 ≤ 7500, and the `apply` option is removed by the button design. Implementation sequencing (take the last headroom now, or wait for mentat#423) is OD 5. |
+| UX-1 | High | N/A | Command budget unaccounted | **Resolved in design.** Measured at 7473 today. The design costs **20 chars** (`sync`, "Live stock.", `id`, "Id."), and the button design removes the `apply` option. OD 5 was decided on 2026-09-29: take the cost now (7493/7500, no re-baseline); everything after goes through the `/dune` split (mentat#423). |
 | UX-2 | High | Tampering (low) | Discoverability of `apply:true`; inversion risk | Resolved §6.3 (buttons replace the option), §6.6 (distinct titles, colors, footer) |
 | UX-3 | High | N/A | A zero from a missing or misspelled id looks like a real zero | Resolved §6.4 table ("NONE FOUND — was s" warning; only the explicit decreases button writes it), §4.3.1 case-insensitive match, U1 gate |
 | UX-4 | High | N/A | Ingredients with no game id not addressed | Resolved §5.3 (every node listed; "manual only" rows), M-T7 |
@@ -173,13 +183,11 @@ correctness, UX or governance defect with no STRIDE mapping.
 ## Cross-hat conflicts and adjudications
 
 1. **ARCH-1(i) "make the signature optional" vs SEC-3/CLOUD-3 "per-guild secret".**
-   - Neither is silently adopted; both are options in OD 1.
-   - Fact re-verified: when a Core has a secret configured, *every* adapter route already requires
-     a valid signature (`routes.js:207`–`:210`). "Optional" therefore changes behaviour only on
-     unsigned Cores. There, a bearer holder can already read far more through PLAYERS_FIND by
-     claiming moderator `roleIds`.
-   - The design recommends against D: it would remove the only leaked-bearer defence on the route
-     that turns a link into a read credential.
+   - The design presented both, plus HKDF and restrict-to-shared, as OD 1.
+   - The operator chose the per-guild secret on 2026-09-29. Optional signing was not chosen.
+   - Fact re-verified: when a Core has a secret configured, every adapter route already requires a
+     valid signature (`routes.js:207`–`:210`). Making it optional would therefore only have
+     affected unsigned Cores.
 2. **Severity of the preview/apply problem.** ARCH-3 rated it Medium; UX-2 and UX-3 rated it High.
    UX is right that a silent overwrite with a false zero is the likeliest user harm. It is
    resolved at the High bar either way.
@@ -198,12 +206,12 @@ correctness, UX or governance defect with no STRIDE mapping.
 
 | STRIDE category | Findings | Max severity | Resolution status |
 |---|---|---|---|
-| **Spoofing** | ARCH-1, SEC-2, SEC-3, CLOUD-1, CLOUD-2, CLOUD-3, CLOUD-8, NET-1 | High | Resolved in design. ARCH-1/SEC-3/CLOUD-3 are pending OD 1, with the recommended option C enforced by the allowlist. SEC-2 is pending OD 6 (the pre-enable review gate is designed). |
+| **Spoofing** | ARCH-1, SEC-2, SEC-3, CLOUD-1, CLOUD-2, CLOUD-3, CLOUD-8, NET-1 | High | Resolved in design. ARCH-1/SEC-3/CLOUD-3 are resolved through Phase 2a's per-guild secret (OD 1 decided 2026-09-29; Phase 2a Layer 1 pending). SEC-2 is pending OD 6 (the pre-enable review gate is designed). |
 | **Tampering** | SEC-1, SEC-5, SEC-8, SEC-9, ARCH-8, DBA-9, NET-2, QA-2, UX-2 | High | Resolved in design |
 | **Repudiation** | GRC-1, GRC-2, GRC-7, DBA-7, DBA-12, SEC-10, CLOUD-2, CLOUD-7, NET-5, ARCH-8 | High | Resolved in design (v9 provenance columns, Core audit on every outcome, shared correlation id) |
 | **Information Disclosure** | SEC-2, SEC-6, SEC-7, SEC-8, SEC-11, GRC-5, NET-1, NET-6, CLOUD-5, CLOUD-6, CLOUD-8, UX-11, ARCH-12, QA-1 | High (NET-1, QA-1) | Resolved in design. NET-6's cleartext LAN hop is deferred as pre-existing and documented. |
 | **Denial of Service** | ARCH-1, ARCH-4, SEC-1, SEC-4, DBA-3, DBA-4, DBA-9, NET-3, NET-4, CLOUD-1, CLOUD-4 | High | Resolved in design (Core semaphore/limiter/timeouts, per-command cooldown, fail-closed diagnosis) |
-| **Elevation of Privilege** | SEC-1, SEC-3, CLOUD-3, CLOUD-5 | High (SEC-1) | Resolved in design. SEC-3 and CLOUD-3 are pending OD 1. |
+| **Elevation of Privilege** | SEC-1, SEC-3, CLOUD-3, CLOUD-5 | High (SEC-1) | Resolved in design (SEC-3 and CLOUD-3 via Phase 2a) |
 
 These findings map to no STRIDE category (correctness, UX or governance), and are listed so their
 absence from the table above is not mistaken for an omission:
@@ -220,7 +228,8 @@ Every STRIDE category has at least one finding in this layer. None is N/A.
 - Post this register and the STRIDE table as a comment on the mentat tracking issue once it is
   filed (§14.1). Link the Core issue.
 - File the deferred items (§17) as issues. Each carries the justification recorded here.
-- The operator decides v2 §18 items 1–7. Implementation must not start before items 1 and 5 are
-  decided.
+- OD 1 and OD 5 are decided. OD 2–4 and OD 6–9 remain. OD 8 and OD 9 are new with Phase 2a.
+- Run the Phase 2a Layer 1 dispatch (v2 §3.5.10) before any Phase 2a implementation.
+- Phase 2a must merge before Phase 2b, and so must mentat PR #384, which holds schema v9.
 - Layer 2 (per repo, implementation) and Layer 3 (`/code-review high` on each PR) follow. The
   §11.4 UAT step 0 must be done before Layer 2.
