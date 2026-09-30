@@ -91,3 +91,56 @@ test("PUBLIC getCommandRegistry() never contains a write group or write subcomma
     assert.ok(!reg.some((r) => r.group === g), `write-only group ${g} leaked into public registry`);
   }
 });
+
+// ── availability must equal "may actually run it" (RBAC gate AND write tier) ──
+import { isCommandAllowed } from "../src/commands.js";
+import { canWrite } from "../src/writes.js";
+import { createDatabase, upsertGuild, addGuildRole, updateGuildSettings } from "../src/database.js";
+
+const mk = (id, roles, owner) => ({ member: { roles }, user: { id }, guildId: "g1", guild: { ownerId: owner || "OWN" } });
+const callerSet = (adminRoles) => ({
+  public: mk("pub", []), observer: mk("o", ["ro"]), moderator: mk("m", ["rm"]),
+  admin: mk("a", adminRoles), owner: mk("OWN", [], "OWN"), operator: mk("OP", [])
+});
+const legacyKeys = ["maintenance-note", "maintenance-window", "alert-channel", "alert-threshold", "digest-schedule", "post-schedule", "add-channel", "remove-channel", "cache"].map((n) => `write:${n}`);
+
+function realAvailable(i, cfg, db, key, tier) {
+  if (!isCommandAllowed(i, key, cfg, db, "g1")) return false;
+  if (tier === "host-operator") return cfg.discord.botOperatorUserId === i.user.id;
+  return canWrite(i, cfg, tier, db, "g1");
+}
+function assertMatrix(label, cfg, db, callers) {
+  for (const [cn, i] of Object.entries(callers)) {
+    const av = new Set(helpPayload(cfg, i, db, "g1").available);
+    const keys = [...WRITE_ACTIONS.map((a) => [`${a.group}:${a.name}`, a.tier]), ...legacyKeys.map((k) => [k, null]), ["admin:broadcast", null]];
+    for (const [key, tier] of keys) {
+      const real = key === "admin:broadcast" ? null : realAvailable(i, cfg, db, key, tier);
+      if (real === null) { if (!isCommandAllowed(i, key, cfg, db, "g1")) assert.ok(!av.has(key), `${label}/${cn}: ${key} available but RBAC-refused`); continue; }
+      assert.equal(av.has(key), real, `${label}/${cn}: ${key} help=${av.has(key)} real=${real}`);
+    }
+  }
+}
+
+test("help availability equals RBAC gate AND write tier (multi-tenant, restricted and open)", () => {
+  for (const mode of ["restricted", "open"]) {
+    const db = createDatabase(":memory:");
+    upsertGuild(db, { guildId: "g1", guildName: "x", consoleUrl: "https://e.t", adapterToken: "t", status: "active" });
+    updateGuildSettings(db, "g1", { rbac_mode: mode });
+    addGuildRole(db, "g1", "observer", "ro"); addGuildRole(db, "g1", "moderator", "rm"); addGuildRole(db, "g1", "admin", "ra");
+    assertMatrix(`MT-${mode}`, { multiTenant: true, discord: { writes: { enabled: true }, botOperatorUserId: "OP", rbac: { mode: "restricted" } } }, db, callerSet(["ra"]));
+  }
+});
+
+test("help availability equals RBAC gate AND write tier (single-tenant, write-admin role outside read lists, commandRoleIds override)", () => {
+  const saved = process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
+  process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = "wa";
+  try {
+    for (const mode of ["restricted", "open"]) {
+      for (const overrides of [{}, { "player:kick": ["ro"], "write:cache": ["rm"] }]) {
+        const cfg = { multiTenant: false, discord: { writes: { enabled: true }, botOperatorUserId: "OP", rbac: { mode, observerRoleIds: ["ro"], adminRoleIds: ["ra"], commandRoleIds: overrides } } };
+        assertMatrix(`ST-${mode}-${Object.keys(overrides).length}`, cfg, null, callerSet(["wa"]));
+        assertMatrix(`ST-${mode}-both`, cfg, null, callerSet(["ra", "wa"]));
+      }
+    }
+  } finally { if (saved === undefined) delete process.env.DISCORD_WRITE_ADMIN_ROLE_IDS; else process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = saved; }
+});

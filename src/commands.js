@@ -1836,7 +1836,7 @@ export const WRITE_HELP_ENTRIES = [
 // action's real gate, consumed by helpPayload() to classify each entry as
 // available/locked exactly as writeHandler.js would authorize it.
 export const WRITE_ACTION_HELP_ENTRIES = WRITE_ACTIONS.map((e) => ({
-  name: `${e.group}:${e.name}`, desc: e.desc, role: e.tier, writeTier: e.tier
+  name: `${e.group}:${e.name}`, desc: e.desc, ...(e.tier === "host-operator" ? {} : { role: e.tier }), writeTier: e.tier
 }));
 
 export function helpPayload(config, interaction, db = null, guildId = null) {
@@ -1936,7 +1936,13 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     // Write commands are gated by write-owner/write-admin roles
     // (canWrite()), not the normal observer/admin RBAC used by
     // isCommandAllowed() -- classify them with their real gate.
-    if (cmd.writeTier === "host-operator") {
+    // Same order as executeDuneCommand: the generic RBAC gate runs first,
+    // then the write tier / host-operator check. "available" must mean the
+    // caller may actually run it, so both gates must pass (mentat#424).
+    const rbacOk = RBAC_EXEMPT_COMMANDS.has(cmd.name) || isCommandAllowed(interaction, cmd.name, config, db, guildId);
+    if ((cmd.writeTier || cmd.name.startsWith("write:") || cmd.name === "admin:broadcast") && !rbacOk) {
+      locked.push(cmd);
+    } else if (cmd.writeTier === "host-operator") {
       // bot:self-update: authorized ONLY by the configured bot host operator
       // identity (writeHandler.js), never by canWrite() -- mirror that here.
       const operatorId = config?.discord?.botOperatorUserId;
