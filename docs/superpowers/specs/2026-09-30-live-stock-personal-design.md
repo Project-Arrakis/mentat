@@ -1137,11 +1137,11 @@ session's branch.
 | C2 | `.../inventoryProvider.js` | New `playerStockProvider(db, { playerControllerId, playerPawnId, itemIds })`. It validates (§4.4), de-dups case-insensitively, decides backpack availability, calls C1 inside a read-only bounded transaction (§4.5), converts and checks values (§4.3), and builds the **array** response (§4.6). DB errors are mapped to `stock_query_failed` (SEC-11). **No** `enrichWithDisplayName`. |
 | C3 | `.../adapter.js` | `PLAYERS_STOCK: "/api/integrations/discord/players/stock"` in `DISCORD_ADAPTER_ROUTES` and `DISCORD_LIVE_ADAPTER_ROUTES`. |
 | C4 | `.../policy.js` | New `STOCK_SELF_READ: "stock:self-read"`, added to the `observer` and explicit `moderator` sets. The capability definition gets a comment mirroring the self-scoped warning: "privacy is enforced by the handler having no target field; adding one makes this a cross-player read at Player tier" (CLOUD-5). |
-| C5 | `.../routes.js` | Handler (§4.7): `readJsonWithActorSignature(req, { requireActorSignature: true, fields: STOCK_SIGNED_ACTOR_FIELDS })`, capability check, per-actor limiter, `requireLinkedPlayer`, in-flight cap, provider, and `audit()` on **every** outcome, including denials. |
-| C6 | `.../actorSignature.js` | `export const STOCK_SIGNED_ACTOR_FIELDS = [...SIGNED_ACTOR_FIELDS, "params"]`. `itemIds` travels as `body.params.itemIds` and is signed, so an envelope cannot be replayed with different ids (SEC-8). mentat mirrors this list exactly (M3); the contract test in §11.3 covers the pairing. |
+| C5 | `.../routes.js` | Handler (§4.7). The order is the one in §4.5 (R2 D33):<br>1. `readJsonWithActorSignature(req, { requireActorSignature: true, fields: STOCK_SIGNED_ACTOR_FIELDS[_V2] })`;<br>2. capability check;<br>3. per-actor limiter;<br>4. in-flight semaphore;<br>5. `requireLinkedPlayer` **inside** the same bounded read-only transaction as the provider;<br>6. provider.<br>There is a whole-handler deadline, and `audit()` runs on **every** outcome, including denials. |
+| C6 | `.../actorSignature.js` | `export const STOCK_SIGNED_ACTOR_FIELDS = [...SIGNED_ACTOR_FIELDS, "params"]`, and its v2 counterpart with `guildOwnerId` (§3.5.5; Core#1088 K3). `itemIds` travels as `body.params.itemIds` and is signed, so an envelope cannot be replayed with different ids (SEC-8). mentat mirrors both lists exactly (M3). The golden vectors in §11.3 cover the pairing. |
 | C7 | `.../commandCatalog.js` | A `COMMAND_METADATA` entry with **`group: "goal", subcommand: "live-stock"`**. These names do not collide with any `player:*` subcommand. `params: []`, with the internal-aggregate comment (precedent `GUILD_FACTION_SUMMARY`, `:566`–`:577`). The expected mentat `/dune admin sync-commands` drift line is `added goal:live-stock (internal, no Discord surface)`, recorded in the PR body (ARCH-9). |
 | C8 | docs | See §12. This includes fixing the `API-REFERENCE.md:1018`–`:1022` GET→POST drift **in the same PR**. It is not optional and not "or file it" (GRC-3). |
-| C9 | tests + fixture | §11.1. This includes the canonical `console/api/test/fixtures/players-stock.json`. |
+| C9 | tests + fixture | §11.1. This includes the canonical `console/api/test/fixtures/players-stock.json` and the vendored golden signing vectors (§11.3). **Fixture work is named (R2 D63).** No existing fixture has `permission_actor_rank`, `inventory_type`, `max_item_volume` and the link tables together: `baseContainerFixture.js` has no `permission_actor_rank` or `inventory_type`, which exist only in `basePermissions`/`vehicleStorageFixture.js`. The PR adds one composed production-shape fixture. |
 
 **No schema change, no index, no new dependency, and no change to any existing route's
 behaviour.** A Core with this change that is never called behaves exactly as today.
@@ -1160,8 +1160,11 @@ with a `DROP INDEX CONCURRENTLY` rollback (§17).
   counts. Two consequences:
   - (a) **Pre-enable gate:** before a Core's guild is added to the allowlist, run the one-time
     review of `console.discord_account_links` rows that could have been written by the
-    since-disabled Steam path (`routes.js:544`–`:551`). Record the count and method in the
-    tracking issue. What to do if any are found is **Open Decision 6**.
+    since-disabled Steam path (`routes.js:544`–`:551`). What to do if any are found is **Open
+    Decision 6**.
+    - **Owner and evidence (R2 D59).** The operator runs it, **per Core**: dune-dev and dune-prod
+      separately. They post a comment on mentat#434 with the Core, the date, the exact query text,
+      the row count and the disposition.
   - (b) The Layer 2 audit must confirm that every link-creation path still enabled is proof of
     control.
   - (c) Per-guild character disable state (`discord_account_link_guild_state`) is **not**
@@ -1202,6 +1205,13 @@ group by 1
 ```
 
 Properties that must hold, whatever the final SQL is:
+
+0. **Schema capability (R2 D68).** The provider probes `tableExists`/`columnsFor` for
+   `inventory_type`, `permission_actor_rank` and `max_item_count` the way `baseInventory` does
+   (`duneDb.js:12668`–`:12700`). A missing piece returns an explicit `stock_unsupported` outcome,
+   not `stock_query_failed`. `db.transaction` rethrows `new Error(redactDbError(error))`, which drops
+   `.code` (`db.js:88`–`:89`). The provider therefore logs the original SQLSTATE class server-side
+   first (57014 timeout versus 42703 missing column). It is never sent to mentat.
 
 1. **Exact, case-insensitive id match:** `lower(i.template_id) = any($3)`. Never `ilike` or `like`
    (DBA-2). The response uses the caller's requested spelling.
@@ -1254,22 +1264,52 @@ Properties that must hold, whatever the final SQL is:
 ### 4.5 `[D9]` Load, timeout and lock bounds (NET-3, DBA-4, DBA-9, SEC-4)
 Each handler step runs in order, and a request that fails one step stops there:
 
-1. **Per-actor limiter:** after the capability check, `createLoginRateLimiter`-shaped, keyed on
-   `actor.userId`. Default 6 requests per 60 s (`DUNE_STOCK_RATE_PER_MIN`, bounds 1–30).
-   Overflow returns **429 `rate_limited`**.
+1. **Per-actor limiter (R2 D34):** after the capability check, a
+   **`createMutationRateLimiter`-style sliding window**, keyed on `actor.userId`. It records **per
+   request**, and only after the signature verified. Default 6 requests per 60 s
+   (`DUNE_STOCK_RATE_PER_MIN`, bounds 1–30).
+   - There is an explicit global ceiling that one user cannot reach: `max(60, 10 ×
+     per-user limit)` per minute.
+   - Overflow returns **429 `rate_limited`** with `Retry-After`.
+   - v2 named `createLoginRateLimiter` (`rateLimit.js:32`–`:96`). That limiter counts *failures*,
+     blocks for 15 minutes and has a shared `__global__` key of 32. That would have turned six
+     requests into a 15-minute lockout, and six players into a Core-wide lockout.
 2. **In-flight cap:** an in-process semaphore, `DUNE_STOCK_MAX_INFLIGHT`, default **1**, bounds
-   1–3. It is acquired **before** `pool.connect()`, so an overflow request never holds a pool
-   client. Overflow returns **503 `stock_busy`** immediately (no queueing).
-3. **Transaction preamble:** a dedicated transaction whose first statements are
-   `set transaction read only`,
+   1–3. It is acquired **before** any pool client, **including** the link lookup, so an overflow
+   request never holds one. Overflow returns **503 `stock_busy`** immediately (no queueing) with
+   `Retry-After: 30`.
+   - The permit is released in `finally` on success, provider throw, statement timeout and client
+     close (T12b, R2 D51).
+   - Denied requests (bad signature, 403, 400, 429) never take a permit or a limiter slot (T12c).
+3. **One bounded transaction (R2 D33).** `requireLinkedPlayer` (`getLinkedPlayer`,
+   `linkProvider.js:320`) and the stock statement run in **one** dedicated transaction, with one
+   `connect()`, so there is no second pool wait. Its first statements are, in this order:
+   `set transaction read only`;
    `select set_config('statement_timeout', $1, true)` with `DUNE_STOCK_QUERY_TIMEOUT_MS`
-   (default **2000**, bounds 250–2500), and `select set_config('lock_timeout', '500ms', true)`.
-   Mechanically this is `runOpsProvider` with the extra preamble.
-4. **Worst-case budget:** 3 s pool wait + 2.5 s statement = 5.5 s, below mentat's 8 s adapter
-   timeout (`config.js:259`). An aborted mentat request therefore leaves at most one Core query
-   running, for at most 2.5 s.
+   (default **2000**, bounds 250–2500);
+   `select set_config('lock_timeout', '500ms', true)`.
+   T9 asserts the preamble is the first statement after `begin`.
+4. **Whole-handler deadline:** 5 s from signature verification to response. On expiry the handler
+   returns 503 `stock_busy`, releases the permit and cancels the query.
+   - Worst case: 3 s pool wait + 2.5 s statement, capped by the 5 s deadline.
+   - mentat gives `playerStock` a **route-specific timeout of 7 s**, not the operator-tunable global
+     `REQUEST_TIMEOUT_MS` (`config.js:259`). A mentat abort therefore cannot leave a query running
+     longer than the deadline.
 5. **Retries:** mentat makes **one attempt per invocation** and never retries automatically
-   (NET-4).
+   (NET-4). (Core's hosted-register retry, §3.5.3, is a different flow.)
+6. **mentat smoothing (R2 D35).**
+   - A per-guild in-flight gate in mentat (at most 1 stock call per guild) fails fast locally with
+     the "busy" copy and **no** cooldown.
+   - A `stock_busy` or `rate_limited` response sets that user's cooldown to `Retry-After`, with a
+     minimum of 30 s.
+   - Expected throughput is roughly 0.5–1 request per second per Core at the default cap. The
+     documented scaling knob is `DUNE_STOCK_MAX_INFLIGHT`, up to 3.
+7. **Database role (R2 D32, OD 11).** The query runs on Core's shared pool as `DUNE_DB_USER`
+   (`db.js:44`–`:46`), the game-DB owner role. Read-only rests on the preamble alone.
+   - Recommendation (OD 11): support an **optional** `DUNE_DB_RO_USER` with `GRANT SELECT` on only
+     the tables used, and use it for `playerStockTotals` when it is set.
+   - Without it, the preamble plus T9 remain the control. That is recorded as an accepted GRC
+     exception if the operator declines.
 
 ### 4.6 `[D7]` Response shape
 Illustrative:
@@ -1296,8 +1336,8 @@ Every request that reaches the handler writes one line,
 | Field | Value |
 |---|---|
 | `actorId` | Discord user id, or `"unverified"` when signature verification failed |
-| `guildId` | from the actor |
-| `interactionId` | signed; the correlation id mentat also stores (§7) |
+| `guildId` | from the verified actor. **On any signature failure it is omitted**, and the line carries `claimedGuildId` plus `unverified: true` instead (R2 D54). |
+| `interactionId` | signed; the correlation id mentat also stores (§7). On a signature failure, `claimedInteractionId` under `unverified: true`. |
 | `playerControllerId` | internal id of the character actually read, or null if not linked |
 | `outcome` | `ok` or the error code: `not_authorized`, `not_linked`, `invalid_item_ids`, `rate_limited`, `stock_busy`, `stock_query_failed`, `missing_actor_signature`, `invalid_actor_signature`, `stale_actor_signature`, `actor_signing_disabled` |
 | `requestedCount` | number of ids requested |
@@ -1312,9 +1352,17 @@ Every request that reaches the handler writes one line,
 
 ### 4.8 `[D10]` Actor signature required
 The route passes `requireActorSignature: true`, so it fails closed when no secret is configured
-(`actor_signing_disabled`). mentat signs it with the guild's verified per-guild secret
-(Phase 2a, §3.5.5).
-The route is new, so this cannot regress any current operator.
+(`actor_signing_disabled`). mentat signs it with the guild's verified per-guild secret, using
+signature v2 (Phase 2a, §3.5.5). The route is new, so this cannot regress any current operator.
+
+**Replay window (R2 D73).** There is no nonce store. A captured valid envelope can be replayed
+verbatim to the same route within `DUNE_DISCORD_ACTOR_SIGNATURE_MAX_SKEW_SECONDS` (default 30 s).
+- The route and `params.itemIds` are signed, so it cannot be replayed to another route or with
+  other ids.
+- A replay returns only the victim's own counts, to someone who already holds the bearer. It does
+  spend one of the victim's limiter slots.
+- This is documented, not hidden. T2b tests the stale and cross-route cases. An interaction-id
+  dedupe is optional and not in v1.
 
 ## 5. Meaning of the Numbers
 
@@ -1371,20 +1419,20 @@ second schema change. It is deferred with that justification (§17).
 | # | File | Change |
 |---|---|---|
 | M1 | `src/config.js` | `DEFAULT_PATHS["players-stock"]` / `DEFAULT_METHODS["players-stock"] = "POST"`, env overrides following `players-find`. Parse `MENTAT_LIVE_STOCK_GUILD_IDS` into `config.liveStock.guildIds` (a Set; empty by default). |
-| M2 | `src/adapterClient.js` | `resolveGuildConfigStrict(guildId)` (§3.1). `playerStock(actor, itemIds, guildId)`: strict config; body `{ actor, params: { itemIds } }`; signs with `STOCK_SIGNED_ACTOR_FIELDS` using `signingSecretForGuild(guildId, { purpose: "stock" })` from Phase 2a; refuses to send unless a verified per-guild secret exists (§3.5.5, §3.5.6). Add `"players-stock"` to `UNMERGED_ROUTES` (fork-only; classification is informational). Update `test/adapterClient.test.js:277`/`:301`, `test/adapterContract.test.js:112`, and the `UPSTREAM_CONTRACT` table (QA-2). |
-| M3 | `src/actorSignature.js` | `STOCK_SIGNED_ACTOR_FIELDS`, identical to Core's C6. A `signedHeaders(actor, route, { secret, fields })` variant that throws on an empty secret instead of returning `{}`. Existing callers are unchanged. |
-| M4 | `src/commands.js` | Subcommand `/dune goal sync id:<int, autocomplete>`. **Preview only; there is no `apply` option** (§6.3). An `async executeGoalSync` is awaited in the existing async dispatch (`commands.js:567`–`:576`; this closes v1's U7). `actorFromInteraction` gains `interactionId: interaction.id` for this call. Personal-only autocomplete branch for `goal:sync` (ARCH-11). A `FORCE_EPHEMERAL_COMMANDS = new Set(["goal:sync"])` combined into the `deferReply` expression before `forcedPublic` (§6.8). Registered in `getCommandRegistry()` and `helpPayload()`. |
+| M2 | `src/adapterClient.js` | `playerStock(actor, itemIds, guildId)`: `resolveGuildRequestContext(guildId, { purpose: "stock" })` from Phase 2a (§3.1, §3.5.5); body `{ actor, params: { itemIds } }`; signs with `STOCK_SIGNED_ACTOR_FIELDS_V2` through `signHeadersWithSecret`; `redirect: "error"`; a route-specific 7 s timeout (§4.5); refuses to send unless a verified per-guild secret exists (§3.5.6). The response must carry `contract: "players-stock/1"` (§11.3). Add `"players-stock"` to `UNMERGED_ROUTES` (fork-only; classification is informational). Update `test/adapterClient.test.js:277`/`:301`, `test/adapterContract.test.js:112`, and the `UPSTREAM_CONTRACT` table (QA-2). |
+| M3 | `src/actorSignature.js` | `STOCK_SIGNED_ACTOR_FIELDS` and its v2 counterpart, identical to Core's C6. **No new variant of `signedHeaders`:** v2 proposed `signedHeaders(actor, route, { secret, fields })`, which collides with the existing third positional `env` parameter and would silently send unsigned requests (R2 D13). The stock route uses Phase 2a's `signHeadersWithSecret`, which throws on an empty secret. Existing callers are unchanged. |
+| M4 | `src/commands.js` | Subcommand `/dune goal sync id:<int, autocomplete>`. **Preview only; there is no `apply` option** (§6.3). An `async executeGoalSync` is awaited in the existing async dispatch (`commands.js:567`–`:576`; this closes v1's U7). `actorFromInteraction` gains `interactionId: interaction.id` for this call. Personal-only autocomplete branch for `goal:sync` (ARCH-11). It is **DB-only and never calls Core**, because autocomplete has a hard 3 s limit with no defer (R2 D61). Labels are `#<id> <goal name> — <n> of <m> nodes syncable`. With no active personal goal, one entry reads "No active personal goals — create one with /dune goal create" (R2 D70). **Exact strings (R2 D74):** subcommand `sync`, description `Live stock.`, option `id` / `Id.` That is 20 chars, giving 7473 → 7493. Re-measure at branch cut, because other open PRs may spend the last 7 chars first. A `FORCE_EPHEMERAL_COMMANDS = new Set(["goal:sync"])` combined into the `deferReply` expression before `forcedPublic` (§6.8). Registered in `getCommandRegistry()` and `helpPayload()`. |
 | M5 | `src/commands.js` | Extract `goalValidNodes(goal)` from `executeGoalOnHand` (`:1416`–`:1436`), plus `syncNodes(goal)` (§5.3). Refactor only; existing on-hand behaviour is unchanged. |
-| M6 | `src/goalSyncConfirmation.js` (new) | Pending-preview store modelled on `writeConfirmation.js`: nonce → `{ userId, goalId, guildId, planned node values, snapshot of (quantity, updated_at) per node, expiresAt }`. TTL 120 s, in-memory, per process. Button handler for `Apply` and `Apply incl. decreases`. |
+| M6 | `src/goalSyncConfirmation.js` (new) | Pending-preview store modelled on `writeConfirmation.js`: nonce → `{ userId, goalId, guildId, planned node values, snapshot of (quantity, updated_at) per node, expiresAt }`. TTL 120 s, in-memory, per process. Button handler for `Apply` and `Apply incl. decreases`. The handler **acknowledges first** (`deferUpdate` within 3 s) and then runs the synchronous transaction (R2 D61). The nonce `get` and `delete` happen **synchronously before the first `await`** (R2 D47). |
 | M7 | `src/cooldown.js` | Per-command duration override: `COMMAND_COOLDOWN_MS = { "goal:sync": 15000 }`. The admin shortcut does **not** apply to that key. `goal:sync` is excluded from the generic end-of-dispatch `applyCooldown` (`commands.js:996`); the handler applies it only after a Core request was actually sent (§6.7). |
 | M8 | `src/embedFormat.js` | `formatGoalSyncPreviewEmbed` / `formatGoalSyncAppliedEmbed`, using `duneEmbed` named colors (pitfall at `embedFormat.js:1822`). Copy in §6.6. |
 | M9 | `src/database.js` | Schema **v11**: additive nullable provenance columns on `goal_audit_log` (§7). `appendGoalAuditLog` accepts `{ source, sourceGuildId, sourceRef }`; typed on-hand writes pass `source: "manual"`. |
 | M10 | `src/liveStockErrors.js` (new) | `liveStockErrorMessage(error)` keyed on Core `body.error`, with separate player-facing and log-only text (§6.5). |
 | M11 | docs | See §12. |
 
-**Dependencies:** Phase 2a (§3.5) must be merged, because M2 uses its `signingSecretForGuild`.
-In addition, M4/M6 use `goalTransaction`, which is on PR **#435** (fixes **#428**) and not yet on
-`main`. Implementation starts after #435 merges, or brings `goalTransaction` in unchanged (DBA-7).
+**Dependencies:** Phase 2a (§3.5) must be merged, deployed and provisioned on dune-dev, because M2
+uses its resolver. M4/M6 use `goalTransaction`, which is **on `main`**: PR #435 merged, `db3db83`,
+`src/commands.js:1314` (DBA-7, R2 D25).
 
 ### 6.2 `[D1]` Personal, active goals only
 `sync` resolves the goal with `getGoalScoped(db, { id, ownerType: "player", ownerId: interaction.user.id })`
@@ -1408,9 +1456,15 @@ replies "Sync works on active goals only."
    - who and where last set each saved value.
 
    The preview writes **nothing**.
-4. The preview carries up to two buttons, owner-only and expiring after 120 s:
-   - **Apply** writes the planned increases and new entries.
-   - **Apply incl. decreases**, shown only when the plan contains decreases, writes those too.
+4. The preview carries up to two buttons, owner-only and expiring after 120 s. The **button matrix**
+   is fixed (R2 D42):
+
+   | Plan contains | Buttons shown |
+   |---|---|
+   | increases/new entries, no decreases | **Apply** |
+   | increases/new entries **and** decreases | **Apply**, **Apply incl. decreases** |
+   | decreases only (no increases or new entries) | **Apply incl. decreases** only. There is no plain Apply, because it would write nothing. |
+   | nothing to write (every row unchanged, none found, no data or skipped) | no buttons; the footer says "Nothing to apply" |
 
    **Neither button reads Core again.** Apply writes exactly the previewed numbers (ARCH-3 option b).
 5. On click, the handler does the following:
@@ -1419,7 +1473,20 @@ replies "Sync works on active goals only."
    - It refuses a click whose `guildId` differs from the guild stored with the preview nonce
      (tenant isolation invariant, §3.1), with zero writes.
    - It then opens **one** `goalTransaction` (IMMEDIATE, §6.4 step 3) and writes.
-6. The nonce is deleted on first use, so double clicks are idempotent.
+6. **One nonce pair per preview, consumed together (R2 D46).** Both buttons carry the same preview
+   nonce. The first click of **either** button deletes it, synchronously before any `await`
+   (R2 D47). A second click on either button, including the other button, replies "Preview already
+   used — run `/dune goal sync` again". Two concurrent clicks cannot both pass the lookup, and the
+   CAS remains a second guard. M-T21 therefore re-runs `sync` between Apply and Apply incl.
+   decreases.
+7. **Expiry (R2 D69).** When a preview expires, and while the interaction token is still valid
+   (15 min), the handler edits the message to disable its buttons. A bot restart (a deploy through
+   `git push deploy deploy`) also expires previews; the "Preview expired" copy says so.
+8. **SQLITE_BUSY (R2 D49).** `createDatabase` sets no `busy_timeout` (`database.js:255`–`:256`).
+   Other connections (`rotate-keys.js`, `reencrypt-secrets.js`) can hold the write lock. A BUSY
+   failure inside the IMMEDIATE transaction replies "The bot's database is busy; nothing was saved.
+   Press Apply again." and **does not consume** the nonce. The nonce is restored only when the
+   transaction never began.
 
 Why buttons instead of v1's `apply:true`:
 - A boolean option is the one thing users mis-set (UX-2).
@@ -1448,6 +1515,7 @@ value when the backpack is unavailable.
 |---|---|---|---|
 | Node unavailable (no element) | "no data" | skip | skip |
 | Backpack unavailable, no saved entry, `B` > 0 | `≥ B` (partial) | write `B` | write `B` |
+| Backpack unavailable, no saved entry, `B` = 0 (R2 D44) | "none found in bases (backpack unavailable)" | skip | skip |
 | Backpack unavailable, `B` > `s` | `≥ B` (partial) | write `B` (a true lower bound) | write `B` |
 | Backpack unavailable, `B` ≤ `s` | "backpack unavailable; not changed" | skip | **skip, never** |
 | `L` = `s` | "unchanged" | skip, no write, no audit | same |
@@ -1457,6 +1525,14 @@ value when the backpack is unavailable.
 | 0 < `L` < `s` | "DECREASE −Δ" | skip | write `L` |
 | `L` = 0 < `s` | "**NONE FOUND — was s**" plus a warning that stock may be in places not counted | skip | write 0 |
 | `L` > 100,000 | "100,000 (capped)" | write 100,000 | write 100,000 |
+
+**Clamp first, then compare (R2 D67).** `L` and `B` are clamped to the column's `CHECK (quantity
+BETWEEN 0 AND 100000)` before any row is chosen. A node saved at 100,000 with a live 150,000 is
+therefore "unchanged", not a repeated identical write plus an audit row.
+
+**Backpack unavailable (R2 D44).** Every "backpack unavailable" row carries this player copy (draft,
+final wording at Layer 2): "Your backpack couldn't be read, usually because your character isn't
+loaded. Log in once and try again. Base storage is shown below." U11 records when the pawn id is 0.
 
 **Step 3: write, on button click.** The procedure is:
 1. All validation, conversion and clamping were already done at preview time.
@@ -1474,8 +1550,12 @@ value when the backpack is unavailable.
 5. After the nodes, run the same completion check `executeGoalOnHand` runs, **once**. Completion
    writes its `complete` audit row with the same source fields.
 6. Any exception rolls back **everything**, and the user is told nothing changed.
-7. If nothing changed after skips, the reply is "Already up to date — nothing saved", with no audit
-   rows (UX-5).
+7. If nothing was written, the reply names **why** (R2 D42), with no audit rows (UX-5):
+   - "Already up to date — nothing saved" **only** when every syncable row was "unchanged";
+   - "Nothing saved. N decreases were not applied; use Apply incl. decreases." when plain Apply
+     skipped decreases;
+   - "Nothing saved. N nodes changed since the preview and were left as is." when the CAS skipped
+     them.
 
 The applied embed prints, per written node, "Previous: N (set by <@user> at time)" and a
 copy-pasteable restore hint using the real goal id and the node's display name (UX-13).
@@ -1484,6 +1564,14 @@ copy-pasteable restore hint using the real goal id and the node's display name (
 Nothing is ever written on any row below. The player sees the short text. Operator detail goes
 to logs only, with the route key and error code and without the body excerpt. The v1 1,200-char
 adapter excerpt is **not** shown for this command.
+
+**Single copy source (R2 D09).** This table and §3.5.7 are both rendered from one copy table in
+`src/liveStockErrors.js`, and one test covers it (M-T16 plus A-T23). The two sections must not
+diverge again. In v2 the same condition had two texts: `invalid_actor_signature` read "disagree on
+their shared key. Ask a server admin." in one and "misconfigured. Ask the bot operator." in the
+other. "Ask a server admin" below stands for the **OD 13** role name, recommended as "the person
+who connected this server to Mentat". The final wording is the operator's decision and is not
+decided silently here.
 
 | Condition | Player sees |
 |---|---|
@@ -1496,13 +1584,15 @@ adapter excerpt is **not** shown for this command.
 | Per-guild secret cannot be decrypted | "Live stock isn't available right now." (log: `actor_secret.decrypt_failed`) |
 | 403 `not_linked` | "Link your character first: `/dune player link`." + manual hint |
 | 403 `not_authorized` | "Your role can't use live stock. Ask a server admin." |
-| 403 `actor_signing_disabled` | "Live stock isn't set up on this game server yet. Ask a server admin." (log: "operator: configure DUNE_DISCORD_ACTOR_SECRET on both sides") |
-| 403 `missing_/invalid_actor_signature` | "Live stock is misconfigured. Ask the bot operator." (log: "secret mismatch") |
+| 403 `actor_signing_disabled` | "Live stock isn't set up on this game server yet. Ask a server admin." (log: "Core has no active actor signing secret; use Enable signing in Core's Discord settings". v2's "configure DUNE_DISCORD_ACTOR_SECRET on both sides" is the retired shared model and is removed, R2 D23.) |
+| 403 `invalid_actor_signature` | "The bot and this game server don't agree on their signing key. Ask a server admin." (log: "secret mismatch; heal re-verify scheduled", §3.5.5) |
+| 403 `missing_actor_signature` | "Something went wrong on our side. Nothing was changed." (log: "bug: request sent unsigned") |
+| 404/`stock_unsupported` (Core has 2a but not the stock route, or a schema lacks a table) | "This game server doesn't support live stock yet. Ask the person who runs the game server to update it." (R2 D41, D68) |
 | 403 `stale_actor_signature` | "Please try again in a moment." (log: "clock skew") |
 | 404 JSON `adapter_disabled` | "The game server's bot integration is off." |
-| 404 JSON other code (route absent, older Core) | "This game server doesn't support live stock yet." |
+| 404 JSON other code (route absent, older Core) | "This game server doesn't support live stock yet. Ask the person who runs the game server to update it." |
 | 404 non-JSON, or 5xx non-JSON (proxy or tunnel) | "Couldn't reach the game server — nothing was changed. Try again later." (log: "non-JSON; check console_url") |
-| 429 `rate_limited` / 503 `stock_busy` | "The game server is busy. Try again in a minute." |
+| 429 `rate_limited` / 503 `stock_busy` / mentat per-guild gate busy | "The game server is busy. Try again in a minute." (cooldown = `Retry-After`, minimum 30 s; not applied for the local gate, §4.5) |
 | 503 `stock_query_failed` / other 5xx JSON | "The game server couldn't read your stock right now. Nothing was changed." |
 | Timeout / abort | "Couldn't reach the game server in time. Nothing was changed. Try again later." |
 | 200 failing §6.4 validation | "Unexpected response from the game server; nothing changed." |
@@ -1518,11 +1608,19 @@ adapter excerpt is **not** shown for this command.
   now 12)").
 - Numbers use the bot's existing formatting. The bot is English-only today, and item names come
   from the catalog.
+- **Embed limits (R2 D71).** Discord allows 25 fields, 1024 characters per field and 6000 in total.
+  Each node is one compact line inside a field, never one field per node, for example
+  `Silicone — 350 → 400 (+50) · new · set by @u 2d ago`. If the text would exceed a limit, the
+  remaining manual-only rows collapse to "+N manual-only nodes". Syncable rows are never dropped:
+  there are at most 6. M-T10b renders the largest recipe in `CRAFTING_RECIPES` and asserts the
+  limits.
 
 ### 6.7 `[D15]` Cooldown (ARCH-4, SEC-4, QA-14, UX-9, UX-10)
 - `goal:sync` has a **15 s** per-user cooldown (M7). There is no admin shortcut.
 - It is applied **only after a Core request was sent**. Local refusals cost nothing, so a
-  misconfigured or unlinked user is not locked out.
+  misconfigured or unlinked user is not locked out. That includes the per-guild in-flight gate
+  (§4.5.6).
+- After `stock_busy` or `rate_limited` the cooldown is `max(15 s, Retry-After, 30 s)` (R2 D35).
 - Apply buttons are not slash commands and do not touch Core, so they are **not** cooldown-gated.
   The intended preview-then-apply flow has no wait.
 - The cooldown is in-memory and per process. It is a courtesy bound. The real protection of the
@@ -1546,9 +1644,11 @@ ALTER TABLE goal_audit_log ADD COLUMN source TEXT;          -- 'manual' | 'live_
 ALTER TABLE goal_audit_log ADD COLUMN source_guild_id TEXT; -- guild whose Core was read (live_sync only)
 ALTER TABLE goal_audit_log ADD COLUMN source_ref TEXT;      -- Discord interaction id (correlates with Core's audit line)
 ```
-- **Mechanism:** a guarded `if (currentVersion.version < 11)` block that runs each `ALTER` in a
-  try/catch. This follows the v5→v6 `stats_push_secret` pattern (`database.js:285`–`:297`). The
-  fresh-install `CREATE TABLE` gains the same three columns. Bump `SCHEMA_VERSION` to 11.
+- **Mechanism (R2 D05):** a guarded `if (currentVersion.version < 11)` block. It uses the
+  **fail-closed** form from §3.5.2: one transaction per step including its own version bump; catch
+  only "duplicate column name"; a `PRAGMA table_info(goal_audit_log)` assert at startup. It does
+  **not** copy the v5→v6 try/catch-all (`database.js:285`–`:297`) verbatim. The fresh-install
+  `CREATE TABLE` gains the same three columns. Bump `SCHEMA_VERSION` to 11.
 - **No CHECK** is added on `source`. Values are validated in `appendGoalAuditLog`, which avoids
   any future rebuild. `action` stays `on_hand_update` for sync writes.
 - **Backward compatible:** v10 code inserts an explicit column list (`database.js:1369`) and
@@ -1556,7 +1656,10 @@ ALTER TABLE goal_audit_log ADD COLUMN source_ref TEXT;      -- Discord interacti
 - **Rollback SQL:** `ALTER TABLE goal_audit_log DROP COLUMN source_ref; ... DROP COLUMN
   source_guild_id; ... DROP COLUMN source;` (SQLite 3.53.2 bundled, F8), then
   `UPDATE schema_version SET version = 10`. Alternatively, leave the columns: v10 code ignores
-  them.
+  them. The v11 rollback always runs **before** any v10 rollback (§3.5.2).
+- **Growth (R2 D65).** One Apply writes at most 6 `on_hand_update` rows plus 1 `complete` row, at
+  most once per 15 s per user. For a few hundred active users that is well under 10^5 rows per
+  year, and the table is indexed on `goal_id`.
 - **Tests (§11.2 M-T18):**
   - a v10 database with existing goal and audit rows upgrades to v11 with all rows intact and NULL
     source;
@@ -1592,7 +1695,8 @@ ALTER TABLE goal_audit_log ADD COLUMN source_ref TEXT;      -- Discord interacti
   - `goal_on_hand_entries` rows are deleted with their goal (FK `ON DELETE CASCADE`).
   - `goal_audit_log` rows, including previous/new quantities and the new provenance columns,
     **survive goal deletion indefinitely by design**, for disputes (`database.js:186`–`:188`).
-    This is unchanged from Phase 3 and now stated explicitly.
+    This is unchanged from Phase 3 and now stated explicitly. Retention is "indefinite, bounded by
+    erasure requests". The growth estimate is in §7 (R2 D65).
 - **Erasure:** a user's erasure request is handled as for Phase 3 goal data. The operator deletes
   that user's `goals` rows, which cascades to entries, and their `goal_audit_log` rows by
   `actor_id`, and records it. The mentat SQLite backup rotation bounds how long backups keep the
@@ -1612,6 +1716,10 @@ ALTER TABLE goal_audit_log ADD COLUMN source_ref TEXT;      -- Discord interacti
   - **no** item ids, counts, `roleIds`, request body, `Authorization` header or signature
     headers (CLOUD-6).
   - Output still passes through `redactSecrets`.
+- **Value-based redaction (R2 D50).** `redactSensitiveString` (`format.js:82`–`:92`) redacts only
+  bearer and labelled credentials. A bare 64-hex value inside an error message would pass through.
+  Phase 2a adds a 64-hex pattern for the signing and registration paths. The A-T11 canary test
+  asserts the secret never appears in any output, rather than relying on redaction alone.
 - Transport: bearer and counts travel exactly as for sibling routes. The cleartext-HTTP-on-LAN
   hop is pre-existing and documented in the operator notes (NET-6, §12).
 
@@ -1636,7 +1744,7 @@ ALTER TABLE goal_audit_log ADD COLUMN source_ref TEXT;      -- Discord interacti
 | FM15 | Unregistered guild | Strict resolver | Refused | Never uses the fallback adapter (§3.1) |
 | FM16 | Hostile or buggy tenant Core | §6.4 validation | Whole response rejected | Only mentat's own nodes, safe integers |
 | FM17 | Partial apply | `goalTransaction` | none | Rollback on any throw |
-| FM18 | Signing secret mismatch or rotation window | 403 codes | Refused with the correct diagnosis | §3.4, §6.5 |
+| FM18 | Signing secret mismatch (restore, clone, lost handshake response) | 403 codes, heal re-verify | Refused with the correct diagnosis | §3.5.5 heal, §3.5.7, §6.5 (v3: no rotation window, R2 D01) |
 
 ## 11. Testing Strategy
 
@@ -1651,21 +1759,25 @@ register.
 | Id | Test (name) | Kind |
 |---|---|---|
 | T1 | `players/stock: capability matrix — public 403, observer/moderator/admin/owner 200` + existing `minTierForCapability` loop covers `STOCK_SELF_READ` | route, fake db |
-| T2 | `players/stock: rejects unsigned (actor_signing_disabled without secret; missing_actor_signature with secret)` and `players/stock: itemIds outside the signature → invalid_actor_signature` | route |
+| T2 | `players/stock: rejects unsigned (actor_signing_disabled without secret; missing_actor_signature with secret)`; `tampered params.itemIds after signing → invalid_actor_signature`; `a top-level itemIds or actor.itemIds is ignored — the provider reads only body.params.itemIds`. (v2's "itemIds outside the signature → invalid_actor_signature" was impossible: Core merges only `body.params` into the signed payload, so an unsigned top-level field still verifies. R2 D53.) | route |
+| T2b | `players/stock replay: envelope after the skew window → stale_actor_signature; same envelope to another route → invalid_actor_signature; params.itemIds order is significant, object key order is not` (R2 D73) | route |
 | T3 | **`players/stock integration: two linked players, same item, each reads only their own totals even when naming the other in the body`**. A = 100 (backpack 30 + base 70), B = 7000. A with body `{playerControllerId: B, actorId: B, discordUserId: B}` gets 100; B gets 7000. | **real Postgres** |
 | T4 | `players/stock integration: base population`. Counted: storage container, refinery (capped inventory), fabricator, two owned bases summed. Not counted: generator (`Oil` 499), recycler, repair station, totem, hologram placeable, rank-2 base, the `max_item_count = -1` inventory, worn-gear inventory (type 1), item-owned inventory (`actor_id` null). Two type-0 inventories on one pawn are both summed. | real Postgres |
 | T5 | `players/stock integration: fan-out fixture counts once and equals the naive oracle`. One placeable with 2 `actor_fgl_entities` and 2 `permission_actor_rank` rows (ranks 1 and 2), stack 100 → 100. The expectation is recomputed by a deliberately naive per-inventory SQL (sum per `inventory_id` from `dune.inventories` directly) and must match. | real Postgres |
 | T6 | `players/stock integration: case-insensitive exact match` (`oil` row matches `Oil`; reply spelled `Oil`; `Silicone` does not match `SiliconeX`) | real Postgres |
 | T7 | `players/stock integration: zero-fill and null handling` (only in bases → `inBackpack` 0, not null; only backpack; absent id → zeros) | real Postgres |
 | T8 | `players/stock integration: pawn id '0' → unavailable backpack, and an actor_id=0 type-0 inventory holding the item is never counted` | real Postgres |
-| T9 | `players/stock integration: runs read-only with lock_timeout` (a write attempted inside the provider transaction fails) | real Postgres |
+| T9 | `players/stock integration: runs read-only with lock_timeout` (a write attempted inside the provider transaction fails); `the preamble is the first statement after begin` (R2 D32) | real Postgres |
 | T10 | `players/stock: input validation` (0 ids, 17 ids, non-array, non-string, `%`/space/quote/`;`, 65 chars, leading digit, case-insensitive duplicates de-duped, `__proto__`/`constructor`/`prototype` in any case → 400; afterwards `({}).total === undefined` and `Object.prototype` is unchanged) | route |
 | T11 | `players/stock: provider converts numeric strings; an unsafe integer gives stock_query_failed` | unit |
-| T12 | `players/stock: second concurrent call → 503 stock_busy without acquiring a pool client`; `7th call in 60 s → 429 rate_limited` | route, fake db that hangs |
+| T12 | `players/stock: second concurrent call → 503 stock_busy without acquiring a pool client`; `7th call in 60 s → 429 rate_limited with Retry-After and no 15-min block` (R2 D34) | route, fake db that hangs |
+| T12b | `permit released after provider throw, after statement timeout, after whole-handler deadline, and after res close`; `semaphore/limiter reset helpers keep tests isolated` (R2 D51) | route |
+| T12c | `30 denied requests (bad signature, 403, 400, 429) take no permit or limiter slot; a valid request then succeeds` (R2 D51) | route |
 | T13 | `players/stock SQL guard: query text contains "= any(" and "lower(", is one statement, and contains no "ilike"` (runs without Postgres) | unit |
 | T14 | `players/stock: DB error → 503 stock_query_failed; body has no SQL text` | route |
 | T15 | `players/stock: audit line on success and on each denial code has playerControllerId/outcome/interactionId and no item ids, totals, signature or token` | route |
-| T16 | `players/stock contract: real handler output for the seeded fixture deep-equals test/fixtures/players-stock.json; fixture sha256 equals the pinned constant` | real Postgres |
+| T16 | `players/stock contract: real handler output for the seeded fixture deep-equals test/fixtures/players-stock.json, including contract: "players-stock/1"` | real Postgres |
+| T19 | `players/stock: missing inventory_type/permission_actor_rank → stock_unsupported; the SQLSTATE class is logged server-side, never returned` (R2 D68) | route/unit |
 | T17 | catalog: `buildCommandCatalog()` succeeds with `goal:live-stock`; route present in `DISCORD_LIVE_ADAPTER_ROUTES` | unit |
 | T18 | No regression: before implementing, run `git grep` on `origin/main` for tests that enumerate live routes or capabilities (`discordCommandCatalog.test.js`, `discordAdapterSettings*.test.js`, `discordPolicy.test.js`, adapter route-list assertions) and update them in the same PR. The full suite stays green. (QA-11) | suite |
 
@@ -1685,40 +1797,71 @@ fork-only, which is expected while the route is fork-only. The PR body says so.
 | M-T7 | `goal sync: water and non-resource simple-goal nodes are listed as manual only, never requested or written`; `goal whose only nodes are manual → zero adapter calls` (QA-4) |
 | M-T8 | `for every CRAFTING_RECIPES goal: every syncNodes id matches the Core id regex, count ≤ 6` (QA-4) |
 | M-T9 | `goal sync: response validation`. Missing element → "no data", not 0. Extra element ignored. `__proto__` element ignored with `Object.prototype` unchanged. String / float / negative / unsafe integer / `total` mismatch → whole response rejected, nothing written. (SEC-5, QA-7) |
-| M-T10 | `goal sync: decision table`, one test per §6.4 row, both buttons (QA-10) |
+| M-T10 | `goal sync: decision table`, one test per §6.4 row (including backpack-unavailable with B = 0, and clamp-then-compare at 100,000), and the §6.3 **button matrix** and "nothing saved" reasons (QA-10; R2 D42, D44, D67) |
+| M-T10b | `goal sync: preview embed for the largest CRAFTING_RECIPES goal stays within 25 fields / 1024 per field / 6000 total; overflow collapses manual-only rows` (R2 D71) |
 | M-T11 | `goal sync preview writes nothing`: `goal_on_hand_entries`, `goal_audit_log` and the goal row are byte-identical before and after; spies on `setGoalOnHandEntry`/`appendGoalAuditLog`/`completeGoal` show 0 calls (QA-5) |
-| M-T12 | `goal sync apply`: writes exactly the previewed values even when the mock adapter would now return different ones (adapter call count on apply = 0); expired nonce refused; another user's click refused; double click writes once |
-| M-T13 | `goal sync apply`: CAS skip when `updated_at` changed; goal deleted or archived between preview and apply → nothing written; forced throw on the 3rd node → no entry or audit change (DBA-7, DBA-8, SEC-9) |
+| M-T12 | `goal sync apply`: writes exactly the previewed values even when the mock adapter would now return different ones (adapter call count on apply = 0); expired nonce refused and buttons disabled; another user's click refused; **two concurrent clicks** (`Promise.all` with a fake `deferUpdate` that yields) write once and the second gets "Preview already used"; the other button after a first click is refused (R2 D46, D47) |
+| M-T13 | `goal sync apply`: CAS skip when `updated_at` changed; **absent at preview, present at apply** (manual entry typed in between) is skipped; same quantity with a different `updated_at` (set by direct SQL, never sleep) is skipped; two previews of one goal applied back to back, the second skipping via CAS; goal deleted or archived between preview and apply → nothing written; forced throw on the 3rd node → no entry or audit change (DBA-7, DBA-8, SEC-9; R2 D48) |
+| M-T25 | `goal sync apply under a second better-sqlite3 connection holding the write lock: the transaction begins IMMEDIATE, BUSY gives the friendly message, the nonce is not consumed` (R2 D49) |
 | M-T14 | `goal sync: deferReply called with ephemeral:true when defaultEphemeral=false` (SEC-7) |
 | M-T15 | `cooldown: goal:sync is 15 s via mock.timers (blocked at 14.9 s, allowed at 15.1 s), no admin shortcut, not applied after a local refusal, not applied to Apply buttons`; unique `userId` per test + `resetCooldowns` (QA-14) |
 | M-T16 | `goal sync: error mapping`, table-driven over every §6.5 row: player text + zero writes (includes `200 ok:false`, `200` non-JSON, `stale_actor_signature`, `adapter_disabled`, non-JSON 404) (ARCH-10, QA-9) |
 | M-T17 | `goal sync: logs contain no item ids, counts, roleIds, body or auth/signature headers` (CLOUD-6) |
 | M-T18 | `schema v10→v11 migration`: see §7 |
 | M-T19 | `goal audit provenance: sync rows have source=live_sync + source_guild_id + source_ref; typed on-hand rows have source=manual` |
-| M-T20 | `contract: test/fixtures/adapter/players-stock.json is byte-identical to Core's (sha256 constant) and parses through the real validator` (QA-2) |
+| M-T20 | `contract: test/fixtures/adapter/players-stock.json and the golden signing vectors are byte-identical to Core's at the pinned Core ref (fetched in CI; fails, never skips, under CI=true) and parse through the real validator` (QA-2; R2 D10) |
 | M-T21 | `goal journey (sync): create → sync preview → Apply → progress → on-hand override → sync (decrease shown, Apply skips it) → Apply incl. decreases → delete` with AzuriteOre, plus a craftable recipe containing water (QA-13; extends `test/commands.test.js:1186`) |
 | M-T22 | `command budget stays ≤ 7500` (the existing test, not re-baselined); `getCommandRegistry()`/`helpPayload()` include `goal sync`; `goal:sync` autocomplete returns no guild goals for admins (UX-1, ARCH-11) |
 | M-T23 | `goalValidNodes refactor: existing on-hand tests unchanged and green` |
-| M-T24 | `tenant isolation (two-guild fixture)`: guilds A and B with distinct `guilds` rows (`adapter_token`, `console_url` to distinct stub Cores, per-guild signing secrets). `goal sync` preview, Apply, decreases-Apply, autocomplete and every error path from guild A read only A's row, send only to A's stub Core with A's token and A's secret, never B's or the process config/secret; an Apply button replayed in guild B for a preview made in A refuses with zero writes; the last-source line for a goal last synced in B shows "another Discord server" without reading B's row; `commandDefinitions()` has no option named `guild`, `guild_id`, `tenant` or `server_id` on `goal sync` (operator tenant isolation requirement) |
+| M-T24 | `tenant isolation (two-guild fixture)`: guilds A and B with distinct `guilds` rows (`adapter_token`, `console_url` to distinct stub Cores, per-guild signing secrets). `goal sync` preview, Apply, decreases-Apply, autocomplete and every error path from guild A read only A's row, send only to A's stub Core with A's token and A's secret, never B's or the process config/secret; **the same matrix for the Phase 2a paths
+(registration, owner Confirm, heal, secret-only update) and the legacy write-bridge purpose, with a
+distinct process-wide `DUNE_DISCORD_ACTOR_SECRET` and process adapter token set so any use of
+either is detectable** (R2 D11); an Apply button replayed in guild B for a preview made in A refuses with zero writes; the last-source line for a goal last synced in B shows "another Discord server" without reading B's row; `commandDefinitions()` has no option named `guild`, `guild_id`, `tenant` or `server_id` on `goal sync` (operator tenant isolation requirement) |
 
-### 11.3 One canonical contract fixture (QA-2, QA-12)
-- `players-stock.json` is committed in Core (`console/api/test/fixtures/`) and copied
-  **byte-identically** to mentat (`test/fixtures/adapter/`).
-- Both repos pin the same sha256 constant in a test (T16, M-T20). Changing the shape therefore
-  fails whichever side was not updated. That is the drift check, and it needs no network access in
-  CI.
-- The Core side is produced by the real route handler, envelope included, over the seeded
-  fixture.
-- A signing-pairing check lives with it:
-  - a Core test builds a request exactly as mentat's `AdapterClient.request` does, using a copy of
-    `STOCK_SIGNED_ACTOR_FIELDS` and the signing function, and asserts that it verifies;
-  - the mentat test asserts that its field list equals the fixture's recorded list.
+### 11.3 Contract fixture, golden signing vectors and a real drift gate (QA-2, QA-12; R2 D10)
+
+**Why v2's check was not enough.** Each repo pinned a sha256 of its **own** copy of the fixture. A
+coordinated change inside one repo (fixture and pin together) kept that repo green, while the other
+repo's stale copy and pin stayed green too. Core's pairing test used a frozen *copy* of mentat's
+signing function. The precedent failure is `test/actorSignature.test.js`: its cross-repo check
+`return`s (skips) when Core is absent from a hardcoded path. That skip is how the #1070 field-set
+drift went unnoticed.
+
+**v3:**
+- **Golden signing vectors.** One file, `actor-signature-vectors.json`, is vendored byte-identically
+  in Core (`console/api/test/fixtures/`) and mentat (`test/fixtures/adapter/`). Each entry holds the
+  secret, actor, params, route, fixed timestamp, field-set name, signature version and expected
+  HMAC, for v1 and v2, generic, write-bridge, stock and check.
+  - Each repo's **real** code asserts against it: Core's `verifyActorSignature` verifies every
+    vector (K-T7), and mentat's signing functions reproduce every signature (A-T8, A-T12).
+  - The vectors for NULL guilds are computed on `main` **before** 2a. A-T8 therefore pins today's
+    behaviour, and never compares new code with new code or two clocks.
+- **The canonical stock fixture** `players-stock.json` is produced in Core by the real handler over
+  the seeded fixture, envelope included (T16), and copied to mentat.
+- **A real cross-repo gate.** mentat CI fetches Core's `players-stock.json` and
+  `actor-signature-vectors.json` at a **named Core ref**, recorded in a pinned file and updated
+  deliberately, and compares bytes.
+  - Under `CI=true` an unreachable ref or a mismatch **fails**; it never skips. The same rule
+    applies to any mentat test that imports Core by path. This mirrors Core's `withIsolatedDatabase`
+    skip-locally/throw-in-CI rule.
+- **A runtime contract marker.** The stock response carries `contract: "players-stock/1"`. mentat
+  rejects any other value as "Unexpected response" (M-T9), so skew shows up in production instead
+  of as silently wrong numbers.
 
 ### 11.4 Live UAT on `dune-dev` only (executable; QA-8)
 `dune-prod` is off-limits without explicit Requirement 7 approval.
 
 **Prerequisites**
 - Verify what dune-dev runs (U9).
+- **All calls go through the public hostname** `console-dev.darkdante.org`, the real bot VM →
+  Cloudflare → tunnel path. A LAN-only pass proves nothing about production (R2 D60).
+- **Harness (R2 D12).** A named script, `scripts/uat/live-stock-probe.js` in mentat, run by the
+  operator. It reads dune-dev's per-guild secret from the Core file on dune-dev, never prints or
+  logs it, and signs exactly as mentat does (golden-vector-checked).
+- **Test identities** the operator must have: character X (linked, Player tier), a second
+  character Y that owns Base C and grants X rank 2, an unlinked Discord user, a `public`-tier user,
+  and a moderator. Rows that need an identity the operator does not have are marked "covered by T4
+  only".
 - dune-dev's guild has a **verified per-guild signing secret** (Phase 2a), and its fingerprint
   matches the one dune-dev's Core shows and differs from prod's. dune-dev's bearer is its own, not
   prod's, checked by presence only (CLOUD-8).
@@ -1735,19 +1878,20 @@ and `select reltuples from pg_class where oid='dune.items'::regclass`.
   (`Oil` and `T5RadiatedCoreComponent` are named).
 - Also run `select count(*) from dune.inventories where actor_id = 0` and record the result.
 
-**Step 2: seeded ground truth.** The operator's test character X is seeded with console Give or
-in-game actions:
+**Step 2: seeded ground truth.** Every row names how it is seeded (R2 D12). "In-game" means the
+operator plays X. Direct SQL is allowed **on dune-dev only**, with the exact statement recorded in
+the evidence.
 
-| Where | Item | Qty | Counted? |
-|---|---|---|---|
-| Backpack | Silicone | 50 | yes |
-| Base A (rank 1) storage container | Silicone | 200 | yes |
-| Base A medium ore refinery (input slot) | Silicone | 30 | yes (Open Decision 3 default) |
-| Base B (rank 1) chest | Silicone | 120 | yes |
-| Hologram placeable in Base A | Silicone | 999 | **no** |
-| Base C where X is rank 2 | Silicone | 500 | **no** |
-| Base A oil generator | Oil | 499 | **no** |
-| Base A chest | Oil | 200 | yes |
+| Where | Item | Qty | Counted? | Seeding method |
+|---|---|---|---|---|
+| Backpack | Silicone | 50 | yes | console Give to X |
+| Base A (rank 1) storage container | Silicone | 200 | yes | in-game deposit |
+| Base A medium ore refinery (input slot) | Silicone | 30 | yes (Open Decision 3 default) | in-game deposit |
+| Base B (rank 1) chest | Silicone | 120 | yes | in-game deposit |
+| Hologram placeable in Base A | Silicone | 999 | **no** | **covered by T4 only.** A hologram is a build preview, and there is no known in-game or console way to put items in one. |
+| Base C where X is rank 2 | Silicone | 500 | **no** | needs character Y. If Y is unavailable, **covered by T4 only**. |
+| Base A oil generator | Oil | 499 | **no** | in-game fuel |
+| Base A chest | Oil | 200 | yes | in-game deposit |
 
 **Expected results**
 - Silicone: `total 400, inBackpack 50, inBases 350`.
@@ -1760,28 +1904,40 @@ in-game actions:
 Pass: **exact equality**.
 
 **Step 3: timing**
-- 20 sequential calls through the **tunnel hostname** (console-dev.darkdante.org) and 20 over the
-  VLAN.
-- Pass: p95 < 1 s on both.
-- Record `EXPLAIN (ANALYZE, BUFFERS)`, the plan and the row count. This is a **merge gate** for
-  Core.
+- The default limiter is 6 per minute per user, so 40 calls would hit `rate_limited` (R2 D12). For
+  this step only, set `DUNE_STOCK_RATE_PER_MIN=30` on **dune-dev**. That is a console restart on
+  dune-dev, and a Requirement 7 approval. Spread the calls over **at least 2 minutes**, and restore
+  the default afterwards.
+- 20 sequential calls through the tunnel hostname. Pass: p95 < 1 s. VLAN timing is recorded for
+  comparison only.
+- **Merge gate (R2 D40).** Record `EXPLAIN (ANALYZE, BUFFERS)`, the plan and the `reltuples` of the
+  five tables against a **production-size restore** (a restored prod backup on a scratch Postgres),
+  not only dune-dev. dune-dev's volume does not predict the prod planner.
+  - Step 0 additionally checks the indexes on `permission_actor_rank(player_id)` and
+    `placeables(owner_entity_id)`, not only `items(inventory_id)`.
+  - dune-prod's first real calls are monitored for p95 and `stock_query_failed`.
 
 **Step 4: lag (U6).** Move a known stack between backpack and chest and record the time until the
 route reflects it. There is no pass threshold; the value goes into the user-facing "as of last
 save" wording.
 
 **Step 5: negative paths**
-- unlinked test user; `public`-tier user; moderator;
+- unlinked test user; `public`-tier user; moderator (each only if the identity exists, otherwise
+  "covered by T1");
 - 17 ids; `__proto__`; foreign id in the body;
 - unsigned request on a signed deployment;
-- 2 concurrent calls (expect one `stock_busy`); 7 calls in a minute (expect `rate_limited`);
+- 7 calls in a minute (expect `rate_limited` with `Retry-After`), after restoring the default limit;
 - dead console port (repoint mentat's test guild row; do not stop dune-dev services).
+- `stock_busy` is **not** tested live. Two calls against a millisecond query do not overlap
+  deterministically. T12 proves it (R2 D12).
 
 **Step 6: end to end in Discord.** Personal goal → `sync` preview → **Apply** → `progress` →
 decrease case → **Apply incl. decreases**.
 - Verify: saved numbers; audit rows with `source`, `source_guild_id` and `source_ref`; Core audit
-  line with the same interaction id; reply ephemeral with `DISCORD_DEFAULT_EPHEMERAL=false` set on
-  the test instance.
+  line with the same interaction id; the reply is ephemeral.
+- The bot is a **single production instance**; there is no test instance. The live
+  `DISCORD_DEFAULT_EPHEMERAL=false` toggle is therefore **dropped**. M-T14 proves forced-ephemeral,
+  and changing that env would restart the bot for every guild (Requirement 7) (R2 D12).
 
 **Step 7:** post results, with seed table, SQL, timings and EXPLAIN, as a comment on the tracking
 issues (Requirement 20).
@@ -1792,10 +1948,10 @@ issues (Requirement 20).
 |---|---|---|
 | `docs/console/API-REFERENCE.md` | Core | New route (POST, body, response array, error codes, limits); **fix the GET→POST drift at `:1018`–`:1022` in the same PR** |
 | Discord tier/capability doc (the doc listing `CAPABILITY_BY_TIER`; locate with `git grep -l INVENTORY_READ -- docs`) | Core | `STOCK_SELF_READ` at observer+ |
-| `CHANGELOG.md` | Core | Entry: "no operator action required. To use live stock, both the bot and this Core must share `DUNE_DISCORD_ACTOR_SECRET` (see rotation runbook); new env `DUNE_STOCK_QUERY_TIMEOUT_MS`, `DUNE_STOCK_MAX_INFLIGHT`, `DUNE_STOCK_RATE_PER_MIN`" (GRC-10) |
-| Actor-secret provisioning and rotation runbook | Core | Write it, or extend the existing one, per §3.4 (CLOUD-2, GRC-8) |
+| `CHANGELOG.md` | Core | Entry: "no operator action required. Live stock needs per-guild actor signing, enabled from Discord settings with **Enable signing** (Phase 2a). New env: `DUNE_STOCK_QUERY_TIMEOUT_MS`, `DUNE_STOCK_MAX_INFLIGHT`, `DUNE_STOCK_RATE_PER_MIN`, optional `DUNE_DB_RO_USER` (OD 11)." (GRC-10). v2's "both must share `DUNE_DISCORD_ACTOR_SECRET`" was the retired shared model (R2 D23). |
+| Actor-secret provisioning and rotation runbook | Core | `docs/security/actor-secret-rotation.md`, shipped with Phase 2a (§3.5.9), not with this PR |
 | `docs/console/base-inventory.md` | Core | Note that the stock route reuses the Storage/Refining/Crafting groups |
-| Networking/operator notes (existing `docs/networking.md` if present) | Core | Signed path is baseUrl-relative (path-rewriting proxies break it); cleartext-HTTP LAN note (NET-6) |
+| Operator notes in `docs/integrations/discord-integration/README.md` (Core has **no** `docs/networking.md`; v2's row was wrong, R2 D23) | Core | Signed path is baseUrl-relative (path-rewriting proxies break it); cleartext-HTTP LAN note (NET-6); public https console required for mentat to reach it (§3.5.9) |
 | `docs/architecture.md` "Read Capabilities" (`:109`) | mentat | Add `players-stock` and the signed-fields note |
 | `docs/user-guide.md` goal table (`:110`–`:118`) | mentat | `/dune goal sync`, buttons, what is counted, manual-only nodes |
 | `docs/crafting-resource-planning-overview.md` | mentat | Phase 2 status |
@@ -1810,17 +1966,33 @@ issues (Requirement 20).
 
 **Rollout order**
 
-*Phase 2a, per-guild signing (§3.5):*
-- A0. Governance steps (§14.1). Run the Phase 2a Layer 1 (§3.5.10). Confirm #384 has merged
-  (schema v9). Settle Open Decision 9 and verify U12.
-- A1. A Core session implements K1–K4 and runs its Layer 2. It merges to fork `main`, and the
-  operator deploys the result to dune-dev.
-- A2. mentat implements the Phase 2a changes, runs Layer 2 and Layer 3, and merges.
-- A3. Deploy mentat. With no guild provisioned, the behaviour is byte-for-byte unchanged (A-T8).
-- A4. Provision dune-dev's guild (Path 1 or Path 2). Compare fingerprints. Exercise the self-check,
-  `/dune player link`/verify and a write-bridge preview there.
-- A5. Provision dune-prod's guild. This needs operator approval, and the Core deploy there is done
-  by the operator.
+*Phase 2a, per-guild signing (§3.5). The order is fixed: **mentat first, then Core** (R2 D01).*
+- **A0. Hard gates.** Every one of these must hold before any 2a code merges:
+  - governance steps (§14.1);
+  - Layer 1 round 2 reviewed (done);
+  - **mentat#438 resolved**: the deploy branch is reconciled with `main`, that build is deployed
+    and verified on its own, and its SHA is recorded as the A-T8 baseline (R2 D16);
+  - **U13 resolved**: the operator's guilds are active `guilds` rows, required by the strict
+    resolver's Requirement 0 gate (§3.1);
+  - OD 9 settled and U12 verified;
+  - OD 7 decided before the Core PR (R2 D26);
+  - OD 14 decided.
+- **A1. mentat 2a.** Implement (mentat#443–#448), run Layer 2 and Layer 3, merge, and deploy.
+  Nothing changes until a Core sends `actorSigning`. NULL guilds match the golden v1 vectors
+  (A-T8). The strict resolver's behaviour change for inactive guilds' background paths is
+  expected.
+- **A2. Core 2a** (Core#1088). A Core session implements K1–K5 and runs its Layer 2. It merges to
+  fork `main` with a merge commit, and the operator deploys it to dune-dev. A pending secret that
+  no mentat promotes simply expires, so this is safe in either order. The order is still fixed.
+- **A3.** Hosted tenants get "Enable signing" once their Core updates. Nothing is forced.
+- **A4. dune-dev.** The operator runs "Enable signing" (Path 1) and compares fingerprints. Then
+  exercise: `/dune player link`/verify; a write-bridge preview; **an owner-only command** (signature
+  v2, R2 D02); a **hosted rotation and a manual rotation**, with timings recorded (Requirement 27
+  rehearsal, R2 D22); a forced store failure proving `revert` (on dune-dev only). Evidence goes on
+  mentat#434. This is the 2a exit criterion.
+- **A5. dune-prod.** Needs operator approval, and the Core deploy there is done by the operator.
+  Subject to OD 14: if dune-prod is the bot's default-config Core, it stays on the legacy path
+  until the default-config paths move.
 
 *Phase 2b, stock route and sync:*
 0. Governance steps (§14.1).
@@ -1828,8 +2000,8 @@ issues (Requirement 20).
    `main` (§14.3 lifecycle).
 2. The operator deploys Core to dune-dev.
 3. UAT steps 0–5.
-4. mentat branch `feat/goal-live-sync` starts after two things: PR #435 has merged, and Phase 2a
-   is merged, deployed and provisioned on dune-dev. It then goes through implementation, Layer 2
+4. mentat branch `feat/goal-live-sync` starts after Phase 2a is merged, deployed and provisioned on
+   dune-dev (PR #435 is already merged). It then goes through implementation, Layer 2
    and Layer 3 (`/code-review high`), and is merged. Open Decision 5 was decided on 2026-09-29.
 5. Deploy mentat via `git push deploy deploy`, with the guardrail hook. The allowlist is still
    empty, so this is a no-op for users.
@@ -1843,31 +2015,59 @@ issues (Requirement 20).
 Never allowlist a guild whose Core lacks the route. That would be harmless (FM1) but noisy.
 
 **Rollback**
-- **mentat:** remove the guild id from the allowlist, which is a Requirement 7 restart and
-  **not instant**. Or revert the merge. Schema v11 columns may stay, because v10 code ignores them;
-  otherwise run the §7 rollback SQL. Already-applied on-hand numbers are ordinary saved entries the
-  player can edit.
-- **Core:** revert the route. There is no schema, data or index to undo, and nothing else calls it.
+- **2b mentat:** remove the guild id from the allowlist, which is a Requirement 7 restart and **not
+  instant**. Or revert the 2b merge. Schema v11 columns may stay, because v10 code ignores them;
+  otherwise run the §7 rollback SQL, always before any v10 rollback. Already-applied on-hand numbers
+  are ordinary saved entries the player can edit.
+- **2b Core:** revert the route. There is no schema, data or index to undo, and nothing else calls
+  it.
+- **2a** is **forward-only** once any guild is promoted (§3.5.2, R2 D17).
+  - Before that point, reverting either side is safe.
+  - After it, "rollback" means a build that still reads the v10 columns.
+  - A Core-side mistake within 15 min of a promote is undone with `revert`.
+  - Otherwise use Regenerate followed by the handshake.
 
 ## 14. Governance and Cross-Repo Sequencing
 
 ### 14.1 Before implementation (Requirements 13, 15, 18, 20, 28, 29)
-1. **Requirement 28 check, done for this revision (2026-09-29).**
-   - `gh issue list --label ops-monitor --state open` on Core shows #1086 (fork/upstream divergence,
-     1533 ahead / 1404 behind), #1085 (upstream sync status) and #1069 (upstream security-checks
-     skip).
+1. **Requirement 28 check, re-run for v3 (2026-09-29).**
+   - `gh issue list --repo Project-Arrakis/dune-awakening-selfhost-docker --label ops-monitor
+     --state open` shows the same three open issues:
+     - **#1086**: fork/upstream divergence, 1533 ahead / 1404 behind. Relevant to any future
+       upstream PR (Open Decision 7), not to the fork-only branch.
+     - **#1085**: needs-human-review, "Upstream sync status". It says the raw commit counts are
+       unreliable for this fork (squash-sync).
+     - **#1069**: needs-human-review, upstream security-checks CI silently skips gitleaks.
+       Relevant to Requirement 10 scan evidence for any upstream PR (R2 D56).
    - mentat has none.
-   - Relevance: #1086 affects any future upstream PR (Open Decision 7) but not the fork-only
-     branch.
+   - #1085 and #1069 await the operator's review.
    - Re-run and record the check at branch creation.
 2. **File issues and add them to the board with Priority and Workstream (Requirement 15).**
-   - (a) mentat tracking issue for this feature. Post this register and the STRIDE table there
-     (Requirement 20).
-   - (b) Core issue with a self-contained implementation prompt covering C1–C9, §4 and §11.1.
-     This session **hands off** and does not implement it (Requirement 18).
-   - (c) Phase 2a issues, one in mentat and one in Core with an implementation prompt (§3.5).
-     Also the three current-system findings from §3.5.10, and a check that #384 has claimed v9.
+   - (a) Tracking issue: **mentat#434**, done. It now carries both rounds' registers and STRIDE
+     tables as comments.
+   - (b) The Phase 2b Core issue, with a self-contained implementation prompt covering C1–C9, §4,
+     §11.1 **and the round-2 appendix in Core#1088**. It is filed at 2b branch cut. This session
+     **hands off** and does not implement it (Requirement 18).
+   - (c) Phase 2a: **done in round 2**. mentat#443, #444, #445, #446, #447, #448 (High), #449
+     (Medium), #450 (Low bundle), and Core **#1088** (the Requirement 18 prompt). The schema gate is
+     the existing **mentat#438**. The current-system findings in §3.5.10 are still to be filed.
    - (d) Follow-ups listed in §17.
+
+   **Evidence map: layer × PR × issue (R2 D24).**
+
+   | Deliverable | L1 (design) findings posted on | L2 (implementation) posted on | L3 (`/code-review high`) posted on | PR risk class |
+   |---|---|---|---|---|
+   | mentat 2a | mentat#434 (rounds 1 and 2) | mentat#443 | mentat#443 | **High**: it changes the signing path of link, verify and the write bridge in every provisioned guild |
+   | Core 2a | mentat#434 (round 2) and Core#1088 | Core#1088 | Core#1088 | **High**: signature verification on every adapter route, plus a new credential |
+   | Core 2b (stock route) | mentat#434 | the 2b Core issue (b) | same | **Medium**: a new route only |
+   | mentat 2b (sync) | mentat#434 | mentat#434 | mentat#434 | **Medium** |
+
+   - `/code-review ultra` is **not** the default (the 2026-09-29 correction). Because 2a changes the
+     write bridge's signing and stores a credential, the operator may ask for `ultra` on the 2a
+     PRs. That is an option, not a gate.
+   - Versioning (R2 D58): mentat bumps `package.json` minor for 2a and minor for 2b, each with a
+     CHANGELOG entry. Core entries go under "Unreleased on top of upstream"; Core's `VERSION` is
+     upstream's.
    - mentat#433 (moderator-tier gap) already exists. The Layer 2 plan must reference it, and it
      must be verified on dune-dev with dune-dev's own bearer and its own per-guild actor secret
      (GRC-4, CLOUD-8).
@@ -1882,15 +2082,23 @@ Never allowlist a guild whose Core lacks the route. That would be harmless (FM1)
 | a | Full test suite green on the exact SHA | Core CI run on the PR head SHA, integration tests **executed** (§11.1 gate rule) |
 | b | ≥1 full live server session | dune-dev UAT §11.4 over a full session. Achievable: dune-dev is single-operator but a live server. |
 | c | Operator-facing changes documented, nothing superseded | §12 rows for Core; PR body labels implemented vs proposed |
-| d | Eight Hats L1/L2/L3 complete, CRITICAL/HIGH resolved | This register (L1); L2 per repo; L3 `/code-review high` (2026-09-29 correction) |
+| d | Eight Hats L1/L2/L3 complete, CRITICAL/HIGH resolved | This register (L1, rounds 1 and 2); L2 per repo; L3 `/code-review high` (2026-09-29 correction) |
 | e | Cross-origin redirect E2E test | **N/A**: no redirect, OAuth or external auth in this feature |
 | f | Changed-file list hand-reviewed for fork-internal artifacts | `gh pr diff --name-only`; strip fork `CHANGELOG.md` etc. from the upstream diff |
-| g | Fixed PR-body structure | Executive summary; what/why and rejected alternatives (§3.3 options, v1's `apply:true`); fresh install / upgrade / break-fix behaviour, including "what if the actor secret is lost" (re-provision both sides; no data loss; stock sync unavailable meanwhile); real test output; real security-scan output; eight-hat summary per round |
+| g | Fixed PR-body structure | Executive summary; what/why and rejected alternatives (§3.3 options, v1's `apply:true`); fresh install / upgrade / break-fix behaviour, including "what if the actor secret is lost" (R2 D57): **mentat loses or cannot decrypt a guild's secret** → that guild refuses **every** signed call (link, verify, write bridge, stock), not only stock, by fail-closed design; recovery: Regenerate on Core, which runs the handshake.<br>**Core loses its active file** → the managed path fails closed (§3.5.3); recovery: "Enable signing".<br>**`ACP_KEK_FILE`, or every retained KEK version, is lost** → every provisioned guild degrades at once, and adapter tokens are unreadable too; recovery: re-register every guild. Backups plus KEK versions are one unit (§3.5.12).<br>No game data is lost in any of these cases.<br>Then: real test output; real security-scan output; eight-hat summary per round |
 
-### 14.3 Branch lifecycle for a fork-only first release (GRC-7)
+### 14.3 Branch lifecycle for a fork-only first release (GRC-7; R2 D26)
+- **Fork-only is a fact, not only a preference.** The signing stack (`actorSignature.js`,
+  `requireActorSignature`), `adapterSettings.js` and the hosted flow are not on `upstream/main`.
+  `adapterSettings.js` and the hosted wizard exist upstream only inside the open PR #215.
+- **OD 7 must be decided before the Core 2a PR opens.**
 - If Open Decision 7 = fork-only (recommended), Requirement 21's **internal** lifecycle applies to
-  Core: branch → PR to fork `main` → CI → merge (no squash, so history stays attributable) →
-  delete the branch.
+  Core: branch → PR to fork `main` → CI → **merge with a merge commit, not squash** (both repos
+  allow squash, so the PR checklist names the button) → delete the branch.
+- This is a **recorded, deliberate exception** to Requirement 21's "branch stays alive until the
+  upstream merge". The branch is not an upstream candidate.
+- Upstream prerequisites for any later Red-Blink PR: the actor-signing stack and #215 land upstream
+  first.
 - A later upstream PR is cut **fresh from `upstream/main`**, because #1086 makes the fork's `main`
   unsuitable as a base, and goes through gates a–g on its own.
 - The v1 text keeping the branch "alive until Red-Blink merges or declines" is withdrawn for the
@@ -1911,8 +2119,12 @@ Never allowlist a guild whose Core lacks the route. That would be harmless (FM1)
 | R9 | Route classification in mentat tracks Red-Blink | Low | `UNMERGED_ROUTES` + updated tests |
 | R10 | API-REFERENCE drift | Low → resolved | Fixed in the Core PR |
 | R11 | Shared signing key across tenants | High → Low | Decided: per-guild secret (Phase 2a); the stock route never uses the process secret |
-| R14 | Phase 2a regression breaks link/write signing for provisioned guilds | Medium | A-T8/A-T9 byte-for-byte test for NULL guilds; verify-then-store; dune-dev first (§3.5.5) |
-| R15 | Schema-version collision with #384 (v9) | High → Low | v10/v11 numbering; A-T2; merge after #384 (F8) |
+| R14 | Phase 2a regression breaks link/write signing for provisioned guilds | Medium | Golden vectors for NULL guilds (A-T8/A-T9); pending/promote/revert; dune-dev first (§3.5.5) |
+| R16 | Core enforces a secret the bot does not hold (v2 design) | High → Low | Pending is never enforced; the mentat-driven handshake; revert; mentat ships first (§3.5.3, R2 D01) |
+| R17 | Enabling signing demotes hosted guild owners | High → Low | Signature v2 signs `guildOwnerId` (§3.5.5, R2 D02) |
+| R18 | Migration failure takes down every signed route | High → Low | Fail-closed migration and a PRAGMA assert (§3.5.2, R2 D05) |
+| R19 | Rollback after hosted tenants are provisioned | Medium | Forward-only rule; `revert` window; runbook (§3.5.2, §13, R2 D17) |
+| R15 | Schema-version collision with #384 (v9) | High → Low | v10/v11 numbering; A-T2/A-T2b; gate on mentat#438 (F8, R2 D16) |
 | R12 | Historic unverified links become read credentials | Medium | §4.2a pre-enable review; Open Decision 6 |
 | R13 | Command budget exhaustion | Medium → Low | Decided: `sync` takes 20 chars (7493/7500); everything after goes through the `/dune` split (mentat#423) |
 
@@ -1934,11 +2146,25 @@ Never allowlist a guild whose Core lacks the route. That would be harmless (FM1)
     dune-prod today (it still matters for unprovisioned guilds and the rollback, §3.5.2);
   - whether `ACP_SECRETS_KEY(_FILE)` / `ACP_KEK_FILE` is configured on the bot VM. Open Decision 9
     makes that a precondition for storing any per-guild signing secret.
-- **U13** Whether the operator's own Discord guilds are registered `guilds` rows, or rely on the
-  global adapter fallback. If they rely on the fallback, registering them is a prerequisite of
-  §3.1.
-- **U14** Whether Core's `validateDiscordActor` accepts `interactionId`. It is in
-  `SIGNED_ACTOR_FIELDS`; confirm in Layer 2.
+  - **Round 2 (R2 D04):** whether the process secret is 64-hex, and whether dune-dev's and
+    dune-prod's Core values are equal. That equality is an **inference** from
+    `src/actorSignature.js:66`–`:69`, which confirms only "production", and is **not verified**.
+    The v3 guard does not depend on it: a value equal to the process secret is refused
+    mechanically.
+- **U13** Whether the operator's own Discord guilds are registered, **active** `guilds` rows, or
+  rely on the global adapter fallback. **This is now a hard A0 gate (§13):** the strict resolver
+  (§3.1) stops the fallback for guild-scoped paths.
+- **U14 — closed (R2 D52).** Core's `normalizeDiscordActor` (`policy.js:159`–`:168`) requires
+  `guildId`, `channelId`, `userId` and `username`, and treats `interactionId` as optional.
+  `interactionId` is signed (`SIGNED_ACTOR_FIELDS`, `actorSignature.js:49`). The synthetic check
+  actor includes `username` (§3.5.3).
+- **U15** The adapter base URL the bot's process config targets (bot VM `.env`), which drives the
+  one-signer-per-Core guard and OD 14. Presumed dune-prod; not verified.
+- **U16** Whether `/dune player default` governs Core's `getLinkedPlayer`. Core deliberately ignores
+  per-guild character state (`duneDb.js:16597`–`:16600`). Verified in Layer 2 so that the §3.1 copy
+  names the right selection (R2 D43).
+- **U17** Which backup method the production mentat backup job uses (`.backup` versus a file copy)
+  (§3.5.12).
 
 (v1's U7, async handler compatibility, is closed: goal handlers already run inside the async
 `executeDuneCommand` try block after `deferReply`.)
@@ -1946,9 +2172,16 @@ Never allowlist a guild whose Core lacks the route. That would be harmless (FM1)
 ## 17. Follow-Up / Deferred Work (each gets an issue, §14.1)
 - **Retire the process-wide actor secret** for multi-tenant mode once every registered guild is
   provisioned (§3.5.5).
-- **Dual-secret rotation grace on Core**, if Open Decision 8 is revisited.
-- **"Edit my existing guild" setup path** (mentat#312). Rotation and clearing through the portal
-  depend on it.
+- ~~**Dual-secret rotation grace on Core**~~ — superseded: the pending/promote handshake has no
+  rotation window (OD 8 closed).
+- **"Edit my existing guild" setup path** (no issue exists yet; v2 miscited mentat#312, which is
+  stats-sharing revocation and depends on this entry point). Phase 2a builds only the secret-only
+  update path (§3.5.11, mentat#447).
+- **Move the bot's default-config paths onto the guild resolver** (`scheduler.js`,
+  `notifications.js`), so the operator's default Core can take a per-guild secret (OD 14).
+- **Mentat-side owner-authenticated status page**, if OD 12 defers it.
+- **Mechanical cloned-Core detection** (R2 D62). For example, Core stores a host-identity hash
+  beside the secret and refuses or regenerates on a mismatch at startup. Runbook step only for now.
 - **Sync all active goals in one call.** Deferred because it needs a multi-goal preview embed and
   batching past 16 ids, and 5 goals × 15 s is tolerable for v1 (UX-9).
 - **Baseline ("gained since creation") semantics** (ARCH-5). Needs a stored per-goal baseline.
@@ -2003,19 +2236,52 @@ Never allowlist a guild whose Core lacks the route. That would be harmless (FM1)
    - **Question:** fork-only first, or plan a Red-Blink PR?
    - **Recommendation:** fork-only first, under the internal branch lifecycle (§14.3). Any
      upstream PR later starts from `upstream/main` (Core #1086) and passes gates a–g.
-8. **Rotation grace (Phase 2a, §3.5.4).**
-   - **Question:** should Core accept the previous actor secret for a short grace period after
-     Regenerate, which would remove the rotation outage window?
-   - **Options:** (a) no grace; (b) Core also accepts `discord-actor-secret.txt.prev` for N
-     minutes (N ≤ 10).
-   - **Tradeoff:** (a) causes seconds of failed signed requests on the hosted path, and minutes on
-     the manual paste path. (b) removes that, but it widens the window in which a leaked old secret
-     still works, and it adds Core complexity to the signature check.
-   - **Recommendation:** (a) for 2a. The hosted path's window is one round trip. Revisit if manual
-     rotations cause user-visible failures.
+8. **Rotation grace (Phase 2a, §3.5.4)** — **CLOSED, superseded by the v3 handshake.** A new
+   secret is pending (never enforced) until mentat verifies and promotes it. The old secret keeps
+   working until promote, so there is no outage window to grace, and `.prev` is never verified
+   against (R2 D01, D22).
 9. **Require at-rest encryption before storing a per-guild signing secret (Phase 2a, §3.5.7).**
    - **Options:** (a) refuse to store the secret unless `ACP_SECRETS_KEY(_FILE)`/`ACP_KEK_FILE` is
      configured; (b) store it in plaintext with a warning, as adapter tokens are today.
    - **Tradeoff:** (a) blocks Phase 2a on a bot host without a key. (b) leaves an HMAC key that
      gates cross-player reads readable in the SQLite file and its backups.
    - **Recommendation:** (a). Verify the bot VM's key configuration first (U12).
+
+**New in v3 (Layer 1 round 2).** Each has a safe default already specified, so none blocks the
+design. The operator may change any of them.
+
+10. **Bearer and signing secret in one registration body (R2 D31).**
+    - **Question:** accept that one leak of the hosted registration body (proxy log, error body,
+      HAR) yields both the bearer and the signing secret?
+    - **Options:** (a) accept, with mitigations: no body logging on mentat-link (checked at its
+      Layer 2), value redaction, allowlisted status shapes; (b) deliver the secret separately,
+      which needs a new pull credential from mentat to Core.
+    - **Recommendation:** (a). The co-delivery path is already the bearer's path, and (b) adds a
+      credential and a new flow.
+11. **Read-only DB role for the stock query (R2 D32).**
+    - **Question:** should Core support a dedicated read-only role for `playerStockTotals`?
+    - **Options:** (a) optional `DUNE_DB_RO_USER` with `GRANT SELECT` on the tables used, falling
+      back to the preamble; (b) the preamble plus T9 only, recorded as a GRC exception.
+    - **Recommendation:** (a), optional. It gives least privilege for operators who want it and
+      breaks no one.
+12. **Mentat-side owner status page (R2 D07).**
+    - **Question:** build an owner-authenticated signing status page in mentat now, or rely on
+      Core's Discord settings for 2a?
+    - **Recommendation:** rely on Core settings for 2a (§3.5.11) and defer the mentat page (§17).
+      Core shows its own authoritative state. A mentat page is new ingress needing OAuth, rate
+      limits and a Requirement 23 row.
+13. **Who players are told to ask (R2 D09).**
+    - **Question:** which role name should player-facing error copy use?
+    - **Options:** (a) "the person who connected this server to Mentat"; (b) "a server admin"; (c)
+      "the bot operator".
+    - **Recommendation:** (a). (b) is ambiguous between the Discord Admin role and the game-server
+      operator, and (c) in hosted mode names the maintainer, whom a tenant player cannot reach.
+      This is user-visible copy, so it is not decided silently.
+14. **The Core the bot's default config targets (R2 D14).**
+    - **Question:** Core holds one active secret. mentat's no-guild system paths (`scheduler.js`,
+      `notifications.js`) sign with the process secret toward the process-config Core, presumed
+      dune-prod (U15). Provisioning that Core's guild per guild would break those paths.
+    - **Options:** (a) mentat refuses per-guild provisioning for that Core until the default-config
+      paths move onto the guild resolver (follow-up, §17); (b) move them now as part of 2a.
+    - **Recommendation:** (a). The guard is mechanical and safe. dune-dev provisions first anyway,
+      and dune-prod's stock waits for the follow-up.
