@@ -291,3 +291,68 @@ Every STRIDE category has at least one finding in this layer. None is N/A.
   (PR-6 in v2 §10) is opened. P3 decides how SEC-2/CLOUD-4 are closed.
 - Prerequisites before implementation: #440 (registration hash and failure alerting), PR #436.
 - Layer 2 per implementation PR and Layer 3 (`/code-review high`) per PR, posted to #423 (v2 §13).
+
+## Round 2 (v2 re-verification)
+
+**Target:** design v2, branch HEAD `95a9dda` (PR #441), together with this register. **Code read:**
+- `db3db83` (`origin/main`);
+- `f8709f0` (the design branch's own base);
+- PR #436 head `6d2275b`;
+- Core `origin/main` through `git grep` only (Requirement 18).
+
+**Method:** one scoped re-verification pass: re-measure the budgets, re-check the citations, trace tenant isolation. This was not an eight-hat dispatch. Afterwards, the consolidating session **spot-verified every finding against the code** (file:line below) before ruling on it. **Dispositions refer to v2.1** of the design.
+
+**Re-confirmed, no finding:**
+- The budgets hold: `/dune` 7473 with writes on and 4577 with writes off; split 6291, or 6469 with the shims; `/player` 911; `/goal` 444; shims 178.
+- The command JSON is byte-identical at `f8709f0` and `db3db83`.
+- The §6.6 citations hold.
+- Every adapter call in `commands.js`, `writeHandler.js` and `broadcast.js` passes `guildId`.
+- Autocomplete makes no Core call.
+- The registered-layout derivation is unambiguous.
+
+| ID | Sev | STRIDE | Summary (verified at) | Ruling | Where resolved |
+|---|---|---|---|---|---|
+| V2-1 | High | EoP, Info. Disclosure, DoS | With OD7(b), the code default becomes `split`. The hash-based hook (§7.2 item 1) then registers `split` globally at the PR-3 deploy, before P1–P3, the P3 owner notification, the rollback rehearsal and the announcement. §7.7 step 3 covered only the `legacy` default. (Doc: §7.2, §7.7, OD7.) | Accepted | v2.1 §7.7 new step 0 (pin `DUNE_COMMAND_LAYOUT=legacy` in the hosted `.env` before PR-3 deploys, whichever way OD7 goes); §7.2 item 1 (the hook refuses a registered-layout change unless the layout is set explicitly in `.env`; PR-0 scope); step 3 restated for both OD7 outcomes |
+| V2-2 | **High** (raised from Med) | Info. Disclosure, EoP | In a DM, `guildId` is null. The registration gate (`src/commands.js:399`) and the zero-role gate (`:449`) are skipped. `isCommandAllowed` falls through to single-tenant RBAC (`:1041, 1053-1058`). The adapter then resolves to the process config (`src/adapterClient.js:277-283`, `src/config.js:257`). §6.6 item 5's claim "before any adapter call" holds only for guild interactions. **Extended by the consolidator:** the Steam-link callback uses `session.guildId` with no status re-check (`src/steamLinkServer.js:363-365, 485`), which is the same class. | Accepted. The underlying defect exists today, independent of the split. Raised to High under the operator's binding tenant-isolation rule. Exploitability on the hosted bot is **UNVERIFIED** (it depends on the `.env`) | **mentat#442** (High); v2.1 §6.6 item 5 records the exception, §7.6 P1 greps the three env vars, §9.10 DM rows assert today's behaviour and link #442 |
+| V2-3 | Med | Tampering, Info. Disclosure (corrected) | The confirm button calls `writeExecute(…, interaction.guildId)` (`src/writeConfirmation.js:290`). The pending entry holds no guild id or `console_url` (`:136-172`). A row that turns non-active before the click falls back to the process config (`src/index.js:163-176`). **Correction:** the report's "confirmed write goes to … a Core other than the one previewed" overstates the impact. Core consumes only nonces it issued and answers 410 `nonce_not_found` otherwise (Core `routes.js:888, 994`). The result is a misdirected request carrying the nonce and the actor identity, not an execution. EoP is dropped. | Accepted with a corrected impact | **mentat#442** (fix items 3 and 5); v2.1 §6.6 item 5, §9.10 (button path added to the fixture) |
+| V2-4 | Med | Info. Disclosure (low) | Pointer cases 2 and 3 ran "before any gate". Today's writes-disabled reply comes after the registration, RBAC and cooldown gates (`src/commands.js:399-484`, then `src/writeHandler.js:104-105`), so before-record rows would change class. §9.10's "unregistered A: `not-connected` for all paths" cannot hold for `core:setup` (exempt, `:1035`), the shims and autocomplete. | Accepted | v2.1 §5.3 (cases 2 and 3 run after the registration, zero-role and RBAC gates; case 1 stays pre-gate), §9.10 carve-outs with their expected classes |
+| V2-5 | Med | N/A (Info. Disclosure if left ambiguous) | `goals` has no guild column (`src/database.js:153-175`). Personal goals are keyed on the user only (`listGoalsByOwner`/`getGoalScoped`, `:1319-1328`), and autocomplete lists them in every guild (`src/commands.js:1772-1773`). §6.4's "goals are per guild" is false. | Accepted. Personal goals following the user is intended behaviour, not a defect, so no issue was filed | v2.1 §6.4, §6.6 item 5, §9.10 (a shared user sees their personal goals in both guilds; guild goals never cross) |
+| V2-6 | Med | N/A | OD6(b) is recommended, but §5.2/§6.2/§9.2/§4.3 hard-code 28 moves, 90/101 keys and `/goal` 444. **Numbers re-measured** (`discordCommandCharBudget` at `db3db83`): the calculator costs 723, or 722 under the name `calculate`. Under OD6(b), split `/dune` is **5568** (5746 with shims) and `/goal` is **1166**. The report's "about 5746 before shims" is corrected to "with shims", and "about 1167" to 1166. | Accepted, numbers corrected | v2.1 §14 OD6 delta block (29/89/12, numbers, the alias is stale-only and not registered, autocomplete row order) |
+| V2-7 | Low | N/A | §7.6 and the "Next steps" of this register say "before PR-6 (the flip)". PR-6 exists only if OD7 = a. | Accepted | v2.1 §7.6; this register's "Next steps" (below) |
+| V2-8 | Low | DoS (low) | "Compare with `commandDefinitions()`" uses the defaults: `includeWriteGroup=false` (`src/commands.js:345`). `writesEnabled` reads `process.env` (`src/writes.js:27-30`). The result is false drift on a bot with writes on. | Accepted | v2.1 §7.2 item 4, §7.7 step 6, §7.8 (compare with `commandDefinitions({ includeWriteGroup: writesEnabled(config), layout })`) |
+| V2-9 | Low | Repudiation | PR #436 (`6d2275b`) changes `src/commands.js` help classification after both pinned SHAs. `src/commands.js:1788` is absent at `f8709f0` (verified in the worktree). `test/commands.test.js:1976` is an `f8709f0` line; it is `:2214` at `db3db83`. | Accepted | v2.1 §9.1 (all rows generated at PR-1's merge base, which includes #436; `f8709f0` kept as a recorded equality cross-check for dispatch rows); citation SHAs labelled in the header and §1.1 |
+
+### Round 2 counts
+
+| Severity | Findings | Resolved in design (v2.1) | Also tracked by an issue | Rejected |
+|---|---:|---:|---:|---:|
+| Critical | 0 | 0 | 0 | 0 |
+| High | 2 | 2 | 1 (V2-2 → #442) | 0 |
+| Medium | 4 | 4 | 1 (V2-3 → #442) | 0 |
+| Low | 3 | 3 | 0 | 0 |
+| **Total** | **9** | **9** | **2** | **0** |
+
+Corrected claims (the finding stands, the evidence is corrected):
+- V2-3's impact: no cross-Core execution, because of Core's nonce check.
+- V2-6's numbers: 5746 is the figure with shims; `/goal` is 1166.
+- V2-2 is extended with the Steam-link callback.
+
+Open operator decisions changed by Round 2: none. OD7(b) stays recommended; V2-1 removes its rollout hazard through the new step 0.
+
+### Round 2 STRIDE report
+
+| STRIDE category | Findings | Max severity | Resolution status |
+|---|---|---|---|
+| Spoofing | none | — | No Spoofing-mappable findings in this round |
+| Tampering | V2-3 | Medium | Design v2.1; code fix in #442 |
+| Repudiation | V2-9 | Low | Design v2.1 |
+| Information Disclosure | V2-1, V2-2, V2-3, V2-4 | High | Design v2.1; V2-2/V2-3 code fix in #442 |
+| Denial of Service | V2-1, V2-8 | High | Design v2.1 |
+| Elevation of Privilege | V2-1, V2-2 | High | Design v2.1; V2-2 code fix in #442 |
+
+Not STRIDE-mapped: V2-5 (doc accuracy), V2-6, V2-7.
+
+### Next steps (supersedes the Round 1 list where they differ)
+- Preconditions P1–P3 are recorded on #423 **before the hosted flip (v2.1 §7.7 step 5)**. The PR-6 wording is withdrawn (V2-7).
+- The hosted `.env` pin of `DUNE_COMMAND_LAYOUT=legacy` (v2.1 §7.7 step 0) must be in place before PR-3 deploys.
+- #442 is not a prerequisite of the split, but the §9.10 DM, button and Steam-callback rows flip from "today's behaviour" to "zero adapter calls" in whichever PR lands second.
