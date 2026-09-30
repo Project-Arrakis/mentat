@@ -470,6 +470,17 @@ Every STRIDE category has at least one finding in round 2.
    System paths with no guild id (`scheduler.js`, `notifications.js`) are unchanged. Requirement 0
    gate: U13 (the operator's guilds are active rows) is a hard A0 precondition.
 
+7. **Ruling R2-D, "self-check goes through the same resolver": refined on code evidence.** The
+   handshake cannot use `resolveGuildRequestContext`:
+   - At handshake time the guild's row holds the *previous* `console_url` and bearer, or no row at
+     all. For auto-invite, `upsertGuild` runs only at owner Confirm (`src/setupServer.js:880-900`).
+   - A pending or inactive row makes the strict resolver refuse.
+   - The handshake must target the *submitted* URL and bearer.
+
+   v3 therefore keeps the ruling's intent (never the default Core; zero requests to any other
+   Core) with a dedicated explicit-target call. It uses the same dispatcher and `redirect: "error"`,
+   and A-T17 enforces it. Every *signed request after* provisioning uses the resolver, as ruled.
+
 ## Hat claims corrected (verified against code or GitHub)
 
 - **QA hat counts:** it reported "High 4, Medium 12, Low 4 (20)". It lists QA2-1..22, which is

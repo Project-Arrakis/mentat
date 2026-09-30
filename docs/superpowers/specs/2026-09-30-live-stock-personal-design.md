@@ -676,6 +676,13 @@ direct `DUNE_DISCORD_ACTOR_SECRET` or an existing `_FILE`, Core sends
 guildId, op, fingerprint })` is its own function:
 - It **never** goes through `AdapterClient.request()` or `_resolveConfig`, so it can never reach the
   process-default Core.
+- It also does **not** go through `resolveGuildRequestContext`, which is a deliberate refinement of
+  ruling R2-D, recorded in the register. At handshake time the guild row holds the *previous*
+  `console_url` and bearer, or no row at all. For auto-invite, `upsertGuild` runs only at owner
+  Confirm (`setupServer.js:880`–`:900`), and a pending or inactive row makes the strict resolver
+  refuse. The handshake must target the *submitted* URL and bearer. Isolation is kept by taking the
+  target explicitly from the registration being processed, never from any other row or the process
+  config, as A-T17 asserts.
 - It uses the same `secureFetchDispatcher` (mentat#393), `redirect: "error"`, a 3 s timeout and
   signature v2.
 - A non-JSON 2xx, a redirect or a fingerprint mismatch is a failure.
