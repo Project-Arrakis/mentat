@@ -8,10 +8,21 @@ data shapes, which are clearly marked.
 High, 43 Medium, 27 Low and 1 Info. Every finding and its disposition is in
 `docs/superpowers/specs/2026-09-30-live-stock-personal-layer1-audit-register.md`,
 which also holds the Layer 1 STRIDE table. Every High is resolved in this document.
-One High (ARCH-1, together with CLOUD-2/CLOUD-3/SEC-3) is resolved *conditionally*:
-the design below holds under every option, but which tenants can use the feature
-depends on **Open Decision 1** (§18). Implementation must not start until the
-operator has decided §18.1 and §18.5.
+
+**Operator decisions, 2026-09-29.** Open Decision 1 was decided as **per-guild encrypted
+signing secret** (option A). Open Decision 5 was decided as **take the 20-char `sync` cost
+now**. Two things follow:
+- The per-guild secret is its own security-sensitive deliverable, **Phase 2a**, specified in
+  §3.5. It ships as its own PRs **before** the sync command.
+- §3.5 is new design material, so it needs its own Layer 1 pass before implementation. That
+  pass has **not yet run**.
+
+**Delivery order:**
+
+| Phase | Content | Depends on |
+|---|---|---|
+| 2a (§3.5) | Per-guild actor signing secret | mentat PR #384, which claims schema v9 (§3.5.2) |
+| 2b (rest of this document) | Stock route and `/dune goal sync` | 2a, PR #435 |
 
 **Evidence base:** Core claims are cited as `path:line` on the fork's `origin/main`
 (`ace31877`, 2026-09-27). Core was read only through `git show`/`git grep` against
@@ -36,11 +47,11 @@ from the game database instead of typing them.
 | Missing pawn | Silently 0 | Explicit `unavailable:["backpack"]`. `actor_id = 0` is never read, and no decrease is ever written from it (DBA-6/ARCH-2/SEC-6). |
 | Preview/apply | `apply:true` option, second live read | Preview-only slash command. **Apply is a button** that writes exactly what was previewed, with a compare-and-set against newer manual edits. Decreases need a separate button (ARCH-3, UX-2/3). |
 | Writes | Per-node statements | One IMMEDIATE `goalTransaction` (depends on mentat#428 / PR #435) (DBA-7). |
-| Provenance | Not stored | Additive, nullable `source`, `source_guild_id`, `source_ref` on `goal_audit_log` (schema v9, Requirement 26) (GRC-1, DBA-12). |
+| Provenance | Not stored | Additive, nullable `source`, `source_guild_id`, `source_ref` on `goal_audit_log` (schema **v11**, Requirement 26) (GRC-1, DBA-12). |
 | Load | 5 s timeout, mentat cooldown only | Core concurrency cap (503) + per-actor limiter (429) + 2 s timeout. mentat per-command 15 s cooldown (§6.7) (NET-3, DBA-4, SEC-4). |
 | Tenancy | Global env kill switch, silent adapter fallback | Per-guild allowlist. Sync requires an active registered guild and never uses the fallback. Invariant: 1 guild = 1 Core (NET-1/2, ARCH-7). |
-| Signing | Required, one global secret | Required. The multi-tenant key model is Open Decision 1 (ARCH-1). `itemIds` is inside the signed payload (SEC-8). |
-| Command budget | Unaccounted | Measured at 7473/7500. The design costs 20 chars and is sequenced by Open Decision 5 (UX-1). |
+| Signing | Required, one global secret | Required, with a **per-guild encrypted secret** (Phase 2a, §3.5; decided). The stock route never uses the process-wide secret. `itemIds` is inside the signed payload (SEC-8). |
+| Command budget | Unaccounted | Measured at 7473/7500. `sync` costs 20 chars and is taken now (decided). Anything after it goes through the `/dune` split (mentat#423) (UX-1). |
 
 ## 1. Goal and Non-Goals
 
@@ -217,6 +228,15 @@ lubricant ids (DBA-1).
   new_quantity, created_at` and no provenance column (`database.js:189`–`:199`).
   `appendGoalAuditLog` inserts an explicit column list (`database.js:1367`–`:1372`). The bundled
   SQLite is 3.53.2, so `ALTER TABLE ... DROP COLUMN` is available.
+- **Schema v9 is already taken.** `main` is at `SCHEMA_VERSION = 8`. Open PR **#384**
+  (`issue/372-service-duty-apply-component`) claims **v9** (`guild_settings.on_duty_role_id`).
+  The production deploy branch `deploy/deploy` already carries that v9 migration
+  (`database.js:343`–`:349` there) and is not merged to `main`. Any database run by that build is
+  therefore already at version 9.
+  - A second, different "v9" migration would be silently skipped on that database, because its
+    guard `version < 9` is false. The first read of the new column would then throw.
+  - This design therefore uses **v10** (Phase 2a) and **v11** (goal provenance). It is sequenced
+    after #384 lands on `main` (§3.5.2, §7).
 
 ## 3. Tenant, Instance and Credential Model
 
@@ -249,6 +269,12 @@ lubricant ids (DBA-1).
 - The kill switch is `MENTAT_LIVE_STOCK_GUILD_IDS`, a comma-separated list of Discord guild ids
   (snowflake-validated). **Empty or unset means off everywhere** (ARCH-7, CLOUD-4, QA-6). It
   replaces v1's process-wide `MENTAT_LIVE_STOCK_ENABLED`.
+- Sync works in a guild only if **both** of these hold:
+  - the guild is on this allowlist; and
+  - the guild has a **verified per-guild signing secret** (Phase 2a, §3.5.6).
+
+  The allowlist controls rollout. The secret requirement is a security precondition. Neither
+  can substitute for the other.
 - `config.js` parses it once at startup, like every other env setting (`loadConfig`,
   `config.js:145`). A malformed entry is a startup warning and that entry is ignored, rather than
   a crash.
@@ -261,7 +287,7 @@ lubricant ids (DBA-1).
 - A Core-side off switch is not provided. Core's controls are: revert the route, disable the
   adapter (`discordAdapterEnabled`), or remove the Player-tier grant.
 
-### 3.3 `[D18]` Actor signing in multi-tenant mode — **Open Decision 1**
+### 3.3 `[D18]` Actor signing in multi-tenant mode — **DECIDED: per-guild secret (Phase 2a)**
 **Problem (ARCH-1, CLOUD-2, CLOUD-3, SEC-3, GRC-8).**
 - `[D10]` requires a signed actor.
 - mentat signs with one process-wide secret (F7), while goals, and so this feature, exist only in
@@ -297,44 +323,403 @@ Current posture is also worth recording:
 | C | **Restrict v1 to guilds whose Core already shares the bot's secret**, i.e. the operator's own Cores (dune-dev, dune-prod). This is enforced by the §3.2 allowlist. The global secret is never given to a third-party tenant. | No new key sharing. Same posture as today's write bridge. | None beyond §3.2. | Operator-run guilds only. |
 | D | **Signature optional**, like every sibling read route: verified if the Core has a secret, accepted unsigned otherwise. | On an unsigned Core, a leaked bearer can read any linked user's stock counts. That is strictly less than PLAYERS_FIND already discloses there, but it is a new Player-data read. | None. | Every tenant. |
 
-**Recommendation: C for v1, and file A as a separate design issue.** A should be scoped to fix
-the write bridge too, before any hosted tenant is added to the allowlist. B is dominated by A:
-it still needs a delivery channel, and it breaks shared Cores. D is rejected because it gives up
-the one defence against a leaked bearer on exactly the route that makes a Discord link a
-data-read credential (SEC-2).
+**DECIDED 2026-09-29 (operator): option A, a per-guild encrypted signing secret.** It is
+specified as its own deliverable, Phase 2a, in §3.5, and ships before the stock route and the
+sync command.
 
-The design below is written so that A drops in later. `playerStock()` takes its signing secret
-from a `signingSecretForGuild(guildId)` function:
-- under C it returns the process secret for allowlisted guilds, and throws otherwise;
-- under A it would return the guild's decrypted column.
+The other options are recorded as rejected:
+- **C** (restrict to guilds sharing the bot's secret) leaves hosted tenants without the feature
+  and keeps a shared key alive.
+- **B** (HKDF-derived keys) breaks two guilds sharing one Core and concentrates risk in one
+  master key.
+- **D** (optional signature) removes the only defence against a leaked bearer on the route that
+  turns a Discord link into a data-read credential (SEC-2).
 
-### 3.4 Secret lifecycle (CLOUD-1, CLOUD-2, CLOUD-8, GRC-8)
-- **No new credential is created by this design** under Option C. It reuses
-  `DUNE_DISCORD_ACTOR_SECRET` and the per-guild bearer. Requirement 27 therefore applies to
-  existing credentials only.
-- **Provisioning:** the secret is supplied through `DUNE_DISCORD_ACTOR_SECRET_FILE` (mode 0600)
-  and is **byte-identical on the bot VM and on each allowlisted Core**.
-- **Rotation order:**
-  1. Write the new value to both files.
-  2. Restart Core.
-  3. Restart the bot (Requirement 7 confirmation for both).
-  4. Expect **every signed route** (link, write bridge, stock) to return 403
-     `invalid_actor_signature` between steps 2 and 3.
+`playerStock()` obtains its secret from `signingSecretForGuild(guildId)` (§3.5.5). For the stock
+route this returns only the guild's **verified per-guild** secret, and never the process-wide one.
 
-  The rotation runbook is part of the C8 documentation delta (§12). If the Core repo has no
-  existing runbook, one is written there.
-- **Fail-closed in mentat (CLOUD-1):**
-  - `playerStock()` refuses to send a request when `signingSecretForGuild()` returns an empty
-    value. It never sends an unsigned stock request.
-  - At startup, if `MENTAT_LIVE_STOCK_GUILD_IDS` is non-empty and no secret is readable, mentat
-    logs one non-secret warning (`live_stock.signing_secret_missing`) and treats the feature as
-    disabled.
-  - Test: an empty secret never produces a request.
-- **Distinct secrets per environment (CLOUD-8):** dune-dev must use its own bearer and actor
-  secret, not prod's. This is a UAT prerequisite recorded in the tracking issue (§11.4).
-- **Unverified:** whether the bot VM, dune-dev and dune-prod currently have the secret configured
-  and byte-identical (U12). This must be checked, by presence only and without printing the value,
-  before §3.2 enables any guild.
+### 3.4 Secret lifecycle summary (CLOUD-1, CLOUD-2, CLOUD-8, GRC-8)
+Phase 2a introduces **one new credential per guild**. Requirement 27 therefore applies in full.
+§3.5.3 covers provisioning, §3.5.4 rotation and §3.5.7 failure diagnosis.
+
+- **Fail-closed in mentat (CLOUD-1):** `playerStock()` refuses to send a request unless the guild
+  has a verified per-guild secret. It never sends an unsigned stock request, and never falls back
+  to the process-wide secret (§3.5.5).
+- **Distinct secrets per environment (CLOUD-8):** dune-dev and dune-prod each get their own
+  per-guild secret and their own bearer. This is enforced by construction (§3.5.3), and the UAT
+  prerequisites check it (§11.4).
+
+### 3.5 Phase 2a — Per-guild actor signing secret (own PRs; ships BEFORE the sync command)
+
+**Scope.** mentat stores, for each registered guild, the HMAC secret that guild's Core uses as
+`DUNE_DISCORD_ACTOR_SECRET`. mentat signs every signed adapter request for that guild with it.
+
+It needs one small Core change: Core generates and stores the secret, forwards it at hosted
+registration, exposes a signature self-check route, and displays a fingerprint.
+
+It ships as **two PRs** (mentat and Core), each with its own Layer 1 (this section), Layer 2 and
+Layer 3 audits. Core follows the same Requirement 18 hand-off as §4. Nothing in Phase 2a reads
+game data.
+
+#### 3.5.1 What exists today (verified)
+
+| Fact | Evidence |
+|---|---|
+| `guilds` holds one `console_url` + `adapter_token` per guild. `adapter_token` is written through `encryptColumn` and read through `decryptColumn` (`getGuild`). | mentat `src/database.js:16`–`:37`, `:478`–`:535`, `upsertGuild` `:537`–`:560` |
+| `encryptColumn` uses a **per-row DEK** wrapped by the KEK when one is configured (`secret_keys` keyed by table/row/column), else the legacy v1 single-key path. Every encrypt/decrypt is logged to `secret_access_log`. If **no** key is configured at all, values are stored in **plaintext**, and startup only logs `security.secrets_at_rest_unencrypted`. | `database.js:66`–`:122`, `:436`–`:505`; `src/index.js:86`–`:100` |
+| `stats_push_secret` (schema v6) is the precedent for a nullable, encrypted per-guild secret. It was added by a guarded `ALTER TABLE`. **The secret is generated on Core and pasted back** by the operator in the setup portal (`setGuildStatsSharingSecret`). | `database.js:24`–`:32`, `:285`–`:297`, `:1172`–`:1190`; `src/setupServer.js:440`–`:441`, `:587`–`:590` |
+| The legacy setup form collects `adapterToken` and `statsPushSecret` as **`type="text"`** (visible) inputs. It has no "edit my existing guild" path; that is mentat#312. Re-submitting the whole form is the only update path. | `setupServer.js:388`–`:389`, `:440`–`:441`, `:572`–`:585` |
+| The hosted flow is **Core-initiated**. Core reads its own adapter bearer (`readDiscordBotApiToken`) and POSTs `{guildId, discordAccessToken, consoleUrl, adapterToken}` to mentat `POST /api/consoles/register`, or `{consoleUrl, adapterToken}` to `/api/consoles/auto-invite/start` via mentat-link's proxy (`requireProxySecretFailClosed`). | Core `server.js:2380`–`:2396`, `:2473`–`:2490`; mentat `setupServer.js:781`–`:802`, `:843`–`:866` |
+| Core **generates** its adapter bearer server-side (`randomBytes`) into `runtime/secrets/discord-adapter-token.txt`. It writes only a hardcoded set of `.env` keys, and clears the direct env var when minting a file token, because a direct var silently wins. | Core `integrations/discord/adapterSettings.js:1`–`:40` |
+| Core's actor secret comes from `DUNE_DISCORD_ACTOR_SECRET`, else `_FILE`, read **per request**. There is **no** Core UI or generation path for it: it is `.env`/compose only. `config.discordActorSecret(File)` is read but never set anywhere. | Core `actorSignature.js:104`–`:117`; `.env.example:191`–`:192`; `docker-compose.web.yml:99`–`:100` |
+| Core error codes: `actor_signing_disabled` (no secret, route requires one), `missing_actor_signature`, `invalid_actor_signature` (bad timestamp format or mismatch), `stale_actor_signature` (outside the skew window, default 30 s, env 5–300). All are 403. | Core `actorSignature.js:212`–`:240`, `:29`–`:43` |
+| mentat signs in exactly **one** place: `AdapterClient.request()`. It uses `writeBridgeSignedHeaders` for write routes and `signedHeaders` otherwise. Both read the **process-wide** secret, `actorSignatureSecret(process.env)`, and return `{}` (unsigned) when it is empty. | mentat `src/adapterClient.js:455`–`:473`; `src/actorSignature.js:79`–`:88`, `:163`–`:170` |
+| Core holds **one** secret for **all** routes. When it is set, every adapter route requires a valid signature. | Core `routes.js:200`–`:215` |
+
+#### 3.5.2 Schema (Requirement 26)
+Schema **v10**, following #384's v9 (F8):
+
+```sql
+ALTER TABLE guilds ADD COLUMN actor_signing_secret TEXT;              -- encrypted (encryptColumn); NULL = not configured
+ALTER TABLE guilds ADD COLUMN actor_signing_secret_set_at TEXT;       -- when stored
+ALTER TABLE guilds ADD COLUMN actor_signing_secret_verified_at TEXT;  -- last successful self-check (§3.5.3); NULL = never verified
+```
+
+- **Column properties:** nullable, no default. NULL means "not configured", which follows the
+  `stats_push_secret` convention and keeps "not set" distinct from an empty string. The
+  fresh-install `CREATE TABLE guilds` gains the same columns.
+- **Migration code:** a guarded `if (currentVersion.version < 10)` block runs each `ALTER` in a
+  try/catch. `SCHEMA_VERSION` becomes 10.
+- **Goal provenance (§7) is v11.** It lives in a different PR (2b). The two cannot share one
+  migration unless both PRs merge as one, which the delivery order rules out.
+- **Precondition:** #384 is merged to `main` first. If #384 is abandoned, the implementer must
+  renumber, and must **never** reuse 9, because the deploy branch has already applied a v9.
+- **Backward compatibility:** every existing query names its columns or uses `SELECT *` plus a
+  spread. Old code ignores the new columns.
+  - `getGuild` is **not** changed to decrypt the new column (see §3.5.5), so a decrypt failure
+    cannot widen the blast radius, which was the same concern as `getGuildStatus`'s mentat#316
+    fix.
+- **Rollback SQL:**
+  ```sql
+  ALTER TABLE guilds DROP COLUMN actor_signing_secret_verified_at;
+  ALTER TABLE guilds DROP COLUMN actor_signing_secret_set_at;
+  ALTER TABLE guilds DROP COLUMN actor_signing_secret;
+  DELETE FROM secret_keys WHERE table_name = 'guilds' AND column_name = 'actor_signing_secret';
+  UPDATE schema_version SET version = 9;
+  ```
+  SQLite 3.53.2 is bundled. The alternative is to leave the columns in place: v9 code ignores
+  them.
+  - After rollback, every guild signs with the process-wide secret again. A guild whose Core
+    was re-keyed to a per-guild value then fails signed routes until its Core is set back. The
+    rollback runbook lists those guilds using `actor_signing_secret IS NOT NULL` **before**
+    dropping.
+- **Requirement 26 evidence:**
+  - Copy the production mentat SQLite at the same size and structure. The copy is taken by the
+    operator, not by this session.
+  - Replace every secret column with dummy ciphertext.
+  - Run the v9→v10 migration on the copy. Record the timing and the before/after row count, and
+    confirm that `getGuild` and `upsertGuild` still work.
+  - Run the rollback SQL on the copy and confirm that v9 code starts on it.
+  - Post the results in the Phase 2a tracking issue.
+
+#### 3.5.3 Provisioning (who sets it, where, shown once, verified)
+
+**Generation.** The secret is always **256 random bits** from `crypto.randomBytes(32)`, encoded as
+64 hex characters. It is generated on **Core**, never in a browser. That follows the
+`stats_push_secret` and adapter-token precedents; the browser-generated pattern was tried and
+removed in mentat#194.
+
+mentat **accepts** only `^[0-9a-f]{64}$`. That rejects weak hand-typed values, and it also means
+the secret is never a guessable string.
+
+**Path 1 — hosted, Core-initiated (primary).** This is a Core change (K1–K3 below).
+1. When the Core operator connects to the hosted bot (the existing "Connect to hosted bot"
+   flow), Core first ensures an actor secret exists:
+   - If `DUNE_DISCORD_ACTOR_SECRET` (the direct env var) is set, Core **refuses** with "Remove
+     `DUNE_DISCORD_ACTOR_SECRET` from `.env` (it overrides the file) or paste its value
+     manually". It does not silently clear it, because unlike the adapter token, other
+     integrations may depend on it.
+   - Otherwise, if `DUNE_DISCORD_ACTOR_SECRET_FILE` exists, Core reuses the file.
+   - Otherwise, Core generates a new secret. It writes `runtime/secrets/discord-actor-secret.txt`
+     with mode 0600 and adds `DUNE_DISCORD_ACTOR_SECRET_FILE` to the hardcoded `MANAGED_ENV_KEYS`
+     set.
+
+   Core reads the file per request, so **no Core restart** is needed.
+2. Core includes `actorSigningSecret` in the same POST body that already carries `adapterToken`
+   (`/api/consoles/register`, and `/auto-invite/start` via mentat-link). It travels the same
+   HTTPS path as the bearer. mentat-link's proxy function must forward the field unchanged and
+   must never log bodies; its Layer 2 checks this.
+3. mentat validates the format, then runs the **self-check** (below) against the guild's
+   `console_url` using the submitted secret. Only on success does it store the encrypted value
+   and set `actor_signing_secret_set_at`/`_verified_at`.
+   - On failure, registration **still succeeds**: the adapter token path is unchanged. The
+     secret is **not stored**, and the response carries `actorSigning: "unverified"` with the
+     Core error code.
+   - Core's settings page shows the result, e.g. "Hosted bot connected; actor signing NOT
+     active: <reason>".
+
+**Path 2 — self-hosted/legacy setup portal (manual).**
+- The `/setup/register` form gains an optional **"Actor signing secret"** field:
+  `type="password"`, `autocomplete="off"`, never pre-filled, never echoed.
+- The operator copies the value from their Core. The Core settings page shows it **once**, when
+  generated, with a copy button (K3); afterwards it shows only the fingerprint. Operators who
+  manage `.env` by hand can use `cat runtime/secrets/discord-actor-secret.txt`.
+- An empty field means "leave unchanged", following the `statsPushSecret` "never a silent
+  opt-out" rule. Clearing it is explicit through the edit path (mentat#312), or by an operator
+  with DB access (runbook).
+- Submitting runs the same verify-then-store step as Path 1.
+- **The adapter-token field should become `type="password"` in the same PR.** It currently
+  exposes a live credential on screen (§3.5.1). That is a small adjacent fix, recorded as its own
+  finding.
+
+**Shown once; fingerprint for comparison.**
+- mentat **never** displays, returns or logs the secret.
+- Both sides display a **fingerprint**: the first 12 hex characters of
+  `SHA-256("mentat-actor-secret-fp:v1:" + secret)`.
+  - mentat shows it in the setup-portal status and in the registration response.
+  - Core shows it in Discord settings.
+- The operator can therefore confirm that both sides hold the same value without either side
+  revealing it. For a 256-bit random secret, a 48-bit hash prefix discloses nothing usable.
+
+**Self-check route (Core K2) — verifies end to end without a player.**
+- `POST /api/integrations/discord/actor-signature/check`:
+  - bearer auth plus `readJsonWithActorSignature(req, { requireActorSignature: true })`;
+  - no capability check, no DB access, no linked player;
+  - returns `{ ok: true, fingerprint }`.
+- The actor is synthetic: `userId` = the bot's application id, `guildId` = the guild being
+  checked, and fresh `interactionId`/`channelId` values. Core's `validateDiscordActor`
+  requirements for these fields are verified in Layer 2 (U14).
+- The route is rate-limited to 10 requests per minute per bearer and audited
+  (`discord.actor_signature.check`, with the outcome code, and no secret or fingerprint in the
+  log line).
+- It has its own `COMMAND_METADATA` entry: `group: "admin", subcommand: "signing-check"`,
+  internal, `params: []`.
+- mentat calls it at registration (above) and from the setup-portal status page ("Test
+  signing"). Neither costs Discord command budget.
+- On a Core older than K2, the route returns a JSON 404. mentat then stores nothing and reports
+  "your Core is too old for per-guild signing — update Core".
+
+**How it reaches whoever runs Core.** In Path 1, Core *is* the source of the secret, so nothing
+needs to be communicated. In Path 2, the Core operator is the person pasting the value. The
+fingerprint comparison is the confirmation in both cases.
+
+**Distinct per environment.** Each Core generates its own secret, so dune-dev and dune-prod
+differ by construction (CLOUD-8).
+- A guild pointed at a **cloned** Core (for example a disk clone, as in the 2026-09 prod1/prod2
+  history) inherits the clone's secret file. The runbook tells the operator to regenerate the
+  secret after cloning a Core (§3.5.4).
+
+**Core delta (Phase 2a):**
+
+| # | Change |
+|---|---|
+| K1 | `adapterSettings.js`: generate or reuse the actor secret file as described, with `DUNE_DISCORD_ACTOR_SECRET_FILE` added to `MANAGED_ENV_KEYS`, refusing when the direct var is set. `server.js` hosted `/register` and `/auto-invite/start` bodies gain `actorSigningSecret`. |
+| K2 | The `actor-signature/check` route, with an adapter route constant, a live-route list entry, catalog metadata, a limiter and audit. |
+| K3 | Discord settings UI: "Actor signing: configured (fingerprint `abc123…`)", a one-time reveal with a copy button right after generation, and "Regenerate" (§3.5.4). |
+| K4 | Tests and docs (§3.5.8, §3.5.9). |
+
+#### 3.5.4 Rotation (Requirements 27 and 7)
+
+**Hosted guild (Path 1), no restart on either side.**
+1. The Core operator clicks **Regenerate**. Core writes the new file, which takes effect for
+   verification immediately.
+2. Core immediately re-runs the registration POST with the new secret.
+   - This needs the operator's Discord OAuth session, exactly as the existing reconnect flow
+     does. If the session has expired, the UI requires re-authentication **before** step 1, so
+     the file is never rotated without being able to push it.
+3. mentat verifies and stores the new value.
+
+**Outage window.** Between steps 1 and 3, every signed request from mentat to that guild's Core
+fails with `invalid_actor_signature`. That covers link, verify, the write bridge and stock sync,
+and lasts about the length of one HTTPS round trip plus the self-check, i.e. seconds.
+- Users who hit it see the §3.5.7 "misconfigured" text and can simply retry.
+- Unsigned status reads also fail during the window, because a Core with a secret requires the
+  signature on every route (F3).
+- A dual-secret grace period on Core would remove the window. It is Open Decision 8.
+
+**Self-hosted guild (Path 2).** Regenerate on Core (the value is revealed once), then paste it
+into the setup portal. The window lasts from regenerate to paste: minutes. The runbook says to do
+this outside peak hours.
+- **If Core uses the direct `DUNE_DISCORD_ACTOR_SECRET` env var instead of the file,** changing it
+  needs a **Core restart**, which is a Requirement 7 confirmation. The runbook recommends
+  migrating to `_FILE` first.
+- **mentat never needs a restart for rotation.** Per-guild values are read from the DB per
+  request.
+
+**The process-wide secret** (`DUNE_DISCORD_ACTOR_SECRET` on the bot VM, still used by
+unprovisioned guilds) keeps its existing rotation procedure: both sides, both restarts, and a
+Requirement 7 confirmation. Its runbook entry is written in the same docs delta.
+
+**Rotation rollback.** If the new secret fails the self-check, mentat keeps the **old** stored
+value, because the step is verify-then-store. The Core operator restores the previous file from
+`runtime/secrets/discord-actor-secret.txt.prev`, which K1 writes before overwriting, and clicks
+reconnect.
+
+**Evidence.** Every rotation shows up in:
+- mentat's `secret_access_log`, as an `encrypt` row for `actor_signing_secret`;
+- mentat's `setup.actor_signing_secret_set` log line (guild id, fingerprint, outcome);
+- Core's audit log (`discord.actor_secret.regenerate`).
+
+#### 3.5.5 Signing resolution and backward compatibility
+
+`signingSecretForGuild(guildId, { purpose })`:
+
+| Guild state | `purpose: "legacy"` (every existing signed route, **including the write bridge**) | `purpose: "stock"` (the new route only) |
+|---|---|---|
+| Single-tenant (no DB) | process secret, or unsigned if unset (unchanged) | n/a (goals need the DB) |
+| Registered, `actor_signing_secret` NULL | process secret, or unsigned if unset (**byte-for-byte unchanged**) | **refuse**: `live_stock.signing_not_configured` |
+| Registered, secret set and verified | **the per-guild secret** | the per-guild secret |
+| Registered, secret set but decrypt fails | **refuse to sign** (no request sent; operator log `actor_secret.decrypt_failed`). It never falls back to the process secret, because that would send a signature Core rejects anyway and would hide the real fault. | refuse |
+| Unregistered or inactive guild (fallback config) | process secret (unchanged) | refuse (strict resolver, §3.1) |
+
+**Implementation.** `AdapterClient.request()` passes the resolved secret into
+`signedHeaders(actor, path, { secret })` and `writeBridgeSignedHeaders(..., { secret })`. The
+helpers gain an optional explicit-secret parameter; omitting it keeps today's `process.env`
+behaviour. Decryption happens in a new `getGuildActorSigningSecret(db, guildId)`, called **only**
+on the signing path, never inside `getGuild`.
+
+**Why the stock route needs a per-guild secret, with no shared-secret allowlist exception.**
+- The operator's own guilds can be provisioned through Path 2 in minutes: paste the value their
+  Core already holds, then rotate it later. So an exception buys nothing.
+- It would keep the shared-key posture that Open Decision 1 was decided against, on the most
+  sensitive new route.
+- The operator's own guilds also serve as the first live test of 2a.
+
+**Why the write bridge must switch too.** This is not optional.
+- Core holds exactly one secret and verifies every route with it (F3).
+- Once a guild's Core holds a per-guild value, any request still signed with the process secret
+  fails. Leaving the write bridge on the process secret would therefore **break writes** in every
+  provisioned guild.
+- Phase 2a switches **every** signed call site, through the single `request()` path.
+- **Risk:** a resolver bug would break links and writes, not just stock. Mitigations:
+  - unprovisioned guilds (NULL) are asserted byte-for-byte unchanged by a test that compares
+    signed headers before and after;
+  - rollout provisions dune-dev's guild first and exercises link, write-preview and self-check
+    there before any other guild.
+
+**Retiring the process-wide secret.** Once every registered guild has a per-guild secret, the
+process-wide secret remains only for single-tenant mode. Removing it is a follow-up and is out of
+scope for 2a.
+
+#### 3.5.6 Where 2b depends on 2a
+- `playerStock()` calls `signingSecretForGuild(guildId, { purpose: "stock" })`. With no verified
+  per-guild secret it makes **zero** requests and shows §6.5 "Live stock isn't set up for this
+  server yet. Ask a server admin." (log `live_stock.signing_not_configured`).
+- `actor_signing_secret_verified_at` must be non-null. It is set only by a successful self-check,
+  so a stored-but-never-verified value cannot exist.
+
+#### 3.5.7 Failure modes and diagnosis (CLOUD-1)
+
+Player text is what the Discord user sees. Operator text is in the setup-portal status, the
+self-check result and the logs. None of it ever contains the secret.
+
+| Condition | Detected as | Player sees | Operator sees |
+|---|---|---|---|
+| mentat has no per-guild secret (stock route) | resolver, no request | "Live stock isn't set up for this server yet. Ask a server admin." | setup status "Actor signing: not configured"; log `live_stock.signing_not_configured` |
+| Core has no secret (legacy routes: unsigned requests accepted, as today) | n/a | unchanged | status "not configured on Core" |
+| Core has no secret, mentat sends a signed request to a signature-required route | 403 `actor_signing_disabled` | "This game server isn't set up for signed requests. Ask a server admin." | "Core has no DUNE_DISCORD_ACTOR_SECRET(_FILE); reconnect to the hosted bot or set it" |
+| Values differ (pasted wrong, rotated on one side only, cloned Core) | 403 `invalid_actor_signature` (mismatch), or self-check failure | "The bot and this game server disagree on their shared key. Ask a server admin." | "signature mismatch: compare fingerprints (mentat `abc…` vs Core `def…`)". Self-check fails, so the value is **not stored** on a new submission. |
+| Clock skew beyond the window | 403 `stale_actor_signature` | "Please try again in a moment." | "clock skew over DUNE_DISCORD_ACTOR_SIGNATURE_MAX_SKEW_SECONDS; check NTP on the bot VM and the Core host" |
+| Signature headers missing (a mentat bug) | 403 `missing_actor_signature` | "Something went wrong on our side. Nothing was changed." | "bug: request sent unsigned" (this is also a test assertion) |
+| Stored ciphertext cannot be decrypted (KEK rotation mishap) | resolver | "Live stock isn't available right now." | log `actor_secret.decrypt_failed` + `secret_access_log decrypt_failed` |
+| Core older than K2 | self-check JSON 404 | n/a | "Core too old for per-guild signing; update Core" |
+| At-rest encryption not configured on the bot | at store time | n/a | Store is **refused**: "configure ACP_SECRETS_KEY_FILE / ACP_KEK_FILE first" (Open Decision 9) |
+
+#### 3.5.8 Tests (named)
+
+**mentat**
+
+| Id | Test |
+|---|---|
+| A-T1 | `schema v9→v10 migration adds the three nullable columns; existing guild rows intact; SCHEMA_VERSION 10` |
+| A-T2 | `v10 migration is not skipped on a DB already at v9 from #384` (fixture DB at 9 with `on_duty_role_id`) |
+| A-T3 | `rollback SQL returns a schema v9 code accepts` |
+| A-T4 | `setGuildActorSigningSecret stores ciphertext via encryptColumn, never plaintext, and logs an encrypt row in secret_access_log` |
+| A-T5 | `store refused when encryption is not configured` (Open Decision 9) |
+| A-T6 | `secret format: only 64 lowercase hex accepted; whitespace trimmed; empty field leaves the stored value unchanged` |
+| A-T7 | `verify-then-store: a failing self-check (each Core code) stores nothing and keeps the previous value` |
+| A-T8 | `signingSecretForGuild` table, one test per §3.5.5 row, **including**: NULL uses the process secret with signed headers byte-identical to before 2a; decrypt failure sends no request; stock never uses the process secret |
+| A-T9 | `write bridge in a provisioned guild signs with the per-guild secret` (WRITE_BRIDGE fields) and `in an unprovisioned guild is unchanged` |
+| A-T10 | `getGuild does not decrypt actor_signing_secret` (a decrypt failure cannot break unrelated commands) |
+| A-T11 | `the secret never appears in logs, errors, API responses, the setup-portal HTML (password input, never pre-filled) or redactSecrets output`. Also: `actorSigningSecret` is added to the `shouldRedactKey` set and is redacted in nested objects. |
+| A-T12 | `fingerprint is the SHA-256 prefix and differs from the secret; identical on the Core fixture` |
+| A-T13 | `/api/consoles/register and auto-invite accept actorSigningSecret; registration still succeeds without it or when it fails verification (actorSigning: "unverified")` |
+| A-T14 | `rotation: a new value replaces the old only after a successful self-check` |
+| A-T15 | `migration against a production-size copy` (a script run recorded as Requirement 26 evidence, not a unit test) |
+
+**Core**
+
+| Id | Test |
+|---|---|
+| K-T1 | `actor secret generation writes 0600 file, sets DUNE_DISCORD_ACTOR_SECRET_FILE, reuses an existing file` |
+| K-T2 | `generation refuses when DUNE_DISCORD_ACTOR_SECRET direct var is set` |
+| K-T3 | `hosted register and auto-invite bodies include actorSigningSecret; audit lines do not` |
+| K-T4 | `actor-signature/check: valid signature → ok+fingerprint; no secret → actor_signing_disabled; wrong secret → invalid_actor_signature; old timestamp → stale_actor_signature; missing headers → missing_actor_signature; rate limit → 429; every outcome audited without the secret` |
+| K-T5 | `regenerate keeps .prev and changes the fingerprint` |
+| K-T6 | `catalog includes admin:signing-check` |
+| K-T7 | `cross-repo pairing: a request signed exactly as mentat signs it (fixture copy of the signing function) verifies on the check route` |
+
+#### 3.5.9 Documentation impact (Phase 2a)
+
+| Doc | Change |
+|---|---|
+| mentat `docs/security/multi-tenant-secrets-at-rest.md` | Add `actor_signing_secret` to the encrypted-column inventory. Encryption is required for this column. |
+| mentat setup/user docs + `docs/faq.md` ("Is this bot secure?") | Per-guild signing; the fingerprint check; hosted versus self-hosted provisioning |
+| mentat `docs/architecture.md` | Signing resolution (§3.5.5) |
+| mentat `CHANGELOG.md` | Schema v10; the new field; write-bridge signing now per guild when provisioned |
+| Core `docs/security/discord-player-link-hardening.md` / `player-linking-security-architecture.md` | Their "actor signing is opt-in / not integrated" rows get a current-status update |
+| Core `docs/integrations/discord-integration/README.md`, `.env.example` | `DUNE_DISCORD_ACTOR_SECRET_FILE` is now generated. Direct var precedence warning. |
+| Core `docs/console/API-REFERENCE.md` | The check route |
+| Core `CHANGELOG.md` | "Connecting to the hosted bot now generates an actor signing secret. No action needed unless DUNE_DISCORD_ACTOR_SECRET is set directly." |
+| Rotation runbook (Core docs; mentat compliance runbooks) | §3.5.4 steps: the hosted and self-hosted paths, the process-wide secret, rollback, and regenerating after cloning a Core |
+
+#### 3.5.10 Reviewer questions for the Phase 2a Layer 1 (Eight Hats)
+These questions have **not** been dispatched yet. Layer 1 for 2a must be run as eight independent
+hats before implementation.
+
+- **Spoofing.**
+  - Can anyone other than the guild's owner, or that guild's Core, set or replace a guild's
+    secret? Path 1 inherits `verifyAndRegisterConsole`'s Discord-ownership re-verification.
+    Path 2 inherits the setup portal's OAuth state. Both need checking against the mentat#327–330
+    fixes.
+  - Can a registration for guild X carry a secret that verifies against guild Y's Core? It
+    cannot: the self-check targets X's own `console_url`.
+- **Information disclosure.**
+  - Could the secret leak through:
+    - the proxy (mentat-link Pages Function) or its logs;
+    - Express error bodies or `redactSecrets` gaps;
+    - the `secret_access_log`;
+    - the fingerprint;
+    - the pending auto-invite staging store, which already holds `adapter_token` in memory
+      (`database.js:967`)?
+  - Is plaintext possible at rest? That is Open Decision 9.
+- **Repudiation.** Is every set, rotate, verify and fail event attributable (who, when, which
+  guild) in both systems, without the value?
+- **Tampering.** Can a replayed registration request downgrade a guild to an old secret? The
+  self-check with the old value fails if Core already rotated. It passes if Core was rolled back
+  on purpose, which is then correct.
+- **DoS.**
+  - Can the self-check route be used to hammer Core? It is rate-limited, needs the bearer and
+    does no DB work.
+  - Does a decrypt failure take out every signed route for a guild? Yes, by design, fail closed.
+    Is that acceptable versus a silent fallback?
+  - Rotation window (Open Decision 8).
+- **Elevation of privilege.** Does 2a change any tier or capability? It must not: it changes
+  only which key signs.
+- **DBA.** v10 ordering against #384; production-size migration; rollback leaving Cores
+  mis-keyed.
+- **QA.** Is there a test proving unprovisioned guilds are byte-for-byte unchanged (A-T8)?
+- **Network.** A new outbound call from mentat to the console at registration time goes through
+  the same `secureFetchDispatcher` DNS-rebinding protection (mentat#393) as adapter calls.
+- **UX.** Can an operator tell, from the portal alone, whether signing is active and why not?
+
+**Findings about the current system surfaced while specifying 2a** (to be filed as their own
+issues, §14.1):
+- The legacy setup form shows the adapter token and the stats-push secret in visible `type="text"`
+  inputs.
+- At-rest encryption of per-guild secrets is optional. With no key configured they are stored in
+  plaintext, with only a startup log line.
+- Schema v9 is claimed by an unmerged PR while the production deploy branch already runs it (F8).
 
 ## 4. Proposed Core Change (additive; Requirement 0)
 
@@ -384,7 +769,8 @@ with a `DROP INDEX CONCURRENTLY` rollback (§17).
     control.
   - (c) Per-guild character disable state (`discord_account_link_guild_state`) is **not**
     consulted. This matches every sibling route (`duneDb.js:16597`–`:16600`) and is deferred with
-    a follow-up issue (§17). Under Option C only operator-run guilds are enabled.
+    a follow-up issue (§17). Only guilds that are allowlisted and have a per-guild secret
+    are enabled (§3.2).
 
 ### 4.3 `[D3]` Query semantics
 Illustrative shape; final SQL is re-derived against a real dune-dev `\d`.
@@ -529,7 +915,8 @@ Every request that reaches the handler writes one line,
 
 ### 4.8 `[D10]` Actor signature required
 The route passes `requireActorSignature: true`, so it fails closed when no secret is configured
-(`actor_signing_disabled`). Who can satisfy that in multi-tenant mode is §3.3 (Open Decision 1).
+(`actor_signing_disabled`). mentat signs it with the guild's verified per-guild secret
+(Phase 2a, §3.5.5).
 The route is new, so this cannot regress any current operator.
 
 ## 5. Meaning of the Numbers
@@ -587,18 +974,19 @@ second schema change. It is deferred with that justification (§17).
 | # | File | Change |
 |---|---|---|
 | M1 | `src/config.js` | `DEFAULT_PATHS["players-stock"]` / `DEFAULT_METHODS["players-stock"] = "POST"`, env overrides following `players-find`. Parse `MENTAT_LIVE_STOCK_GUILD_IDS` into `config.liveStock.guildIds` (a Set; empty by default). |
-| M2 | `src/adapterClient.js` | `resolveGuildConfigStrict(guildId)` (§3.1). `playerStock(actor, itemIds, guildId)`: strict config; body `{ actor, params: { itemIds } }`; signs with `STOCK_SIGNED_ACTOR_FIELDS` via `signingSecretForGuild`; refuses to send unsigned (§3.4). Add `"players-stock"` to `UNMERGED_ROUTES` (fork-only; classification is informational). Update `test/adapterClient.test.js:277`/`:301`, `test/adapterContract.test.js:112`, and the `UPSTREAM_CONTRACT` table (QA-2). |
+| M2 | `src/adapterClient.js` | `resolveGuildConfigStrict(guildId)` (§3.1). `playerStock(actor, itemIds, guildId)`: strict config; body `{ actor, params: { itemIds } }`; signs with `STOCK_SIGNED_ACTOR_FIELDS` using `signingSecretForGuild(guildId, { purpose: "stock" })` from Phase 2a; refuses to send unless a verified per-guild secret exists (§3.5.5, §3.5.6). Add `"players-stock"` to `UNMERGED_ROUTES` (fork-only; classification is informational). Update `test/adapterClient.test.js:277`/`:301`, `test/adapterContract.test.js:112`, and the `UPSTREAM_CONTRACT` table (QA-2). |
 | M3 | `src/actorSignature.js` | `STOCK_SIGNED_ACTOR_FIELDS`, identical to Core's C6. A `signedHeaders(actor, route, { secret, fields })` variant that throws on an empty secret instead of returning `{}`. Existing callers are unchanged. |
 | M4 | `src/commands.js` | Subcommand `/dune goal sync id:<int, autocomplete>`. **Preview only; there is no `apply` option** (§6.3). An `async executeGoalSync` is awaited in the existing async dispatch (`commands.js:567`–`:576`; this closes v1's U7). `actorFromInteraction` gains `interactionId: interaction.id` for this call. Personal-only autocomplete branch for `goal:sync` (ARCH-11). A `FORCE_EPHEMERAL_COMMANDS = new Set(["goal:sync"])` combined into the `deferReply` expression before `forcedPublic` (§6.8). Registered in `getCommandRegistry()` and `helpPayload()`. |
 | M5 | `src/commands.js` | Extract `goalValidNodes(goal)` from `executeGoalOnHand` (`:1416`–`:1436`), plus `syncNodes(goal)` (§5.3). Refactor only; existing on-hand behaviour is unchanged. |
 | M6 | `src/goalSyncConfirmation.js` (new) | Pending-preview store modelled on `writeConfirmation.js`: nonce → `{ userId, goalId, guildId, planned node values, snapshot of (quantity, updated_at) per node, expiresAt }`. TTL 120 s, in-memory, per process. Button handler for `Apply` and `Apply incl. decreases`. |
 | M7 | `src/cooldown.js` | Per-command duration override: `COMMAND_COOLDOWN_MS = { "goal:sync": 15000 }`. The admin shortcut does **not** apply to that key. `goal:sync` is excluded from the generic end-of-dispatch `applyCooldown` (`commands.js:996`); the handler applies it only after a Core request was actually sent (§6.7). |
 | M8 | `src/embedFormat.js` | `formatGoalSyncPreviewEmbed` / `formatGoalSyncAppliedEmbed`, using `duneEmbed` named colors (pitfall at `embedFormat.js:1822`). Copy in §6.6. |
-| M9 | `src/database.js` | Schema **v9**: additive nullable provenance columns on `goal_audit_log` (§7). `appendGoalAuditLog` accepts `{ source, sourceGuildId, sourceRef }`; typed on-hand writes pass `source: "manual"`. |
+| M9 | `src/database.js` | Schema **v11**: additive nullable provenance columns on `goal_audit_log` (§7). `appendGoalAuditLog` accepts `{ source, sourceGuildId, sourceRef }`; typed on-hand writes pass `source: "manual"`. |
 | M10 | `src/liveStockErrors.js` (new) | `liveStockErrorMessage(error)` keyed on Core `body.error`, with separate player-facing and log-only text (§6.5). |
 | M11 | docs | See §12. |
 
-**Dependency:** M4/M6 use `goalTransaction`, which is on PR **#435** (fixes **#428**) and not yet on
+**Dependencies:** Phase 2a (§3.5) must be merged, because M2 uses its `signingSecretForGuild`.
+In addition, M4/M6 use `goalTransaction`, which is on PR **#435** (fixes **#428**) and not yet on
 `main`. Implementation starts after #435 merges, or brings `goalTransaction` in unchanged (DBA-7).
 
 ### 6.2 `[D1]` Personal, active goals only
@@ -705,7 +1093,8 @@ adapter excerpt is **not** shown for this command.
 | Guild not on the allowlist | "Live stock isn't enabled for this server yet." + manual hint |
 | Guild not registered or inactive (strict resolver) | "This server isn't connected to a game server." + manual hint |
 | No syncable node | "Nothing in this goal can be read live. Use `/dune goal on-hand`." |
-| Signing secret missing in mentat | "Live stock isn't available right now. Ask the bot operator." (log: `live_stock.signing_secret_missing`) |
+| No verified per-guild signing secret (Phase 2a) | "Live stock isn't set up for this server yet. Ask a server admin." (log: `live_stock.signing_not_configured`) |
+| Per-guild secret cannot be decrypted | "Live stock isn't available right now." (log: `actor_secret.decrypt_failed`) |
 | 403 `not_linked` | "Link your character first: `/dune player link`." + manual hint |
 | 403 `not_authorized` | "Your role can't use live stock. Ask a server admin." |
 | 403 `actor_signing_disabled` | "Live stock isn't set up on this game server yet. Ask a server admin." (log: "operator: configure DUNE_DISCORD_ACTOR_SECRET on both sides") |
@@ -752,28 +1141,29 @@ update the same ephemeral message. This is tested (§11.2 M-T14).
 **Correction to v1 `[D2]`.** v1 said provenance "would need a table rebuild". That is overstated.
 Only extending the `action` CHECK list needs a rebuild. Nullable columns are additive.
 
-**Schema v8 → v9 (`src/database.js`):**
+**Schema v10 → v11 (`src/database.js`).** v9 is #384's migration and v10 is Phase 2a's (F8, §3.5.2). This is a separate migration in the 2b PR. It cannot share one with 2a, because 2a ships first as its own PR.
 ```sql
-ALTER TABLE goal_audit_log ADD COLUMN source TEXT;          -- 'manual' | 'live_sync'; NULL = row written before v9
+ALTER TABLE goal_audit_log ADD COLUMN source TEXT;          -- 'manual' | 'live_sync'; NULL = row written before v11
 ALTER TABLE goal_audit_log ADD COLUMN source_guild_id TEXT; -- guild whose Core was read (live_sync only)
 ALTER TABLE goal_audit_log ADD COLUMN source_ref TEXT;      -- Discord interaction id (correlates with Core's audit line)
 ```
-- **Mechanism:** a guarded `if (currentVersion.version < 9)` block that runs each `ALTER` in a
+- **Mechanism:** a guarded `if (currentVersion.version < 11)` block that runs each `ALTER` in a
   try/catch. This follows the v5→v6 `stats_push_secret` pattern (`database.js:285`–`:297`). The
-  fresh-install `CREATE TABLE` gains the same three columns. Bump `SCHEMA_VERSION` to 9.
+  fresh-install `CREATE TABLE` gains the same three columns. Bump `SCHEMA_VERSION` to 11.
 - **No CHECK** is added on `source`. Values are validated in `appendGoalAuditLog`, which avoids
   any future rebuild. `action` stays `on_hand_update` for sync writes.
-- **Backward compatible:** v8 code inserts an explicit column list (`database.js:1369`) and keeps
-  working against a v9 table. Old rows read `NULL`, rendered as "unknown (before v9)".
+- **Backward compatible:** v10 code inserts an explicit column list (`database.js:1369`) and
+  keeps working against a v11 table. Old rows read `NULL`, rendered as "unknown (before v11)".
 - **Rollback SQL:** `ALTER TABLE goal_audit_log DROP COLUMN source_ref; ... DROP COLUMN
   source_guild_id; ... DROP COLUMN source;` (SQLite 3.53.2 bundled, F8), then
-  `UPDATE schema_version SET version = 8`. Alternatively, leave the columns: v8 code ignores them.
+  `UPDATE schema_version SET version = 10`. Alternatively, leave the columns: v10 code ignores
+  them.
 - **Tests (§11.2 M-T18):**
-  - a v8 database with existing goal and audit rows upgrades to v9 with all rows intact and NULL
+  - a v10 database with existing goal and audit rows upgrades to v11 with all rows intact and NULL
     source;
   - `appendGoalAuditLog` writes and reads all three values;
-  - v8's insert statement succeeds against v9;
-  - the rollback SQL yields a v8-compatible table;
+  - v10's insert statement succeeds against v11;
+  - the rollback SQL yields a v10-compatible table;
   - the migration runs on a copy of a production-sized mentat DB, with size and structure but
     **not** real player data, and the timing is recorded (Requirement 26).
 - **Backups:** synced values are ordinary `goal_on_hand_entries` rows, captured by the existing
@@ -904,7 +1294,7 @@ fork-only, which is expected while the route is fork-only. The PR body says so.
 | M-T15 | `cooldown: goal:sync is 15 s via mock.timers (blocked at 14.9 s, allowed at 15.1 s), no admin shortcut, not applied after a local refusal, not applied to Apply buttons`; unique `userId` per test + `resetCooldowns` (QA-14) |
 | M-T16 | `goal sync: error mapping`, table-driven over every §6.5 row: player text + zero writes (includes `200 ok:false`, `200` non-JSON, `stale_actor_signature`, `adapter_disabled`, non-JSON 404) (ARCH-10, QA-9) |
 | M-T17 | `goal sync: logs contain no item ids, counts, roleIds, body or auth/signature headers` (CLOUD-6) |
-| M-T18 | `schema v8→v9 migration`: see §7 |
+| M-T18 | `schema v10→v11 migration`: see §7 |
 | M-T19 | `goal audit provenance: sync rows have source=live_sync + source_guild_id + source_ref; typed on-hand rows have source=manual` |
 | M-T20 | `contract: test/fixtures/adapter/players-stock.json is byte-identical to Core's (sha256 constant) and parses through the real validator` (QA-2) |
 | M-T21 | `goal journey (sync): create → sync preview → Apply → progress → on-hand override → sync (decrease shown, Apply skips it) → Apply incl. decreases → delete` with AzuriteOre, plus a craftable recipe containing water (QA-13; extends `test/commands.test.js:1186`) |
@@ -929,8 +1319,9 @@ fork-only, which is expected while the route is fork-only. The PR body says so.
 
 **Prerequisites**
 - Verify what dune-dev runs (U9).
-- dune-dev has its **own** bearer and actor secret, not prod's, checked by presence and hash only
-  (CLOUD-8).
+- dune-dev's guild has a **verified per-guild signing secret** (Phase 2a), and its fingerprint
+  matches the one dune-dev's Core shows and differs from prod's. dune-dev's bearer is its own, not
+  prod's, checked by presence only (CLOUD-8).
 - The dune-dev Discord guild is registered and active in mentat (§3.1).
 - The Steam-link review has been done (§4.2a).
 
@@ -1008,35 +1399,52 @@ issues (Requirement 20).
 | `docs/architecture.md` "Read Capabilities" (`:109`) | mentat | Add `players-stock` and the signed-fields note |
 | `docs/user-guide.md` goal table (`:110`–`:118`) | mentat | `/dune goal sync`, buttons, what is counted, manual-only nodes |
 | `docs/crafting-resource-planning-overview.md` | mentat | Phase 2 status |
-| `docs/superpowers/specs/2026-09-29-goal-order-tracking-design.md` | mentat | Cross-reference: `sync` subcommand and v9 audit columns |
-| `CHANGELOG.md` | mentat | Entry, including schema v9 and `MENTAT_LIVE_STOCK_GUILD_IDS` |
+| `docs/superpowers/specs/2026-09-29-goal-order-tracking-design.md` | mentat | Cross-reference: `sync` subcommand and v11 audit columns |
+| `CHANGELOG.md` | mentat | Entry, including schema v11 and `MENTAT_LIVE_STOCK_GUILD_IDS` |
 | `.env.example` / config docs | mentat | `MENTAT_LIVE_STOCK_GUILD_IDS` (empty = off, restart to change) |
 | `docs/faq.md` / privacy text | mentat | One sentence on on-request game-data reads, if absent (§8) |
+| Phase 2a docs | both | See §3.5.9. They ship with the Phase 2a PRs, not with this PR. |
 | `README` Live Systems (meta repo) | meta | Only if the bot VM `.env` gains the allowlist (Requirement 23 not triggered: no new ingress) |
 
 ## 13. Rollout and Rollback
 
 **Rollout order**
+
+*Phase 2a, per-guild signing (§3.5):*
+- A0. Governance steps (§14.1). Run the Phase 2a Layer 1 (§3.5.10). Confirm #384 has merged
+  (schema v9). Settle Open Decision 9 and verify U12.
+- A1. A Core session implements K1–K4 and runs its Layer 2. It merges to fork `main`, and the
+  operator deploys the result to dune-dev.
+- A2. mentat implements the Phase 2a changes, runs Layer 2 and Layer 3, and merges.
+- A3. Deploy mentat. With no guild provisioned, the behaviour is byte-for-byte unchanged (A-T8).
+- A4. Provision dune-dev's guild (Path 1 or Path 2). Compare fingerprints. Exercise the self-check,
+  `/dune player link`/verify and a write-bridge preview there.
+- A5. Provision dune-prod's guild. This needs operator approval, and the Core deploy there is done
+  by the operator.
+
+*Phase 2b, stock route and sync:*
 0. Governance steps (§14.1).
-1. The Core session implements, tests and runs Layer 2, then merges to fork `main` (§14.3
-   lifecycle).
+1. The Core session implements the stock route, tests it and runs Layer 2, then merges to fork
+   `main` (§14.3 lifecycle).
 2. The operator deploys Core to dune-dev.
 3. UAT steps 0–5.
-4. mentat branch `feat/goal-live-sync` after PR #435 merges and after Open Decision 5 is settled:
-   implementation, Layer 2 and Layer 3 (`/code-review high`), then merge.
+4. mentat branch `feat/goal-live-sync` starts after two things: PR #435 has merged, and Phase 2a
+   is merged, deployed and provisioned on dune-dev. It then goes through implementation, Layer 2
+   and Layer 3 (`/code-review high`), and is merged. Open Decision 5 was decided on 2026-09-29.
 5. Deploy mentat via `git push deploy deploy`, with the guardrail hook. The allowlist is still
    empty, so this is a no-op for users.
 6. Add the dune-dev guild id to `MENTAT_LIVE_STOCK_GUILD_IDS`. This is a Requirement 7
    bot restart.
 7. UAT step 6.
-8. dune-prod only with explicit operator approval, after the Core side is deployed there by the
-   operator and the §4.2a review has been done for prod.
+8. dune-prod only with explicit operator approval, after three things: the Core side is deployed
+   there by the operator, prod's guild has a verified per-guild secret, and the §4.2a review has
+   been done for prod.
 
 Never allowlist a guild whose Core lacks the route. That would be harmless (FM1) but noisy.
 
 **Rollback**
 - **mentat:** remove the guild id from the allowlist, which is a Requirement 7 restart and
-  **not instant**. Or revert the merge. Schema v9 columns may stay, because v8 code ignores them;
+  **not instant**. Or revert the merge. Schema v11 columns may stay, because v10 code ignores them;
   otherwise run the §7 rollback SQL. Already-applied on-hand numbers are ordinary saved entries the
   player can edit.
 - **Core:** revert the route. There is no schema, data or index to undo, and nothing else calls it.
@@ -1057,11 +1465,12 @@ Never allowlist a guild whose Core lacks the route. That would be harmless (FM1)
      (Requirement 20).
    - (b) Core issue with a self-contained implementation prompt covering C1–C9, §4 and §11.1.
      This session **hands off** and does not implement it (Requirement 18).
-   - (c) mentat issue for Open Decision 1 option A (per-guild actor secret, including the write
-     bridge).
+   - (c) Phase 2a issues, one in mentat and one in Core with an implementation prompt (§3.5).
+     Also the three current-system findings from §3.5.10, and a check that #384 has claimed v9.
    - (d) Follow-ups listed in §17.
    - mentat#433 (moderator-tier gap) already exists. The Layer 2 plan must reference it, and it
-     must be verified on dune-dev with dune-dev's own bearer and actor secret (GRC-4, CLOUD-8).
+     must be verified on dune-dev with dune-dev's own bearer and its own per-guild actor secret
+     (GRC-4, CLOUD-8).
 3. **Requirement 29:** re-verify Core `origin/main` (this design cites `ace31877`, 2026-09-27)
    and mentat `main` when branches are cut and again before marking PRs ready. Re-run the §2
    citations that changed.
@@ -1098,12 +1507,14 @@ Never allowlist a guild whose Core lacks the route. That would be harmless (FM1)
 | R5 | Two guilds / two Cores overwrite each other | Medium → Low | Source line, last-source display, persisted `source_guild_id` |
 | R6 | DB/pool degradation | Medium → Low | Semaphore, per-actor limiter, 2 s timeout, read-only, lock_timeout, EXPLAIN gate |
 | R7 | Live decrease overwrites a manual number | Medium → Low | Decreases need a separate button; CAS; restore hint |
-| R8 | Provenance lost | Low → resolved | v9 columns |
+| R8 | Provenance lost | Low → resolved | v11 columns |
 | R9 | Route classification in mentat tracks Red-Blink | Low | `UNMERGED_ROUTES` + updated tests |
 | R10 | API-REFERENCE drift | Low → resolved | Fixed in the Core PR |
-| R11 | Shared signing key across tenants | High → gated | Open Decision 1 (C for v1; A before hosted tenants) |
+| R11 | Shared signing key across tenants | High → Low | Decided: per-guild secret (Phase 2a); the stock route never uses the process secret |
+| R14 | Phase 2a regression breaks link/write signing for provisioned guilds | Medium | A-T8/A-T9 byte-for-byte test for NULL guilds; verify-then-store; dune-dev first (§3.5.5) |
+| R15 | Schema-version collision with #384 (v9) | High → Low | v10/v11 numbering; A-T2; merge after #384 (F8) |
 | R12 | Historic unverified links become read credentials | Medium | §4.2a pre-enable review; Open Decision 6 |
-| R13 | Command budget exhaustion | Medium | Open Decision 5 |
+| R13 | Command budget exhaustion | Medium → Low | Decided: `sync` takes 20 chars (7493/7500); everything after goes through the `/dune` split (mentat#423) |
 
 ## 16. Unverified (could not be established from git objects)
 - **U1** Every bridge id's live spelling (UAT step 1).
@@ -1118,8 +1529,11 @@ Never allowlist a guild whose Core lacks the route. That would be harmless (FM1)
 - **U10** Any global limiter in front of the adapter (`server.js`).
 - **U11** When `player_state.player_pawn_id` is NULL or 0 on a live server (for example while
   offline). The design is safe either way (§4.3.4).
-- **U12** Whether `DUNE_DISCORD_ACTOR_SECRET` is configured and identical on the bot VM, dune-dev
-  and dune-prod (check by presence and hash only).
+- **U12** Two related checks, both done by presence and fingerprint only:
+  - whether the process-wide `DUNE_DISCORD_ACTOR_SECRET` is configured on the bot VM, dune-dev and
+    dune-prod today (it still matters for unprovisioned guilds and the rollback, §3.5.2);
+  - whether `ACP_SECRETS_KEY(_FILE)` / `ACP_KEK_FILE` is configured on the bot VM. Open Decision 9
+    makes that a precondition for storing any per-guild signing secret.
 - **U13** Whether the operator's own Discord guilds are registered `guilds` rows, or rely on the
   global adapter fallback. If they rely on the fallback, registering them is a prerequisite of
   §3.1.
@@ -1130,8 +1544,11 @@ Never allowlist a guild whose Core lacks the route. That would be harmless (FM1)
 `executeDuneCommand` try block after `deferReply`.)
 
 ## 17. Follow-Up / Deferred Work (each gets an issue, §14.1)
-- **Per-guild actor secret (Open Decision 1 option A)**, covering the write bridge too. This is a
-  prerequisite for any hosted tenant.
+- **Retire the process-wide actor secret** for multi-tenant mode once every registered guild is
+  provisioned (§3.5.5).
+- **Dual-secret rotation grace on Core**, if Open Decision 8 is revisited.
+- **"Edit my existing guild" setup path** (mentat#312). Rotation and clearing through the portal
+  depend on it.
 - **Sync all active goals in one call.** Deferred because it needs a multi-goal preview embed and
   batching past 16 ids, and 5 goals × 15 s is tolerable for v1 (UX-9).
 - **Baseline ("gained since creation") semantics** (ARCH-5). Needs a stored per-goal baseline.
@@ -1151,20 +1568,9 @@ Never allowlist a guild whose Core lacks the route. That would be harmless (FM1)
 
 ## 18. Open Decisions for the Operator
 
-1. **Actor signing in multi-tenant mode** (§3.3).
-   - **Question:** which tenants can use live stock, and with what signing key?
-   - **Options:**
-     - A: per-guild encrypted secret column;
-     - B: HKDF-derived per-guild keys;
-     - C: v1 limited to guilds whose Core already shares the bot's secret (your own Cores),
-       enforced by the allowlist;
-     - D: signature optional.
-   - **Tradeoffs:**
-     - A is the correct long-term answer, and also fixes the write bridge, but it is its own
-       design and migration.
-     - B breaks two guilds sharing one Core and concentrates risk in one master key.
-     - D weakens the only defence against a leaked bearer on a new Player-data read.
-   - **Recommendation: C now, file A.**
+1. **Actor signing in multi-tenant mode** — **DECIDED 2026-09-29: option A, a per-guild
+   encrypted signing secret** (not the recommended option C). It is specified as Phase 2a (§3.5)
+   and ships before the sync command.
 2. **Player-tier capability.**
    - **Question:** grant new `STOCK_SELF_READ` to `observer`+, or reuse `INVENTORY_READ`
      (moderator+)?
@@ -1182,14 +1588,10 @@ Never allowlist a guild whose Core lacks the route. That would be harmless (FM1)
      decrease from live data, so a decrease is always typed manually.
    - **Tradeoff:** (a) is convenient but can still overwrite a correct number the query can't
      see. (b) is safest but leaves stale high numbers for players who really spent stock.
-5. **Command budget (UX-1).** `sync` + "Live stock." + `id` + "Id." costs **20 chars**: 7473 →
-   7493 of the 7500 target.
-   - **Options:**
-     - (a) take it now; no re-baseline; everything after needs mentat#423 or a named trim;
-     - (b) sequence implementation after the `/dune` split (mentat#423);
-     - (c) trim a named description first.
-   - **Recommendation:** (a). The button design already removed the `apply` option, and leaving
-     7 chars of headroom is acceptable only because #423 is the agreed next step.
+5. **Command budget (UX-1)** — **DECIDED 2026-09-29: take the 20-char `sync` cost now.** The
+   budget goes from 7473 to 7493 of the 7500 target, with no re-baseline. Every later subcommand
+   goes through the `/dune` split (mentat#423; a separate design is being drafted). The budget
+   test stays at ≤ 7500.
 6. **Links from the disabled Steam path** (§4.2a).
    - **Question:** if the pre-enable review finds `discord_account_links` rows that cannot be
      shown to be whisper-verified, what happens to them?
@@ -1201,3 +1603,19 @@ Never allowlist a guild whose Core lacks the route. That would be harmless (FM1)
    - **Question:** fork-only first, or plan a Red-Blink PR?
    - **Recommendation:** fork-only first, under the internal branch lifecycle (§14.3). Any
      upstream PR later starts from `upstream/main` (Core #1086) and passes gates a–g.
+8. **Rotation grace (Phase 2a, §3.5.4).**
+   - **Question:** should Core accept the previous actor secret for a short grace period after
+     Regenerate, which would remove the rotation outage window?
+   - **Options:** (a) no grace; (b) Core also accepts `discord-actor-secret.txt.prev` for N
+     minutes (N ≤ 10).
+   - **Tradeoff:** (a) causes seconds of failed signed requests on the hosted path, and minutes on
+     the manual paste path. (b) removes that, but it widens the window in which a leaked old secret
+     still works, and it adds Core complexity to the signature check.
+   - **Recommendation:** (a) for 2a. The hosted path's window is one round trip. Revisit if manual
+     rotations cause user-visible failures.
+9. **Require at-rest encryption before storing a per-guild signing secret (Phase 2a, §3.5.7).**
+   - **Options:** (a) refuse to store the secret unless `ACP_SECRETS_KEY(_FILE)`/`ACP_KEK_FILE` is
+     configured; (b) store it in plaintext with a warning, as adapter tokens are today.
+   - **Tradeoff:** (a) blocks Phase 2a on a bot host without a key. (b) leaves an HMAC key that
+     gates cross-player reads readable in the SQLite file and its backups.
+   - **Recommendation:** (a). Verify the bot VM's key configuration first (U12).
