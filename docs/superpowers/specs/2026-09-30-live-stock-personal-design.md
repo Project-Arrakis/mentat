@@ -261,9 +261,33 @@ lubricant ids (DBA-1).
 - **Persisted source:** the guild id and interaction id go into the audit rows (§7). A later
   dispute can then identify which server produced a number (NET-5, GRC-1).
 - **Global goals versus per-guild stock:** personal goals are global across Discord servers
-  (Phase 3). The preview always shows the saved value, who set it, when, and **from where** (the
-  last audit row's `source_guild_id`). A player who syncs one goal from two guilds therefore sees
-  "last synced from Server A" before overwriting it from Server B (FM10, UX-6).
+  (Phase 3). The preview always shows the saved value, who set it, when, and **whether it came
+  from this server** (the last audit row's `source_guild_id` compared with `interaction.guildId`).
+  If it matches, the preview names this server from its own `guilds` row. If it does not, the
+  preview says "last synced from another Discord server" and **never looks up the other guild's
+  `guilds` row, name, Core URL or secret** (tenant isolation invariant below). A player who syncs one
+  goal from two guilds therefore still sees the warning before overwriting it (FM10, UX-6).
+  (Corrected in v2 after the operator's tenant isolation requirement: the earlier text, "last
+  synced from Server A" shown in Server B, implied resolving another guild's row.)
+- **Tenant isolation invariant (operator requirement, binding).** Each Discord guild is a distinct
+  tenant bound to its own `guilds` row: its own encrypted `adapter_token`, its own `console_url`
+  and (after Phase 2a) its own `actor_signing_secret` (`src/database.js:19-20, 519-549`). There is
+  one shared `DISCORD_BOT_TOKEN` (`src/config.js:212`); isolation is the per-guild row. **There are
+  no cross-guild commands.** For this feature:
+  - `goal sync` and its Apply buttons take **no guild, tenant or server parameter**; the guild is
+    only ever `interaction.guildId` (for buttons, the guild of the button interaction, which must
+    equal the guild stored with the preview, else the button refuses).
+  - A stock query for guild A uses **only** guild A's `console_url`, `adapter_token` and verified
+    per-guild signing secret, through `resolveGuildConfigStrict(A)` and
+    `signingSecretForGuild(A, { purpose: "stock" })`. It can never use guild B's values, the process
+    config or the process-wide secret.
+  - The only cross-server state is the user's **own** personal goal (global by Phase 3 design);
+    nothing guild-scoped from another guild is read.
+  - The pre-existing process-wide actor secret that `purpose: "legacy"` routes still use for
+    unprovisioned guilds (§3.5.5) is shared by value but never selects a tenant: every request still
+    goes to the invoking guild's own `console_url` with its own `adapter_token`. It is never used for
+    stock, and retiring it is a follow-up (§17).
+  - Tests: M-T24 (below).
 
 ### 3.2 `[D19]` Rollout control: per-guild allowlist, restart to change
 - The kill switch is `MENTAT_LIVE_STOCK_GUILD_IDS`, a comma-separated list of Discord guild ids
@@ -1019,6 +1043,8 @@ replies "Sync works on active goals only."
 5. On click, the handler does the following:
    - It refuses a non-owner click, and refuses an expired or unknown nonce with "Preview expired —
      run `/dune goal sync` again". A bot restart also expires every preview.
+   - It refuses a click whose `guildId` differs from the guild stored with the preview nonce
+     (tenant isolation invariant, §3.1), with zero writes.
    - It then opens **one** `goalTransaction` (IMMEDIATE, §6.4 step 3) and writes.
 6. The nonce is deleted on first use, so double clicks are idempotent.
 
@@ -1300,6 +1326,7 @@ fork-only, which is expected while the route is fork-only. The PR body says so.
 | M-T21 | `goal journey (sync): create → sync preview → Apply → progress → on-hand override → sync (decrease shown, Apply skips it) → Apply incl. decreases → delete` with AzuriteOre, plus a craftable recipe containing water (QA-13; extends `test/commands.test.js:1186`) |
 | M-T22 | `command budget stays ≤ 7500` (the existing test, not re-baselined); `getCommandRegistry()`/`helpPayload()` include `goal sync`; `goal:sync` autocomplete returns no guild goals for admins (UX-1, ARCH-11) |
 | M-T23 | `goalValidNodes refactor: existing on-hand tests unchanged and green` |
+| M-T24 | `tenant isolation (two-guild fixture)`: guilds A and B with distinct `guilds` rows (`adapter_token`, `console_url` to distinct stub Cores, per-guild signing secrets). `goal sync` preview, Apply, decreases-Apply, autocomplete and every error path from guild A read only A's row, send only to A's stub Core with A's token and A's secret, never B's or the process config/secret; an Apply button replayed in guild B for a preview made in A refuses with zero writes; the last-source line for a goal last synced in B shows "another Discord server" without reading B's row; `commandDefinitions()` has no option named `guild`, `guild_id`, `tenant` or `server_id` on `goal sync` (operator tenant isolation requirement) |
 
 ### 11.3 One canonical contract fixture (QA-2, QA-12)
 - `players-stock.json` is committed in Core (`console/api/test/fixtures/`) and copied

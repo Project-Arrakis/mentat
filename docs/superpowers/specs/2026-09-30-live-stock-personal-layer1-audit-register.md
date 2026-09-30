@@ -180,6 +180,12 @@ correctness, UX or governance defect with no STRIDE mapping.
 | QA-13 | Low | N/A | Goal journey E2E not extended | Resolved M-T21 |
 | QA-14 | Low | N/A | Cooldown timing and flakiness | Resolved M7, M-T15 (mock timers, unique users, reset) |
 
+## Operator requirements (binding, not findings; not counted above)
+
+| ID | Source | STRIDE | Requirement | Disposition |
+|---|---|---|---|---|
+| OP-1 | Operator, 2026-09-29 | Info. Disclosure, EoP (cross-tenant) | **Tenant isolation invariant:** each Discord guild is a distinct tenant bound to its own `guilds` row (encrypted `adapter_token`, own `console_url`, and after Phase 2a its own signing secret); one shared `DISCORD_BOT_TOKEN`; no cross-guild commands. A stock query for guild A can only use guild A's Core URL, token and signing secret; no guild parameter anywhere. | **Resolved by design:** v2 §3.1 (invariant added to the strict per-guild resolver section: 1 guild = 1 Core, no guild parameter, button guild must equal the preview's guild, process-wide legacy secret never selects a tenant and is never used for stock), §6.3 step 5 (cross-guild button refusal), M-T24 (two-guild fixture). **Text corrected:** v2 §3.1's "last synced from Server A" shown in Server B implied resolving another guild's row; it now says "another Discord server" and never reads that row. No other Phase 2/2a text was found implying cross-guild lookup; §3.3 options B and C (shared or derived keys) remain recorded as rejected. |
+
 ## Cross-hat conflicts and adjudications
 
 1. **ARCH-1(i) "make the signature optional" vs SEC-3/CLOUD-3 "per-guild secret".**
