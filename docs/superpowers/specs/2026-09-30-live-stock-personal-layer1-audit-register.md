@@ -32,8 +32,8 @@ Architect, Security, GRC, Network, Cloud Security, UI/UX, DBA and QA.
 - ARCH-1, SEC-3 and CLOUD-3 moved from "pending OD 1" to resolved. UX-1's sequencing question is
   closed.
 - Phase 2a is new design material. It needs **its own Layer 1** before implementation: the
-  question list is in v2 §3.5.10, and the dispatch has not run yet. Its findings will go in a
-  separate register.
+  question list is in v2 §3.5.10. (Round 2 update: that dispatch ran on v2 `2dd3158`; its findings
+  are in the "Round 2" section at the end of this file, not a separate register.)
 
 No finding was rejected outright. Two **sub-claims** were rejected with evidence:
 - QA-3's claim that CI silently skips the integration tests;
@@ -100,14 +100,14 @@ correctness, UX or governance defect with no STRIDE mapping.
 | DBA-9 | Low | Tampering, DoS | Read-only by convention; lock queue unbounded | Resolved §4.5 (`set transaction read only`, `lock_timeout 500ms`), T9 |
 | DBA-10 | Low | N/A | Snapshot consistency needs a single statement | Resolved §4.3.5, T13 |
 | DBA-11 | Low | N/A | Item-owned and vehicle-module inventories not listed as exclusions | Resolved §4.3.7, T4 |
-| DBA-12 | Low | Repudiation | "Needs a table rebuild" overstated | Resolved §7 (v1 claim corrected; additive v9 columns designed with Requirement 26 rollback) |
+| DBA-12 | Low | Repudiation | "Needs a table rebuild" overstated | Resolved §7 (v1 claim corrected; additive **v11** columns designed with Requirement 26 rollback; corrected in round 2 from "v9") |
 | DBA-13 | Info | N/A | OD9 should cite `ensureItemAuditLogIndexes` precedent | Resolved §17 (precedent cited; the stricter choice is stated as deliberate) |
 
 ### GRC
 
 | ID | Sev | STRIDE | Title | Disposition |
 |---|---|---|---|---|
-| GRC-1 | High | Repudiation | Sync audit rows cannot show sync or server | Resolved §7 (`source`, `source_guild_id`, `source_ref`, schema v9, rollback, tests M-T18/M-T19). R8 is re-rated and resolved. |
+| GRC-1 | High | Repudiation | Sync audit rows cannot show sync or server | Resolved §7 (`source`, `source_guild_id`, `source_ref`, schema **v11** — corrected in round 2 from "v9", rollback, tests M-T18/M-T19). R8 is re-rated and resolved. |
 | GRC-2 | High | Repudiation | Core audit line lacks target character, outcome and correlation | Resolved §4.7 (`playerControllerId`, `outcome`, `interactionId`, `guildId`, denials audited, retention stated), T15 |
 | GRC-3 | Med | N/A | Doc updates incomplete; "or file it" escape | Resolved §12 (Documentation Impact table, a required PR-body section; API-REFERENCE fixed in the same PR) |
 | GRC-4 | Med | N/A | Moderator-tier gap untracked | Resolved: tracked as **mentat#433** (open, verified). §14.1 requires verification on dune-dev with its own secrets. |
@@ -115,7 +115,7 @@ correctness, UX or governance defect with no STRIDE mapping.
 | GRC-6 | Med | N/A | Requirement 18/28 sequencing contradictory, no evidence | Resolved §4 ownership paragraph, §14.1 (hand-off; Requirement 28 check run and recorded 2026-09-29) |
 | GRC-7 | Med | Repudiation | Requirement 19 gates not one-to-one; lifecycle conflated | Resolved §14.2 (a–g table, e = N/A with reason), §14.3 (fork-only internal lifecycle), OD 7. The claim that 19b is "not achievable" is **rejected**: dune-dev is a live server and one full session with the operator satisfies 19b as written. |
 | GRC-8 | Low | N/A | Secret provisioning and rotation not referenced | Resolved §3.4, §12 runbook row |
-| GRC-9 | Low | N/A | Requirement 26 statement missing | Resolved §4.1 (Core: N/A), §7 (mentat: v9 migration with rollback) |
+| GRC-9 | Low | N/A | Requirement 26 statement missing | Resolved §4.1 (Core: N/A), §7 (mentat: **v11** migration with rollback; corrected in round 2 from "v9") |
 | GRC-10 | Low | N/A | Changelog must state operator requirements | Resolved §12 Core CHANGELOG row |
 
 ### Network (NET)
@@ -214,7 +214,7 @@ correctness, UX or governance defect with no STRIDE mapping.
 |---|---|---|---|
 | **Spoofing** | ARCH-1, SEC-2, SEC-3, CLOUD-1, CLOUD-2, CLOUD-3, CLOUD-8, NET-1 | High | Resolved in design. ARCH-1/SEC-3/CLOUD-3 are resolved through Phase 2a's per-guild secret (OD 1 decided 2026-09-29; Phase 2a Layer 1 pending). SEC-2 is pending OD 6 (the pre-enable review gate is designed). |
 | **Tampering** | SEC-1, SEC-5, SEC-8, SEC-9, ARCH-8, DBA-9, NET-2, QA-2, UX-2 | High | Resolved in design |
-| **Repudiation** | GRC-1, GRC-2, GRC-7, DBA-7, DBA-12, SEC-10, CLOUD-2, CLOUD-7, NET-5, ARCH-8 | High | Resolved in design (v9 provenance columns, Core audit on every outcome, shared correlation id) |
+| **Repudiation** | GRC-1, GRC-2, GRC-7, DBA-7, DBA-12, SEC-10, CLOUD-2, CLOUD-7, NET-5, ARCH-8 | High | Resolved in design (v11 provenance columns — corrected in round 2 from "v9", Core audit on every outcome, shared correlation id) |
 | **Information Disclosure** | SEC-2, SEC-6, SEC-7, SEC-8, SEC-11, GRC-5, NET-1, NET-6, CLOUD-5, CLOUD-6, CLOUD-8, UX-11, ARCH-12, QA-1 | High (NET-1, QA-1) | Resolved in design. NET-6's cleartext LAN hop is deferred as pre-existing and documented. |
 | **Denial of Service** | ARCH-1, ARCH-4, SEC-1, SEC-4, DBA-3, DBA-4, DBA-9, NET-3, NET-4, CLOUD-1, CLOUD-4 | High | Resolved in design (Core semaphore/limiter/timeouts, per-command cooldown, fail-closed diagnosis) |
 | **Elevation of Privilege** | SEC-1, SEC-3, CLOUD-3, CLOUD-5 | High (SEC-1) | Resolved in design (SEC-3 and CLOUD-3 via Phase 2a) |
@@ -235,7 +235,280 @@ Every STRIDE category has at least one finding in this layer. None is N/A.
   filed (§14.1). Link the Core issue.
 - File the deferred items (§17) as issues. Each carries the justification recorded here.
 - OD 1 and OD 5 are decided. OD 2–4 and OD 6–9 remain. OD 8 and OD 9 are new with Phase 2a.
-- Run the Phase 2a Layer 1 dispatch (v2 §3.5.10) before any Phase 2a implementation.
-- Phase 2a must merge before Phase 2b, and so must mentat PR #384, which holds schema v9.
+- Run the Phase 2a Layer 1 dispatch (v2 §3.5.10) before any Phase 2a implementation. (Done: Round 2 below.)
+- Phase 2a must merge before Phase 2b, and so must mentat PR #384, which holds schema v9. (Round 2: the real gate is mentat#438 resolved, not only #384 merged; see D16.)
 - Layer 2 (per repo, implementation) and Layer 3 (`/code-review high` on each PR) follow. The
   §11.4 UAT step 0 must be done before Layer 2.
+
+---
+
+# Round 2 — Layer 1 re-audit of design v2 including the Phase 2a addendum (§3.5)
+
+**Audited version:** v2, commit `2dd3158`. It was the first audit of Phase 2a.
+**Dispositions refer to:** design **v3** in the same file. `§n` is a v3 section and `OD n` is an item of v3
+§18.
+
+**Layer:** Requirement 20, Layer 1, round 2. There were eight independent hat dispatches: Architect
+(ARCH2), Security (SEC2), GRC (G2), Network (NET2), Cloud Security (C2), UI/UX (UX2), DBA (DBA2)
+and QA (QA2).
+
+**Evidence base:**
+- Core: `origin/main` `ace31877`, which is still Core `main` on 2026-09-29.
+- mentat: worktree `phase2-design` and `origin/main` `db3db83` (PR #435 merged 2026-09-30T00:18Z).
+- The local `deploy/deploy` ref is `be8f605`. It was **not** re-fetched from the bot VM and may be stale.
+
+Every finding that a v3 design change depends on was spot-verified against code (`file:line`)
+before disposition. Corrected hat claims are listed below.
+
+**Issues filed for this round** (Requirement 20: issues first, then design edits). All are on board
+Project 1 with Priority and Workstream set.
+
+| Issue | Severity | Clusters |
+|---|---|---|
+| mentat#443 | High | D01, D04, D06, D14, D15, D18: provisioning handshake, rollout order, registration budget, existing secrets, one signer per Core, auto-invite |
+| mentat#444 | High | D02: signed `guildOwnerId` (signature v2) |
+| mentat#445 | High | D03, D11, D13, D19, D20, D28: binding, atomic strict resolver, self-check, signing API, `getGuild`, revocation |
+| mentat#446 | High | D05, D16, D17, D30, D36–D39: migration fail-closed, storage integrity, #438 sequencing, rollback |
+| mentat#447 | High | D07, D08, D09, D41: operator status surface, secret-only update path, copy table |
+| mentat#448 | High | D10, D12, D46–D52: golden vectors and drift gate, UAT executability, QA mediums |
+| mentat#449 | Medium | D22–D27: Requirement 27 cadence and rehearsal, docs and inventory, evidence map, stale facts, upstream sequencing, attribution |
+| mentat#450 | Low | D53–D75: bundled Lows with dispositions |
+| dune-awakening-selfhost-docker#1088 | High | Requirement 18 Core hand-off: K1–K5 (pending/promote/revert, check route, v2 `guildOwnerId`, fail-closed managed file, console authz), plus the appendix of 2b stock-route changes (D21, D29, D32–D35, D40) |
+
+Also added to the board in this round, because Requirement 15 found them missing: mentat#434 (the
+tracking issue), mentat PR #437 and mentat#438.
+
+## Round 2 counts
+
+**Per hat (raw, as each hat reported, corrected where noted):**
+
+| Hat | Critical | High | Medium | Low | Total |
+|---|---|---|---|---|---|
+| Architect (ARCH2) | 0 | 3 | 8 | 4 | 15 |
+| Security (SEC2) | 0 | 2 | 6 | 8 | 16 |
+| GRC (G2) | 0 | 2 | 7 | 4 | 13 |
+| Network (NET2) | 0 | 2 | 6 | 4 | 12 |
+| Cloud Security (C2) | 0 | 2 | 7 | 5 | 14 |
+| UI/UX (UX2) | 0 | 4 | 8 | 4 | 16 |
+| DBA (DBA2) | 0 | 1 | 6 | 9 | 16 |
+| QA (QA2) | 0 | 4 | 14 | 4 | 22 (the hat's summary said 12 Medium / 20 total; it lists 22) |
+| **Raw total** | **0** | **20** | **62** | **42** | **124** |
+
+**Deduplicated:** 75 findings, each row below. Severity is the maximum across merged raw findings
+unless an adjudication says otherwise.
+
+| Severity | Deduped | Resolved in v3 design | Resolved, pending an Open Decision | Deferred (justified) |
+|---|---|---|---|---|
+| Critical | 0 | 0 | 0 | 0 |
+| High | 12 | 10 | 2 (D07 part → OD 12; D09 role name → OD 13) | 0 |
+| Medium | 40 | 37 | 3 (D14 process-default Core → OD 14; D31 → OD 10; D32 → OD 11) | 0 |
+| Low | 23 | 22 | 0 | 1 (D62: clone detection, runbook now) |
+| **Total** | **75** | **69** | **5** | **1** |
+
+"Pending an Open Decision" means the design specifies a safe default and recommendation. The operator
+decides whether to change it. No High is left without a safe default.
+
+## Round 2 findings (deduplicated)
+
+Columns:
+- **ID**: the round-2 dedup row.
+- **Raw IDs**: every hat finding merged into the row.
+- **Sev**, **STRIDE**.
+- **Summary**.
+- **Ruling**: controller ruling R2-A..G where one applies, else the disposition.
+- **Where resolved**: the v3 section and the issue.
+
+### High
+
+| ID | Raw IDs | Sev | STRIDE | Summary | Ruling | Where resolved |
+|---|---|---|---|---|---|---|
+| D01 | ARCH2-1, ARCH2-8, SEC2-1, G2-1, NET2-2, C2-1 | High | DoS (Tampering of enforcement state) | Core writes the secret and enforces it on every adapter route before mentat has verified or stored it. A failed or partial connect, a failed rotation push, or a Core released before mentat 2a gives a total signed-route outage reported as success (Requirement 0). Verified: Core `routes.js:200-215`, `actorSignature.js` `actorSignatureSecret` reads per call. | **R2-A.** A pending secret is never enforced. The mentat-driven handshake is verify (fingerprint compare) → promote → store → revert-on-store-failure. mentat 2a ships before Core. Rotation uses the same flow, so there is no outage window and OD 8 is superseded. First generation reverts to "no secret". | §3.5.3, §3.5.4, §3.5.7, §13; mentat#443, Core#1088 |
+| D02 | ARCH2-2, SEC2-2 | High | EoP, DoS | Enabling signing strips the unsigned `guildOwnerId`, so hosted guild owners lose owner tier. v2's "2a changes only which key signs" is false. Verified: `routes.js:212-214`, `policy.js` `discordActorTier`, `adapterSettings.js` `MANAGED_ENV_KEYS` has no owner-role key. | **R2-B, option (a):** signature v2 = v1 fields + `guildOwnerId`, selected by header; Core keeps the claim only when v2 verified. Option (b) (refuse until an owner-role mapping exists) was rejected on code evidence: the wizard cannot set an owner role, and (b) still demotes owners who lack the role. | §3.5.5, §3.5.10; mentat#444, Core#1088 |
+| D03 | ARCH2-3, SEC2-3, C2-2, QA2-15, DBA2-09 | High | Tampering, Spoofing, DoS | The stored secret is not bound to the Core it was verified against. `upsertGuild` (`database.js:538-560`) keeps the secret and `verified_at` when `console_url` or the bearer changes. There is no row for "set but not verified". | **R2-C.** Clear the secret, `set_at` and `verified_at` and delete the DEK row in the same transaction when `console_url` or `adapter_token` changes, unless the same request re-verifies. The resolver requires `verified_at` non-null. A runtime `invalid_actor_signature` triggers a rate-limited re-verify. A-T7 corrected. | §3.5.5, §3.5.6, §3.5.8 (A-T7, A-T16); mentat#445 |
+| D04 | G2-2, UX2-4, ARCH2-13, SEC2-9, SEC2-6, C2-3, C2-14 | High (adjudicated: G2/UX High beat ARCH/SEC Low, because it breaks a working flow) | DoS, Spoofing, Info. Disclosure | K1's refusal on the direct `DUNE_DISCORD_ACTOR_SECRET` blocks the reconnect flow that works today. "Paste the value your Core already holds" makes dev and prod per-guild rows equal to the shared process secret. The 64-hex check does not stop low-entropy values. | **R2-E.** Core forwards an existing active secret in `existing` mode and does not refuse. mentat stores it only if it is 64 lowercase hex, has at least 8 distinct characters, and is **not** equal to the process-wide secret (constant-time compare). Otherwise the guild stays on the unchanged legacy path. The paste advice is removed; operator guilds regenerate. The direct-var migration is documented. Format verified: Core documents no format for the actor secret (`.env.example:191-192`), while every Core-generated value is 64-hex. | §3.5.3, §3.5.5, §3.5.8 (A-T6, A-T18); mentat#443, Core#1088 |
+| D05 | DBA2-01, ARCH2-9, QA2-3 | High | DoS | The copied migration idiom swallows every `ALTER` error and bumps the version anyway (`database.js:285-297`, `:322-338`). The new column is read on every signed request, so one failed `ALTER` is a bot-wide outage that cannot self-repair. | **R2-F.** Catch only "duplicate column name". Run each step and its bump in one transaction. Assert with `PRAGMA table_info` and refuse to start. A-T1b adds an injected failure. | §3.5.2, §7; mentat#446 |
+| D06 | NET2-1, NET2-11 | High | DoS, Repudiation | The registration chain has no time budget. Discord calls plus the self-check can exceed Core's 15 s, and Core retries once (`httpWithRetry.js`), which gives split state and a double handshake. | Handshake Core calls have a 3 s timeout each. The response deadline is 12 s, and signing is deferred (no promote) if under 7 s remains. Registration is idempotent (same guild + same fingerprint → no-op success). The NET2-11 wording fix is folded in. | §3.5.3; mentat#443 |
+| D07 | UX2-1, NET2-7, UX2-6 | High | N/A (Info. Disclosure if unauthenticated) | The "setup-portal status page" and "Test signing" do not exist (`setupServer.js` routes). The verification result is not persisted anywhere an operator can see it. | Core Discord settings is the 2a status surface (pending/active/reverted, fingerprint, last handshake result through `/register` or `confirmation-status`, which Core's server already proxies at `server.js:2592ff`). "Test signing" is dropped (it would be new ingress). A mentat owner status page is **OD 12** (recommend defer). | §3.5.11, §18 OD 12; mentat#447 |
+| D08 | UX2-2 | High | N/A | Existing guilds cannot add or rotate the secret without redoing OAuth and re-entering the bearer. v2's citation of mentat#312 as the edit path is wrong (#312 is stats-sharing revocation). | A secret-only update path (ownership re-verify, no token re-entry, same handshake) is a 2a deliverable. Hosted guilds use "Enable signing" in Core. The #312 citation is corrected. | §3.5.1, §3.5.11, §17; mentat#447 |
+| D09 | UX2-3, UX2-5 | High | N/A | The same condition has contradictory player copy in §3.5.7 and §6.5. "Server admin" and "bot operator" name no one a tenant player can find. The obsolete shared-secret log text remains. | One copy table in `liveStockErrors.js`, referenced by both sections and covered by one test. The role name players are told to ask is **OD 13** (recommend "the person who connected this server to Mentat"). The transient rotation window is gone under D01. | §3.5.7, §6.5, §18 OD 13; mentat#447 |
+| D10 | QA2-1, QA2-10 | High | Tampering, Repudiation | A per-repo sha pin cannot detect cross-repo drift. K-T7 uses a frozen copy of the signing code (the #1070 precedent: `test/actorSignature.test.js` skipped silently). A-T8's "before/after" comparison is a tautology or flaky. | Vendored golden signing vectors (v1 and v2) asserted by each repo's real code. mentat CI fetches Core's files at a named ref and fails (does not skip) under `CI=true`. A runtime contract marker. A-T8 uses vectors computed on `main` with `mock.timers`. | §11.3, §3.5.8; mentat#448 |
+| D11 | QA2-2, ARCH2-5, SEC2-5, C2-4, QA2-16 | High | Spoofing, Info. Disclosure, EoP | Config and secret come from two reads keyed by `guildId`. `_resolveConfig` falls back to the process config (`adapterClient.js:277-283`, `index.js:164-177`). The self-check could hit the default Core. There is no `actor.guildId === guildId` assertion. `purpose` is untested. | **R2-D.** `resolveGuildRequestContext(guildId,{purpose})` returns `{coreUrl, token, secret, signing}` from one row read, strict in multi-tenant mode with a guild id. The self-check is a dedicated explicit-target call. The guild id is asserted. Requirement 0 gate: U13 is a hard A0 precondition. | §3.1, §3.5.5, §3.5.8 (A-T8, A-T17), M-T24; mentat#445 |
+| D12 | QA2-4, QA2-5 | High | N/A | The UAT cannot run as written: step 3 exceeds the route's 6/min limiter; step 5's concurrency does not overlap; seeding needs identities and methods that are not specified; step 6 assumes a test bot instance. | Step 3 raises the limit on dune-dev only (a Requirement 7 restart) and spreads the calls. `stock_busy` is proven by T12 only. Every seed row names its method and identities, or is "T4 only". The live ephemeral toggle is dropped (M-T14 covers it). A named harness. | §11.4; mentat#448 |
+
+### Medium
+
+| ID | Raw IDs | Sev | STRIDE | Summary | Ruling | Where resolved |
+|---|---|---|---|---|---|---|
+| D13 | ARCH2-4, QA2-14 | Med | Tampering | `signedHeaders(actor, route, {secret})` collides with the existing third positional `env` parameter (`actorSignature.js`), which silently gives `{}`. The mentat "tests that break" list is missing (schema-version asserts, `expectedPathKeys`, DI seam). | **R2-D.** New `signHeadersWithSecret` / `writeBridgeSignHeadersWithSecret`, which throw on an empty secret. Env helpers untouched. A DI seam option. A tests-that-break table. | §3.5.5, §3.5.8; mentat#445 |
+| D14 | ARCH2-6, SEC2-11 | Med | DoS | One Core holds one secret, but several signers can target it: the bot's default config, two guilds sharing a Core. Rotating for one breaks the others. | **R2-E.** mentat refuses per-guild provisioning when the `console_url` equals the process config's adapter base URL or another active guild's `console_url` ("one signer per Core"). How to move the operator's default-config paths is **OD 14**. | §3.5.3, §18 OD 14; mentat#443 |
+| D15 | ARCH2-7, SEC2-8 | Med | Info. Disclosure, DoS, Spoofing | Auto-invite `/start` has no guild id (`setupServer.js:843-866`). The secret's carriage and lifetime through the two in-memory stores are unspecified. | **R2-F.** The candidate is carried in both stores under the same TTL, deleted on resolve, never in status payloads. The handshake runs at owner Confirm with the confirmed guild id. A-T13b. | §3.5.3; mentat#443 |
+| D16 | ARCH2-10, G2-6, DBA2-16, QA2-20 | Med | N/A | mentat#438 is not cited. #384 is a draft. `deploy/deploy` (`be8f605`, local ref) is 22 commits ahead and 20 behind `main`, so A3 would ship the whole main delta. There is no schema reservation or guard test. | **R2-F.** No migration lands until #438 is resolved (deploy reconciled and deployed on its own, A-T8 baselined on the deployed SHA). A static ascending-guard test. Frozen DDL fixtures. The refs used may be stale (not re-fetched from the bot VM). | §2 F8, §3.5.2, §13 A0; mentat#446, mentat#438 |
+| D17 | ARCH2-11, DBA2-02 | Med | DoS | Rolling back 2a (code or SQL) after hosted tenants are provisioned is an outage the bot operator cannot fix. "Leave the columns" is schema-compatible but not behaviour-compatible. | **R2-F.** 2a is forward-only once any tenant is promoted. Rollback means reverting to a build that still reads the v10 columns. The rollback SQL is only valid while no guild is provisioned. The code-rollback pre-check is required. Rollback order is v11 before v10. | §3.5.2, §13; mentat#446 |
+| D18 | NET2-3, ARCH2-12 | Med (NET Med beats ARCH Low) | DoS | Writing `.env` does not reach a running container (compose interpolates at create, `docker-compose.web.yml:99-100`). K1 must set `process.env` in-process (precedent `adapterSettings.js:278-280`). | Specified in K1 plus the K-T1 assertion. | §3.5.3 K1; Core#1088 |
+| D19 | QA2-12, ARCH2-14 | Med | Info. Disclosure | `getGuild`'s `SELECT *` plus spread (`database.js:532-535`) carries the new column into every guild object. A-T10 tests the wrong thing. | `getGuild` omits the column. A-T10 asserts the key is absent and a canary is absent from `JSON.stringify`. | §3.5.2, §3.5.8; mentat#445 |
+| D20 | SEC2-4, NET2-8 | Med | Spoofing, Info. Disclosure | Self-check success is undefined. `request()` follows redirects (no `redirect` option, `adapterClient.js:447-451`) and turns a non-JSON 2xx into success. | Success = HTTP 200 JSON with `ok === true` **and** a constant-time fingerprint match. `redirect: "error"` on the check and every signed POST. A dedicated dispatcher-backed call. | §3.5.3; mentat#445 |
+| D21 | SEC2-7 | Med | EoP, Info. Disclosure, Repudiation | Console authorization, CSRF and audit for reveal and Regenerate are unspecified. | K4: the highest settings permission, Deny before Allow, CSRF, and an audited reveal. A server-enforced one-time reveal of the pending value only. K-T12. | §3.5.3 K4; Core#1088 |
+| D22 | G2-3, SEC2-10, C2-10 | Med | Info. Disclosure, Spoofing | Requirement 27 is partly met: no cadence or trigger list, no rehearsal, runbook paths unnamed, `.prev` kept indefinitely (and restoring it re-arms a leaked key). | Cadence (12 months plus triggers). `.prev` is deleted 15 min after promote and never verified. A dune-dev rotation rehearsal is an A4 exit criterion. Runbook paths are named. | §3.5.4; mentat#449 |
+| D23 | G2-4, NET2-12, UX2-12 | Med | N/A | Documentation-impact tables are incomplete or wrong: the mentat path `docs/security/multi-tenant-secrets-at-rest.md` does not exist (real: `docs/security-secrets-at-rest.md`); the Core `secrets-management.md` inventory is missing; the compliance docs are missing; the §12 CHANGELOG row and the §6.5 log text still describe the shared secret; Core has no `docs/networking.md`. | Tables corrected. The stale text is rewritten. | §3.5.9, §6.5, §12; mentat#449 |
+| D24 | G2-5, ARCH2-15 | Med | Repudiation | There is no layer × PR × issue map. The round-1 register text still says "v9" (GRC-1, GRC-9, DBA-12, STRIDE row). The header claim "every High resolved" was ambiguous about §3.5. | The §14.1 map was added. The register text was corrected in this round (see "Round 1 rows found incomplete"). The header was restated. | §14.1, header; mentat#449 |
+| D25 | G2-7 | Med | N/A | Stale facts: PR #435 merged (`db3db83`), but v2 says it is open and `goalTransaction` is not on main. | Corrected: `goalTransaction` is on `origin/main` `src/commands.js:1314`. The branch rebase is noted for Requirement 29. | §2 F8, §6.1, §13; mentat#449 |
+| D26 | G2-8 | Med | N/A | The signing stack and hosted flow are fork-only (not on `upstream/main`). OD 7 is undecided before A1. The Requirement 21 exception is not recorded. The merge button is unstated. | OD 7 must be decided before the Core 2a PR. The fork-only exception is recorded. "Merge commit, not squash". Upstream prerequisites are listed. | §14.3; mentat#449 |
+| D27 | G2-9 | Med | Repudiation | Set, rotate, promote and revert events are not attributable to a human. Core `audit()` has no authenticated actor (Core #910). | mentat logs the registering Discord user id and the path. Core audit carries the console session user. Core #910 is linked. | §3.5.4; mentat#449, Core#1088 |
+| D28 | C2-5, DBA2-12 | Med | Info. Disclosure, Repudiation | There is no revocation or offboarding path. Guild delete keeps credentials. The stats precedent leaves the DEK row behind. | `clearGuildActorSigningSecret` NULLs the three columns and deletes the DEK. It runs on guild delete or suspend and from the secret-only update path. Core deletes pending and `.prev` on adapter disable. | §3.5.12; mentat#445 |
+| D29 | C2-6 | Med | Tampering, EoP | Core fails open when the secret file is unreadable, empty or torn (`actorSignatureSecret` returns `""`). | K1: temp file plus `rename`. The **managed** file path fails closed with one loud log line. An operator-set arbitrary `_FILE` keeps today's behaviour with a warning (Requirement 0). | §3.5.3 K1; Core#1088 |
+| D30 | C2-7, QA2-13 | Med | DoS, Info. Disclosure | `reencrypt-secrets.js` `TABLES` lists only `adapter_token`. No test covers the new column through rotate-keys or recover-keys. | Add the column (and `stats_push_secret`). An enumeration test. A-T22. | §3.5.9, §3.5.8; mentat#446 |
+| D31 | C2-8 | Med | Info. Disclosure | The bearer and the signing secret travel in one body, so one leak of that body is full impersonation. | **OD 10**, recommend accepting with mitigations: proxy logging off, value redaction, allowlisted status shapes. Separate delivery would need a new mentat-to-Core pull credential. | §3.5.3, §18 OD 10 |
+| D32 | C2-9 | Med | EoP, Tampering | The stock query runs as the game-DB owner role. Read-only rests only on a per-transaction preamble. | **OD 11**, recommend an optional `DUNE_DB_RO_USER` with a preamble fallback. T9 asserts the preamble is first. | §4.5, §18 OD 11; Core#1088 appendix |
+| D33 | NET2-4 | Med | DoS | The 5.5 s budget omits `requireLinkedPlayer`'s own pool wait. A mentat abort leaves the semaphore held. | Semaphore before `requireLinkedPlayer` in one bounded transaction. A 5 s whole-handler deadline. A route-specific mentat timeout. | §4.5; Core#1088 appendix |
+| D34 | NET2-5 | Med | DoS | `createLoginRateLimiter` counts failures, blocks for 15 min and has a shared global key (`rateLimit.js:32-96`). | A `createMutationRateLimiter`-style window keyed on the user, recorded after the signature verifies, with an explicit global ceiling and Retry-After. | §4.5; Core#1088 appendix |
+| D35 | NET2-6 | Med | DoS | A cap of 1 per Core plus the per-user cooldown gives a busy/retry storm, and mentat does no smoothing. | A per-guild mentat in-flight gate (fails fast, no cooldown). Honour Retry-After (minimum 30 s). Documented throughput. | §4.5, §6.7 |
+| D36 | DBA2-03 | Med | Tampering, DoS | Encrypt upserts the DEK before the row UPDATE (`database.js:445-458`), with no transaction and a store after an await. A failure destroys the old secret. | One synchronous transaction after the await. It re-reads the guild and asserts `changes === 1`. A-T4b. | §3.5.2; mentat#446 |
+| D37 | DBA2-04, SEC2-12, C2-13 | Med | Repudiation, DoS | A decrypt per signed request writes a `secret_access_log` row (never pruned). The evidence gets buried. | In-memory cache keyed `(guildId, set_at)`. Log on cache fill only. Retention for `decrypt` rows. | §3.5.5; mentat#446 |
+| D38 | DBA2-05 | Med | Info. Disclosure | The read path accepts untagged or `plain:` values as decrypted (`secretsCrypto.js:386-390`). | The resolver requires `enc:v1:` or `enc:v2:`, else `decrypt_failed`. A-T5b. | §3.5.5; mentat#446 |
+| D39 | DBA2-06 | Med | Repudiation, DoS | Backup and restore are not designed. A restore re-installs a stale secret that still reads "verified". The KEK/backup unit is unstated. The A-T15 sanitisation list is incomplete. | A restore procedure (re-verify all provisioned guilds and clear on failure). Backup plus KEK versions are one unit. The sanitisation list is extended. `.backup` over a file copy. | §3.5.12; mentat#446 |
+| D40 | DBA2-07 | Med | DoS | The EXPLAIN merge gate runs only on dune-dev, whose data volume does not predict the prod plan. | EXPLAIN on a production-size restore. Index checks on three tables. The first prod call is monitored. | §11.4; Core#1088 appendix |
+| D41 | UX2-7 | Med | N/A | A Core with 2a but without the stock route gives the operator no signal. | The check response carries `features`; 2b adds `"stock"`. Player copy names who can update the Core. | §3.5.3 K2; mentat#447 |
+| D42 | UX2-8 | Med | N/A | "Already up to date" is wrong when Apply skipped decreases. The button matrix is unspecified. | A button matrix (Apply hidden when it would write nothing). Distinct outcome copy. M-T10. | §6.3, §6.4 |
+| D43 | UX2-9 | Med | N/A | Which character is read is undiscoverable. `/dune player default` may not govern Core's `getLinkedPlayer`. | L2 verification (U16). The copy must name the governing selection. It never ships silent. | §3.1, §16 U16 |
+| D44 | UX2-10 | Med | N/A | Backpack-unavailable has no player copy or remedy. A decision-table row is missing (no entry, B = 0). | Copy with the remedy (log in once). The row was added. | §6.4 |
+| D45 | UX2-11 | Med | Info. Disclosure | The source line shows the tenant's console host to every player. mentat already treats the host as sensitive (#207). | The source line shows the guild name only. | §3.1 |
+| D46 | QA2-6 | Med | N/A | Two buttons against a single-use nonce contradict M-T21. | One nonce pair per preview, consumed together. M-T21 re-runs `sync` between applies. | §6.3; mentat#448 |
+| D47 | QA2-7 | Med | Tampering | A double-click test can pass while the race exists (an await before the nonce delete). | Synchronous get plus delete before the first await. A `Promise.all` test with a yielding `deferUpdate`. | §6.3; mentat#448 |
+| D48 | QA2-8 | Med | N/A | CAS test gaps: 1 s `updated_at`, absent → present, two previews. | M-T13 cases added, using direct SQL or `mock.timers`, never sleep. | §11.2; mentat#448 |
+| D49 | QA2-9 | Med | N/A | No IMMEDIATE or SQLITE_BUSY test. No `busy_timeout`. | A second-connection lock test. Friendly message on BUSY. Nonce policy on BUSY (not consumed). | §6.4, §11.2; mentat#448 |
+| D50 | QA2-11, C2-11 | Med (QA Med beats C Low) | Info. Disclosure | A-T11 will fail or pass vacuously. A bare 64-hex value in a string is not redacted (`format.js:82-92`). Log fields containing "secret" are redacted wholesale. | A canary test over all outputs. A value-based 64-hex redaction pattern on these paths. Log fields renamed (`signing_set_at`). | §3.5.8 A-T11, §9; mentat#448 |
+| D51 | QA2-17 | Med | DoS | Semaphore and limiter leak and ordering cases are untested. | T12b (permit released on throw, timeout or close), T12c (denied requests take no slot), reset helpers. | §11.1; Core#1088 appendix |
+| D52 | QA2-18, SEC2-16 (Low) | Med | N/A | The synthetic self-check actor omits `username`, which Core requires (`policy.js:159-168` `normalizeDiscordActor`). U14 is answerable. | The full synthetic actor is specified as a shared fixture. U14 is closed (`interactionId` optional, `username` required). | §3.5.3, §16; mentat#448 |
+
+### Low
+
+All are bundled in **mentat#450** with dispositions.
+
+| ID | Raw IDs | STRIDE | Summary | Where resolved |
+|---|---|---|---|---|
+| D53 | SEC2-13 | Tampering | T2's second case asserts an impossible invariant | §11.1 T2 |
+| D54 | SEC2-14 | Repudiation | Denied audit lines record unverified ids as facts | §4.7 |
+| D55 | SEC2-15 | Info. Disclosure | Core redaction of the secret field is untested | §3.5.8 K-T9 |
+| D56 | G2-10 | N/A | Requirement 13/15/28 process gaps | §14.1; this round's filing |
+| D57 | G2-11 | DoS | "What if lost" answer is incomplete (KEK loss) | §14.2 g |
+| D58 | G2-12 | N/A | No per-PR risk classification or version plan | §14.1 |
+| D59 | G2-13 | Spoofing | The pre-enable review has no owner or evidence template | §4.2(a) |
+| D60 | NET2-9 | DoS | Reachability matrix; hairpin through Cloudflare | §3.5.9, §11.4 |
+| D61 | NET2-10 | N/A | Discord 3 s limits for autocomplete and buttons | §6.1 |
+| D62 | C2-12 | Spoofing | Clone detection is runbook-only | **Deferred** (§17): runbook step now |
+| D63 | DBA2-08 | N/A | No composed Core fixture | §11.1 |
+| D64 | DBA2-10 | Repudiation | The "last synced from" query is unspecified | §3.1 |
+| D65 | DBA2-11 | Info. Disclosure, Repudiation | Audit retention and growth | §7, §8 |
+| D66 | DBA2-13 | N/A | `db.exec(SCHEMA)` runs before the ALTERs | §3.5.2 |
+| D67 | DBA2-14 | Repudiation | Clamp, then compare | §6.4 |
+| D68 | DBA2-15 | N/A | Schema capability probe; SQLSTATE lost | §4.3 |
+| D69 | UX2-13 | N/A | Expired buttons stay clickable | §6.3 |
+| D70 | UX2-14 | N/A | Autocomplete label and empty state | §6.1 |
+| D71 | UX2-15 | N/A | Embed limits | §6.6 |
+| D72 | UX2-16 | N/A | Paste-field ergonomics | §3.5.11 |
+| D73 | QA2-19 | Repudiation, DoS | Replay tests | §4.8, §11.1 |
+| D74 | QA2-21 | N/A | Budget exact strings | §6.1 |
+| D75 | QA2-22 | N/A | Failure-mapping tests | §3.5.8 A-T23 |
+
+## Round 2 STRIDE report
+
+| STRIDE category | Findings (dedup rows) | Max severity | Resolution status |
+|---|---|---|---|
+| **Spoofing** | D03, D04, D11, D15, D20, D22, D59, D62 | High | Resolved in v3. D62 is deferred (runbook now). |
+| **Tampering** | D01, D03, D10, D13, D29, D32, D36, D47, D53 | High | Resolved in v3. D32 is pending OD 11 (a safe default is specified). |
+| **Repudiation** | D06, D10, D21, D24, D27, D28, D37, D39, D54, D64, D65, D67, D73 | High | Resolved in v3 |
+| **Information Disclosure** | D04, D11, D15, D19, D20, D21, D22, D28, D30, D31, D38, D45, D50, D55, D65 | High | Resolved in v3. D31 is pending OD 10. |
+| **Denial of Service** | D01, D02, D03, D04, D05, D06, D14, D15, D17, D18, D30, D33, D34, D35, D36, D37, D39, D40, D51, D57, D60, D73 | High | Resolved in v3. D14 is pending OD 14 (the guard refuses by default). |
+| **Elevation of Privilege** | D02, D11, D21, D29, D32 | High | Resolved in v3 (D02 by signature v2) |
+
+These rows map to no STRIDE category (correctness, UX or governance). They are listed so their
+absence above is not mistaken for an omission: D07, D08, D09, D12, D16, D23, D25, D26, D41, D42, D43,
+D44, D46, D48, D49, D52, D56, D58, D61, D63, D66, D68, D69, D70, D71, D72, D74, D75.
+
+Every STRIDE category has at least one finding in round 2.
+
+## Round 1 rows found incomplete by round 2
+
+| Round-1 row | What round 2 found | Round-2 row |
+|---|---|---|
+| ARCH-1, SEC-3, CLOUD-3 | Phase 2a resolved the shared key only for freshly generated values. It added new outage and privilege paths (premature enforcement, owner strip, stale binding). | D01, D02, D03, D04 |
+| CLOUD-2 | The lifecycle ordering was wrong and revocation was missing | D01, D28 |
+| CLOUD-8 | "Distinct by construction" does not hold for pasted values | D04 |
+| GRC-8 | The runbook was not located; no cadence | D22, D23 |
+| GRC-1, GRC-9, DBA-12, the Repudiation STRIDE row | Register text said "v9". Provenance is **v11** and the signing secret is **v10**. **Corrected in place this round.** | D24 |
+| QA-2, QA-12 | The sha-pin drift check cannot detect cross-repo drift | D10 |
+| QA-8 | The UAT is still not executable (limiter, seeding, test instance) | D12 |
+| NET-3, SEC-4, DBA-4 | The budget omitted the `requireLinkedPlayer` pool wait. The wrong limiter type was named. | D33, D34 |
+| SEC-8 (T2) | T2's second case was impossible | D53 |
+| NET-5, UX-6 | The source line leaked the console host. Character selection was undiscoverable. | D45, D43 |
+| UX-5 | "Already up to date" was wrong with skipped decreases | D42 |
+| GRC-2, CLOUD-7 | Denied audit lines claimed unverified ids | D54 |
+
+## Cross-hat conflicts and adjudications (round 2)
+
+1. **SEC2-6 vs C2-3 on cross-guild secret comparison.** SEC2-6 proposed refusing a secret already
+   stored for another guild. C2-3 warned that this is a cross-tenant oracle. **Adjudicated for C2-3:**
+   compare only against the process-wide secret. Two guilds per Core are handled by the
+   `console_url` guard (D14), never by comparing values.
+2. **ARCH2-1's capability flag (`supportsActorSigning`).** Not needed once promotion is driven by
+   mentat: Core never enforces a pending secret, so an old mentat cannot cause an outage. Recorded as
+   superseded, not wrong.
+3. **DBA2-02's "OD 8 grace as the real mitigation"** is superseded by the pending/promote handshake
+   (D01). OD 8 is closed as superseded.
+4. **Severity adjudications:**
+   - D04 is High (G2/UX High over ARCH/SEC Low), because it breaks a flow that works today.
+   - D18 is Medium (NET over ARCH).
+   - D19 is Medium (QA over ARCH).
+   - D50 is Medium (QA over Cloud).
+   - D52 is Medium (QA over SEC).
+5. **R2-C's clear-on-bearer-change.** A bearer rotation on the *same* Core also clears the secret.
+   The same request's handshake (`existing` mode, which K1 always sends) re-verifies it. If that
+   handshake fails transiently, the guild is left unprovisioned: it fails closed, and a reconnect
+   recovers it. Accepted as the ruling's cost. It is recorded, not silently changed.
+6. **R2-D's strict resolution** changes behaviour for inactive guilds on guild-scoped background paths
+   (`atlasRefresh.js:47`, `statsPusher.js:73`): they refuse instead of reaching the operator's Core.
+   System paths with no guild id (`scheduler.js`, `notifications.js`) are unchanged. Requirement 0
+   gate: U13 (the operator's guilds are active rows) is a hard A0 precondition.
+
+## Hat claims corrected (verified against code or GitHub)
+
+- **QA hat counts:** it reported "High 4, Medium 12, Low 4 (20)". It lists QA2-1..22, which is
+  **14 Medium, 22 total**. The tables above use 22.
+- **QA2's negative result "`goalTransaction` does not exist on main":** true at the audit base
+  `f8709f0`, but stale. PR #435 merged 2026-09-30T00:18Z, and `origin/main` `db3db83` has
+  `goalTransaction` at `src/commands.js:1314`.
+- **SEC2-6 "dune-dev and dune-prod hold the same value":** an inference. The code comment
+  (`src/actorSignature.js:66-69`) confirms the secret on the bot VM and "in production" only.
+  Dev/prod equality is **unverified** (U12). The finding stands because the guard is mechanical.
+- **G2-2 "operators using write … will have the direct var set":** partly corrected. They may use
+  `_FILE` instead (`.env.example:191-192`; compose passes both, `docker-compose.web.yml:99-100`). K1
+  treats both as `existing`.
+- **Design v2 and UX2-2 citing mentat#312 as the "edit my existing guild" path:** #312 is stats-sharing
+  revocation. It *depends on* an edit entry point that has no issue. Corrected in v3 §3.5.1/§17. The
+  edit path is covered by mentat#447.
+- **ARCH2-10 deploy/deploy counts:** measured on a local ref that was not re-fetched from the bot VM
+  (it may be stale). Re-measured against current `origin/main` `db3db83`: 22 commits not on main, 20
+  main commits missing. Same as the hat's figures.
+
+## Requirement 28 (re-run 2026-09-29, this round)
+
+`gh issue list --repo Project-Arrakis/dune-awakening-selfhost-docker --label ops-monitor --state open`:
+- **#1086** (bug, severity:high): fork/upstream divergence 1533 ahead / 1404 behind. Relevant to any
+  future upstream PR (OD 7). The fork-only branch is unaffected.
+- **#1085** (needs-human-review): "Upstream sync status". It notes the raw commit counts are
+  unreliable for this fork (squash-sync). Report to the operator.
+- **#1069** (type:vulnerability, severity:medium, needs-human-review): upstream security-checks CI
+  silently skips gitleaks. Relevant to Requirement 10 scan evidence for any upstream PR.
+
+mentat has no `ops-monitor` issues. Two `needs-human-review` items (#1085, #1069) remain open for
+the operator.
+
+## Next steps (round 2)
+
+- Post this round's summary on mentat#434 (Requirement 20).
+- Design v3 applies every resolution above. The operator decides OD 10–14. OD 8 is closed as
+  superseded.
+- Layer 1 for Phase 2a is **complete at round 2** once v3 is reviewed. No Critical or High is left
+  without a design resolution.
+- Implementation stays blocked by: mentat#438 (the schema gate), U13 (A0), OD 7 (before the Core PR),
+  and the order mentat 2a then Core#1088.
