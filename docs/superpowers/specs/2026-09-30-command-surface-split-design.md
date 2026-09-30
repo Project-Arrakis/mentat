@@ -1,9 +1,10 @@
 # Command Surface Split: `/dune` into `/dune` + `/player` + `/goal` (mentat#422 + mentat#423)
 
-**Status:** Design **v2**, revised after the Requirement 20 Layer 1 (design) eight-hat audit. No code.
+**Status:** Design **v2.1**. v2 was revised after the Requirement 20 Layer 1 (design) eight-hat audit;
+v2.1 applies the Round 2 re-verification (register, "Round 2"; findings V2-1 … V2-9). No code.
 Six operator decisions are open (§14) and three operator-only preconditions must be run before the
 flip (§7.6).
-**Date:** 2026-09-30 (v1), revised 2026-09-29 (v2; the file name keeps the v1 date).
+**Date:** 2026-09-30 (v1), revised 2026-09-29 (v2 and v2.1; the file name keeps the v1 date).
 **Base:** v1 was measured on `origin/main` `f8709f0` (PR #430). Requirement 29 freshness re-check,
 2026-09-29: `origin/main` is `db3db83` (PR #435 merged), one commit later. Re-measured on
 `db3db83`: `/dune` is still 7473, so every budget below holds on both SHAs. The implementation
@@ -541,13 +542,20 @@ Tests: §9.10.
    deployed `.env`, hash it, compare with the hash stored after the last **successful** PUT, and
    register on any difference. This covers every source file and every env value that feeds the
    tree (writes flag, layout), so no file list can rot.
+   **Layout guard (V2-1):** the hook refuses to register a tree whose layout differs from the last
+   successfully registered layout unless `DUNE_COMMAND_LAYOUT` is set **explicitly** in the sourced
+   `.env`. A code-default change alone never flips a deployment's registered layout. It alerts like a
+   failed register instead. This is part of PR-0 (mentat#440).
 2. Detect failure correctly (`pipefail` or an explicit status check, CONS-1); retry once; on a second
    failure raise the ops alert (the existing Discord ops webhook) and exit the hook non-zero after the
    restart.
 3. `register-commands.js` logs scope, layout, writes state, top-level commands and `/dune` groups.
 4. **Startup drift check (in scope, prerequisite for the flip):** at `ready`, fetch the registered
    set for the bot's scope (`client.application.commands.fetch()`, or the guild scope when
-   `DISCORD_GUILD_ID` is set), compare with `commandDefinitions()` for the bot's own resolved layout,
+   `DISCORD_GUILD_ID` is set), compare with
+   `commandDefinitions({ includeWriteGroup: writesEnabled(config), layout })` for the bot's own resolved
+   layout (the defaults would give `includeWriteGroup=false` and report false drift on a bot with
+   writes on, V2-8),
    log `error` on any difference, and derive the **registered layout** (`split` if `/player` is
    registered, `legacy` if `/dune` has a real `player` group, else `unknown`). `invocationFor`, help
    and the feed use the registered layout; `unknown` falls back to the configured layout. The check
@@ -627,20 +635,29 @@ exists only if OD7 = a (V2-7). Put the token in a shell variable, never inline.
   owner instead. Either way the notification is sent before the hosted flip (release blocker).
 
 ### 7.7 Rollout runbook (R-C)
+0. **Pin the hosted layout (V2-1).** Before PR-3 deploys, set `DUNE_COMMAND_LAYOUT=legacy` explicitly
+   in the hosted `.env`, whichever way OD7 is decided, and record the `grep` on #423. Under OD7(b),
+   the code default is `split` from rc.6. Without this pin, the PR-3 deploy would register `split`
+   globally before P1–P3, the P3 owner notification (a release blocker), the rollback rehearsal and
+   the announcement. The hook's layout guard (§7.2 item 1) is the second line of defence.
 1. Merge prerequisites: mentat#440 (hash registration, failure alerting, drift check), PR #436.
 2. Merge the mentat-link PR (layout-agnostic `prefix`/`formerly` rendering). **Verify it is live on
    Pages** (fetch the deployed `js/command-accordion.js` and confirm the `prefix` branch) before any
    bot change that alters the feed.
-3. Deploy the bot code (PR-3) with the layout default per OD7. With the default `legacy`, the
-   registered tree is byte-identical to today (snapshot test), and the feed still reports
-   `/dune player` because the registered layout is legacy.
+3. Deploy the bot code (PR-3). **With OD7(a)** (code default `legacy`) or **OD7(b)** (code default
+   `split`), the hosted bot runs `legacy` because of step 0. The registered tree is byte-identical to
+   today (snapshot test), the hook's hash is unchanged, so no PUT happens, and the feed still reports
+   `/dune player` because the registered layout is legacy. Self-hosters who deploy PR-3 without the
+   variable get the code default. Under OD7(b) that is `split`, and the hook's layout guard refuses
+   the change until they set the variable explicitly (release note, §7.9).
 4. Run P1–P3 and record them on #423.
 5. Hosted flip: set `DUNE_COMMAND_LAYOUT=split` in `.env`, **restart first** (the dispatcher accepts
    both layouts, so no window without a handler), **then register** (the hook's hash detects the
    change; a manual `npm run register` is equivalent). Expected registrations during rollout plus
    rollback rehearsal: at most 4 global PUTs.
 6. Verify, both scopes: `scripts/verify-registered-commands.js` (new, §9.9) compares global **and**
-   each guild scope with `commandDefinitions()` and exits non-zero on drift; expect exactly `dune`,
+   each guild scope with `commandDefinitions({ includeWriteGroup: writesEnabled(config), layout })`
+   (V2-8) and exits non-zero on drift; expect exactly `dune`,
    `player`, `goal`, `confirm-connection` globally and `[]` per guild; `moderation` present when
    writes are on. The startup log shows `registeredLayout=split`.
 7. Functional check in **dune-dev's guild and one non-dev hosted guild**: one new path and one old
@@ -690,7 +707,7 @@ numbers:
 
 | Step | Contents | Version | Audit gateway (Requirement 20) |
 |---|---|---|---|
-| 1 | PR-0 … PR-5 (prerequisites, before-record, resolver, layout + `/player`/`/goal` + shims, mentat-link, docs). Default layout per OD7. | next cut: **v1.0.0-rc.6** | L1 (this register), L2 per PR, L3 `/code-review high` per PR; release-level L3 over the rc.6 diff |
+| 1 | PR-0 … PR-5 (prerequisites, before-record, resolver, layout + `/player`/`/goal` + shims, mentat-link, docs). Code default per OD7; the hosted bot is pinned to `legacy` (§7.7 step 0). | next cut: **v1.0.0-rc.6** | L1 (this register), L2 per PR, L3 `/code-review high` per PR; release-level L3 over the rc.6 diff |
 | 2 | Hosted flip (env on the VM, §7.7) — not a release. PR-6 flips the code default to `split` (only if OD7 = a). | PR-6 ships in **v1.0.0-rc.7** | L3 diff audit referencing rc.6's L1/L2 |
 | 3 | PR-7 removes the `moved` shims, the legacy layout, legacy alias-execution and the flag. | the first rc (or 1.0.0) cut **at least 30 days after the hosted flip and after rc.7 is published**; a dated issue is filed at the flip | L3 diff audit; the before-record test is retired in the same PR with justification |
 
@@ -839,7 +856,7 @@ is exempted by a fenced marker.
 
 | PR | Content | Issue | Branch | Depends on | Visible effect |
 |---|---|---|---|---|---|
-| PR-0 | Registration hash, failure detection, alert, logging, startup drift check | #440 | `issue/440-register-hash` | — | none (ops only) |
+| PR-0 | Registration hash, failure detection, alert, logging, startup drift check, layout guard (§7.2 item 1) | #440 | `issue/440-register-hash` | — | none (ops only) |
 | — | PR #436 (help write visibility) | #424 | `fix/help-write-visibility-424` | — | help |
 | PR-1 | Before-record script and fixtures, audience table, JSON snapshot | #423 | `issue/423-authz-before-record` | #436 | none |
 | PR-2 | `resolveInvocation`, `routeAutocomplete`, routing hardening, `/dune` only | #423 | `issue/423-resolver` | PR-1 | none |
@@ -967,8 +984,10 @@ overridden.
    (b) `split` default from rc.6, `legacy` only as a rollback value. Evidence: with R-A, old paths
    keep executing in either layout, and v2 derives strings and the feed from the registered layout,
    so the stranding risk (a) guarded against is mostly gone; (a) keeps two documented worlds for a
-   release (UX-7). **Recommendation: (b)**, provided #440's drift check ships first (it is what makes
-   the registered-layout strings correct for self-hosters who have not registered).
+   release (UX-7). **Recommendation: (b)**, provided #440's drift check and layout guard ship first
+   (the drift check makes the registered-layout strings correct for self-hosters who have not
+   registered; the guard stops a code-default change from flipping a deployment). The hosted bot is
+   pinned to `legacy` before PR-3 in either case (§7.7 step 0, V2-1).
 8. **OD8: readable goal descriptions.** Yes, after PR-7 (R-D). **Applied.**
 9. **OD9: new group names — open.** For the 7 actions on other players: (a) `moderation`;
    (b) `players` ("act on players"); (c) split into `moderation` (kick, ban, unban, warn) and
