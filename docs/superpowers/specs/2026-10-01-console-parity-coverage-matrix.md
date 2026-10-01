@@ -69,6 +69,8 @@ implemented.**
 | Live Map | Exempt, not implemented | 2026-10-01 |
 | Addons | Exempt, not implemented | 2026-10-01 |
 | Requests, Report Issues, Get Help (footer links) | Exempt, not implemented | 2026-10-01 |
+| E1, E2, E3, E5 (console-only exceptions as written below) | Accepted | 2026-10-01 |
+| E4 (typed-confirmation actions) | Open: decided per action once the panel pass lists them | 2026-10-01 |
 
 With these exempt, 17 of the 19 nav items remain in scope.
 
