@@ -1531,10 +1531,18 @@ export function formatHelpEmbed(payload) {
 
   const fields = [];
   for (const [g, names] of byGroup) {
-    fields.push({
-      name: `📂 ${g}`,
-      value: names.map((n) => `\`${n}\``).join(" · ").slice(0, 1024),
-      inline: false
+    // Split into continuation fields rather than truncating (mentat#424):
+    // a group can outgrow Discord's 1024-char field-value cap.
+    const chunks = [];
+    let cur = "";
+    for (const n of names) {
+      const tok = `\`${n}\``;
+      if (cur && cur.length + 3 + tok.length > 1024) { chunks.push(cur); cur = ""; }
+      cur += (cur ? " · " : "") + tok;
+    }
+    if (cur) chunks.push(cur);
+    chunks.forEach((value, i) => {
+      fields.push({ name: i === 0 ? `📂 ${g}` : `📂 ${g} (cont.)`, value, inline: false });
     });
   }
   if (locked.length > 0) {
