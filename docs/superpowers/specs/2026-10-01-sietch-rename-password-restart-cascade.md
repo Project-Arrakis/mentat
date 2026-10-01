@@ -169,7 +169,14 @@ while Survival_1 is running.** A direct `dune spawn 8` started it (it does not a
 
 ## Still not tested
 
-- A rename or password change on a **Deep Desert** (code: saved, applies at its next restart).
+- ~~A rename or password change on a Deep Desert~~ **Probably not a supported operation** (operator
+  doubted it; code check, not a test): the console's Sietch name/password editor only works on
+  Survival_1 Sietch rows (rows built from the Survival_1 partition id list; a row without a real
+  partition id is read-only, `sietchRows.ts`), and no Deep Desert name or password control was found
+  in `MapsPanel.tsx`. Deep Desert display names ("Deep Desert PvE/PvP") are produced by the layout
+  (`deepdesert.sh`, `ManagedPrimaryDisplayName...`), not set by hand. The CLI `sietches set-display`
+  takes any partition id and would write that ini value, but the layout may overwrite it and it does
+  not run the Survival_1 restart cascade. Not run.
 - Password change on a **secondary** Sietch (same code path as rename; expected identical).
 - Count changes **while players are connected**, and counts above 2 (port conflicts and
   `relocate_survival_port_conflicts`, which would restart another map holding the reserved ports).

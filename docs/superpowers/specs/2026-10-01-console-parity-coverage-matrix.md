@@ -182,8 +182,8 @@ Maps in Discord is **instance control only**; all topology and configuration sta
 | Immediate restart of a Sietch | yes | admin | no countdown |
 | Restart **Deep Desert** | yes | **admin/owner only** | operator decision |
 | Start/stop/restart **Overmap** | yes | **admin/owner only** | operator decision; it connects every map |
-| Rename a Sietch | yes | admin | **the backend restarts the Sietch automatically** (verified, see below); the confirm says so and shows the player count; whether a countdown applies is **unverified** |
-| Set or remove a Sietch password | yes | admin (owner may too) | set through a Discord **modal** (not a slash option); ephemeral reply; reads show only set/not set; logs and audit record "password set/removed", never the value; needs a log-redaction test (Requirement 24) |
+| Rename a **Survival_1** Sietch (Deep Desert has no rename: its name comes from the PvE/PvP layout) | yes | admin | **the backend restarts the Sietch automatically** (verified, see below); the confirm says so and shows the player count; whether a countdown applies is **unverified** |
+| Set or remove a **Survival_1** Sietch password (Deep Desert: not offered in the console) | yes | admin (owner may too) | set through a Discord **modal** (not a slash option); ephemeral reply; reads show only set/not set; logs and audit record "password set/removed", never the value; needs a log-redaction test (Requirement 24) |
 | Everything else in Maps (interactive modifiers, advanced and ini editing, user settings, adding or removing Survival_1 or Deep Desert instances, static-to-dynamic and back, memory/swap/autoscaler, runtime settings, CHOAM terminals, spicefields, reconcile) | **console only** | n/a | topology and capacity changes need the whole picture |
 
 **Rule (operator, 2026-10-01): any change to an instance writes to an ini file, so it requires an
