@@ -31,6 +31,7 @@ now**. Two things follow:
 |---|---|---|
 | 2a (§3.5) | Per-guild actor signing secret. The **mentat PR ships first**, then Core#1088 (R2 D01). | mentat#438 resolved (the deploy branch reconciled with `main`, which includes #384's v9), U13, OD 7 (§3.5.2, §13) |
 | 2b (rest of this document) | Stock route and `/dune goal sync` | 2a (both sides deployed and provisioned on dune-dev). PR #435 is **merged** (`db3db83`). |
+| 2c (**new 2026-10-01, operator decision; own design, not in this document**) | Guild-base designation in Core (Option 2) and `/order sync` (key `order:sync`). Orders are a separate guild-only command (command-split design D14 v2.2, OD17). | 2a, 2b, and the Core issue for the designation (Requirement 18). The game data has no base-to-guild link today (a base has one player Owner, rank 1), so the designation must be explicit. |
 
 **Evidence base:** Core claims are cited as `path:line` on the fork's `origin/main`
 (`ace31877`, 2026-09-27, still Core `main` on 2026-09-29). Core was read only through
@@ -86,8 +87,9 @@ exactly what would change. If they confirm, it saves those numbers as the goal's
 values. The manual `/dune goal on-hand` path is unchanged and always available.
 
 **Non-goals (explicit).**
-- **Guild scope is OUT.** Guild goals and orders stay manual (Option 1). A real guild-base
-  designation in Core (Option 2) stays deferred. mentat refuses to sync a guild goal `[D1]`.
+- **Guild scope is OUT of 2a/2b.** Guild goals and orders stay manual (Option 1) until phase 2c.
+  The operator chose Option 2 on 2026-10-01 (a real guild-base designation in Core, a separate
+  design); orders are now their own `/order` command and `order:sync` is a 2c deliverable. mentat refuses to sync a guild goal `[D1]`.
 - **Per-member contribution attribution is OUT.** The engine gives no per-actor deposit signal.
 - **No recipe or crafting math in Core.** Core answers one question: "how many of these item ids
   does this linked player have in these places". All domain logic stays in mentat.
@@ -2202,7 +2204,7 @@ Never allowlist a guild whose Core lacks the route. That would be harmless (FM1)
   `ensureItemAuditLogIndexes` (`duneDb.js:3120`–`:3160`, #936) is precedent for automatic
   `create index concurrently` with operator sign-off. This design deliberately stays stricter:
   no automatic index (DBA-13).
-- **Guild scope (Option 2).** Remains deferred: own design, own migration.
+- **Guild scope (Option 2).** Chosen 2026-10-01 as phase 2c (orders, `order:sync`): own design, own migration, Core change first. Not part of 2a/2b.
 - **Catalog drift-check CI** (Phase 3 Gap 1). More valuable now that catalog ids are query keys.
 - **Signed-body coverage for other read routes**, as done here with `params` (SEC-8 generalization).
 
