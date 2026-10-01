@@ -25,29 +25,29 @@ Console tier = the action the console requires (`requiredAction`). Parity never 
 
 | Nav item | Console tier | Discord today | Gap / proposed home | Status |
 |---|---|---|---|---|
-| Home | `SERVER_READ` | `core status/summary/health/readiness`, `data population` | Probably covered; check each Home widget | Unverified |
-| Server Control | `SERVER_CONTROL` | `start`, `stop`, `restart`, `restart-service` | Covered by writes (move to `/dune operations`, OD3) | Verified |
-| Access Control | `SERVER_CONTROL` | `admin roles` (Discord role mapping) | Panel contents unknown. Read it before deciding | Unverified |
+| Home | `SERVER_READ` | `core status/summary/health/readiness`, `data population` | Probably covered; check each Home widget | Verified (pass 1, see findings) |
+| Server Control | `SERVER_CONTROL` | `start`, `stop`, `restart`, `restart-service` | Covered by writes (move to `/dune operations`, OD3) | Verified (pass 1, see findings) |
+| Access Control | `SERVER_CONTROL` | `admin roles` (Discord role mapping) | Panel contents unknown. Read it before deciding | Verified (pass 1, see findings) |
 | Backups | `BACKUPS_READ` | `data backups` (read), `create-backup` | Restore and adopt-backup: see exception E1 | Partly verified |
 | Database | `DATABASE_READ` | `infra db` (status) | Backup/restore/direct mutation: see E1, E2 | Partly verified |
-| Updates | `UPDATES_READ` | `trigger-update`, `self-update` (host operator) | Update status read and auto-update toggle may be missing | Unverified |
+| Updates | `UPDATES_READ` | `trigger-update`, `self-update` (host operator) | Update status read and auto-update toggle may be missing | Verified (pass 1, see findings) |
 | Logs | `LOGS_READ` | `logs` group (7 sources) | Probably covered; check parity of sources | Partly verified |
-| Settings | `SETTINGS_WRITE` | `infra` schedules and channels (bot settings only) | Game/server settings: split into safe settings vs E3 secrets | Unverified |
+| Settings | `SETTINGS_WRITE` | `infra` schedules and channels (bot settings only) | Game/server settings: split into safe settings vs E3 secrets | Verified (pass 1, see findings) |
 
 ### Arrakis Management
 
 | Nav item | Console tier | Discord today | Gap / proposed home | Status |
 |---|---|---|---|---|
-| Maps | `MAPS_READ` | `data maps` (read) | Map start/stop and partition control, if the console has them | Unverified |
-| Players | `PLAYERS_READ` | Staff: `kick ban unban warn give-item clear-backpack fill-water teleport`; self: `whoami inventory storage find` | Staff: add xp, skill points, currency, faction, reset (check each against console, some need typed confirmation: E4). Player self-service: D15 | Partly verified |
-| Guilds | `GUILDS_READ` | Staff `add`, `remove` only | Staff: promote, demote, disband, list, members. Leader self-service: D18 | Verified |
-| Bases | `BASES_READ` | `refill-generators`, `refill-water` | List, permissions, custodian transfer, export: gap. Delete base: E4. Owner self-view: D15 `bases` | Partly verified |
-| Vehicles | `VEHICLES_READ` | `spawn`, `despawn`, `respawn` | List and ownership read: gap. Self view: D15 `vehicles` | Partly verified |
-| Exchange | `EXCHANGE_READ` | none found | Gap; read the panel first | Unverified |
+| Maps | `MAPS_READ` | `data maps` (read) | Map start/stop and partition control, if the console has them | Verified (pass 1, see findings) |
+| Players | `PLAYERS_READ` | Staff: `kick ban unban warn give-item clear-backpack fill-water teleport`; self: `whoami inventory storage find` | Staff: add xp, skill points, currency, faction, reset (check each against console, some need typed confirmation: E4). Player self-service: D15 | Verified (pass 1, see findings) |
+| Guilds | `GUILDS_READ` | Staff `add`, `remove` only | Staff: promote, demote, disband, list, members. Leader self-service: D18 | Verified (pass 1, see findings) |
+| Bases | `BASES_READ` | `refill-generators`, `refill-water` | List, permissions, custodian transfer, export: gap. Delete base: E4. Owner self-view: D15 `bases` | Verified (pass 1, see findings) |
+| Vehicles | `VEHICLES_READ` | `spawn`, `despawn`, `respawn` | List and ownership read: gap. Self view: D15 `vehicles` | Verified (pass 1, see findings) |
+| Exchange | `EXCHANGE_READ` | none found | Gap; read the panel first | Verified (pass 1, see findings) |
 | Live Map | `MAPS_READ` | `ops location` (text, stays as is) | **Exempt (operator, 2026-10-01): not to be implemented** | Decided |
-| Landsraad | `LANDSRAAD_READ` | none found | Gap (read, then writes if any) | Unverified |
-| Admin Tools | `ADMIN_TOOLS` | `give-item`, `grant` family (partly) | Check which tools exist and which are E4 | Unverified |
-| Care Package | `CAREPACKAGE_GRANT` | `grant`, `grant-all` | Likely covered | Partly verified |
+| Landsraad | `LANDSRAAD_READ` | none found | Gap (read, then writes if any) | Verified (pass 1, see findings) |
+| Admin Tools | `ADMIN_TOOLS` | `give-item`, `grant` family (partly) | Check which tools exist and which are E4 | Verified (pass 1, see findings) |
+| Care Package | `CAREPACKAGE_GRANT` | `grant`, `grant-all` | Likely covered | Verified (pass 1, see findings) |
 
 ### Community
 
@@ -83,6 +83,92 @@ With these exempt, 17 of the 19 nav items remain in scope.
 | E3 | Secrets and tokens (adapter token, passwords, Funcom token) | Console only | Secrets must not appear in Discord messages or logs (Requirement 24) |
 | E4 | Actions that need a typed confirmation phrase in the console (reset progression, delete base, disband, clean inventory, ban) | Allowed in Discord only with a distinct confirm step: requester-only button plus a second confirmation for the worst ones; otherwise console only | A button is weaker than a typed phrase; decide per action |
 | E5 | Drag-and-drop editors, blueprint export/import, file download (the live map is already exempt above) | Console only; Discord links to the console or gives a text summary | Visual or file-based, no useful Discord form |
+
+## Panel pass 1 findings (2026-10-01)
+
+Source: three read-only readers over the Core repo (`console/web/src`, `console/api/src`),
+reports consolidated by the controller. Citations are the readers' own `file:line` and were not
+all re-checked. Where a reader could not tell, this says **not found**, which is not the same as
+"absent". Discord adapter references: writes in `integrations/discord/writeActionRoutes.js` (WAR),
+minimum tier in `writeActionMinTier.js`, reads in `routes.js`.
+
+### What Discord already exposes (staff-facing)
+
+- **Writes (WAR:103-142):** `player.kick/ban/unban/warn/give-item/clear-backpack/fill-water`,
+  `base.refill-generators/refill-water`, `guild.add/remove`, `map.spawn/despawn/respawn/teleport`,
+  `server.start/stop/restart`, `restart-service`, `updates.apply-game/fix-steamcmd`,
+  `carepackage.enable/disable/grant/grant-all/scan/history-clear`, `backup.create`. Broadcast and
+  announcements go through a separate bridge.
+- **Reads:** status, readiness, services, maintenance, map-state, atlas, coriolis, plus the
+  **self-scoped** player reads (`me`, faction, inventory, storage, find) and two staff reads
+  (cheater tracking, item audit log). **There is no staff read of an arbitrary player, guild, base
+  or vehicle.**
+
+### Gap by nav item (in scope only)
+
+| Nav item | Console capability with no Discord surface (summary) |
+|---|---|
+| Home | performance cards, Funcom token mismatch check, restart-queue view/cancel/restart-now |
+| Server Control | not read in pass 1 (reader covered Home only); start/stop/restart exist |
+| Access Control | the whole IAM policy editor (view per-tier policy, edit, test). **Security decision needed, see below** |
+| Updates | game update *check*, console (stack) update check/apply, auto game-update settings, QA channel |
+| Settings | almost entirely secrets (E3). Safe candidates: public-listing toggles, anonymous count, console port |
+| Maps | status/memory/autoscaler/combat/spicefields/CHOAM reads, user-settings and ini editing, runtime settings, Sietch and Deep Desert views and updates, reconcile |
+| Players | every staff read (list, profile, inventory, currency, vitals, specs, position...), and writes: currency, intel, faction reputation, XP, skills, specialization, journey, crafting and research unlocks, building sets, customizations, item edit/delete, faction assign, character recovery, repairs, reset progression, spawn vehicle, kick-all |
+| Guilds | list, members, promote, demote, disband (add/remove exist) |
+| Bases | list, permissions roster and edit, custodian transfer, child access, land claim, water/auto-refill, inventory view and edit, delete base, export |
+| Vehicles | everything (list, permissions, storage, delete, custodian) |
+| Exchange | everything (market board, transactions, config, market bot, seed plans) |
+| Landsraad | everything (term, task goals, milestone preset, reward tiers, player contribution, modifiers) |
+| Admin Tools | kick-all, shutdown broadcast, scheduled map messages, command history, MOTD, join/leave messages, character-transfer settings, daily restart, restart queue, IP-change restart, host-shutdown protection |
+| Care Package | all reads (config, grants, history, eligible), config save, retry grant |
+
+The reading side is the larger gap: Discord has many writes but almost no staff reads.
+
+### Findings that change the plan
+
+1. **Tier mismatch to check (important for the premise).** The Discord write bridge has its own
+   minimum tiers: kick, ban, unban, fill-water, refill, spawn/despawn, care package are **admin**;
+   `give-item`, `clear-backpack`, `stop`, `restart`, `updates` and `grant-all` are **owner**;
+   **only `player.warn` is moderator**. If moderators are meant to manage day-to-day staff actions
+   without console access, those tiers need a deliberate review against the console's own tiers
+   (`players:moderate` etc.). Parity means the *same* tier as the console, unless you decide otherwise.
+2. **Typed phrases are auto-filled by the Discord bridge** (WAR:54-62), so Discord writes already
+   skip the console's typed-phrase safeguard. That makes E4 a real, current question, not just a
+   future one: the confirm step is the requester-only button, nothing stronger.
+3. **Several UI routes differ from the Discord ones** (UI uses `give-items` and `give-item-id`,
+   Discord `player.give-item` uses the singular route; ban `reason` is not carried; `map.teleport`
+   is not obviously the per-player teleport). Parity work must align contracts, not just add names.
+4. **Access Control mirrors a security-critical editor.** Editing console IAM policy from Discord
+   would let a Discord role change the console's own authorization. Recommend **read-only view and
+   policy test only**, edit stays console-only (new exception **E6**, needs your decision).
+5. **A possible console bug** reported by a reader, unverified: the web client sends POST to the
+   IAM policy save route while the server matches PUT (`server.js:1582`). Not mine to fix here;
+   worth a Core issue after someone confirms it.
+
+### E4 candidates: console actions guarded by a typed phrase
+
+Destructive or hard-to-reverse; decide per action (Discord with a second confirmation, or console
+only). Phrases as reported: STOP SERVER, BAN PLAYER, CLEAN INVENTORY, RESET PROGRESSION, RESET
+SPECIALIZATION, GRANT/RESET all keystones, RECOVER DELETED CHARACTER, REPAIR (faction, Landsraad
+quests, gear, vehicle decay, login queue), KICK ALL ONLINE PLAYERS, SHUTDOWN BROADCAST,
+SAVE ITEM / DELETE ITEM(S) / DELETE ALL ITEMS, APPLY AUGMENTS, DISBAND GUILD, DELETE BASE, EDIT LAND
+CLAIM, SET CHILD ACCESS, DELETE VEHICLE, UPDATE SIETCHES, UPDATE DEEP DESERT, SPAWN/DESPAWN/RESTART
+MAP, SAVE MAP SETTINGS, RESTORE MAP DEFAULTS, ENABLE/DISABLE MEMORY SWAP, SAVE AUTO GAME UPDATES,
+SAVE/ENABLE/DISABLE/GRANT/RETRY/CLEAR CARE PACKAGE.
+My proposal: allow in Discord with the existing requester-only button for routine ones (give,
+grant, unlock, repair, kick, warn, broadcast, care package); require a **second, distinct
+confirmation** for destructive ones (disband, delete base, delete vehicle, delete items, reset
+progression/specialization, clean inventory, ban, stop/restart server, map spawn/despawn, edit land
+claim); console only for bulk/free-form ones (raw ini edit, restore defaults, user-settings reset).
+
+### Reader caveats
+
+- Blueprints tab and the Vehicles tab route path were not verified; Server Control was not read.
+- Some `actions.js` line numbers are approximate; the "GRANT AL..." and "RESET AL..." phrase tails
+  were not read; a server-side phrase could exist where a reader found only a dialog.
+- API-REFERENCE.md was not read by the Exchange/Landsraad/Maps reader.
+- Discord Bot settings (a 1941-line section) were not fully read.
 
 ## Next steps
 
