@@ -261,8 +261,10 @@ memory change to `memory set-no-restart`, which applies the new limit to a runni
 `docker update` (restart mode `none`), and stores it for the next start; the plain `memory set` path
 (CLI default, and the separate `/api/maps/memory` route) **restarts the map if it is running** (Deep
 Desert: despawn then spawn of that partition; Survival_1: `dune restart survival`; Overmap:
-`dune restart overmap`). So "might cause a restart" is correct, depending on the path. Lowering a
-limit below current use on a running map could get it killed (unverified). If memory is ever offered
+`dune restart overmap`). So "might cause a restart" is correct, depending on the path. **Tested on dune-dev (see the evidence document, third series):** the live path never restarted the
+Deep Desert; the restart path **failed to apply** on an always-on Deep Desert (value saved, restart
+refused); lowering below current use did not kill it but moved memory to swap and the limit was changed
+by something unidentified. If memory is ever offered
 in Discord it must use the live path, say which path ran, and warn about the lower-than-usage case.
 
 Guard rails: the confirm button shows how many players are on the instance (the bridge auto-fills

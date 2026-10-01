@@ -158,6 +158,33 @@ Survival_1 up. The Deep Desert only ran earlier because it started at boot when 
 while Survival_1 is running.** A direct `dune spawn 8` started it (it does not apply that guard, as
 `set-active` did not either); it settled alive and registered, available memory about 5.2 GB.
 
+## Third test series: changing the Deep Desert memory limit (tested)
+
+Operator: only memory can be modified for the Deep Desert, and it "might cause a restart". dune-dev,
+0 players, Deep Desert (partition 8) always-on, running, 8.0 GiB used, limit 16 GiB. The CLI asks an
+interactive question; the console avoids it with `DUNE_MEMORY_ASSUME_YES=1` (I used the same).
+
+| Test | Command | Result |
+|---|---|---|
+| A. Live path (what the Maps panel "Save settings" uses) | `memory set-no-restart DeepDesert_1 14g` | **No restart.** Only a docker `update` event; container start time unchanged; limit 16 to 14 GiB (swap limit 16 to 16 GiB total); stored as `14g`. |
+| B. Restart path (CLI default, `/api/maps/memory`) | `memory set DeepDesert_1 12g` | **Saved but NOT applied.** It printed "The relevant map container will restart now", then "Refusing to despawn Always On map: DeepDesert_1. Set it back to Dynamic first, or rerun with --force". No restart; the container kept the old 14 GiB limit while the stored value became `12g`. |
+| C. Live path, below current use | `memory set-no-restart DeepDesert_1 6g` (8 GiB in use) | **Survived, no OOM kill, no restart.** Usage was squeezed to about 6.1 GiB and about 2 GB moved to swap; `OOMKilled=false`, exit 0, no kernel OOM lines. The limit then **changed by itself**: shown as 7 GiB, then 8 GiB (`update` events on the Deep Desert at 23:51:34 and 23:52:38, and on the Gateway), which I could not attribute to any component (not the autoscaler log; no balancer found in the scripts I searched). Unexplained. |
+
+Restore: `set-no-restart 16g` (live), then `memory unset` (saves "default"; its restart step was refused
+the same way as B, harmlessly). Final: limit 16 GiB, "16g default", mode always-on, never restarted
+(start time unchanged since 23:39:18). Swap still held about 1.5 GB afterwards (left from test C).
+
+Findings:
+1. **The "might cause a restart" is true only for the restart path, and for an always-on Deep Desert
+   that path cannot restart it at all.** It saves the new value and fails to apply it, leaving the
+   stored setting and the running limit different until the next restart. A dynamic Deep Desert would
+   be despawned and spawned.
+2. The live path applies at once without a restart, even though its message still says "it must
+   restart for the new memory limit to apply" (misleading).
+3. Lowering the limit below current use on a live map did not kill it in this test, but it pushed memory
+   into swap and the limit was changed by something I did not identify. Treat "lower than usage" as
+   unpredictable, not safe.
+
 ## What this changes in the interpretation of the earlier open questions
 
 - "Does changing the active count restart Survival_1?" **Not in this test** (1 to 2 and 2 to 1).
