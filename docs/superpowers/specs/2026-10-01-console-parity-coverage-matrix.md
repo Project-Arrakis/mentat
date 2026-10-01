@@ -211,6 +211,13 @@ Corrections to what I wrote earlier in this file:
   not reproduce it from this checkout (a clone of the fork `main`, which may differ from what
   dune-prod runs).
 
+**UPDATE (tested on dune-dev, supersedes the wording above): a Survival_1 rename or password
+change restarts far more than one Sietch.** It restarts Survival_1, the Director, Survival_1 a second
+time, and the Gateway (about 90 seconds, same sequence in 4 of 4 runs); the Deep Desert and Overmap
+stayed up. Full evidence, timeline and code chain:
+`2026-10-01-sietch-rename-password-restart-cascade.md`. Discord rename/password therefore stays
+admin only with an explicit "restarts Survival_1 twice, the Director and the Gateway" warning.
+
 **Changing the number of active Sietches (console only, validation attempt 2026-10-01).** Operator
 says changing 3 to 4 or 4 to 3 restarts Survival_1. **The code I read does not show that:** the UI
 sends `set-max` (when adding) then `set-active` (`MapsPanel.tsx:1646-1663`), with no restart action.
