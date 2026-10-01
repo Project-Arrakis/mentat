@@ -355,6 +355,17 @@ keys, §5.2).
     verified by Core from the signed linked actor, acting only on **their own guild**
     (never a guild id parameter), with **no staff tier required** and no way to touch another
     guild. Staff keep their existing actions.
+  - **Mirror the console's Guilds tab** (`GuildsPanel.tsx`), which is the reference: three ranks,
+    **Member, Officer, Leader**; add member; **promote** Member to Officer and Officer to Leader
+    (promoting an Officer to Leader **demotes the current leader to Officer**, which is the
+    leadership transfer, so the target is always already in the guild and already an Officer);
+    **demote** to Member; **remove** member; **disband** (danger confirmation showing the member
+    count); the guild and member list. "Invite" in the operator's wording is the console's add
+    member. Rules the console enforces stay: the leader cannot be demoted or removed until another
+    member is promoted.
+  - **OD28:** what officers may do (console shows promote/demote/remove buttons; whether the game
+    lets officers invite or kick is unverified, so the default is **leader-only** writes, officers
+    read-only like members).
   - Name: **OD25**. "Guild" collides with the Discord guild in this codebase and in Discord's own
     UI. Working name `/guild` with the description "Your in-game guild (leaders)", or `/clan`
     (not a game term). Recommendation: `/guild`, with in-game vs Discord wording fixed in help.
