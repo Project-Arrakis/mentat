@@ -44,7 +44,7 @@ Console tier = the action the console requires (`requiredAction`). Parity never 
 | Bases | `BASES_READ` | `refill-generators`, `refill-water` | List, permissions, custodian transfer, export: gap. Delete base: E4. Owner self-view: D15 `bases` | Partly verified |
 | Vehicles | `VEHICLES_READ` | `spawn`, `despawn`, `respawn` | List and ownership read: gap. Self view: D15 `vehicles` | Partly verified |
 | Exchange | `EXCHANGE_READ` | none found | Gap; read the panel first | Unverified |
-| Live Map | `MAPS_READ` | `ops location` (text) | See exception E5 | Unverified |
+| Live Map | `MAPS_READ` | `ops location` (text, stays as is) | **Exempt (operator, 2026-10-01): not to be implemented** | Decided |
 | Landsraad | `LANDSRAAD_READ` | none found | Gap (read, then writes if any) | Unverified |
 | Admin Tools | `ADMIN_TOOLS` | `give-item`, `grant` family (partly) | Check which tools exist and which are E4 | Unverified |
 | Care Package | `CAREPACKAGE_GRANT` | `grant`, `grant-all` | Likely covered | Partly verified |
@@ -53,7 +53,24 @@ Console tier = the action the console requires (`requiredAction`). Parity never 
 
 | Nav item | Console tier | Discord today | Gap / proposed home | Status |
 |---|---|---|---|---|
-| Addons | `ADDONS_READ` | none found | Read and update status as a gap; install/remove: E3 candidate | Unverified |
+| Addons | `ADDONS_READ` | none found | **Exempt (operator, 2026-10-01): not to be implemented** | Decided |
+
+### Sidebar footer links (not nav items)
+
+`App.tsx:984-986` has three links under the nav: **Requests**, **Report Issues** and **Get Help**.
+Verified: all three are plain external links to the upstream Red-Blink Discord
+(`REDBLINK_DISCORD_URL`), not console features. **Exempt (operator, 2026-10-01): not to be
+implemented.**
+
+## Operator decisions so far
+
+| Item | Decision | Date |
+|---|---|---|
+| Live Map | Exempt, not implemented | 2026-10-01 |
+| Addons | Exempt, not implemented | 2026-10-01 |
+| Requests, Report Issues, Get Help (footer links) | Exempt, not implemented | 2026-10-01 |
+
+With these exempt, 17 of the 19 nav items remain in scope.
 
 ## Proposed exceptions (to flesh out, each needs an operator yes or no)
 
@@ -61,9 +78,9 @@ Console tier = the action the console requires (`requiredAction`). Parity never 
 |---|---|---|---|
 | E1 | Database restore, adopt-backup-battlegroup, any destructive restore | Console only; Discord may start a backup and read status | Restore can orphan player data; needs typed confirmations and often a host-level look (see the capacity/migration notes). Discord cannot show enough context |
 | E2 | Direct database mutation | Console only | Free-form power; no safe Discord shape |
-| E3 | Secrets and tokens (adapter token, passwords, Funcom token), addon install/remove | Console only | Secrets must not appear in Discord messages or logs (Requirement 24) |
+| E3 | Secrets and tokens (adapter token, passwords, Funcom token) | Console only | Secrets must not appear in Discord messages or logs (Requirement 24) |
 | E4 | Actions that need a typed confirmation phrase in the console (reset progression, delete base, disband, clean inventory, ban) | Allowed in Discord only with a distinct confirm step: requester-only button plus a second confirmation for the worst ones; otherwise console only | A button is weaker than a typed phrase; decide per action |
-| E5 | Live map, drag-and-drop editors, blueprint export/import, file download | Console only; Discord links to the console or gives a text summary | Visual or file-based, no useful Discord form |
+| E5 | Drag-and-drop editors, blueprint export/import, file download (the live map is already exempt above) | Console only; Discord links to the console or gives a text summary | Visual or file-based, no useful Discord form |
 
 ## Next steps
 
