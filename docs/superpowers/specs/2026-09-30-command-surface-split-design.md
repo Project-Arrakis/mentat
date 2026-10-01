@@ -316,7 +316,7 @@ keys, §5.2).
     constraint: `/player` is its own definition (911 of 8000).
   - Ordering: the split (`/player` exists) first, then views in value order (`bases` first because
     guild-base designation needs it, then `vehicles`, `skills`, `journey`, `crafting`, `research`).
-- `[D16]` (**operator, 2026-10-01**) **Console parity is the product direction: almost every
+- `[D17]` (**operator, 2026-10-01**) **Console parity is the product direction: almost every
   console feature should be reachable from Discord**, spread over `/dune` (server, operations,
   staff and moderation), `/player` (own character, read-only), `/goal` (personal and guild farming
   goals) and `/order` (guild orders). This design treats it as the target the split must make room
