@@ -31,7 +31,7 @@ now**. Two things follow:
 |---|---|---|
 | 2a (§3.5) | Per-guild actor signing secret. The **mentat PR ships first**, then Core#1088 (R2 D01). | mentat#438 resolved (the deploy branch reconciled with `main`, which includes #384's v9), U13, OD 7 (§3.5.2, §13) |
 | 2b (rest of this document) | Stock route and `/dune goal sync` | 2a (both sides deployed and provisioned on dune-dev). PR #435 is **merged** (`db3db83`). |
-| 2c (**new 2026-10-01, operator decision; own design, not in this document**) | Guild-base designation in Core (Option 2) and `/order sync` (key `order:sync`). Orders are a separate guild-only command (command-split design D14 v2.2, OD17). | 2a, 2b, and the Core issue for the designation (Requirement 18). The game data has no base-to-guild link today (a base has one player Owner, rank 1), so the designation must be explicit. |
+| 2c (**new 2026-10-01, operator decision; own design, not in this document**) | Guild-base designation in Core (Option 2) and `/order sync` (key `order:sync`). Orders are a separate guild-only command (command-split design D14 v2.2, OD17). | 2a, 2b, and the Core issue for the designation (Requirement 18). The game data has no base-to-guild link today (a base has one player Owner, rank 1), so the designation must be explicit. Set by an in-game guild leader through `/player bases` and `/player guild-base` (command-split design D14, OD18-OD20). No designation means no order sync. Core issue: #1099. |
 
 **Evidence base:** Core claims are cited as `path:line` on the fork's `origin/main`
 (`ace31877`, 2026-09-27, still Core `main` on 2026-09-29). Core was read only through
