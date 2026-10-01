@@ -261,12 +261,16 @@ keys, §5.2).
     goals (`admin` tier or Discord owner for writes, `requireGuildGoalAccess`); `/goal` becomes
     personal-and-guild farming goals without `due-at`.
   - Storage: new `orders` table or `kind` column on `goals`, plus `overdue_notified_at`. **Blocked
-    on mentat#438** (no migration until schema v8/v9 is reconciled). Existing goals that carry a
-    `due_at` need a one-time conversion (guild-owned only; personal ones keep the date as a plain
-    note or drop it: **OD16**).
+    on mentat#438** (no migration until schema v8/v9 is reconciled). **OD16, resolved 2026-10-01: no
+    conversion.** The operator states no dated goals exist (orders are a new feature). The
+    migration still asserts it: it counts goals with `due_at IS NOT NULL` and stops with a clear
+    error if any exist, rather than assuming. The `goals.due_at` column stays (additive-only,
+    Requirement 26) but `/goal` stops exposing `due-at`.
   - Budget: `/order` is a separate command definition with its own 8000 limit, so `/dune` stays
     7473/8000 and #423's budget pressure eases. Authorization keys: new `order:*` keys in the
-    authorization record. Phase 2's `goal sync` (live stock) applying to orders is **OD17**.
+    authorization record. **OD17, resolved 2026-10-01: yes**, Phase 2's `goal sync` (live stock) also applies to orders
+    (key `order:sync`, same guild-scoped gates; #437 must be amended, and `/order`'s budget must
+    include it).
   - Scheduler: overdue detection reuses the existing scheduler (`src/scheduler.js`); needs its own
     Layer 1 note (cadence, restart safety, guild without a channel).
 - **FAQ:** "How do I place an order?" answers `/order create`.
@@ -1027,7 +1031,7 @@ overridden.
    `/dune server` (fewer breaks, #422 half fixed). **Recommendation: (a)**, subject to OD9's name.
 4. **OD4: option.** B2. **Applied.**
 5. **OD5: resolved by operator 2026-10-01** as a separate `/order` command (see D14 v2.2), not
-   `/goal order`. Open follow-ups: **OD15** (resolved: per-guild setup question, see D14; a guild that skips it sees overdue only in `list`), **OD16** conversion of existing dated goals, **OD17** `goal sync` for orders.
+   `/goal order`. Open follow-ups: **OD15** (resolved: per-guild setup question, see D14; a guild that skips it sees overdue only in `list`), **OD16** (resolved: no conversion, migration asserts zero dated goals), **OD17** (resolved: `goal sync` applies to orders).
 6. **OD6: calculator placement — open.** (a) stay in `/dune data`; (b) `/goal calculate` with
    `/dune data calculator` aliased during the window. Evidence: after the split the calculator is the
    only player tool left in the staff/server command (UX-13), it feeds goal creation, and `/goal` has
