@@ -170,6 +170,31 @@ claim); console only for bulk/free-form ones (raw ini edit, restore defaults, us
 - API-REFERENCE.md was not read by the Exchange/Landsraad/Maps reader.
 - Discord Bot settings (a 1941-line section) were not fully read.
 
+## Maps decisions (operator, 2026-10-01)
+
+Maps in Discord is **instance control only**; all topology and configuration stays in the console.
+
+| Action | Discord | Tier | Notes |
+|---|---|---|---|
+| Start instance (spawn) | yes | admin | Sietch (Survival_1), Deep Desert and Overmap |
+| Stop instance (despawn) | yes | admin | same |
+| Restart a **Sietch** | yes | **moderator** | via the console's countdown queue (players warned) |
+| Immediate restart of a Sietch | yes | admin | no countdown |
+| Restart **Deep Desert** | yes | **admin/owner only** | operator decision |
+| Start/stop/restart **Overmap** | yes | **admin/owner only** | operator decision; it connects every map |
+| Rename a Sietch | yes | admin | **requires a Sietch restart**; the confirm says so and shows the player count; goes through the countdown queue by default |
+| Set or remove a Sietch password | yes | admin (owner may too) | set through a Discord **modal** (not a slash option); ephemeral reply; reads show only set/not set; logs and audit record "password set/removed", never the value; needs a log-redaction test (Requirement 24) |
+| Everything else in Maps (interactive modifiers, advanced and ini editing, user settings, adding or removing Survival_1 or Deep Desert instances, static-to-dynamic and back, memory/swap/autoscaler, runtime settings, CHOAM terminals, spicefields, reconcile) | **console only** | n/a | topology and capacity changes need the whole picture |
+
+Guard rails: the confirm button shows how many players are on the instance (the bridge auto-fills
+the typed phrase, so nothing else shows the impact); every action is audited with the Discord user.
+
+Open sub-points: (1) whether a manual **stop** of an on-demand Deep Desert (Dedicated Scaling,
+`MinServers=0`) fights the autoscaler; check the code before building. (2) Whether a password
+change also needs a restart (the operator confirmed rename does). (3) The Sietch update route
+carries the rename and password together and needs the phrase UPDATE SIETCHES; the Discord path
+must not skip a restart the console would require.
+
 ## Next steps
 
 1. Read each **Unverified** panel and upgrade its row to Verified (read-only work, suitable for a
