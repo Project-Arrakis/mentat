@@ -182,23 +182,41 @@ Maps in Discord is **instance control only**; all topology and configuration sta
 | Immediate restart of a Sietch | yes | admin | no countdown |
 | Restart **Deep Desert** | yes | **admin/owner only** | operator decision |
 | Start/stop/restart **Overmap** | yes | **admin/owner only** | operator decision; it connects every map |
-| Rename a Sietch | yes | admin | **requires a Sietch restart**; the confirm says so and shows the player count; goes through the countdown queue by default |
+| Rename a Sietch | yes | admin | **the backend restarts the Sietch automatically** (verified, see below); the confirm says so and shows the player count; whether a countdown applies is **unverified** |
 | Set or remove a Sietch password | yes | admin (owner may too) | set through a Discord **modal** (not a slash option); ephemeral reply; reads show only set/not set; logs and audit record "password set/removed", never the value; needs a log-redaction test (Requirement 24) |
 | Everything else in Maps (interactive modifiers, advanced and ini editing, user settings, adding or removing Survival_1 or Deep Desert instances, static-to-dynamic and back, memory/swap/autoscaler, runtime settings, CHOAM terminals, spicefields, reconcile) | **console only** | n/a | topology and capacity changes need the whole picture |
 
 **Rule (operator, 2026-10-01): any change to an instance writes to an ini file, so it requires an
-instance restart to take effect.** That covers rename and password, and applies to any future
-instance-level setting added to Discord. Consequences: every such Discord action says "restart
-required" before confirming, offers the countdown queue (default) or an immediate restart (admin),
-and never reports success as "applied" until the restart has happened (it reports "saved, pending
-restart"). A moderator can restart but cannot make the change.
+instance restart.** **Validated against Core's code (2026-10-01, `runtime/scripts/sietches.sh`):**
+`set-display`, `set-password` and `set-settings` write the ini through `usersettings.py
+partition-engine-set` (`server_display_name`, `server_login_password`), run `materialize-current`,
+and then **restart the Sietch automatically if it is running** (`restart_sietch_partition_if_running`,
+message "so sietch display/password changes are published by the running server"), for Survival_1.
+So the restart is **not a separate prompt step, the save itself restarts the Sietch**.
+Corrections to what I wrote earlier in this file:
+- A Discord rename or password change does **not** end in "saved, pending restart". For a running
+  Survival_1 Sietch it **restarts immediately**, disconnecting its players, so the confirm must say
+  "this restarts the Sietch now" and show the player count.
+- A **countdown (warning) is not guaranteed**: the backend calls the start script directly. Whether
+  the console's countdown queue wraps it is **unverified**; until verified, treat rename and password
+  as an immediate restart and keep them admin-only (a moderator can restart via the queue, but cannot
+  trigger this).
+- For non-Survival_1 maps (Deep Desert), the same scripts do **not** auto-restart (the restart branch is
+  `if Survival_1`), so a change there is saved and only takes effect on the next restart. Unverified
+  end to end, check before building.
+- **The console prompt you remember is not in the current UI path.** In `MapsPanel.tsx` (~1722) the
+  "Restart Required / Save And Restart" dialog is behind `const willRestart = false;`, so the Sietch
+  save shows only "Save settings for <name>?" and then "Changes may take a short time to appear
+  in-game". The restart warning you see may come from another path or a different build; I could
+  not reproduce it from this checkout (a clone of the fork `main`, which may differ from what
+  dune-prod runs).
 
 Guard rails: the confirm button shows how many players are on the instance (the bridge auto-fills
 the typed phrase, so nothing else shows the impact); every action is audited with the Discord user.
 
 Open sub-points: (1) whether a manual **stop** of an on-demand Deep Desert (Dedicated Scaling,
 `MinServers=0`) fights the autoscaler; check the code before building. (2) ~~Whether a password
-change also needs a restart~~ resolved: yes, every instance change does (rule above). (3) The Sietch update route
+change also needs a restart~~ resolved: yes, and the backend does it automatically (rule above). (3) The Sietch update route
 carries the rename and password together and needs the phrase UPDATE SIETCHES; the Discord path
 must not skip a restart the console would require.
 
