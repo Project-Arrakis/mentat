@@ -1306,6 +1306,15 @@ function requireGuildGoalAccess(interaction, config, db) {
   }
 }
 
+// mentat#428: run a goal write sequence as one all-or-nothing unit. IMMEDIATE
+// takes the write lock up front so a cap check inside `fn` and the write that
+// follows it cannot interleave with another writer. Any throw inside `fn`
+// (a validation error or a DB failure) rolls the whole thing back and
+// propagates unchanged, so error messages surface exactly as before.
+function goalTransaction(db, fn) {
+  return db.transaction(fn).immediate();
+}
+
 function executeGoalCreate({ interaction, config, db }) {
   const scope = interaction.options.getString("scope");
   const itemId = interaction.options.getString("item");
@@ -1366,17 +1375,20 @@ function executeGoalCreate({ interaction, config, db }) {
   }
 
   const activeCap = scope === "guild" ? GOAL_GUILD_ACTIVE_CAP : GOAL_PERSONAL_ACTIVE_CAP;
-  const activeCount = countGoalsByOwner(db, { ownerType, ownerId, statuses: ["active"] });
-  const lifetimeCount = countGoalsByOwner(db, { ownerType, ownerId, statuses: ["active", "completed", "archived"] });
-  if (activeCount >= activeCap || lifetimeCount >= GOAL_LIFETIME_CAP) {
-    const existing = listGoalsByOwner(db, { ownerType, ownerId, includeCompleted: true });
-    const listing = existing.map((g) => `#${g.id} ${GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? g.item_id} (${g.status})`).join(", ");
-    const which = activeCount >= activeCap ? `the ${activeCap}-active-goal limit` : `the ${GOAL_LIFETIME_CAP}-goal lifetime limit`;
-    throw new Error(`You've hit ${which}. Delete one first: ${listing}`);
-  }
-
-  const id = createGoal(db, { ownerType, ownerId, itemId, itemKind, targetQuantity: quantity, stationTier, craftingContract, dueAt, createdBy: interaction.user.id });
-  appendGoalAuditLog(db, { goalId: id, action: "create", actorId: interaction.user.id });
+  // Cap counts, insert and audit row are one transaction (mentat#428).
+  const id = goalTransaction(db, () => {
+    const activeCount = countGoalsByOwner(db, { ownerType, ownerId, statuses: ["active"] });
+    const lifetimeCount = countGoalsByOwner(db, { ownerType, ownerId, statuses: ["active", "completed", "archived"] });
+    if (activeCount >= activeCap || lifetimeCount >= GOAL_LIFETIME_CAP) {
+      const existing = listGoalsByOwner(db, { ownerType, ownerId, includeCompleted: true });
+      const listing = existing.map((g) => `#${g.id} ${GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? g.item_id} (${g.status})`).join(", ");
+      const which = activeCount >= activeCap ? `the ${activeCap}-active-goal limit` : `the ${GOAL_LIFETIME_CAP}-goal lifetime limit`;
+      throw new Error(`You've hit ${which}. Delete one first: ${listing}`);
+    }
+    const newId = createGoal(db, { ownerType, ownerId, itemId, itemKind, targetQuantity: quantity, stationTier, craftingContract, dueAt, createdBy: interaction.user.id });
+    appendGoalAuditLog(db, { goalId: newId, action: "create", actorId: interaction.user.id });
+    return newId;
+  });
 
   return { ok: true, id, itemName, quantity, itemKind, kindConfirmationLine, dueAt };
 }
@@ -1440,54 +1452,61 @@ function executeGoalOnHand({ interaction, config, db }) {
     throw new Error(`'${node}' is not an ingredient of this goal. Try /dune goal on-hand and use the autocomplete suggestions.`);
   }
 
-  const existingCount = countGoalOnHandEntries(db, id);
-  const alreadyHasThisNode = getGoalOnHandEntries(db, id).some((e) => e.node === node);
   const cap = goal.item_kind === "craftable" ? GOAL_ON_HAND_CRAFTABLE_CAP : GOAL_ON_HAND_SIMPLE_CAP;
-  if (!alreadyHasThisNode && existingCount >= cap) {
-    throw new Error(`This goal already has ${cap} on-hand ${cap === 1 ? "entry" : "entries"} -- that's the limit. Update an existing one instead of adding a new one.`);
-  }
-
-  const previous = setGoalOnHandEntry(db, { goalId: id, node, quantity, updatedBy: interaction.user.id });
-  appendGoalAuditLog(db, { goalId: id, action: "on_hand_update", actorId: interaction.user.id, node, previousQuantity: previous?.previousQuantity ?? null, newQuantity: quantity });
-
-  // Completion check: `reachedTarget` is evaluated every time regardless of
-  // the goal's current status, but `completeGoal()`/the "complete" audit
-  // entry only ever fire the first time (guarded by `goal.status ===
-  // "active"`), so an already-completed goal doesn't get re-completed or
-  // double-logged. Deliberately NOT gating `completed` itself on that same
-  // "active" check (a first draft of this function did, and it produced a
-  // real, explainable bug: a second on-hand update on an already-completed
-  // goal -- e.g. topping off on-hand further past the target -- would
-  // silently stop reporting the goal as complete in its own confirmation
-  // embed, even though it obviously still is).
-  let completed = false;
-  const entries = getGoalOnHandEntries(db, id).map((e) => ({ node: e.node, quantity: e.quantity }));
   const recipeKey = goal.item_kind === "craftable" ? GAME_ITEM_ID_TO_RECIPE_KEY.get(goal.item_id) : null;
-  const targetOnHand = entries.find((e) => e.node === goal.item_id)?.quantity ?? 0;
-  const reachedTarget = goal.item_kind === "simple"
-    ? targetOnHand >= goal.target_quantity
-    : resolveEffectiveOnHandCredit(
-        recipeKey,
-        goal.target_quantity,
-        // Reverse mapping (real game-item-id -> mentat's own recipe key),
-        // the mirror image of validNodes' forward mapping above --
-        // resolveEffectiveOnHandCredit() expects recipe-key-shaped `node`
-        // values. The root entry (node === goal.item_id) maps straight to
-        // recipeKey, same special case as the forward direction; every
-        // other stored entry maps through GAME_ITEM_ID_TO_RECIPE_KEY.
-        // `water` never appears here because it was already excluded from
-        // validNodes above, so setGoalOnHandEntry can never be reached with
-        // it -- this reverse mapping never has to handle that exception.
-        entries.map((e) => ({ node: e.node === goal.item_id ? recipeKey : (GAME_ITEM_ID_TO_RECIPE_KEY.get(e.node) ?? e.node), quantity: e.quantity })),
-        { stationTier: goal.station_tier, craftingContract: !!goal.crafting_contract }
-      ).effectiveQuantity === 0;
-  if (reachedTarget) {
-    completed = true;
-    if (goal.status === "active") {
-      completeGoal(db, { id });
-      appendGoalAuditLog(db, { goalId: id, action: "complete", actorId: interaction.user.id });
+
+  // Cap check, entry write, audit row and the completion transition are one
+  // all-or-nothing transaction (mentat#428): a failure at any step leaves no
+  // orphan entry, audit row, or half-completed goal.
+  const { previous, completed } = goalTransaction(db, () => {
+    const existingCount = countGoalOnHandEntries(db, id);
+    const alreadyHasThisNode = getGoalOnHandEntries(db, id).some((e) => e.node === node);
+    if (!alreadyHasThisNode && existingCount >= cap) {
+      throw new Error(`This goal already has ${cap} on-hand ${cap === 1 ? "entry" : "entries"} -- that's the limit. Update an existing one instead of adding a new one.`);
     }
-  }
+
+    const prev = setGoalOnHandEntry(db, { goalId: id, node, quantity, updatedBy: interaction.user.id });
+    appendGoalAuditLog(db, { goalId: id, action: "on_hand_update", actorId: interaction.user.id, node, previousQuantity: prev?.previousQuantity ?? null, newQuantity: quantity });
+
+    // Completion check: `reachedTarget` is evaluated every time regardless of
+    // the goal's current status, but `completeGoal()`/the "complete" audit
+    // entry only ever fire the first time (guarded by `goal.status ===
+    // "active"`), so an already-completed goal doesn't get re-completed or
+    // double-logged. Deliberately NOT gating `completed` itself on that same
+    // "active" check (a first draft of this function did, and it produced a
+    // real, explainable bug: a second on-hand update on an already-completed
+    // goal -- e.g. topping off on-hand further past the target -- would
+    // silently stop reporting the goal as complete in its own confirmation
+    // embed, even though it obviously still is).
+    let done = false;
+    const entries = getGoalOnHandEntries(db, id).map((e) => ({ node: e.node, quantity: e.quantity }));
+    const targetOnHand = entries.find((e) => e.node === goal.item_id)?.quantity ?? 0;
+    const reachedTarget = goal.item_kind === "simple"
+      ? targetOnHand >= goal.target_quantity
+      : resolveEffectiveOnHandCredit(
+          recipeKey,
+          goal.target_quantity,
+          // Reverse mapping (real game-item-id -> mentat's own recipe key),
+          // the mirror image of validNodes' forward mapping above --
+          // resolveEffectiveOnHandCredit() expects recipe-key-shaped `node`
+          // values. The root entry (node === goal.item_id) maps straight to
+          // recipeKey, same special case as the forward direction; every
+          // other stored entry maps through GAME_ITEM_ID_TO_RECIPE_KEY.
+          // `water` never appears here because it was already excluded from
+          // validNodes above, so setGoalOnHandEntry can never be reached with
+          // it -- this reverse mapping never has to handle that exception.
+          entries.map((e) => ({ node: e.node === goal.item_id ? recipeKey : (GAME_ITEM_ID_TO_RECIPE_KEY.get(e.node) ?? e.node), quantity: e.quantity })),
+          { stationTier: goal.station_tier, craftingContract: !!goal.crafting_contract }
+        ).effectiveQuantity === 0;
+    if (reachedTarget) {
+      done = true;
+      if (goal.status === "active") {
+        completeGoal(db, { id });
+        appendGoalAuditLog(db, { goalId: id, action: "complete", actorId: interaction.user.id });
+      }
+    }
+    return { previous: prev, completed: done };
+  });
 
   // nodeName is a fixed field name resolving a real game-item id to its
   // display name (same GAME_ITEM_CATALOG_BY_ID lookup create/list/progress
@@ -1495,6 +1514,32 @@ function executeGoalOnHand({ interaction, config, db }) {
   const nodeName = GAME_ITEM_CATALOG_BY_ID.get(node)?.name ?? node;
 
   return { ok: true, goalId: id, node, nodeName, quantity, previous, completed };
+}
+
+// mentat#427: "ingredients ready" for goal:list -- true when the on-hand
+// ingredient credit already covers everything needed to craft the whole
+// remaining quantity. Deliberately NOT derived from maxCompletable: that
+// oracle treats an uncredited ingredient as unconstrained, so crediting only
+// one of two leaves reports the full quantity as completable (verified
+// against resolveEffectiveOnHandCredit()). Instead: some ingredient must be
+// credited (shortfall map present) AND every on-hand-able leaf -- a
+// non-craftable node that has a real game-item id -- has shortfall 0.
+// `water` has no game-item id (gameItemIdBridge.js's documented exception),
+// so it can never be credited and is ignored, exactly as goal:on-hand's
+// validNodes excludes it; otherwise any recipe needing water could never be
+// "ready". Intermediates are ignored: crediting their leaf inputs leaves the
+// intermediate's own shortfall entry non-zero, and crediting the
+// intermediate itself cascades to its leaves anyway.
+function ingredientsReady(credited) {
+  if (credited.effectiveQuantity === 0 || !(credited.shortfall instanceof Map)) return false;
+  let sawLeaf = false;
+  for (const [key, remaining] of credited.shortfall) {
+    if (Object.hasOwn(credited.nestedCrafts ?? {}, key)) continue;
+    if (!RECIPE_KEY_TO_GAME_ITEM_ID.has(key)) continue;
+    sawLeaf = true;
+    if (remaining > 0) return false;
+  }
+  return sawLeaf;
 }
 
 // ── goal:list (Task 7) ──
@@ -1521,7 +1566,7 @@ function executeGoalList({ interaction, config, db }) {
         const entries = getGoalOnHandEntries(db, goal.id).map((e) => ({ node: e.node === goal.item_id ? recipeKey : (GAME_ITEM_ID_TO_RECIPE_KEY.get(e.node) ?? e.node), quantity: e.quantity }));
         const credited = resolveEffectiveOnHandCredit(recipeKey, goal.target_quantity, entries, { stationTier: goal.station_tier, craftingContract: !!goal.crafting_contract });
         const pct = Math.round(((goal.target_quantity - credited.effectiveQuantity) / goal.target_quantity) * 100);
-        progressText = ` — ${pct}%`;
+        progressText = ` — ${pct}%${ingredientsReady(credited) ? " — ingredients ready" : ""}`;
       } else if (goal.item_kind === "simple" && goal.status === "active") {
         const onHand = getGoalOnHandEntries(db, goal.id).find((e) => e.node === goal.item_id)?.quantity ?? 0;
         const pct = Math.round((Math.min(onHand, goal.target_quantity) / goal.target_quantity) * 100);
@@ -1538,10 +1583,13 @@ function executeGoalList({ interaction, config, db }) {
 }
 
 // ── goal:progress (Task 8) ──
-// Read access is open to any guild member -- unlike create/on-hand, this
+// Read access is open to any guild member the command pipeline lets through
+// (i.e. one holding a Mentat role, or any member in an open-mode guild --
+// isCommandAllowed runs before this function). Unlike create/on-hand, this
 // deliberately does NOT call requireGuildGoalAccess()/isAdminActor() once a
 // real guild-scoped match is found, matching goal:list's own precedent
-// immediately above and the plan's RBAC table (list/progress = any member).
+// immediately above and the plan's RBAC table (list/progress = any member
+// the role gate admits).
 function executeGoalProgress({ interaction, config, db }) {
   const id = interaction.options.getInteger("id");
   let goal = getGoalScoped(db, { id, ownerType: "player", ownerId: interaction.user.id });
@@ -1600,8 +1648,14 @@ function executeGoalDelete({ interaction, config, db }) {
   // acting on a destructive change" -- goal_id is not a foreign key on
   // goal_audit_log specifically so this row (and every earlier one for
   // this goal) survives the delete that follows.
-  appendGoalAuditLog(db, { goalId: id, action: "delete", actorId: interaction.user.id });
-  deleteGoalScoped(db, { id, ownerType, ownerId });
+  // Audit append and delete are one transaction (mentat#428): if the delete
+  // fails (or matches nothing) the audit row rolls back with it.
+  goalTransaction(db, () => {
+    appendGoalAuditLog(db, { goalId: id, action: "delete", actorId: interaction.user.id });
+    if (!deleteGoalScoped(db, { id, ownerType, ownerId })) {
+      throw new Error(`Goal #${id} not found.`);
+    }
+  });
 
   return { ok: true, id };
 }
@@ -1696,19 +1750,45 @@ export async function handleGoalAutocomplete(interaction, db) {
     // use: always show the caller's own personal goals, and ALSO show the
     // guild's goals if the caller is in a guild and passes the same
     // admin-tier gate requireGuildGoalAccess enforces for any real
-    // guild-goal mutation/read. A non-admin must see ONLY their own
-    // personal goals -- zero guild goals, never a partial or filtered
-    // guild list. `{ multiTenant: !!db }` mirrors index.js's own db
+    // guild-goal mutation. For on-hand/delete a non-admin must see ONLY
+    // their own personal goals -- zero guild goals, never a partial or
+    // filtered guild list. (progress differs: see the guildVisible rule
+    // below, which defers to the command's own isCommandAllowed gate.) `{ multiTenant: !!db }` mirrors index.js's own db
     // construction rule (`config.multiTenant ? createDatabase(...) :
     // null` -- db is truthy iff config.multiTenant is true), so this
     // stand-in config object behaves identically to the real one without
     // having to plumb `config` through the autocomplete routing path just
     // for this one flag.
-    const personal = listGoalsByOwner(db, { ownerType: "player", ownerId: interaction.user.id, includeCompleted: false })
+    // mentat#426: delete is the only way to free a lifetime-cap slot, and a
+    // completed goal still occupies one, so delete's suggestions must include
+    // completed goals (labelled "(done)"). Guarded with ?. because not every
+    // caller's options object exposes getSubcommand.
+    const subcommand = interaction.options.getSubcommand?.();
+    const includeCompleted = subcommand === "delete";
+    // delete only: newest first (id is monotonic), so someone near the
+    // 50-goal lifetime cap sees their newest goals within Discord's
+    // 25-choice cap. Grouping (personal, then guild) is preserved.
+    const order = (rows) => (subcommand === "delete" ? [...rows].sort((a, b) => b.id - a.id) : rows);
+    const personal = order(listGoalsByOwner(db, { ownerType: "player", ownerId: interaction.user.id, includeCompleted }))
       .map((g) => ({ ...g, __label: "" }));
     let guild = [];
-    if (interaction.guildId && isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId)) {
-      guild = listGoalsByOwner(db, { ownerType: "guild", ownerId: interaction.guildId, includeCompleted: false })
+    // mentat#425: executeGoalProgress lets any member the command pipeline
+    // admits (a Mentat role holder, or anyone in an open-mode guild) read a
+    // guild goal, so progress suggestions use that SAME isCommandAllowed
+    // check rather than the admin gate. on-hand/delete are mutations and
+    // keep the admin gate. Always scoped to the
+    // caller's own interaction.guildId, never another guild.
+    // Autocomplete bypasses executeDuneCommand's isCommandAllowed gate
+    // (index.js), so progress must re-apply that SAME role check here: in a
+    // restricted guild a member with no Mentat role is denied goal:progress
+    // and must not see guild goal ids/names in suggestions either. db is
+    // non-null (guarded above), so the multi-tenant branch is what runs.
+    const guildVisible = interaction.guildId
+      && (subcommand === "progress"
+        ? isCommandAllowed(interaction, "goal:progress", { multiTenant: !!db }, db, interaction.guildId)
+        : isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId));
+    if (guildVisible) {
+      guild = order(listGoalsByOwner(db, { ownerType: "guild", ownerId: interaction.guildId, includeCompleted }))
         .map((g) => ({ ...g, __label: "Guild: " }));
     }
     // Personal first, then guild -- both can appear in the same list for an
@@ -1717,7 +1797,7 @@ export async function handleGoalAutocomplete(interaction, db) {
     const goals = [...personal, ...guild]
       .filter((g) => String(g.id).includes(query) || (GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? "").toLowerCase().includes(query))
       .slice(0, 25)
-      .map((g) => ({ name: `${g.__label}#${g.id} ${GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? g.item_id}`, value: g.id }));
+      .map((g) => ({ name: `${g.__label}#${g.id} ${GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? g.item_id}${g.status === "completed" ? " (done)" : ""}`, value: g.id }));
     await interaction.respond(goals);
     return;
   }
