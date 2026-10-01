@@ -273,6 +273,19 @@ keys, §5.2).
     game data has no base-to-guild link, so it cannot be inferred). That is Phase 2c, a separate
     design plus a Core change filed per Requirement 18, so `/order sync` ships after `/order` itself.
     `/order`'s budget must include it then.
+  - **Designation lives under `/player` (operator, 2026-10-01):** a player who is a guild leader can
+    **view their bases** (`/player bases`) and **designate one as the guild base**
+    (`/player guild-base`). With no designated base there is **no live-stock sync** for orders;
+    `/order sync` says so and points at the designation. Defaults pending confirmation:
+    **OD18** "guild leader" means the linked character is the **in-game guild leader** (Core's
+    `guild_members` leader role, verified by Core, never trusted from the client), not the Discord
+    guild owner; **OD19** only a base the leader **owns** (rank 1) can be designated; **OD20** one
+    designation per Discord guild, re-designating replaces it, and it stops counting if the
+    designator is no longer the in-game leader or no longer owns that base. The designation is
+    stored in Core and applies only to the Discord guild where the command ran
+    (`interaction.guildId`, no guild parameter). This is a **write** path (signed actor, per-guild
+    secret, audited), so it is part of the 2c design and its audit, not a quick add. `/player` budget
+    (911) has room, to be re-measured.
   - Scheduler: overdue detection reuses the existing scheduler (`src/scheduler.js`); needs its own
     Layer 1 note (cadence, restart safety, guild without a channel).
 - **FAQ:** "How do I place an order?" answers `/order create`.
