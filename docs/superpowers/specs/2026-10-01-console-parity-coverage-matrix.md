@@ -211,6 +211,20 @@ Corrections to what I wrote earlier in this file:
   not reproduce it from this checkout (a clone of the fork `main`, which may differ from what
   dune-prod runs).
 
+**Changing the number of active Sietches (console only, validation attempt 2026-10-01).** Operator
+says changing 3 to 4 or 4 to 3 restarts Survival_1. **The code I read does not show that:** the UI
+sends `set-max` (when adding) then `set-active` (`MapsPanel.tsx:1646-1663`), with no restart action.
+`sietches.sh set-active` calls `reconcile_map_dimensions` (`~1583-1807`), which adds or removes
+partition rows, and a code comment there says a count change *must not replace* the running Director
+or primary Survival_1: "additions can register directly, and removals are withdrawn by
+despawning/deleting the secondary", then it publishes topology through `publish-sietch-overrides.sh
+once` (not `restart`). So by the script, a count change does **not** restart Survival_1, though it
+does despawn the extra Sietch when reducing. **Unresolved:** the observed restart may come from
+something I did not read (the override publisher, the Director or FLS re-declaration, a different
+build than this checkout). It matters little for Discord, because this operation stays console-only,
+but the console's own warning text and any docs should match reality. **Needs a controlled check on
+dune-dev** (Requirement 32 procedure: dune-dev only, never dune-prod).
+
 Guard rails: the confirm button shows how many players are on the instance (the bridge auto-fills
 the typed phrase, so nothing else shows the impact); every action is audited with the Discord user.
 
