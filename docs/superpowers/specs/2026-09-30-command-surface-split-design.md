@@ -273,9 +273,9 @@ keys, §5.2).
     game data has no base-to-guild link, so it cannot be inferred). That is Phase 2c, a separate
     design plus a Core change filed per Requirement 18, so `/order sync` ships after `/order` itself.
     `/order`'s budget must include it then.
-  - **Designation lives under `/player` (operator, 2026-10-01):** a player who is a guild leader can
-    **view their bases** (`/player bases`) and **designate one as the guild base**
-    (`/player guild-base`). With no designated base there is **no live-stock sync** for orders;
+  - **Designation lives under `/player` (operator, 2026-10-01):** any linked player can **view their
+    bases** (`/player bases`, part of D15 below); only a guild leader can **designate one as the guild
+    base** (`/player guild-base`). With no designated base there is **no live-stock sync** for orders;
     `/order sync` says so and points at the designation. Defaults pending confirmation:
     **OD18** "guild leader" means the linked character is the **in-game guild leader** (Core's
     `guild_members` leader role, verified by Core, never trusted from the client), not the Discord
@@ -289,6 +289,33 @@ keys, §5.2).
   - Scheduler: overdue detection reuses the existing scheduler (`src/scheduler.js`); needs its own
     Layer 1 note (cadence, restart safety, guild without a channel).
 - **FAQ:** "How do I place an order?" answers `/order create`.
+- `[D15]` (**operator, 2026-10-01**) **`/player` mirrors the console's player detail page, read-only
+  and limited to the caller's own linked character.** `/player link` (today `/dune player link`)
+  links a Discord account to an in-game character; after that, `/player` offers the read-only views
+  of the console's left-nav Players → player page. Mapping of the console tabs
+  (`CharacterAdminUI.tsx` `playerAdmin_tabs`) to `/player` (working names, **OD21**):
+  | Console tab | `/player` | Today |
+  |---|---|---|
+  | Character (profile, vitals, progression, currency, factions) | `whoami` (extend) | `whoami` exists, narrower |
+  | Inventory (backpack, gear, loadout, schematics) | `inventory` | exists |
+  | Crafting (unlocked recipes) / Research | `crafting`, `research` | new |
+  | Skills / Specialization | `skills` | new |
+  | Journey | `journey` | new |
+  | Bases | `bases` | new |
+  | Vehicles | `vehicles` | new |
+  | Building Sets / Customizations / Blueprints | later, **OD22** (lowest value) | new |
+  | Admin | **never** exposed | n/a |
+  - Everything is **read-only**, **own character only** (the target is always the caller's linked
+    character, never a parameter, so no player can look at another player), and shows less than the
+    console where the console is staff-oriented (**OD23**: e.g. exact position, raw ids, ban status
+    withheld by default).
+  - Today only `whoami`, `inventory`, `storage` and `find` exist in `/dune player`, and Core's
+    adapter has **no** routes for the new views. Each new view needs a Core read route that is
+    scoped to the signed linked actor (same model as Phase 2a, Core#1088), so this is a Core epic
+    (**Core#1099** is extended to cover it), not a mentat-only change. The command budget is not a
+    constraint: `/player` is its own definition (911 of 8000).
+  - Ordering: the split (`/player` exists) first, then views in value order (`bases` first because
+    guild-base designation needs it, then `vehicles`, `skills`, `journey`, `crafting`, `research`).
 
 - **Phase 2's `goal sync`** keeps key `goal:sync` (§5.2). It lives in the shared goal adders, so it
   appears in both layouts: legacy `/dune` **7473 + 20 = 7493** (7 below target), split `/goal` 424.
