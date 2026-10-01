@@ -333,6 +333,9 @@ keys, §5.2).
     25 subcommands per group and 25 groups/subcommands per command, and 3 s to first response. A
     full console mirror will need more groups, or more top-level commands, so the split design's
     group names (OD9) and the layout (OD1) should be chosen with parity in mind.
+  - **Nav-level rule (operator, 2026-10-01):** every left-nav item in the console has a Discord home
+    or a written exception. First pass: `2026-10-01-console-parity-coverage-matrix.md` (19 nav
+    items, 5 proposed exceptions E1-E5, **OD24**).
   - **Method:** build a **coverage matrix** first (every console panel/route → Discord command,
     audience, tier, Core route that exists or is missing, or exclusion), generated mechanically from
     the console's nav and `docs/console/API-REFERENCE.md`, then work from it in value order. No
