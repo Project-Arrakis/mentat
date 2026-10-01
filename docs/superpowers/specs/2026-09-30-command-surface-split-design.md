@@ -268,9 +268,11 @@ keys, §5.2).
     Requirement 26) but `/goal` stops exposing `due-at`.
   - Budget: `/order` is a separate command definition with its own 8000 limit, so `/dune` stays
     7473/8000 and #423's budget pressure eases. Authorization keys: new `order:*` keys in the
-    authorization record. **OD17, resolved 2026-10-01: yes**, Phase 2's `goal sync` (live stock) also applies to orders
-    (key `order:sync`, same guild-scoped gates; #437 must be amended, and `/order`'s budget must
-    include it).
+    authorization record. **OD17, resolved 2026-10-01: yes**, live stock also applies to orders (key `order:sync`), with
+    the stock source an **explicit guild-base designation in Core** (operator chose Option 2; the
+    game data has no base-to-guild link, so it cannot be inferred). That is Phase 2c, a separate
+    design plus a Core change filed per Requirement 18, so `/order sync` ships after `/order` itself.
+    `/order`'s budget must include it then.
   - Scheduler: overdue detection reuses the existing scheduler (`src/scheduler.js`); needs its own
     Layer 1 note (cadence, restart safety, guild without a channel).
 - **FAQ:** "How do I place an order?" answers `/order create`.
@@ -1031,7 +1033,7 @@ overridden.
    `/dune server` (fewer breaks, #422 half fixed). **Recommendation: (a)**, subject to OD9's name.
 4. **OD4: option.** B2. **Applied.**
 5. **OD5: resolved by operator 2026-10-01** as a separate `/order` command (see D14 v2.2), not
-   `/goal order`. Open follow-ups: **OD15** (resolved: per-guild setup question, see D14; a guild that skips it sees overdue only in `list`), **OD16** (resolved: no conversion, migration asserts zero dated goals), **OD17** (resolved: `goal sync` applies to orders).
+   `/goal order`. Open follow-ups: **OD15** (resolved: per-guild setup question, see D14; a guild that skips it sees overdue only in `list`), **OD16** (resolved: no conversion, migration asserts zero dated goals), **OD17** (resolved: yes, via a Core guild-base designation, phase 2c).
 6. **OD6: calculator placement — open.** (a) stay in `/dune data`; (b) `/goal calculate` with
    `/dune data calculator` aliased during the window. Evidence: after the split the calculator is the
    only player tool left in the staff/server command (UX-13), it feeds goal creation, and `/goal` has
