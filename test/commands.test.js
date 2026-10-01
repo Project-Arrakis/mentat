@@ -156,7 +156,7 @@ test("helpPayload lists the write group only when writes are enabled, gated by w
 
     const adminHelp = helpPayload(config(), mockInteraction("core", "help", { roles: ["write-admin-role"] }));
     assert.ok(adminHelp.total > 54, "write group adds commands to help when writes enabled");
-    assert.ok(adminHelp.available.includes("write:cache"), "write-admin role can see write commands as available");
+    assert.ok(adminHelp.available.includes("write:alert-channel") && adminHelp.locked.includes("write:cache"), "write-admin role sees admin-tier write commands as available and owner-tier write:cache as locked");
   } finally {
     if (originalAdminRoles === undefined) delete process.env.DISCORD_WRITE_ADMIN_ROLE_IDS;
     else process.env.DISCORD_WRITE_ADMIN_ROLE_IDS = originalAdminRoles;
