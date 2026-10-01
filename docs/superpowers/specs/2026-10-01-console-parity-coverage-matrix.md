@@ -218,6 +218,17 @@ stayed up. Full evidence, timeline and code chain:
 `2026-10-01-sietch-rename-password-restart-cascade.md`. Discord rename/password therefore stays
 admin only with an explicit "restarts Survival_1 twice, the Director and the Gateway" warning.
 
+**UPDATE 2 (second test series on dune-dev, same evidence document):** adding a Sietch (1 to 2) and
+removing it (2 to 1) did **not** restart Survival_1, the Director or the Gateway (only the added or
+removed Sietch started or stopped); renaming the **secondary** Sietch **did** restart the primary
+Survival_1, the Director and the Gateway; an always-on Deep Desert cannot be stopped without first
+setting it to dynamic, and on a small host the autoscaler's memory guard (map limit plus 4 GiB
+reserve) can refuse to start it again. Implications for Discord Maps: **stop of an always-on map is
+refused by the backend unless the mode is changed first (console-only)**, so Discord "stop" only
+applies to dynamic maps; **start of a map can be refused by the memory guard** and Discord must show
+that message, not a generic failure; **rename and password on any Survival_1 Sietch disconnect
+Sietch 1's players** and need the full-cascade warning and admin tier.
+
 **Changing the number of active Sietches (console only, validation attempt 2026-10-01).** Operator
 says changing 3 to 4 or 4 to 3 restarts Survival_1. **The code I read does not show that:** the UI
 sends `set-max` (when adding) then `set-active` (`MapsPanel.tsx:1646-1663`), with no restart action.

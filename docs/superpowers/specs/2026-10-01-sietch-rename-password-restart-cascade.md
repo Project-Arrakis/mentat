@@ -81,30 +81,107 @@ which would disconnect every Hagga Basin player".
   dialog in `MapsPanel.tsx:~1722` is behind `const willRestart = false;`, so a Sietch save only asks
   "Save settings for <name>?".
 
-## Not tested, code reading only (be careful citing these)
+## Second test series: adding and removing a Sietch, renaming the secondary (tested)
 
-- **A secondary Sietch (partition above 1).** `restart_sietch_partition_if_running` restarts only
-  that partition's own container, but the call to `refresh_survival_sietch_metadata_state` is under
-  the same `Survival_1` check, so by the code it still restarts the Director, the **primary**
-  Survival_1 and the Gateway. If true, renaming Sietch 3 disconnects Sietch 1's players. Needs a
-  test on a dune-dev with a second Sietch.
-- **Deep Desert rename or password** (`DeepDesert_1`): the scripts only auto-restart Survival_1, so
-  it is saved and applies at that map's next restart. Not tested.
-- **Changing the number of active Sietches.** `set-active` does not call
-  `refresh_survival_sietch_metadata_state` (callers are lines 2188, 2200 and 2229 only: set-display,
-  set-password, set-settings), and a comment in `reconcile_map_dimensions` says a count change must
-  not replace the Director or primary Survival_1. By the code it does **not** run this cascade, but
-  it can restart a **different** map through `relocate_survival_port_conflicts` (despawn and spawn of
-  a map holding the newly reserved ports, refused if players are connected). Not tested; dune-dev
-  had about 3.9 GB of memory available (Survival_1 9.6 GB, Deep Desert 9.0 GB), too little for a
-  second Sietch unless the Deep Desert is stopped first.
-- The Director's own stale-browser heal (`autoscaler.sh:~3066-3090`) also calls
-  `restart-director.sh`, but defers while players are online. It is a separate trigger of the same
-  Survival_1 restart.
+Same day, same dune-dev, 0 players, backup first. dune-dev has 25.5 GB total memory and 8 GB swap
+(swappiness 10). To fit a second Sietch the Deep Desert had to be stopped first. Memory and
+container events were sampled every 10 seconds and by `docker events` for the whole series.
 
-## What changed on dune-dev, and how it was restored
+### Setup finding: the Deep Desert is held up by the autoscaler
 
-- A database backup was taken first (`dune db backup`).
+`dune despawn 8` refused: "Refusing to despawn Always On map: DeepDesert_1 ... The autoscaler will
+respawn Always On maps." The operator's guidance, confirmed: set the map to **dynamic** and it will
+not be restarted until someone enters it (`dune maps set DeepDesert_1 dynamic`, the original mode
+was `always-on`). The mode change itself restarted nothing ("Map remains running if already
+active"); the Deep Desert was then despawned normally. Memory available rose from about 4.0 GB to
+13.2 GB.
+
+### Result 1: increasing the active Sietches 1 to 2 does NOT restart Survival_1
+
+Sequence copied from the console UI (`set-max Survival_1 2`, then `set-active Survival_1 2`).
+
+| Time (UTC) | Event |
+|---|---|
+| 23:25:21 | `set-max` |
+| 23:25:24 | `set-active 2` |
+| 23:25:32 | **start `dune-server-survival-1-36`** (new Sietch, partition 36, dimension 1) |
+
+That is the **only** container event. The primary Survival_1, the Director, the Gateway and the
+Overmap did not restart. This contradicts the operator's recollection that changing the count
+restarts Survival_1, **for this case (count 1 to 2, nothing connected, Deep Desert stopped)**. It
+agrees with the code comment in `reconcile_map_dimensions` ("must not replace" the Director or
+primary Survival_1). A larger change, or a count change while another map holds the newly reserved
+ports (`relocate_survival_port_conflicts`), was not tested.
+
+Memory: the new Sietch settled at **9.26 GiB** (primary 9.57 GiB). Available memory fell from 13.2
+GB to a minimum of **3.52 GB** (23:27:23) and recovered to about 3.8 to 4.4 GB. Swap use peaked at
+**52 MB** (no change from baseline). No out-of-memory events. So dune-dev **can** run two Sietches
+plus the Overmap, but not also the Deep Desert.
+
+### Result 2: renaming the SECONDARY Sietch also restarts the primary Survival_1
+
+`dune sietches set-display 36 "<name>"`, with the primary Survival_1, the Director and the Gateway
+all running and unaffected before the command:
+
+| Time (UTC) | Offset | Event |
+|---|---|---|
+| 23:30:24 | 0s | command begins |
+| 23:30:28 to 23:30:39 | +4s | **secondary Sietch (36) kill, die, start** |
+| 23:31:08 | +44s | **Director** kill, die, start |
+| 23:31:23 | +59s | **primary Survival_1** kill, die, start |
+| 23:31:54 | +90s | **Gateway** kill, die, start |
+
+So the code-reading prediction was correct: **a rename on any Survival_1 Sietch restarts the
+primary Survival_1 (Sietch 1) as well**, so it disconnects Sietch 1's players even if the renamed
+Sietch has none. The same Director-plus-Gateway cascade follows. The password path calls the same
+refresh helper (by code), so it behaves the same; only partition 1 was tested for password.
+
+### Result 3: decreasing the active Sietches 2 to 1 stops only the extra Sietch
+
+`set-active Survival_1 1` at 23:34:18: the only container event was **kill and die of
+`dune-server-survival-1-36`** (23:34:20). The primary Survival_1, the Director and the Gateway were
+not touched. The partition 36 row was deleted (a `COMMIT` in the output), leaving only partition 1.
+`set-max Survival_1 1` restored the maximum.
+
+### Result 4: restoring the Deep Desert
+
+`dune maps set DeepDesert_1 always-on` printed:
+
+> WAIT always-on map=DeepDesert_1 partition=8 host-memory available=14GiB requested=16GiB
+> reserve=4GiB required=20GiB swap-free=8GiB. Automatic startup was deferred to protect the host
+> from memory exhaustion. Swap is emergency headroom and is not treated as launch capacity.
+
+The autoscaler **refused to restart the Deep Desert for 3 minutes** (18 polls): its guard needs the
+map's 16 GiB limit plus a 4 GiB reserve (20 GiB) available, and only about 13.4 GB was free with
+Survival_1 up. The Deep Desert only ran earlier because it started at boot when memory was free.
+**Consequence on a 26 GB host: an always-on Deep Desert that stops cannot come back automatically
+while Survival_1 is running.** A direct `dune spawn 8` started it (it does not apply that guard, as
+`set-active` did not either); it settled alive and registered, available memory about 5.2 GB.
+
+## What this changes in the interpretation of the earlier open questions
+
+- "Does changing the active count restart Survival_1?" **Not in this test** (1 to 2 and 2 to 1).
+  Whatever the operator saw on production (3 to 4 Sietches, many maps, real players) may involve the
+  port-conflict relocation or behavior I did not reproduce. Do not cite this as a proof for the
+  production layout.
+- "Does a rename on a secondary restart the primary?" **Yes, confirmed.**
+- "Can dune-dev hold a second Sietch?" **Yes, if the Deep Desert is stopped (set dynamic).**
+
+## Still not tested
+
+- A rename or password change on a **Deep Desert** (code: saved, applies at its next restart).
+- Password change on a **secondary** Sietch (same code path as rename; expected identical).
+- Count changes **while players are connected**, and counts above 2 (port conflicts and
+  `relocate_survival_port_conflicts`, which would restart another map holding the reserved ports).
+- Whether the Deep Desert and Overmap re-register cleanly after a Director restart (they stayed up
+  and 0 players were connected).
+- The Director's own stale-browser heal (`autoscaler.sh:~3066-3090`) also calls `restart-director.sh`,
+  but defers while players are online; it appeared in the autoscaler log as
+  `HEAL unscoped-stale-server-state` during the series without a Director restart event.
+
+## What changed on dune-dev, and how it was restored (both series)
+
+- A database backup was taken before each series (`dune db backup`).
 - The Sietch name and password were saved to a private file on the VM (never printed or copied
   into any session), changed, then restored. Verification compared the stored values to the saved
   copies: both restored. The temporary name and password used in the test were fixed test strings.
@@ -129,3 +206,12 @@ which would disconnect every Hagga Basin player".
 4. Core could reduce the impact (skip the second Survival_1 restart, avoid the Gateway restart);
    that is a Core change, tracked in a Core issue, not something mentat can do.
 5. The same evidence applies to the console: its dialog does not warn about this cascade.
+
+## dune-dev final state after both series
+
+Deep Desert partition 8 alive and registered, mode `always-on` (as found); Survival_1 has only
+partition 1, `max_dimensions` 1 and `active_dimensions` 1 (now stored as explicit values, where
+before only `active_dimensions_explicit: false` was recorded); the Sietch name and password of
+partition 1 are as found; the autoscaler is running; the temporary partition 36 row is gone. Evidence
+is under `~/sietch-restart-test/` and `~/sietch-restart-test/t2/` on dune-dev (event logs, memory
+log, before/after states).
