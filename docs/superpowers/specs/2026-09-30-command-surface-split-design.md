@@ -85,7 +85,7 @@ removal, not at the flip (§5.8, §10).
   Core#1087 (Requirement 18).
 - **No schema change.** The split must not bump `SCHEMA_VERSION` or add a migration (it would
   collide with the main v8 / deploy v9 divergence, mentat#438).
-- No new features. `goal sync` belongs to Phase 2; `/goal order` is OD5.
+- No new features in the split itself. `goal sync` belongs to Phase 2; `/order` (D14 v2.2) is a separate, later feature that this design only reserves the name and budget for.
 - No `default_member_permissions` or `integration_types` change.
 - No fix for the dormant single-tenant `commandRoleIds` keys: filed as mentat#439.
 
@@ -234,20 +234,41 @@ keys, §5.2).
 - **Header texts (v2, full sentences, UX-9/14/16):**
   - `/dune`: "Server status, operations and staff tools. Players: see /player and /goal." (74)
   - `/player`: "Your Dune: Awakening character: link, inventory, storage." (57)
-  - `/goal`: "Dune: Awakening farming goals and orders (goals with a due date)." (65)
+  - `/goal`: "Dune: Awakening personal and guild farming goals." (not yet measured; was 65 with "orders")
+  - `/order`: "Guild orders: farming goals with a due date, tracked for the whole guild." (not yet measured)
   - `/dune moderation` (working name): "Staff actions on players: kick, ban, warn, items (moderator+)." (62)
   - Budget effect against v1's header texts (arithmetic with the budget function): `/dune` +61
     (header +33, `moderation` +28) → **6291**, or **6469** with the `moved` shims; `/player` +13 →
     911; `/goal` +40 → 444. The implementation PR's budget test is the authority.
 - **Goal subcommand text (OD8):** readable texts ("Goal id", "Quantity", "Goals to list") are
   written into the **shared** goal adders only after legacy removal (R-D), because the legacy
-  tree shares them. `/goal create`'s description gains "or an order (set due-at)" at the same time.
+  tree shares them. (Superseded by D14 v2.2: `due-at` leaves the goal adders, so `/goal create` no longer mentions orders.)
 
 ### 4.4 Goals, orders and Phase 2
-- `[D14]` No `/order` command and no order entity: an order is a goal with `due-at`
-  (`goals.due_at`, `src/database.js:153-175`).
-- `/goal order` (196 chars) is **OD5**. Discoverability now: the `/goal` header already contains
-  "orders", and the FAQ gains "How do I place an order?".
+- `[D14]` (**v2.2, operator decision 2026-10-01, replaces "an order is a goal with `due-at`"**):
+  orders are their own top-level command, `/order`, with its own entity. Operator answers:
+  1. `due-at` is **required** on create and **editable** afterwards.
+  2. Orders are **guild-scoped only** (no personal orders). `owner_id` is always
+     `interaction.guildId`, resolved from the interaction, never a parameter (isolated-tenant rule).
+  3. A past-due open order is **marked overdue** (shown in `list` and `progress`) and the **guild
+     leader is informed**. v1 default: leader = Discord guild owner (`guild.ownerId`, as
+     `isGuildOwner()` already means); the notice is posted by the bot in the guild's own configured
+     channel mentioning the owner, once per order (idempotent flag), never a DM and never through the
+     process-default Core (mentat#442). Which channel is **OD15**.
+  - Surface (like `/goal`): `/order create|on-hand|list|progress|edit|delete`. Gates follow guild
+    goals (`admin` tier or Discord owner for writes, `requireGuildGoalAccess`); `/goal` becomes
+    personal-and-guild farming goals without `due-at`.
+  - Storage: new `orders` table or `kind` column on `goals`, plus `overdue_notified_at`. **Blocked
+    on mentat#438** (no migration until schema v8/v9 is reconciled). Existing goals that carry a
+    `due_at` need a one-time conversion (guild-owned only; personal ones keep the date as a plain
+    note or drop it: **OD16**).
+  - Budget: `/order` is a separate command definition with its own 8000 limit, so `/dune` stays
+    7473/8000 and #423's budget pressure eases. Authorization keys: new `order:*` keys in the
+    authorization record. Phase 2's `goal sync` (live stock) applying to orders is **OD17**.
+  - Scheduler: overdue detection reuses the existing scheduler (`src/scheduler.js`); needs its own
+    Layer 1 note (cadence, restart safety, guild without a channel).
+- **FAQ:** "How do I place an order?" answers `/order create`.
+
 - **Phase 2's `goal sync`** keeps key `goal:sync` (§5.2). It lives in the shared goal adders, so it
   appears in both layouts: legacy `/dune` **7473 + 20 = 7493** (7 below target), split `/goal` 424.
   This is the only pre-approved change to the frozen legacy tree (§5.8). If Phase 2 ships first,
@@ -1003,10 +1024,10 @@ overridden.
 3. **OD3: server lifecycle writes — open.** (a) `/dune operations` (audience-clean); (b) stay in
    `/dune server` (fewer breaks, #422 half fixed). **Recommendation: (a)**, subject to OD9's name.
 4. **OD4: option.** B2. **Applied.**
-5. **OD5: `/goal order` — open.** (a) defer; (b) add now (196 chars; `/goal` has >7000 free).
-   Evidence: users typing "order" find nothing by name today (UX-10); product semantics (guild scope?
-   `due-at` required?) are undecided. **Recommendation: (a)** plus "order" in the `/goal` and
-   `create` descriptions and an FAQ entry; add `/goal order` when the semantics are decided.
+5. **OD5: resolved by operator 2026-10-01** as a separate `/order` command (see D14 v2.2), not
+   `/goal order`. Open follow-ups: **OD15** overdue-notice channel (recommend the guild's configured
+   schedule/alerts channel; if none, show overdue only in `list` and tell the owner via the next
+   command reply), **OD16** conversion of existing dated goals, **OD17** `goal sync` for orders.
 6. **OD6: calculator placement — open.** (a) stay in `/dune data`; (b) `/goal calculate` with
    `/dune data calculator` aliased during the window. Evidence: after the split the calculator is the
    only player tool left in the staff/server command (UX-13), it feeds goal creation, and `/goal` has
