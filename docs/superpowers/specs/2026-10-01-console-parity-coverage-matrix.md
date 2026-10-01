@@ -222,7 +222,18 @@ once` (not `restart`). So by the script, a count change does **not** restart Sur
 does despawn the extra Sietch when reducing. **Unresolved:** the observed restart may come from
 something I did not read (the override publisher, the Director or FLS re-declaration, a different
 build than this checkout). It matters little for Discord, because this operation stays console-only,
-but the console's own warning text and any docs should match reality. **Needs a controlled check on
+but the console's own warning text and any docs should match reality. **Downstream trace (second pass, same day):** followed `reconcile_map_dimensions` into
+`refresh_survival_browser_state`, `publish-sietch-overrides.sh` (`once`, and `restart`, which only
+stops and starts the publisher's own loop process), `relocate_survival_port_conflicts`,
+`ensure_map_partitions`, `wait_for_survival_topology_settle` and `sync_partition_catalog_from_db`.
+**No script-level restart of the Survival_1 container found.** One real side effect found:
+`relocate_survival_port_conflicts` (`sietches.sh:~1150-1200`) runs `despawn-server.sh --force` then
+`spawn-server.sh` on any **other** map (for example a Deep Desert) whose ports fall in the ports newly
+reserved for the added Sietches; it refuses if that map has connected players. So raising the count
+can restart a different, empty map. **Not traced:** `despawn-server.sh`/`spawn-server.sh` internals,
+how the removal despawn happens, and what the game's own Director or Survival_1 process does when the
+partition set changes (behavior outside these scripts could restart it, which would explain what the
+operator sees). **Needs a controlled check on
 dune-dev** (Requirement 32 procedure: dune-dev only, never dune-prod).
 
 Guard rails: the confirm button shows how many players are on the instance (the bridge auto-fills
