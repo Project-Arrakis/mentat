@@ -316,6 +316,25 @@ keys, §5.2).
     constraint: `/player` is its own definition (911 of 8000).
   - Ordering: the split (`/player` exists) first, then views in value order (`bases` first because
     guild-base designation needs it, then `vehicles`, `skills`, `journey`, `crafting`, `research`).
+- `[D16]` (**operator, 2026-10-01**) **Console parity is the product direction: almost every
+  console feature should be reachable from Discord**, spread over `/dune` (server, operations,
+  staff and moderation), `/player` (own character, read-only), `/goal` (personal and guild farming
+  goals) and `/order` (guild orders). This design treats it as the target the split must make room
+  for, not as scope of the split PRs. Consequences recorded now:
+  - **Authorization is unchanged by parity.** Each command keeps the same tier the console gives
+    that action (console RBAC/IAM is the reference); parity never means a lower bar.
+  - **Not every console feature fits Discord** (file exports, the live map, drag-and-drop editors,
+    bulk forms, secrets/token screens, anything needing typed confirmation phrases beyond a button).
+    Those are listed as explicit **exclusions with a reason**, so absence is a decision, not a gap
+    (**OD24**).
+  - **Structural limits drive layout:** 8000 characters per top-level command definition, at most
+    25 subcommands per group and 25 groups/subcommands per command, and 3 s to first response. A
+    full console mirror will need more groups, or more top-level commands, so the split design's
+    group names (OD9) and the layout (OD1) should be chosen with parity in mind.
+  - **Method:** build a **coverage matrix** first (every console panel/route → Discord command,
+    audience, tier, Core route that exists or is missing, or exclusion), generated mechanically from
+    the console's nav and `docs/console/API-REFERENCE.md`, then work from it in value order. No
+    command is built without a row in the matrix.
 
 - **Phase 2's `goal sync`** keeps key `goal:sync` (§5.2). It lives in the shared goal adders, so it
   appears in both layouts: legacy `/dune` **7473 + 20 = 7493** (7 below target), split `/goal` 424.
