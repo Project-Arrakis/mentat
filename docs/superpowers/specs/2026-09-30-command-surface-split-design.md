@@ -316,7 +316,9 @@ keys, §5.2).
     constraint: `/player` is its own definition (911 of 8000).
   - Ordering: the split (`/player` exists) first, then views in value order (`bases` first because
     guild-base designation needs it, then `vehicles`, `skills`, `journey`, `crafting`, `research`).
-- `[D17]` (**operator, 2026-10-01**) **Console parity is the product direction: almost every
+- `[D17]` (**operator, 2026-10-01; this is the project's founding premise, restated, not a new
+  direction**: a Discord guild owner adds the bot and maps Discord roles to admin, moderator and
+  player, so admins and moderators manage the game servers without console access) **Almost every
   console feature should be reachable from Discord**, spread over `/dune` (server, operations,
   staff and moderation), `/player` (own character, read-only), `/goal` (personal and guild farming
   goals) and `/order` (guild orders). This design treats it as the target the split must make room
@@ -344,6 +346,27 @@ keys, §5.2).
 ---
 
 ## 5. Code structure
+- `[D18]` (**operator, 2026-10-01**) **In-game guild leaders manage their own in-game guild from
+  Discord**: promote, demote, invite, kick, set the guild base (replaces the narrower
+  `/player guild-base` of D14), disband, and hand leadership to another member (the target must
+  already be in that guild). Notes:
+  - Today the bot only has staff actions `guild.add` and `guild.remove` (moderator/admin tier, any
+    guild). Leader self-service is a different authority: the **in-game leader of that one guild**,
+    verified by Core from the signed linked actor, acting only on **their own guild**
+    (never a guild id parameter), with **no staff tier required** and no way to touch another
+    guild. Staff keep their existing actions.
+  - Name: **OD25**. "Guild" collides with the Discord guild in this codebase and in Discord's own
+    UI. Working name `/guild` with the description "Your in-game guild (leaders)", or `/clan`
+    (not a game term). Recommendation: `/guild`, with in-game vs Discord wording fixed in help.
+  - **Destructive actions** (disband, leadership transfer, kick) need a confirm step (the existing
+    write-confirmation button pattern, requester-only) and an audit entry naming the Discord user,
+    the linked character and the guild. Disband and transfer should require typing or a distinct
+    second confirmation (**OD26**).
+  - Non-leaders: members get a read-only guild view (`/guild info`, roster) under the same
+    own-guild rule (**OD27**).
+  - This is a **write** surface on Core: new leader-scoped routes plus Layer 1 audit. Core#1099 and a
+    new Core issue track it. The design builds on, and must not weaken, the console's own guild
+    rules (confirmation phrases, validation, transactions).
 
 ### 5.1 One declarative surface map `[D16]` (layout-aware)
 New `src/commandSurface.js`, the single source of truth for where each logical group is invoked,
