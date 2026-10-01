@@ -276,6 +276,42 @@ change also needs a restart~~ resolved: yes, and the backend does it automatical
 carries the rename and password together and needs the phrase UPDATE SIETCHES; the Discord path
 must not skip a restart the console would require.
 
+## Players (staff view): proposal, awaiting operator rulings (2026-10-01)
+
+**Status: PROPOSED, not decided.** Tiers are the controller's recommendation built on pass-1
+findings; the operator has not ruled yet. Source of capabilities: the console's Players panel (all
+tabs including Admin) as reported in panel pass 1. The player's own read-only view is a separate item
+(D15, `/player`).
+
+Rules for the whole panel (proposed):
+- Every staff read is **ephemeral**; player data never lands in a public channel.
+- The target is a player chosen by name (autocomplete). Players still see only themselves through `/player`.
+- Routine writes use the existing requester-only confirm button; destructive writes get a second,
+  distinct confirmation (E4). Every write is audited with the Discord user.
+
+| Group | Actions | Proposed tier | Today in Discord |
+|---|---|---|---|
+| View (read-only) | list and search, profile, inventory, currency, vitals, progression, skills and specialization, journey, crafting, research, vehicles, bases | moderator | none for arbitrary players |
+| Sensitive view | exact position, teleport destinations | admin (withheld from moderators, OD23) | none |
+| Light moderation | warn, kick, refill water | moderator | warn (moderator), kick and fill-water (admin) |
+| Routine grants | give items, currency, intel, faction reputation, XP; set skill points and modules; unlock crafting, research, building sets, customizations; complete journey node or tutorial; teleport; spawn vehicle | admin | give-item (owner), fill-water (admin); the rest none |
+| Repairs | faction, Landsraad quests, gear, vehicle decay, login queue | admin | none |
+| Bans | ban, unban | admin | admin |
+| Destructive | clean inventory, reset progression, reset specialization or keystones, reset journey, edit or delete an item, assign faction, recover a deleted character, kick-all online | owner, plus the second confirmation | clean inventory (owner); the rest none |
+| Not in Discord | raw item and vehicle catalogs, anything bulk or free-form | console only | n/a |
+
+Open questions for the operator:
+1. **Ban tier:** may moderators ban and unban? (The console groups kick and ban under one "moderate"
+   action; the Discord bridge makes both admin today.)
+2. **Routine grants:** admin only, or may moderators have some (for example giving items)?
+3. **Owner set:** is the destructive list right for owner? Faction assign and recover-deleted-character
+   are the judgment calls (today only clean inventory is owner).
+
+Known contract mismatches to fix when building (from pass 1): the console uses `give-items` and
+`give-item-id` where Discord `player.give-item` uses the singular route; the ban `reason` is not
+carried through; `map.teleport` is not obviously the per-player teleport; Discord write confirmation
+phrases are auto-filled by the bridge, so the console's typed-phrase safeguard is skipped today.
+
 ## Next steps
 
 1. Read each **Unverified** panel and upgrade its row to Verified (read-only work, suitable for a
