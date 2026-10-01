@@ -480,8 +480,20 @@ export function resolveEffectiveOnHandCredit(itemKey, quantity, onHandEntries, {
     // list-shaped field it returns describes a genuine 1-unit plan and must
     // NOT be reused here -- construct the zero-credit result directly.
     const probePlan = calculateCraftingPlan(itemKey, MIN_QUANTITY, { stationTier, craftingContract });
+    // mentat#421: only the fields that describe the VARIANT (not the quantity)
+    // are carried over from the probe, by explicit name. A field added to
+    // walkRecipeTree()'s return later is therefore ABSENT from the empty plan
+    // (loud: a consumer that needs it fails visibly) instead of silently
+    // leaking a stale 1-unit value, which spreading the probe and zeroing a
+    // hand-kept list of fields would do.
+    const { itemKey: probeItemKey, stationTier: probeTier, craftingContract: probeContract, station, craftTimeSeconds, variantCraftTimeSeconds } = probePlan;
     return {
-      ...probePlan,
+      itemKey: probeItemKey,
+      stationTier: probeTier,
+      craftingContract: probeContract,
+      station,
+      craftTimeSeconds,
+      variantCraftTimeSeconds,
       quantity,
       effectiveQuantity: 0,
       crafts: 0,

@@ -133,6 +133,38 @@ test("no craftable item nests a grandchild that is itself craftable (enforces tr
   }
 });
 
+// mentat#421 finding 2: the on-hand credit model (craftingCalculator.js
+// isLeafExclusiveToIntermediate / buildIntermediateChildMap) is a targeted
+// special case, verified for a leaf that is either exclusive to ONE nested
+// craftable or shared with the root (Water). It has no demonstrated-correct
+// handling for two SIBLING nested craftables that consume the same leaf. No
+// such recipe exists today; this tripwire fails the moment a data change adds
+// one, so the limitation cannot be violated silently.
+test("no recipe has two sibling nested craftables sharing a leaf input (credit model's untested shape)", () => {
+  for (const key of ITEM_KEYS) {
+    for (const [tier, variant] of Object.entries(CRAFTING_RECIPES[key].variants)) {
+      const consumers = new Map(); // leaf -> nested craftables consuming it
+      for (const input of variant.inputs) {
+        if (!input.craftable) continue;
+        for (const childVariant of Object.values(CRAFTING_RECIPES[input.resource].variants)) {
+          for (const gi of childVariant.inputs) {
+            if (gi.craftable) continue;
+            const set = consumers.get(gi.resource) ?? new Set();
+            set.add(input.resource);
+            consumers.set(gi.resource, set);
+          }
+        }
+      }
+      for (const [leaf, nestedSet] of consumers) {
+        assert.ok(
+          nestedSet.size < 2,
+          `${key}.${tier}: nested craftables ${[...nestedSet].join(" and ")} both consume "${leaf}" -- the on-hand credit model has no tested handling for this shape (see mentat#421)`
+        );
+      }
+    }
+  }
+});
+
 test("outputPerCraft matches the 3 known multi-output items, 1 for everything else", () => {
   const multiOutput = { spice_fuel_cell: 10, low_grade_lubricant: 5, industrial_lubricant: 10 };
   for (const key of ITEM_KEYS) {

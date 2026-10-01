@@ -403,6 +403,25 @@ test("estimateDuration: exact-boundary full material credit (maxCompletable.unit
   assert.equal(durations[0].seconds, 10 * 3);
 });
 
+// mentat#421 finding 1: the "target already fully on hand" plan is built from an
+// explicit field list, so its shape is exactly this set. A field later added to
+// walkRecipeTree()'s return cannot leak into it as a stale 1-unit value.
+test("resolveEffectiveOnHandCredit: the fully-covered empty plan has exactly the expected fields, all zeroed", () => {
+  const itemKey = "steel_ingot";
+  const r = resolveEffectiveOnHandCredit(itemKey, 5, [{ node: itemKey, quantity: 5 }], { stationTier: "large" });
+  assert.deepEqual(Object.keys(r).sort(), [
+    "craftTimeSeconds", "craftingContract", "crafts", "directInputs", "effectiveQuantity", "itemKey", "leftover",
+    "maxCompletable", "nestedCrafts", "quantity", "shortfall", "station", "stationTier", "totalRawMaterials",
+    "totalTimeSeconds", "variantCraftTimeSeconds"
+  ]);
+  assert.equal(r.effectiveQuantity, 0);
+  assert.equal(r.crafts, 0);
+  assert.equal(r.totalTimeSeconds, 0);
+  assert.deepEqual(r.directInputs, []);
+  assert.equal(r.shortfall.size, 0);
+  assert.equal(r.quantity, 5);
+});
+
 // resolveEffectiveOnHandCredit() -- Task 3 extraction of executeCalculator()'s
 // own "Step A" logic (commands.js), so goal progress can reuse it without
 // duplicating or (as an earlier design draft did) skipping it.
