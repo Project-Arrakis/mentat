@@ -427,10 +427,10 @@ requester-only confirm, destructive ones a second confirmation (E4).
 | Auto-refill thresholds and scan intervals | `bases:write-config` | owner | **console only** (config, E1-style) |
 | Set permissions roster (Owner, Co-Owner, Associate); custodian transfer | `bases:mutate` | owner | offer, second confirmation (changes who owns the base) |
 | Child (piece) access levels | `bases:mutate` + phrase SET CHILD ACCESS | owner | offer, second confirmation |
-| Land claim edit | `bases:mutate` + phrase EDIT LAND CLAIM | owner | **console only** proposed (geometry edit, backup made, no useful Discord form) |
-| Add, give or fill items in a container | `bases:add-item`, `bases:give-item`, `bases:fill-item` | owner | offer (economy, like give-item) |
-| Delete one item, selected items, all items | `bases:delete-item`, `bases:bulk-delete-items` | owner | offer for one item; bulk and all-items: second confirmation |
-| Delete base | `bases:delete` + phrase DELETE BASE | owner | offer **only with** a second, distinct confirmation, or console only (operator) |
+| Land claim edit | `bases:mutate` + phrase EDIT LAND CLAIM | owner | **console only** (operator ruling 2) |
+| Add, give or fill items in a container | `bases:add-item`, `bases:give-item`, `bases:fill-item` | owner | **console only** (operator ruling 3) |
+| Delete one item, selected items, all items | `bases:delete-item`, `bases:bulk-delete-items` | owner | **console only** (operator ruling 3: Discord is read only for base inventory) |
+| Delete base | `bases:delete` + phrase DELETE BASE | owner | **offer, with a second confirmation and a full audit trail** (operator ruling 1) |
 | Export base as blueprint (download) | `bases:read` | moderator | **console only** (file, E5) |
 
 ### Guilds (nav item Guilds; policy actions `guilds:*`)
@@ -438,16 +438,53 @@ requester-only confirm, destructive ones a second confirmation (E4).
 | Capability | Policy action | Default minimum tier (C) | Discord proposal |
 |---|---|---|---|
 | List guilds, view members and ranks | `guilds:read` | moderator (player too) | offer (ephemeral) |
-| Add member, remove member | `guilds:membership` | owner | offer (exists today as admin on the bridge) |
-| Promote, demote | `guilds:rank` | owner | offer |
-| Disband guild | `guilds:disband` + phrase DISBAND GUILD | owner | offer with a second, distinct confirmation showing the member count |
+| Add member, remove member | `guilds:membership` | owner | offer; **operator ruling 4: full scope for owner, admin and the guild's own leader** |
+| Promote, demote | `guilds:rank` | owner | offer; same scope as above |
+| Disband guild | `guilds:disband` + phrase DISBAND GUILD | owner | offer with a second, distinct confirmation showing the member count; same scope as above |
 | Leader self-service (own guild only) | none: authority is the in-game leader, not a tier | n/a | D18, a different mechanism from the staff actions above |
 
-Open questions: (1) **Delete base:** offered in Discord with a second confirmation, or console only?
-(2) **Land claim edit:** console only, as proposed? (3) **Inventory edits in a base** (add, give, fill,
-delete): offer all, or only read plus delete-one? (4) **Guild writes at owner by default:** keep, or
-suggest that this deployment's policy grants `guilds:membership` and `guilds:rank` to admin, as the
-bridge allows add and remove for admin today? (Under E this is a policy edit, not a bot setting.)
+### Rulings on Bases and Guilds (operator, 2026-10-01)
+
+| # | Question | Ruling |
+|---|---|---|
+| 1 | Delete base | **In Discord, with a second confirmation and a full audit trail.** |
+| 2 | Land claim edit | **Console only.** |
+| 3 | Inventory edits inside a base | **Discord is read only; writes (add, give, fill, delete) are console only.** |
+| 4 | Guild writes | **Full scope** (add, remove, promote, demote, disband), manageable by the **guild's own leader** (own guild only, D18), the **owner** tier and the **admin** tier. Under rule E this means granting `guilds:membership`, `guilds:rank` and `guilds:disband` to `admin` in this deployment's policy (the shipping default C is owner-only); the in-game leader path is the separate self-service mechanism. Assumption to confirm: "guild owner" means the **in-game guild leader**, not the Discord server owner. |
+
+### Global rule (operator, 2026-10-01): every write requires a full audit trail
+
+Applies to every write from Discord, not only the destructive ones. Proposed minimum record (to be
+confirmed and then verified against what the bridge writes today, which I have not checked):
+who (Discord user id, linked character, tier at the time), what (action, target, parameters with
+secrets redacted, Requirement 24), before and after values where the action changes a setting, when,
+which Discord guild (tenant), the confirmation steps (who confirmed and when, the nonce), the outcome
+(success or the error), and a request id that ties the bot-side record to the Core-side record.
+Append-only, retained per the GRC program (7-year evidence, `meta`#84). Never offered in Discord:
+anything that clears audit history (care package history, admin command history) stays console-only.
+
+## Remaining panels: proposed defaults under rules E and the global audit rule (2026-10-01)
+
+**Status: PROPOSED.** Same method as Bases: the policy action decides the tier (default from C), Discord
+offers reads for moderators and up unless the policy says otherwise, configuration and file or secret
+actions stay in the console, and every write is audited. Sources: pass-1 reports.
+
+| Panel | Discord offers (read) | Discord offers (write, policy-governed) | Console only |
+|---|---|---|---|
+| Vehicles | list, permissions, storage view (moderator+) | set permissions, custodian transfer (second confirmation); delete vehicle (second confirmation, like delete base); cancel queued delete | storage item deletes (like base inventory) |
+| Exchange | items, listings, stats, transactions, config, market-bot status and logs | none | all writes (config, buyback and seed runs, schedules, plans, items) |
+| Landsraad | term, tasks, rewards, milestone preset | none proposed | all writes (task goals, preset, reward tiers, contribution, modifiers) |
+| Admin Tools | MOTD and join/leave messages (view), command history (view), broadcast history | broadcast, map chat (warn), shutdown broadcast, kick-all (admin, audited), set MOTD and join/leave messages, restart queue view and cancel and restart-now | scheduled map messages, character-transfer settings, daily restart, IP-change restart, shutdown protection, **clear command history** |
+| Care Package | config, grants, history, eligible players | enable, disable, grant, grant-all, scan, retry a failed grant | save config, **clear grant history** |
+| Home | status, readiness, health, services, performance, Funcom token check | start, stop, restart (policy-governed; `server.stop` and `restart` stay as the policy says) | Funcom token save |
+| Server Control | not read in pass 1 | start, stop, restart, restart-service | the rest, to be read |
+| Updates | game update status, auto-update settings, QA status | check game update, apply game update, fix SteamCMD | console (stack) update, auto-update save, QA channel |
+| Backups | list | create | restore and adopt (E1), download (file) |
+| Database | status | none | query, backup restore, config, direct mutation (E1, E2) |
+| Settings | none | **IAM guided commands, owner only (E4a)** | everything else (secrets, passwords, OAuth, API keys, port, public listing) |
+| Access Control | owner: view tier permissions, test an action | owner: grant or revoke one action or namespace | raw JSON policy editing |
+
+Open questions on these defaults are listed in the assistant's summary for the operator; none is ruled.
 
 ## Players (staff view): revised proposal, awaiting operator rulings (2026-10-01)
 
