@@ -361,6 +361,50 @@ product requirement) or the shipping console policy (C)? Parity says the console
 was written earlier for Discord alone. Until decided, new tier proposals below follow C where C is
 explicit and B where C is silent.
 
+### E. DECISION (operator, 2026-10-01): the console is the source of truth for Discord permissions
+
+Discord permissions are **derived from the console's IAM policy** (C above, as edited per deployment
+in the Access Control tab). **Only an owner may modify IAM from Discord.** This resolves the open
+question in D: the console policy governs, and the Discord ladder (B) stops being an independent
+authority.
+
+Consequences, recorded now so nothing is built against the old model:
+
+1. **Replace the bridge's hard-coded tier table.** `WRITE_ACTION_MIN_TIER` (B) is the independent
+   check that made Discord diverge from the console. The bridge must instead evaluate the **console
+   policy** for the actor's tier and the action (the same `evaluate()` the console routes use), so an
+   edit in the Access Control tab changes Discord immediately. The ladder rows become documentation
+   of the shipped defaults, not enforcement. This is a **Core change** (Requirement 18; Core issue
+   filed) and touches the audited round-2 decision (CRITICAL #729), so it needs its own Layer 1 audit.
+2. **mentat must not hard-code tiers either.** It should ask Core for the actor's effective permissions
+   (a bounded, cached, per-guild call, signed like the other actor-scoped routes) to decide which
+   commands to offer and to produce accurate refusals. Today mentat maps Discord roles to tiers
+   itself (`isCommandAllowed(key)`); that remains the role-to-tier step, but "what may this tier do"
+   comes from Core. Per-guild Cores (tenant isolation) mean the lookup is per guild, never shared.
+3. **My earlier per-action tier rulings become policy settings, not bot code.**
+   - Players ruling 1 (kick-all: admin, audited) and ruling 2 (economy injection: owner and admin):
+     the shipping default (C) gives kick-all to moderator and admin and the economy to owner only. To
+     get the operator's rulings on a given deployment, the owner **edits the policy** (grant the
+     actions to admin, optionally remove kick-all from moderator). They are not Discord-specific
+     exceptions any more. Whether the **upstream defaults** themselves should change is a separate
+     question for the upstream RBAC PR and is **open**.
+   - Maps (moderator may restart a Sietch): requires granting `maps:restart` to `moderator` in the
+     policy on that deployment; otherwise a moderator cannot restart in Discord either.
+   - `give-item`, `clear-backpack`, `server.stop` and similar: follow the policy, so the stricter
+     Discord-only rows in B disappear (an admin is allowed whatever C or the edited policy allows).
+4. **Access Control in Discord (was proposed exception E6): resolved as owner-only, with guard rails.**
+   Under C every non-owner tier is denied `settings:*`, so both reading and editing policy are
+   owner-only in Discord, as in the console. Proposed shape (not yet agreed): a guided command set, not
+   raw JSON: view a tier's effective permissions (paged), grant or revoke **one action or namespace**
+   to a tier, and test an action against a tier. Guard rails: show the exact before-and-after, second
+   confirmation (E4), audit entry with the Discord user and the diff, and the console's own rule that
+   the owner policy can never be saved empty. Raw JSON editing stays console-only (modal size limit
+   and error risk).
+5. **Unanswered technical questions:** how the bridge today reaches `evaluate()` (the signed actor
+   carries a tier, not a policy), whether per-guild custom policies need to be stored on the Core
+   (they already are: `runtime/generated/iam-policies.json`), and the possible POST versus PUT
+   mismatch on the policy-save route reported in pass 1.
+
 ## Players (staff view): revised proposal, awaiting operator rulings (2026-10-01)
 
 **Status: PROPOSED, not decided.** Revised after the operator pointed at the existing matrices. It
@@ -394,7 +438,7 @@ Open questions (only where the ladder is silent or in conflict):
 3. **Destructive and judgment calls:** is owner right for assign-faction and recover-deleted-character
    (console admin can do both today)?
 
-### Players rulings (operator, 2026-10-01)
+### Players rulings (operator, 2026-10-01; see E: these now live in the console policy, not in the bot)
 
 | # | Question | Ruling | Notes |
 |---|---|---|---|
