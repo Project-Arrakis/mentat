@@ -394,6 +394,21 @@ Open questions (only where the ladder is silent or in conflict):
 3. **Destructive and judgment calls:** is owner right for assign-faction and recover-deleted-character
    (console admin can do both today)?
 
+### Players rulings (operator, 2026-10-01)
+
+| # | Question | Ruling | Notes |
+|---|---|---|---|
+| 1 | Kick-all online | **admin, audited** | Console policy C gives it to moderator; Discord is stricter on purpose. "Audited" implemented as: the confirm button shows the player count, a reason is required, and the audit entry records the Discord user, linked character, reason and number kicked (my default, not yet confirmed). |
+| 2 | Economy injection: currency, intel, faction reputation, XP, specialization grants | **owner and admin** | Console policy C makes these **owner-only**, so Discord is **looser** than the console here, which needs an explicit exception or a console-policy change (see D). `player.give-item` is **not** part of this ruling and stays owner (existing ladder row). |
+| 3 | Assign faction, recover a deleted character | **owner only** | Agrees with C. |
+
+Still **not** ruled for Players: the view tier (proposed moderator), the position and teleport
+destinations tier (proposed admin), repairs (proposed admin; C says owner), routine grants such as
+unlocks, skills and journey (proposed admin; C says owner), the destructive resets, edit and delete
+item (proposed owner, agrees with C), and the overall question D (ladder or console policy governs).
+A note for the record: with ruling 2, an admin can inject currency but not items (`give-item`
+remains owner), which is a deliberate-looking inconsistency worth confirming.
+
 Known contract mismatches to fix when building (from pass 1): the console uses `give-items` and
 `give-item-id` where Discord `player.give-item` uses the singular route; the ban `reason` is not
 carried through; `map.teleport` is not obviously the per-player teleport; Discord confirmation phrases
