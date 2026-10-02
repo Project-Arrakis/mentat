@@ -450,7 +450,7 @@ requester-only confirm, destructive ones a second confirmation (E4).
 | 1 | Delete base | **In Discord, with a second confirmation and a full audit trail.** |
 | 2 | Land claim edit | **Console only.** |
 | 3 | Inventory edits inside a base | **Discord is read only; writes (add, give, fill, delete) are console only.** |
-| 4 | Guild writes | **Full scope** (add, remove, promote, demote, disband), manageable by the **guild's own leader** (own guild only, D18), the **owner** tier and the **admin** tier. Under rule E this means granting `guilds:membership`, `guilds:rank` and `guilds:disband` to `admin` in this deployment's policy (the shipping default C is owner-only); the in-game leader path is the separate self-service mechanism. Assumption to confirm: "guild owner" means the **in-game guild leader**, not the Discord server owner. |
+| 4 | Guild writes | **Full scope** (add, remove, promote, demote, disband), manageable by the **guild's own leader** (own guild only, D18), the **owner** tier and the **admin** tier. Under rule E this means granting `guilds:membership`, `guilds:rank` and `guilds:disband` to `admin` in this deployment's policy (the shipping default C is owner-only); the in-game leader path is the separate self-service mechanism. **Confirmed by the operator (2026-10-01): "guild owner" means the actual in-game guild owner/leader**, not the Discord server owner. |
 
 ### Global rule (operator, 2026-10-01): every write requires a full audit trail
 
