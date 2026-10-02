@@ -400,10 +400,54 @@ Consequences, recorded now so nothing is built against the old model:
    confirmation (E4), audit entry with the Discord user and the diff, and the console's own rule that
    the owner policy can never be saved empty. Raw JSON editing stays console-only (modal size limit
    and error risk).
+4a. **Agreed by the operator, 2026-10-01:** the guided-commands shape for owner-only IAM in Discord (view a tier's permissions, grant or revoke one action or namespace, test an action, with before-and-after, second confirmation, audit with the diff, owner policy never saved empty; raw JSON stays console-only).
 5. **Unanswered technical questions:** how the bridge today reaches `evaluate()` (the signed actor
    carries a tier, not a policy), whether per-guild custom policies need to be stored on the Core
    (they already are: `runtime/generated/iam-policies.json`), and the possible POST versus PUT
    mismatch on the policy-save route reported in pass 1.
+
+## Bases and Guilds (staff view): proposal under rule E (2026-10-01)
+
+**Status: PROPOSED.** Under E the tier is whatever the console policy says; the column below gives
+the **shipping default (C)** and what Discord would offer. A deployment can grant more through the
+policy. Sources: pass-1 reports for Bases and Guilds. "Offer" means a Discord command; "console only"
+needs an exception (E-rules). Every write is audited with the Discord user; routine writes use the
+requester-only confirm, destructive ones a second confirmation (E4).
+
+### Bases (nav item Bases; policy actions `bases:*`)
+
+| Capability | Policy action | Default minimum tier (C) | Discord proposal |
+|---|---|---|---|
+| List bases (paginated, search), a player's bases | `bases:read` | moderator | offer (ephemeral) |
+| View base details: water, inventory per container, permissions roster, child access, land claim | `bases:read` | moderator | offer (inventory paged) |
+| Pending queues: refills, water refills, child access, deletes | `bases:read` | moderator | offer |
+| Refill generators, refill water (queued if the map is live) | `bases:mutate` | owner | offer (exists today as admin on the bridge) |
+| Cancel a queued refill, queued water refill, queued delete | `bases:mutate` | owner | offer |
+| Auto-refill: view state; toggle per base | `bases:read` / `bases:mutate` | moderator / owner | offer |
+| Auto-refill thresholds and scan intervals | `bases:write-config` | owner | **console only** (config, E1-style) |
+| Set permissions roster (Owner, Co-Owner, Associate); custodian transfer | `bases:mutate` | owner | offer, second confirmation (changes who owns the base) |
+| Child (piece) access levels | `bases:mutate` + phrase SET CHILD ACCESS | owner | offer, second confirmation |
+| Land claim edit | `bases:mutate` + phrase EDIT LAND CLAIM | owner | **console only** proposed (geometry edit, backup made, no useful Discord form) |
+| Add, give or fill items in a container | `bases:add-item`, `bases:give-item`, `bases:fill-item` | owner | offer (economy, like give-item) |
+| Delete one item, selected items, all items | `bases:delete-item`, `bases:bulk-delete-items` | owner | offer for one item; bulk and all-items: second confirmation |
+| Delete base | `bases:delete` + phrase DELETE BASE | owner | offer **only with** a second, distinct confirmation, or console only (operator) |
+| Export base as blueprint (download) | `bases:read` | moderator | **console only** (file, E5) |
+
+### Guilds (nav item Guilds; policy actions `guilds:*`)
+
+| Capability | Policy action | Default minimum tier (C) | Discord proposal |
+|---|---|---|---|
+| List guilds, view members and ranks | `guilds:read` | moderator (player too) | offer (ephemeral) |
+| Add member, remove member | `guilds:membership` | owner | offer (exists today as admin on the bridge) |
+| Promote, demote | `guilds:rank` | owner | offer |
+| Disband guild | `guilds:disband` + phrase DISBAND GUILD | owner | offer with a second, distinct confirmation showing the member count |
+| Leader self-service (own guild only) | none: authority is the in-game leader, not a tier | n/a | D18, a different mechanism from the staff actions above |
+
+Open questions: (1) **Delete base:** offered in Discord with a second confirmation, or console only?
+(2) **Land claim edit:** console only, as proposed? (3) **Inventory edits in a base** (add, give, fill,
+delete): offer all, or only read plus delete-one? (4) **Guild writes at owner by default:** keep, or
+suggest that this deployment's policy grants `guilds:membership` and `guilds:rank` to admin, as the
+bridge allows add and remove for admin today? (Under E this is a policy edit, not a bot setting.)
 
 ## Players (staff view): revised proposal, awaiting operator rulings (2026-10-01)
 
