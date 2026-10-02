@@ -44,12 +44,13 @@ subcommand names are accepted; **OD25** the guild-leader command is `/guild`.
 **OD7 (b)** (decided 2026-10-02): `split` is the default layout from rc.6; `legacy` only a rollback value. The hosted
 bot stays pinned to `legacy` until the deliberate flip; the layout guard (PR-3) must ship before the default changes.
 
-Still open: **OD9** (group names: operator proposed
-using `/dune admin`; Discord allows only command > group > subcommand, so `admin moderation set` is not
-possible. Operator's proposal: all seven flat in `/dune admin` (`kick`, `ban`, `unban`, `warn`, `give-item`,
-`clear-backpack`, `fill-water`, names unchanged). Verified: permissions are per command key, not per group, and
-it costs no new group header. Recommendation: accept, with the required tier shown per subcommand in help.
-Awaiting the operator's yes).
+**OD9** (decided 2026-10-02, operator's proposal): the seven actions on other players go flat in the existing
+`/dune admin` group: `kick`, `ban`, `unban`, `warn`, `give-item`, `clear-backpack`, `fill-water` (names unchanged,
+so keys become `admin:<name>`). Discord allows only command > group > subcommand. Verified: permissions are per
+command key, not per group; no new group header. Help must show the required tier per subcommand, and the user
+guide must say so. The `lifecycle` writes follow OD3 (`/dune operations`).
+
+No split decisions remain open.
 
 ## Phase 0 results (bot VM checks run by the operator, 2026-10-01)
 
