@@ -1,4 +1,6 @@
-# Build order for the Discord command surface (draft, 2026-10-01)
+# Build order for the Discord command surface (approved by the operator 2026-10-01)
+
+Approved by the operator on 2026-10-01 ("approved with that work list"). Phase 0 checks: `2026-10-01-phase0-bot-vm-checks.sh` (read-only, prints no secrets).
 
 One page. It orders the work that the design (`2026-09-30-command-surface-split-design.md`) and the
 coverage matrix (`2026-10-01-console-parity-coverage-matrix.md`) describe. Nothing here is built or
