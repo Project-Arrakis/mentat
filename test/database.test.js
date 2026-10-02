@@ -1121,8 +1121,12 @@ test("createDatabase migrates a v8 database to v9, adding service tables and gui
   const dbPath = join(dir, "acp.db");
   try {
     let db = createDatabase(dbPath);
-    db.prepare("UPDATE schema_version SET version = 8").run();
     upsertGuild(db, { guildId: "g1", guildName: "Test Guild", consoleUrl: "https://console.test", adapterToken: "token", status: "active" });
+    // Rebuild the real v8 shape: no on_duty_role_id column, no service_* tables.
+    db.prepare("ALTER TABLE guild_settings DROP COLUMN on_duty_role_id").run();
+    for (const t of ["service_channels", "service_duty_status", "service_applications"]) db.prepare(`DROP TABLE ${t}`).run();
+    assert.equal(db.prepare("PRAGMA table_info(guild_settings)").all().some((c) => c.name === "on_duty_role_id"), false, "fixture must really lack the column");
+    db.prepare("UPDATE schema_version SET version = 8").run();
     db.close();
 
     db = createDatabase(dbPath);
@@ -1135,6 +1139,13 @@ test("createDatabase migrates a v8 database to v9, adding service tables and gui
 
     const settings = db.prepare("SELECT * FROM guild_settings WHERE guild_id = ?").get("g1");
     assert.equal(settings.on_duty_role_id, "");
+
+    // The partial UNIQUE index is the real duplicate-pending guard.
+    const ins = db.prepare("INSERT INTO service_applications (guild_id, service_key, applicant_id, character_name) VALUES ('g1','smuggler','u1','Name')");
+    ins.run();
+    assert.throws(() => ins.run(), (e) => e.code === "SQLITE_CONSTRAINT_UNIQUE");
+    db.prepare("UPDATE service_applications SET status = 'denied'").run();
+    ins.run(); // a new pending row is allowed once the earlier one is resolved
 
     db.close();
   } finally {

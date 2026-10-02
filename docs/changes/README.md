@@ -73,6 +73,7 @@ an issue instead of a pull request.
 | `PR-0430` | PR | Goal & order tracking (Phase 3) | PR #430 |
 | `PR-0435-goal-followups` | PR | Goal follow-ups batch 1 (#425-#429) | PR #435 |
 | `PR-0452-calculator-minor-421` | PR | Calculator Minor review findings (#421) | PR #452 |
+| `PR-0454-schema-v9-service-duty` | PR | Schema v9: service duty/apply tables (#438) | PR #454 |
 | `PR-0436` | PR | `/dune core help` lists all write subcommands (mentat#424) | PR #436 |
 
 Every future substantive PR should add or update its matching change note before

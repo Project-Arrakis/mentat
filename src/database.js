@@ -222,7 +222,7 @@ CREATE TABLE IF NOT EXISTS service_channels (
 );
 -- Rollback: plain DROP TABLE IF EXISTS service_channels. No FK; losing
 -- rows means every service channel loses its registry entry and must
--- be re-provisioned via /dune admin service-setup -- acceptable, no
+-- be re-provisioned by the service-channel setup flow (draft #384) -- acceptable, no
 -- in-game state depends on it.
 
 CREATE TABLE IF NOT EXISTS service_duty_status (
@@ -254,7 +254,7 @@ CREATE TABLE IF NOT EXISTS service_applications (
 -- The UNIQUE partial index is the real, authoritative guard against a
 -- duplicate pending application (Layer 1 Architect/DBA/QA hats, all
 -- three independently caught the earlier draft's missing UNIQUE
--- keyword) -- see createApplication() in serviceChannels.js, which
+-- keyword) -- see the application-creation code in draft #384, which
 -- MUST catch this constraint's violation, not just rely on a
 -- pre-check. Verified directly against the real installed
 -- better-sqlite3: violating this raises error.code ===
@@ -400,8 +400,12 @@ export function createDatabase(dbPath = "./data/acp.db") {
   if (currentVersion && currentVersion.version < 9) {
     try {
       db.prepare("ALTER TABLE guild_settings ADD COLUMN on_duty_role_id TEXT NOT NULL DEFAULT ''").run();
-    } catch {
-      // Column may already exist from a previous migration attempt.
+    } catch (err) {
+      // Only "column already exists" (a re-run or an install that took the
+      // column from SCHEMA) is benign. Anything else (SQLITE_BUSY, a
+      // read-only file, disk error) must stop the open, otherwise
+      // schema_version would be bumped to 9 without the column.
+      if (!/duplicate column name/i.test(String(err && err.message))) throw err;
     }
   }
 
