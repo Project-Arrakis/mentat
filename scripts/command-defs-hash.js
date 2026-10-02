@@ -6,6 +6,8 @@
 // value that feeds commandDefinitions() is covered, so no hand-kept file
 // list can rot (mentat#440).
 import { createHash } from "node:crypto";
+import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
 import { commandDefinitions } from "../src/commands.js";
 import { loadConfig } from "../src/config.js";
 import { writesEnabled } from "../src/writes.js";
@@ -21,7 +23,19 @@ export function hashRegistration({ commands, scope }, clientId) {
   return createHash("sha256").update(JSON.stringify({ clientId, scope, commands })).digest("hex");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Node resolves the main module's real path for import.meta.url but leaves
+// process.argv[1] as typed, so a symlinked or space-containing path would
+// never match a naive comparison and the script would silently print nothing.
+function isMain() {
+  if (!process.argv[1]) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isMain()) {
   const config = loadConfig();
   process.stdout.write(`${hashRegistration(renderRegistration(config), config.discord.clientId)}\n`);
 }

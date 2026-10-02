@@ -56,33 +56,55 @@ set -u
 require_register() {
   oldrev="$1"
   newrev="$2"
-  # Register when EITHER signal says so. The content hash (mentat#440) is
-  # authoritative: it renders the tree under the deployed .env and covers
-  # every source file and env value that feeds it. The changed-file list is
-  # kept as defense in depth. An uncomputable hash means "register".
-  if ! bash "$WORK_DIR/scripts/command-defs-changed.sh" "$oldrev" "$newrev" "$WORK_DIR" >/dev/null 2>&1; then
+  # The content hash (mentat#440) is authoritative when it can be computed:
+  # it renders the tree under the deployed .env, covers every source file and
+  # env value that feeds it, and skips a Discord call when a refactor left the
+  # rendered tree unchanged. If it CANNOT be computed (missing .env var, broken
+  # script) the reason is printed and the old changed-file list decides, so a
+  # broken hash never silently skips a needed registration. No stored hash
+  # (first deploy) means register.
+  # Known limit: the hash records what this script last SENT; it cannot see
+  # commands deleted or overwritten on Discord's side, or a stale old scope
+  # after switching between guild and global registration. Run
+  # `npm run register` by hand in those cases.
+  local err_file current_hash
+  err_file="$(mktemp)"
+  if current_hash="$(cd "$WORK_DIR" && set -a && . "$WORK_DIR/.env" && set +a && node scripts/command-defs-hash.js 2>"$err_file")" && [ -n "$current_hash" ]; then
+    rm -f "$err_file"
+    if bash "$WORK_DIR/scripts/command-register-decision.sh" "${DUNE_REGISTER_STATE_FILE:-$WORK_DIR/runtime/registered-commands.sha256}" "$current_hash"; then
+      return 1
+    fi
     return 0
   fi
-  current_hash="$(cd "$WORK_DIR" && set -a && . "$WORK_DIR/.env" && set +a && node scripts/command-defs-hash.js 2>/dev/null)" || current_hash=""
-  if ! bash "$WORK_DIR/scripts/command-register-decision.sh" "${DUNE_REGISTER_STATE_FILE:-$WORK_DIR/runtime/registered-commands.sha256}" "$current_hash"; then
-    return 0
+  echo "WARNING: could not compute the command hash; falling back to the changed-file check. Reason:"
+  tail -3 "$err_file"
+  rm -f "$err_file"
+  if bash "$WORK_DIR/scripts/command-defs-changed.sh" "$oldrev" "$newrev" "$WORK_DIR" >/dev/null 2>&1; then
+    return 1
   fi
-  return 1
+  return 0
 }
 
 # Run `npm run register` and report its REAL status. The previous
 # `... | tail -5` inside an `if` reported tail's status (0) whenever the
 # register failed, so a failed registration printed "re-registered" and the
-# WARNING branch was unreachable (mentat#440).
+# WARNING branch was unreachable (mentat#440). On failure the FULL output is
+# printed (the cause sits above npm's trailing lines).
 run_register() {
   local out rc
   out="$(cd "$WORK_DIR" && set -a && . "$WORK_DIR/.env" && set +a && DUNE_REGISTER_STATE_FILE="${DUNE_REGISTER_STATE_FILE:-$WORK_DIR/runtime/registered-commands.sha256}" npm run register 2>&1)"
   rc=$?
-  printf '%s\n' "$out" | tail -5
+  if [ "$rc" -eq 0 ]; then
+    printf '%s\n' "$out" | tail -5
+  else
+    printf '%s\n' "$out"
+  fi
   return "$rc"
 }
 
+FAILED_ANY=0
 while read -r oldrev newrev refname; do
+  REGISTER_FAILED=0
   branch="${refname#refs/heads/}"
 
   if [ "$branch" != "$DEPLOY_BRANCH" ]; then
@@ -149,7 +171,7 @@ while read -r oldrev newrev refname; do
   # files changed.
   if require_register "$oldrev" "$newrev"; then
     echo "Slash command definitions changed -- re-registering with Discord..."
-    if run_register || { echo "Registration failed; retrying once..."; run_register; }; then
+    if run_register || { echo "Registration failed; retrying once in ${DUNE_REGISTER_RETRY_DELAY:-5}s..."; sleep "${DUNE_REGISTER_RETRY_DELAY:-5}"; run_register; }; then
       echo "Slash commands re-registered on deploy."
     else
       REGISTER_FAILED=1
@@ -175,9 +197,13 @@ while read -r oldrev newrev refname; do
     echo "Do not treat dune-awakening-selfhost-docker#853's auto-invite UI as safe to expose until this is investigated."
   fi
 
-  echo "Deploy complete."
-  if [ "${REGISTER_FAILED:-0}" = "1" ]; then
+  if [ "$REGISTER_FAILED" = "1" ]; then
     echo "Deploy finished, but slash-command registration FAILED (see above)."
-    exit 1
+    FAILED_ANY=1
+  else
+    echo "Deploy complete."
   fi
 done
+# git ignores a post-receive exit status, so the report above is the message;
+# the non-zero exit is for anything running the hook directly.
+exit "${FAILED_ANY:-0}"
