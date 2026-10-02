@@ -1,5 +1,6 @@
 import { EmbedBuilder } from "discord.js";
 import { ARRAKIS_TERMS, FACTION_QUOTES, randomQuote, randomComputationOpener } from "./quotes.js";
+import { CRAFTING_RECIPES, LEAF_RESOURCES } from "./craftingData.js";
 
 // Atreides: Green & Gold — Nobility, Honor, Nature
 // Harkonnen: Red & Black — Ruthlessness, Ambition, Power
@@ -1530,10 +1531,18 @@ export function formatHelpEmbed(payload) {
 
   const fields = [];
   for (const [g, names] of byGroup) {
-    fields.push({
-      name: `📂 ${g}`,
-      value: names.map((n) => `\`${n}\``).join(" · ").slice(0, 1024),
-      inline: false
+    // Split into continuation fields rather than truncating (mentat#424):
+    // a group can outgrow Discord's 1024-char field-value cap.
+    const chunks = [];
+    let cur = "";
+    for (const n of names) {
+      const tok = `\`${n}\``;
+      if (cur && cur.length + 3 + tok.length > 1024) { chunks.push(cur); cur = ""; }
+      cur += (cur ? " · " : "") + tok;
+    }
+    if (cur) chunks.push(cur);
+    chunks.forEach((value, i) => {
+      fields.push({ name: i === 0 ? `📂 ${g}` : `📂 ${g} (cont.)`, value, inline: false });
     });
   }
   if (locked.length > 0) {
@@ -1607,4 +1616,287 @@ export function formatSyncCommandsEmbed(payload) {
       : "🟡 **Drift detected** — Core's catalog differs from the committed registry.\n**Next step:** regenerate the artifact (`npm run registry:generate`) against this Core and deploy it. Slash-command registration only changes on deploy — this check is read-only.",
     fields
   });
+}
+
+// ── Crafting Calculator ──
+// See docs/calculator-design.md's §Response Shape for the two full worked
+// transcripts (plain, and with-on-hand-values) this formatter's output
+// matches in substance. Consumes either a plain calculateCraftingPlan()
+// result (no shortfall/maxCompletable/effectiveQuantity fields present) or
+// an applyOnHandCredit()-credited plan (same base shape, plus those three
+// fields spread on top) -- both shapes must be handled by this one
+// function, per Task 6's brief.
+function calculatorResourceDisplayName(key) {
+  return LEAF_RESOURCES[key] ?? CRAFTING_RECIPES[key]?.displayName ?? key;
+}
+
+function calculatorResourceRows(entries, onHandEntries) {
+  return entries.map(([resource, quantity]) => {
+    const displayName = calculatorResourceDisplayName(resource);
+    const onHandEntry = onHandEntries.find((e) => e.node === resource);
+    let note = "";
+    if (onHandEntry) {
+      // design.md §Response Shape's "New" bullet: the shortfall section
+      // always explains WHY a line is zero -- never a bare `0` with no
+      // context, which would misleadingly read as "not needed."
+      note = quantity === 0
+        ? ` (${onHandEntry.quantity.toLocaleString()} on hand — fully covered)`
+        : ` (${onHandEntry.quantity.toLocaleString()} on hand, ${quantity.toLocaleString()} more needed)`;
+    }
+    const pad = " ".repeat(Math.max(1, 20 - displayName.length));
+    return `• ${displayName}${pad}${quantity.toLocaleString()}${note}`;
+  }).join("\n");
+}
+
+export function formatCalculatorEmbed(plan, durations, { onHandEntries = [] } = {}) {
+  const recipe = CRAFTING_RECIPES[plan.itemKey];
+  const hasOnHand = onHandEntries.length > 0;
+  const title = `🧮 Crafting Calculator — ${plan.quantity.toLocaleString()}× ${recipe.displayName}${hasOnHand ? " (goal)" : ""}`;
+
+  const lines = [];
+  if (hasOnHand) {
+    lines.push(`Tier: ${plan.station}`);
+  } else {
+    // design.md §Response Shape's plain worked example: "Craft time: 500s
+    // (25 batches × 20s)" -- total station time across every batch of the
+    // root item, not just one batch's own craft time.
+    const totalCraftSeconds = plan.crafts * plan.craftTimeSeconds;
+    const batchWord = plan.crafts === 1 ? "batch" : "batches";
+    lines.push(`Tier: ${plan.station} · Craft time: ${totalCraftSeconds.toLocaleString()}s (${plan.crafts.toLocaleString()} ${batchWord} × ${plan.craftTimeSeconds}s)`);
+  }
+  if (hasOnHand) {
+    const onHandSummary = onHandEntries
+      .map((e) => `${e.quantity.toLocaleString()} ${calculatorResourceDisplayName(e.node)}`)
+      .join(", ");
+    lines.push(`On hand: ${onHandSummary}`);
+  }
+
+  // Required by docs/calculator-architecture.md's Shortfall Traversal
+  // Design ("Step 1"): the response always displays both the original
+  // `quantity` (the stated goal) and `effectiveQuantity` (what's actually
+  // left to produce) whenever a target-item-itself on-hand credit changed
+  // it. When no such credit was given, effectiveQuantity === quantity
+  // (including the plain no-credit case, where effectiveQuantity is
+  // undefined entirely) and this line is correctly omitted as a no-op
+  // restatement.
+  if (plan.effectiveQuantity !== undefined && plan.effectiveQuantity !== plan.quantity) {
+    const alreadyHave = plan.quantity - plan.effectiveQuantity;
+    lines.push(`Goal: ${plan.quantity.toLocaleString()} · Already have: ${alreadyHave.toLocaleString()} · Still need to produce: ${plan.effectiveQuantity.toLocaleString()}`);
+  }
+
+  if (hasOnHand) {
+    lines.push("");
+    lines.push("🗒️ **Shortfall (after on-hand credit, pooled across every level)**");
+    lines.push(calculatorResourceRows([...plan.shortfall.entries()], onHandEntries));
+  } else {
+    lines.push("");
+    lines.push("📦 **Direct Inputs (per this craft)**");
+    lines.push(calculatorResourceRows(plan.directInputs.map((i) => [i.resource, i.quantity]), onHandEntries));
+  }
+
+  // [Final-review fix 4] A raw resource pooled across MULTIPLE levels of the
+  // tree (e.g. Water, consumed directly by the root AND by a nested
+  // intermediate's own recipe -- see craftingCalculator.js's
+  // isLeafExclusiveToIntermediate() for the same exclusivity concept applied
+  // to completability math) must appear exactly once, in the top-level
+  // Shortfall/Total-Raw-Materials section, never repeated under a nested
+  // craft's own detail rows. The prior filter (`!input.craftable`) only
+  // excluded further-craftable inputs -- it did NOT exclude a raw leaf that's
+  // simply shared with the root or another nested level, so a shared
+  // resource like Water was shown a second time here despite this loop's own
+  // comment claiming otherwise. Count every non-craftable resource's
+  // occurrences across the root's own directInputs and every nested level's
+  // directInputs; only a resource appearing in exactly one place is
+  // genuinely "unique to this level."
+  const leafOccurrences = new Map();
+  const countLeaf = (resource) => leafOccurrences.set(resource, (leafOccurrences.get(resource) ?? 0) + 1);
+  for (const input of plan.directInputs) {
+    if (!input.craftable) countLeaf(input.resource);
+  }
+  for (const nested of Object.values(plan.nestedCrafts)) {
+    for (const input of nested.directInputs) {
+      if (!input.craftable) countLeaf(input.resource);
+    }
+  }
+
+  for (const [nestedKey, nested] of Object.entries(plan.nestedCrafts)) {
+    let remainingCrafts = nested.crafts;
+    if (hasOnHand) {
+      const nestedShortfall = plan.shortfall.get(nestedKey) ?? 0;
+      const outputPerCraft = CRAFTING_RECIPES[nestedKey]?.outputPerCraft ?? 1;
+      remainingCrafts = Math.ceil(nestedShortfall / outputPerCraft);
+    }
+    if (remainingCrafts <= 0) continue; // fully covered by on-hand credit -- nothing left to report
+
+    lines.push("");
+    if (hasOnHand) {
+      // [Final-review fix 4] In on-hand-credit mode, the Shortfall section
+      // above already shows the real, credited/adjusted numbers for every
+      // ingredient this nested craft needs -- rendering this level's
+      // UNADJUSTED plan.directInputs here (the prior behavior) produced
+      // directly contradictory numbers for the same ingredient in the same
+      // embed (e.g. Shortfall says "Stravidium Mass 0 -- fully covered"
+      // while this section said "75 more needed"). Show just the header
+      // (item, quantity, and station -- since the per-mode Station line
+      // above is skipped in on-hand mode) and point back at the Shortfall
+      // table instead of repeating numbers that can disagree with it.
+      lines.push(`🔧 **Nested Craft: ${remainingCrafts.toLocaleString()}× ${calculatorResourceDisplayName(nestedKey)}, ${nested.station}** (see Shortfall above for ingredient amounts)`);
+    } else {
+      lines.push(`🔧 **Nested Craft: ${remainingCrafts.toLocaleString()}× ${calculatorResourceDisplayName(nestedKey)}**`);
+      lines.push(`Station: ${nested.station} · Craft time: ${(nested.crafts * nested.craftTimeSeconds).toLocaleString()}s`);
+      // Only ingredients genuinely unique to this level are shown here --
+      // anything already pooled into the top-level Total Raw Materials
+      // section above (or shown separately at the root's own Direct Inputs
+      // section) is never repeated.
+      const uniqueToThisLevel = nested.directInputs.filter((i) => !i.craftable && leafOccurrences.get(i.resource) === 1);
+      lines.push(calculatorResourceRows(uniqueToThisLevel.map((i) => [i.resource, i.quantity]), onHandEntries));
+    }
+  }
+
+  if (!hasOnHand) {
+    lines.push("");
+    lines.push("🗒️ **Total Raw Materials to Gather**");
+    lines.push(calculatorResourceRows(plan.totalRawMaterials.map((r) => [r.resource, r.quantity]), onHandEntries));
+  }
+
+  if (plan.maxCompletable !== undefined) {
+    lines.push("");
+    if (plan.maxCompletable.units >= plan.quantity) {
+      // [Final-review fix 3] `maxCompletable` only reflects CREDITED nodes --
+      // a player can credit just one ingredient (or only the target item
+      // itself) and still see this line fire, even though the Shortfall
+      // table above still lists real, nonzero shortfall for OTHER
+      // ingredients they never credited. In that case it is not true that
+      // their on-hand items are "enough" for the goal -- real shortfall
+      // remains -- so this must not read as a success/✅ claim at all.
+      const hasRemainingShortfall = plan.shortfall !== undefined
+        && [...plan.shortfall.values()].some((v) => v > 0);
+      if (hasRemainingShortfall) {
+        lines.push(`ℹ️ No shortage from your credited on-hand items toward all ${plan.quantity.toLocaleString()} — gather the remaining shortfall lines above to finish.`);
+      } else {
+        lines.push(`✅ You can complete all ${plan.quantity.toLocaleString()} requested.`);
+      }
+    } else {
+      const limitingName = plan.maxCompletable.limitingNode ? calculatorResourceDisplayName(plan.maxCompletable.limitingNode) : "on-hand supply";
+      const short = plan.quantity - plan.maxCompletable.units;
+      lines.push(`⚠️ You can complete at most ${plan.maxCompletable.units.toLocaleString()} ${recipe.displayName} with current ${limitingName} on hand — short ${short.toLocaleString()}.`);
+    }
+  }
+
+  if (plan.leftover > 0) {
+    lines.push("");
+    lines.push(`+${plan.leftover.toLocaleString()} leftover (rounded up to whole crafts)`);
+  }
+
+  if (durations.length > 0) {
+    lines.push("");
+    const durationText = durations
+      .map((d) => `${d.station} ${d.seconds.toLocaleString()}s (${Math.floor(d.seconds / 60)}m ${d.seconds % 60}s)`)
+      .join(" · ");
+    lines.push(`⏱️ Duration: ${durationText}`);
+  }
+
+  if (plan.craftingContract) {
+    lines.push("");
+    lines.push("Crafting Contract active (-25% materials)");
+  }
+
+  // design.md §Response Shape's discoverability-footer fix: a first-time
+  // user who only ever runs the plain form still gets pointed at the
+  // goal-tracking capability directly in the response. Omitted once a
+  // user is already using it (any on-hand-N value supplied).
+  if (!hasOnHand) {
+    lines.push("");
+    lines.push("💡 Tip: add on-hand-1 (and up to 5 more) to track a goal against what you already have — see /dune data calculator's own description.");
+  }
+
+  return duneEmbed({
+    title,
+    color: plan.maxCompletable !== undefined && plan.maxCompletable.units < plan.quantity ? "warning" : "spice",
+    description: lines.join("\n").slice(0, 4000)
+  });
+}
+
+// ── goal:create confirmation (Phase 3) ──
+// Genuinely new UI, not reused from the Phase 1 calculator embed above --
+// this confirms a persisted goal was created, not a one-off calculation.
+export function formatGoalCreateEmbed(payload) {
+  const lines = [
+    `🎯 **Goal #${payload.id} created**`,
+    `${payload.itemName} — target ${payload.quantity.toLocaleString()}`,
+    payload.kindConfirmationLine
+  ];
+  if (payload.dueAt) lines.push(`Due: ${payload.dueAt} (this is an order, not a standing goal)`);
+  // "success" (not a raw hex literal) -- duneEmbed() resolves `color`
+  // through DUNE_COLORS by string key; a bare 0x2ecc71 number would miss
+  // that lookup entirely and silently fall back to the default spice blue.
+  return duneEmbed({ title: "Goal Created", color: "success", description: lines.join("\n") });
+}
+
+// ── goal:on-hand confirmation (Task 6) ──
+export function formatGoalOnHandEmbed(payload) {
+  const lines = [`✅ Goal #${payload.goalId}: ${payload.nodeName} set to ${payload.quantity.toLocaleString()}`];
+  if (payload.previous) {
+    lines.push(`Previous: ${payload.previous.previousQuantity.toLocaleString()} (set by <@${payload.previous.previousUpdatedBy}> at ${payload.previous.previousUpdatedAt})`);
+  }
+  if (payload.completed) lines.push("🎉 **Goal complete!**");
+  // "success"/"warning" (named DUNE_COLORS keys), not the task brief's own
+  // raw hex literals (0xf1c40f/0x3498db) -- same bug class this file's own
+  // formatGoalCreateEmbed comment two entries up already documents and
+  // guards against: duneEmbed() resolves `color` through DUNE_COLORS[color]
+  // by string key, so a bare hex number would miss that lookup and
+  // silently fall back to the default spice blue every time, completed or
+  // not.
+  return duneEmbed({ title: "On-Hand Updated", color: payload.completed ? "success" : "spice", description: lines.join("\n") });
+}
+
+// ── goal:list (Task 7) ──
+export function formatGoalListEmbed(payload) {
+  const description = payload.rows.length > 0 ? payload.rows.join("\n") : "No goals yet — create one with /dune goal create.";
+  return duneEmbed({ title: `${payload.scope === "guild" ? "Guild" : "Your"} Goals`, color: "spice", description });
+}
+
+// ── goal:progress (Task 8) ──
+// Craftable-goal case is a thin wrapper: it reuses formatCalculatorEmbed()'s
+// real, computed body content (Shortfall/Nested Craft/Duration sections)
+// byte-for-byte, rather than reimplementing any of that formatting here --
+// see this task's own byte-for-byte parity test in commands.test.js for
+// what "reused" means precisely (the shared sections, not the whole embed
+// object -- this wrapper's own title/due-date chrome is new code with its
+// own separate test).
+export function formatGoalProgressEmbed(payload) {
+  const { goal, itemName } = payload;
+  const overdue = goal.due_at !== null && goal.status === "active" && new Date(`${goal.due_at}T00:00:00Z`).getTime() < Date.now();
+  const header = [`🎯 **Goal #${goal.id}: ${itemName}**`];
+  if (goal.due_at) header.push(`Due: ${goal.due_at}${overdue ? " ⚠️ OVERDUE" : ""}`);
+
+  if (payload.kind === "simple") {
+    header.push(`On hand: ${payload.onHand.toLocaleString()} / ${goal.target_quantity.toLocaleString()}`);
+    header.push(payload.remaining === 0 ? "✅ Target reached." : `Still need: ${payload.remaining.toLocaleString()}`);
+    // "success"/"spice" (named DUNE_COLORS keys) -- see
+    // formatGoalOnHandEmbed's comment above for why a raw hex literal here
+    // would silently fall back to the default spice color instead of doing
+    // what it looks like it does.
+    return duneEmbed({ title: "Goal Progress", color: payload.remaining === 0 ? "success" : "spice", description: header.join("\n") });
+  }
+
+  // Craftable: pull formatCalculatorEmbed()'s own rendered description
+  // straight out of its EmbedBuilder (`.data.description`) and prepend this
+  // wrapper's own goal-specific chrome -- never re-derive the shortfall/
+  // nested-craft/duration text here.
+  const inner = formatCalculatorEmbed(payload.plan, payload.durations, { onHandEntries: payload.onHandEntries });
+  const innerDescription = inner.data?.description ?? inner.description ?? "";
+  return duneEmbed({ title: `Goal Progress — #${goal.id}`, color: "spice", description: [...header, "", innerDescription].join("\n") });
+}
+
+// ── goal:delete (Task 9) ──
+// "error" (a named DUNE_COLORS key), not the task brief's own literal
+// 0xe74c3c -- same trap formatGoalOnHandEmbed/formatGoalProgressEmbed's
+// comments already warn about: duneEmbed() resolves `color` through
+// DUNE_COLORS[color] by string key, so a bare hex number would miss that
+// lookup and silently fall back to the default spice color instead of the
+// red this confirmation is meant to show. DUNE_COLORS.error === 0xE74C3C,
+// the exact value the brief asked for -- just spelled as its named key.
+export function formatGoalDeleteEmbed(payload) {
+  return duneEmbed({ title: "Goal Deleted", color: "error", description: `Goal #${payload.id} deleted.` });
 }

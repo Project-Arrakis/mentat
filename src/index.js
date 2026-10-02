@@ -1,7 +1,7 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { AdapterClient } from "./adapterClient.js";
 import { createAnnouncementBridge, announcementConfig } from "./announcements.js";
-import { executeDuneCommand } from "./commands.js";
+import { executeDuneCommand, handleCalculatorAutocomplete, handleGoalAutocomplete } from "./commands.js";
 import { loadRegistryAtStartup } from "./registryLoader.js";
 import { loadConfig } from "./config.js";
 import { startHealthState } from "./healthState.js";
@@ -414,6 +414,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // otherwise reach neither dispatch path and silently no-op.
     if (interaction.isModalSubmit?.()) {
       await handleServiceModalSubmit(interaction, db, interaction.client);
+      return;
+    }
+    // AutocompleteInteraction is a distinct interaction type discord.js can
+    // deliver for the same command name ("dune") as a real
+    // ChatInputCommandInteraction -- it must be checked BEFORE the
+    // isChatInputCommand?.() branch below, since isChatInputCommand?.()
+    // returns false for it but a later, more permissive check could
+    // otherwise mis-route it. Autocomplete-enabled options today: /dune data
+    // calculator's "item"/"on-hand-N", and /dune goal's "item"/"id"/"node"
+    // (see src/commands.js's buildDuneCommand()) -- each branch below is
+    // scoped narrowly to its own subcommand group so it never interferes
+    // with any other command. handleGoalAutocomplete() independently
+    // re-implements goal RBAC scoping from scratch, since this whole branch
+    // bypasses executeDuneCommand()'s normal isCommandAllowed()/cooldown
+    // pipeline -- see that function's own header comment in commands.js.
+    if (interaction.isAutocomplete?.() && interaction.commandName === "dune") {
+      const group = interaction.options.getSubcommandGroup();
+      const sub = interaction.options.getSubcommand();
+      if (group === "data" && sub === "calculator") {
+        await handleCalculatorAutocomplete(interaction);
+      } else if (group === "goal") {
+        await handleGoalAutocomplete(interaction, db);
+      }
       return;
     }
     // mentat#343 Phase 2: /confirm-connection is a separate top-level slash

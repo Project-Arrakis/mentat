@@ -15,18 +15,22 @@ import { logInfo, logError } from "./logger.js";
 import { resolveCompatEnv } from "./compatEnv.js";
 import { getRegistryFromCache, fetchCoreCatalogForGuild, diffRegistries, getRegistryMetadata } from "./registryLoader.js";
 import { countSubcommands } from "./catalogTransform.js";
-import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed } from "./embedFormat.js";
+import { duneEmbed, formatServicesSummaryEmbed, formatRolesEmbed, formatLogsEmbed, formatVersionEmbed, formatPlayerCommandEmbed, formatHelpEmbed, formatHealthEmbed, formatPingEmbed, formatStatusEmbed, formatPopulationEmbed, formatBackupsEmbed, formatGenericEmbed, formatDoctorEmbed, formatMapsEmbed, formatCooldownsEmbed, formatLatencyEmbed, formatEventsEmbed, formatStatusDetailEmbed, formatReadinessDetailEmbed, formatServicesDetailEmbed, formatMaintenanceEmbed, formatCoriolisEmbed, formatAtlasEmbed, formatServersEmbed, formatPortsEmbed, formatDbEmbed, formatSetupEmbed, formatInventoryEmbed, formatStorageEmbed, formatFindEmbed, formatLinkEmbed, formatUnlinkEmbed, formatWhoamiEmbed, formatFactionEmbed, formatActivityEmbed, formatCombatEmbed, formatResourcesEmbed, formatEconomyEmbed, formatOpsInventoryEmbed, formatLocationEmbed, formatSocEmbed, formatPrometheusEmbed, formatDashboardEmbed, formatAnnouncementsEmbed, formatSyncCommandsEmbed, formatAlertsEmbed, formatCalculatorEmbed, formatGoalCreateEmbed, formatGoalOnHandEmbed, formatGoalListEmbed, formatGoalProgressEmbed, formatGoalDeleteEmbed } from "./embedFormat.js";
 import { sendEmbed, sendError, sendCard, sendText, sendEphemeral } from "./output/pipeline.js";
-import { handleWriteCommand } from "./writeHandler.js";
+import { handleWriteCommand, LEGACY_WRITE_STUBS } from "./writeHandler.js";
 import { WRITE_ACTIONS, findWriteAction, discordOptionName } from "./writeActions.js";
 import { writesEnabled, canWrite, writeRoleIds } from "./writes.js";
 import { OPS_SUBCOMMAND_NAMES, opsRouteFor, formatOpsPayload, opsDescriptionFor } from "./opsCommands.js";
 import { getLatencyHistory, UNMERGED_ROUTES, MISSING_ROUTES, PLANNED_ROUTES } from "./adapterClient.js";
 import { getIncidentHistory } from "./scheduler.js";
-import { getGuildStatus, getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction } from "./database.js";
+import { getGuildStatus, getGuildRoles, getGuildSettings, incrementCommandCount, getGuildFaction, createGoal, getGoalScoped, listGoalsByOwner, countGoalsByOwner, setGoalOnHandEntry, getGoalOnHandEntries, countGoalOnHandEntries, completeGoal, deleteGoalScoped, appendGoalAuditLog } from "./database.js";
 import { resolveRoleLabel, resolveRoleLabels } from "./roleDisplay.js";
 import { multiTenantActorTier, tierAtLeast, resolveGuildOwnerId, isInteractionGuildOwner, actorFromInteraction } from "./rbac.js";
 import { createSteamLinkSession } from "./steamLinkStore.js";
+import { calculateCraftingPlan, applyOnHandCredit, resolveEffectiveOnHandCredit, estimateDuration, recipeTreeNodes, bestAvailableTier, MIN_QUANTITY, MAX_QUANTITY } from "./craftingCalculator.js";
+import { CRAFTING_RECIPES } from "./craftingData.js";
+import { GAME_ITEM_CATALOG, GAME_ITEM_CATALOG_BY_ID } from "./gameItemCatalog.js";
+import { GAME_ITEM_ID_TO_RECIPE_KEY, RECIPE_KEY_TO_GAME_ITEM_ID } from "./gameItemIdBridge.js";
 
 // Mechanical WRITE_ACTIONS -> discord.js subcommand registration -- shared
 // by every write-capable group builder (whether that group is genuinely new
@@ -107,16 +111,16 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       g.setName("server").setDescription("Server health, status, and services.")
         .addSubcommand((c) => c.setName("health").setDescription("Check the console Discord adapter."))
         .addSubcommand((c) => c.setName("status").setDescription("Show high-level server status.")
-          .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin-only: full diagnostic with containers table.")))
-        .addSubcommand((c) => c.setName("summary").setDescription("Show compact aggregate server status."))
+          .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin: full diagnostic, containers table.")))
+        .addSubcommand((c) => c.setName("summary").setDescription("Compact aggregate server status."))
         .addSubcommand((c) => c.setName("readiness").setDescription("Show readiness and preflight state.")
           .addBooleanOption((o) => o.setName("diagnostic").setDescription("Admin-only: detailed readiness checks.")))
-        .addSubcommand((c) => c.setName("readiness-detail").setDescription("Show grouped readiness detail with issues."))
+        .addSubcommand((c) => c.setName("readiness-detail").setDescription("Grouped readiness detail with issues."))
         .addSubcommand((c) => c.setName("services").setDescription("Show service container state."))
-        .addSubcommand((c) => c.setName("services-detail").setDescription("Show detailed service state with logs."))
-        .addSubcommand((c) => c.setName("maintenance").setDescription("Show current maintenance note or window (read-only)."))
-        .addSubcommand((c) => c.setName("coriolis").setDescription("Show the current Coriolis storm seed and next-cycle countdown."))
-        .addSubcommand((c) => c.setName("atlas").setDescription("Show per-sietch PvP/PvE and live sandstorm status."));
+        .addSubcommand((c) => c.setName("services-detail").setDescription("Detailed service state with logs."))
+        .addSubcommand((c) => c.setName("maintenance").setDescription("Maintenance note or window (read-only)."))
+        .addSubcommand((c) => c.setName("coriolis").setDescription("Coriolis storm seed, next-cycle countdown."))
+        .addSubcommand((c) => c.setName("atlas").setDescription("Per-sietch PvP/PvE, live sandstorm status."));
       // Gated the same as every other write command (DUNE_DISCORD_WRITES_ENABLED)
       // -- must NOT register when includeWriteGroup is false, or these
       // subcommands would always be visible/dispatchable regardless of the
@@ -131,10 +135,29 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
     // data like population/backups/maps. Every player-related subcommand
     // now lives under /dune player, consistently, per explicit operator
     // direction -- do not add a new player-scoped subcommand here again.
-    .addSubcommandGroup((g) => g.setName("data").setDescription("Server population, backups, and map data.")
-      .addSubcommand((c) => c.setName("population").setDescription("Show aggregate player count and server population."))
-      .addSubcommand((c) => c.setName("backups").setDescription("List recent backup metadata (read-only)."))
-      .addSubcommand((c) => c.setName("maps").setDescription("Show active game maps with state and uptime.")))
+    .addSubcommandGroup((g) => g.setName("data").setDescription("Population, backups, map data.")
+      .addSubcommand((c) => c.setName("population").setDescription("Player count and server population."))
+      .addSubcommand((c) => c.setName("backups").setDescription("Recent backup metadata (read-only)."))
+      .addSubcommand((c) => c.setName("maps").setDescription("Active game maps: state and uptime."))
+      .addSubcommand((c) => {
+        // Descriptions here are deliberately terse (Discord's 8000-char
+        // per-command budget, see test/commands.test.js's regression test) --
+        // the full explanation lives in docs/calculator-design.md and this
+        // subcommand's own top-level description, not repeated per option.
+        c.setName("calculator").setDescription("Crafting requirements vs. items on hand (optional).")
+          .addStringOption((o) => o.setName("item").setDescription("Item to calculate for.").setRequired(true).setAutocomplete(true))
+          .addIntegerOption((o) => o.setName("quantity").setDescription("Total quantity needed (your goal).").setMinValue(MIN_QUANTITY).setMaxValue(MAX_QUANTITY))
+          .addStringOption((o) => o.setName("station-tier").setDescription("Station size (item's tiers only).").addChoices(
+            { name: "Large", value: "large" }, { name: "Medium", value: "medium" }, { name: "Small", value: "small" }
+          ))
+          .addBooleanOption((o) => o.setName("crafting-contract").setDescription("-25% Crafting Contract reduction."));
+        for (let i = 1; i <= 6; i++) {
+          c.addStringOption((o) => o.setName(`on-hand-${i}`).setDescription("Item you have (optional).").setAutocomplete(true));
+          c.addIntegerOption((o) => o.setName(`on-hand-${i}-quantity`).setDescription("Quantity you have.").setMinValue(0).setMaxValue(MAX_QUANTITY));
+        }
+        c.addIntegerOption((o) => o.setName("station-count").setDescription("Parallel stations (estimate only).").setMinValue(1).setMaxValue(50));
+        return c;
+      }))
 
     // ── player group ──
     // Split out of data (see the block comment above buildDuneCommand()).
@@ -146,20 +169,20 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
     // to a block body so addWriteSubcommands() can be appended; every
     // pre-existing .addSubcommand(...) call below is unchanged.
     .addSubcommandGroup((g) => {
-      g.setName("player").setDescription("Your character: linking, inventory, storage, and account management.")
-        .addSubcommand((c) => c.setName("link").setDescription("Link your Discord to your game character.")
+      g.setName("player").setDescription("Linking, inventory, storage, account management.")
+        .addSubcommand((c) => c.setName("link").setDescription("Link Discord to your game character.")
           .addStringOption((o) => o.setName("character").setDescription("Your character name").setRequired(true)))
-        .addSubcommand((c) => c.setName("verify").setDescription("Verify a pending character link with a code.")
-          .addStringOption((o) => o.setName("code").setDescription("Verification code from in-game whisper").setRequired(true)))
+        .addSubcommand((c) => c.setName("verify").setDescription("Verify a character link with a code.")
+          .addStringOption((o) => o.setName("code").setDescription("Code from in-game whisper").setRequired(true)))
         .addSubcommand((c) => c.setName("characters").setDescription("List your verified characters."))
         .addSubcommand((c) => c.setName("enable").setDescription("Enable a character in this guild.")
           .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
         .addSubcommand((c) => c.setName("disable").setDescription("Disable a character in this guild.")
           .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
-        .addSubcommand((c) => c.setName("default").setDescription("Set your default character for this guild.")
+        .addSubcommand((c) => c.setName("default").setDescription("Default character for this guild.")
           .addStringOption((o) => o.setName("character").setDescription("Character link ID").setRequired(true)))
-        .addSubcommand((c) => c.setName("unlink").setDescription("Unlink a character from your Discord.")
-          .addStringOption((o) => o.setName("character").setDescription("Player controller ID from /dune player characters (omit to unlink your single-link character)")))
+        .addSubcommand((c) => c.setName("unlink").setDescription("Unlink a character from Discord.")
+          .addStringOption((o) => o.setName("character").setDescription("Controller ID (omit if single-linked)")))
         // Read-only, auto-detected from your real in-game faction (Core's
         // players-faction route, dune-awakening-selfhost-docker#696) -- there
         // is deliberately no argument here. This used to be a settable
@@ -169,13 +192,13 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
         // supplied value, so the option was removed rather than left to
         // silently do nothing.
         .addSubcommand((c) => c.setName("faction").setDescription("Show your real, in-game faction."))
-        .addSubcommand((c) => c.setName("whoami").setDescription("Show your linked game character info."))
+        .addSubcommand((c) => c.setName("whoami").setDescription("Your linked game character info."))
         .addSubcommand((c) => c.setName("inventory").setDescription("View your personal inventory.")
           .addStringOption((o) => o.setName("search").setDescription("Filter by item name (optional)")))
-        .addSubcommand((c) => c.setName("storage").setDescription("View your storage containers grouped by map.")
+        .addSubcommand((c) => c.setName("storage").setDescription("Storage containers, grouped by map.")
           .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
             .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" })))
-        .addSubcommand((c) => c.setName("find").setDescription("Search for items across your containers.")
+        .addSubcommand((c) => c.setName("find").setDescription("Search items across your containers.")
           .addStringOption((o) => o.setName("query").setDescription("Item name to search for").setRequired(true))
           .addStringOption((o) => o.setName("scope").setDescription("owned (default), guild, or all (admin)")
             .addChoices({ name: "owned", value: "owned" }, { name: "guild", value: "guild" })));
@@ -186,6 +209,41 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       if (includeWriteGroup) addWriteSubcommands(g, "player");
       return g;
     })
+
+    // ── goal group (Phase 3) ──
+    // Descriptions here are deliberately terse (Discord's 8000-char
+    // per-command budget, see the regression test below) -- same
+    // discipline as the data:calculator subcommand above. This group's own
+    // full complement of 6 options plus 5 choice pairs already costs ~120
+    // chars before a single description byte is written, so there is far
+    // less room per-field than calculator had; the full explanation lives
+    // in docs, not repeated per option here.
+    .addSubcommandGroup((g) => g.setName("goal").setDescription("Goals.")
+      .addSubcommand((c) => c.setName("create").setDescription("Create a goal.")
+        .addStringOption((o) => o.setName("scope").setDescription("Scope.").setRequired(true).addChoices(
+          { name: "Personal", value: "personal" }, { name: "Guild", value: "guild" }
+        ))
+        .addStringOption((o) => o.setName("item").setDescription("Item.").setRequired(true).setAutocomplete(true))
+        .addIntegerOption((o) => o.setName("quantity").setDescription("Quantity.").setRequired(true).setMinValue(MIN_QUANTITY).setMaxValue(MAX_QUANTITY))
+        .addStringOption((o) => o.setName("due-at").setDescription("Deadline (YYYY-MM-DD)."))
+        .addStringOption((o) => o.setName("station-tier").setDescription("Station.").addChoices(
+          { name: "Large", value: "large" }, { name: "Medium", value: "medium" }, { name: "Small", value: "small" }
+        ))
+        .addBooleanOption((o) => o.setName("crafting-contract").setDescription("-25% Crafting Contract")))
+      .addSubcommand((c) => c.setName("on-hand").setDescription("On-hand.")
+        .addIntegerOption((o) => o.setName("id").setDescription("Id.").setRequired(true).setAutocomplete(true))
+        .addStringOption((o) => o.setName("node").setDescription("Item.").setRequired(true).setAutocomplete(true))
+        .addIntegerOption((o) => o.setName("quantity").setDescription("Qty.").setRequired(true).setMinValue(0).setMaxValue(MAX_QUANTITY)))
+      .addSubcommand((c) => c.setName("list").setDescription("List.")
+        .addStringOption((o) => o.setName("scope").setDescription("Scope.").setRequired(true).addChoices(
+          { name: "Personal", value: "personal" }, { name: "Guild", value: "guild" }
+        ))
+        .addBooleanOption((o) => o.setName("include-completed").setDescription("Completed.")))
+      .addSubcommand((c) => c.setName("progress").setDescription("Progress detail.")
+        .addIntegerOption((o) => o.setName("id").setDescription("Id.").setRequired(true).setAutocomplete(true)))
+      .addSubcommand((c) => c.setName("delete").setDescription("Delete a goal.")
+        .addIntegerOption((o) => o.setName("id").setDescription("Goal id.").setRequired(true).setAutocomplete(true)))
+    )
 
     // ── logs group ──
     .addSubcommandGroup((g) => g.setName("logs").setDescription("View logs from specific game services.")
@@ -198,7 +256,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
       .addSubcommand((c) => c.setName("redblink-dune-docker-console").setDescription("Show console adapter logs.")))
 
     // ── ops group ──
-    .addSubcommandGroup((g) => g.setName("ops").setDescription("Operational observability from the OPS addon.")
+    .addSubcommandGroup((g) => g.setName("ops").setDescription("OPS addon observability.")
       .addSubcommand((c) => c.setName("activity").setDescription(opsDescriptionFor("activity")))
       .addSubcommand((c) => c.setName("combat").setDescription(opsDescriptionFor("combat")))
       .addSubcommand((c) => c.setName("resources").setDescription(opsDescriptionFor("resources")))
@@ -213,12 +271,12 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
 
     // ── admin group ──
     .addSubcommandGroup((g) => g.setName("admin").setDescription("Admin-only diagnostics and management.")
-      .addSubcommand((c) => c.setName("doctor").setDescription("Comprehensive system diagnostic across all subsystems."))
-      .addSubcommand((c) => c.setName("sync-commands").setDescription("Check Core's command catalog for drift against the bot's registry."))
+      .addSubcommand((c) => c.setName("doctor").setDescription("Full diagnostic across all subsystems."))
+      .addSubcommand((c) => c.setName("sync-commands").setDescription("Check Core's command catalog for registry drift."))
       .addSubcommand((c) => c.setName("cooldowns").setDescription("Show active command cooldowns."))
       .addSubcommand((c) => c.setName("latency").setDescription("Show adapter request latency history."))
       .addSubcommand((c) => c.setName("events").setDescription("Show recent server incidents and events."))
-      .addSubcommand((c) => c.setName("roles").setDescription("Show configured admin/player roles, with current Discord role names."))
+      .addSubcommand((c) => c.setName("roles").setDescription("Show admin/player roles with current Discord names."))
       .addSubcommand((c) => c.setName("broadcast").setDescription("Send a message to all in-game players (moderator+).")
         .addStringOption((o) => o.setName("message").setDescription("Message to broadcast").setRequired(true).setMaxLength(500)))
       .addSubcommand((c) => c.setName("service-setup").setDescription("Provision a service channel's duty/apply component (mentat#372).")
@@ -237,7 +295,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
   // ── write group ── conditionally appended, requires DUNE_DISCORD_WRITES_ENABLED=true
   if (includeWriteGroup) {
     builder.addSubcommandGroup((g) =>
-      g.setName("write").setDescription("Write commands — gated behind DUNE_DISCORD_WRITES_ENABLED.")
+      g.setName("write").setDescription("Write commands; needs DUNE_DISCORD_WRITES_ENABLED.")
         // [Audit fix, mentat#403] These 9 descriptions/param descriptions must
         // stay byte-identical to LEGACY_WRITE_STUBS's (src/writeHandler.js) --
         // this hand-maintained copy had already drifted on 7 of 9 entries
@@ -251,7 +309,7 @@ export function buildDuneCommand({ includeWriteGroup = false } = {}) {
         .addSubcommand((c) => c.setName("maintenance-window").setDescription("Set a maintenance window.")
           .addStringOption((o) => o.setName("start").setDescription("Start time (ISO 8601)").setRequired(true))
           .addIntegerOption((o) => o.setName("duration").setDescription("Duration in minutes").setRequired(true).setMinValue(1).setMaxValue(1440)))
-        .addSubcommand((c) => c.setName("alert-channel").setDescription("Set the alert channel for readiness/service notifications.")
+        .addSubcommand((c) => c.setName("alert-channel").setDescription("Alert channel: readiness/service notifications.")
           .addStringOption((o) => o.setName("channel").setDescription("Discord channel ID").setRequired(true)))
         .addSubcommand((c) => c.setName("alert-threshold").setDescription("Set alert thresholds.")
           .addStringOption((o) => o.setName("metric").setDescription("Metric (readiness/services/population)").setRequired(true))
@@ -499,6 +557,29 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
     } else if (key === "data:maps") {
       const status = await adapterClient.status(actor, false, guildId);
       payload = { maps: status?.result?.maps || [] };
+    } else if (key === "data:calculator") {
+      payload = executeCalculator({ interaction });
+    }
+    // ── goal group (Phase 3) ──
+    // db is null on a single-tenant deployment (index.js: `db = config.multiTenant
+    // ? createDatabase(...) : null`), but every goal:* command is registered and
+    // listed in help regardless of multiTenant. Without this guard each command
+    // below would fail deep inside its db.prepare(...) call with a raw "Cannot
+    // read properties of null (reading 'prepare')" -- a confusing internal error
+    // instead of a clear, actionable message. See handleGoalAutocomplete's
+    // matching guard for the autocomplete-side equivalent of this same gap.
+    else if (key.startsWith("goal:") && !db) {
+      throw new Error("Goal tracking requires multi-tenant/database mode, which isn't enabled on this bot instance.");
+    } else if (key === "goal:create") {
+      payload = executeGoalCreate({ interaction, config, db });
+    } else if (key === "goal:on-hand") {
+      payload = executeGoalOnHand({ interaction, config, db });
+    } else if (key === "goal:list") {
+      payload = executeGoalList({ interaction, config, db });
+    } else if (key === "goal:progress") {
+      payload = executeGoalProgress({ interaction, config, db });
+    } else if (key === "goal:delete") {
+      payload = executeGoalDelete({ interaction, config, db });
     }
     // ── player group ──
     // Split out of data (2026-07-24) -- see the block comment above
@@ -813,6 +894,18 @@ export async function executeDuneCommand(interaction, adapterClient, config, db 
       embed = formatBackupsEmbed(payload);
     } else if (subcommand === "maps") {
       embed = formatMapsEmbed(payload);
+    } else if (subcommand === "calculator") {
+      embed = formatCalculatorEmbed(payload.plan, payload.durations, { onHandEntries: payload.onHandEntries });
+    } else if (subcommand === "create" && group === "goal") {
+      embed = formatGoalCreateEmbed(payload);
+    } else if (subcommand === "on-hand" && group === "goal") {
+      embed = formatGoalOnHandEmbed(payload);
+    } else if (subcommand === "list" && group === "goal") {
+      embed = formatGoalListEmbed(payload);
+    } else if (subcommand === "progress" && group === "goal") {
+      embed = formatGoalProgressEmbed(payload);
+    } else if (subcommand === "delete" && group === "goal") {
+      embed = formatGoalDeleteEmbed(payload);
     } else if (subcommand === "link") {
       embed = formatLinkEmbed(payload);
     } else if (subcommand === "verify") {
@@ -1209,6 +1302,643 @@ export function populationPayload(p) { const r = p?.result || {}; return { ok: p
 
 export function backupPayload(b) { const list = Array.isArray(b?.result?.backups) ? b.result.backups.slice(0, 10) : []; return { ok: b?.ok === true, count: list.length, backups: list.map(x => ({ name: x.name || "unknown", date: x.date || x.createdAt || "unknown", size: x.size || "unknown" })) }; }
 
+// data:calculator -- see docs/calculator-design.md. Purely local/synchronous
+// (no adapterClient call at all -- recipe data is bundled with the bot, see
+// craftingData.js's own provenance note), unlike every other data:* payload
+// builder above.
+//
+// Reads and validates every on-hand-N/on-hand-N-quantity pair. Throws plain
+// Errors for every failure case -- these propagate to executeDuneCommand()'s
+// existing top-level try/catch, landing in its final
+// `sendError(interaction, { error: error.message })` branch unchanged (see
+// Task 7 brief's note -- no new catch branch is added for this feature).
+function readOnHandEntries(interaction) {
+  const entries = [];
+  for (let i = 1; i <= 6; i++) {
+    const node = interaction.options.getString(`on-hand-${i}`);
+    const quantity = interaction.options.getInteger(`on-hand-${i}-quantity`);
+    if (node === null && quantity === null) continue;
+    if (node === null || quantity === null) {
+      throw new Error(`on-hand-${i} and on-hand-${i}-quantity must both be provided together, or both omitted.`);
+    }
+    entries.push({ node, quantity, slot: i });
+  }
+  // Duplicate-node check -- BEFORE any calculation runs (see self-review
+  // criteria in the task brief). applyOnHandCredit() also re-checks this
+  // independently (defense in depth), but this check must fire first so a
+  // duplicate is rejected before calculateCraftingPlan()/recipeTreeNodes()
+  // ever run.
+  for (let a = 0; a < entries.length; a++) {
+    for (let b = a + 1; b < entries.length; b++) {
+      if (entries[a].node === entries[b].node) {
+        throw new Error(`on-hand-${entries[a].slot} and on-hand-${entries[b].slot} both name ${entries[a].node} — combine them into a single value instead of splitting across slots.`);
+      }
+    }
+  }
+  return entries;
+}
+
+function executeCalculator({ interaction }) {
+  const itemKey = interaction.options.getString("item");
+  if (!Object.hasOwn(CRAFTING_RECIPES, itemKey)) {
+    throw new Error(`Unknown item: '${itemKey}'. Try /dune data calculator and use the autocomplete suggestions.`);
+  }
+  const quantity = interaction.options.getInteger("quantity") ?? MIN_QUANTITY;
+  const stationTier = interaction.options.getString("station-tier") ?? bestAvailableTier(itemKey);
+  const craftingContract = interaction.options.getBoolean("crafting-contract") ?? false;
+  const stationCount = interaction.options.getInteger("station-count") ?? 1;
+
+  const rawOnHandEntries = readOnHandEntries(interaction);
+  const treeNodes = new Set(recipeTreeNodes(itemKey).map((n) => n.key));
+  for (const entry of rawOnHandEntries) {
+    if (!treeNodes.has(entry.node)) {
+      throw new Error(`'${entry.node}' is not an ingredient of ${itemKey}. Try /dune data calculator and use the autocomplete suggestions for on-hand items.`);
+    }
+  }
+
+  const credited = resolveEffectiveOnHandCredit(itemKey, quantity, rawOnHandEntries, { stationTier, craftingContract });
+  const durations = credited.effectiveQuantity === 0 ? [] : estimateDuration(credited, { stationCount });
+
+  return { plan: credited, durations, onHandEntries: rawOnHandEntries };
+}
+
+// ── goal:create (Phase 3) ──
+// Module-level caps -- shared with Tasks 6/9, which also enforce/report
+// against them, so they must not drift into per-function-local constants.
+const GOAL_PERSONAL_ACTIVE_CAP = 5;
+const GOAL_GUILD_ACTIVE_CAP = 10;
+const GOAL_LIFETIME_CAP = 50;
+
+function isValidDueAt(raw) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const parsed = new Date(`${raw}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const todayUtc = new Date(); todayUtc.setUTCHours(0, 0, 0, 0);
+  return parsed.getTime() >= todayUtc.getTime();
+}
+
+// requireGuildGoalAccess: shared by Tasks 6/9 (any guild-scoped goal
+// mutation, not just create) -- signature and both failure messages are
+// load-bearing for those tasks' own tests, do not change without checking
+// their callers. Throws (never returns a boolean) so every caller gets the
+// same "propagates to executeDuneCommand's top-level catch" behavior as
+// every other validation error in this function.
+function requireGuildGoalAccess(interaction, config, db) {
+  if (!interaction.inGuild?.() || !interaction.guildId) {
+    throw new Error("Guild goals require running this command in a server, not a DM.");
+  }
+  if (!isAdminActor(interaction, config, db, interaction.guildId)) {
+    throw new Error("Managing a guild goal requires admin-tier access or server ownership. If you're the server owner but this still fails, ask whoever set up the bot to open the setup portal (the link sent when the bot was added) and configure an Admin Role.");
+  }
+}
+
+// mentat#428: run a goal write sequence as one all-or-nothing unit. IMMEDIATE
+// takes the write lock up front so a cap check inside `fn` and the write that
+// follows it cannot interleave with another writer. Any throw inside `fn`
+// (a validation error or a DB failure) rolls the whole thing back and
+// propagates unchanged, so error messages surface exactly as before.
+function goalTransaction(db, fn) {
+  return db.transaction(fn).immediate();
+}
+
+function executeGoalCreate({ interaction, config, db }) {
+  const scope = interaction.options.getString("scope");
+  const itemId = interaction.options.getString("item");
+  const quantity = interaction.options.getInteger("quantity");
+  const dueAtRaw = interaction.options.getString("due-at");
+  const stationTierOption = interaction.options.getString("station-tier");
+  const craftingContractOption = interaction.options.getBoolean("crafting-contract");
+
+  if (!GAME_ITEM_CATALOG_BY_ID.has(itemId)) {
+    throw new Error(`Unknown item: '${itemId}'. Try /dune goal create and use the autocomplete suggestions.`);
+  }
+  const itemName = GAME_ITEM_CATALOG_BY_ID.get(itemId).name;
+
+  let dueAt = null;
+  if (dueAtRaw !== null) {
+    if (!isValidDueAt(dueAtRaw)) {
+      throw new Error(`'${dueAtRaw}' is not a valid, non-past due-at date. Use the format YYYY-MM-DD.`);
+    }
+    dueAt = dueAtRaw;
+  }
+
+  // GAME_ITEM_ID_TO_RECIPE_KEY has an entry for every mappable key -- both
+  // real CRAFTING_RECIPES items AND LEAF_RESOURCES raw materials (the
+  // latter exist in the bridge only so autocomplete/on-hand tracking can
+  // resolve them, not because they have a recipe). Classifying on bridge
+  // presence alone (any past `recipeKey ? "craftable" : "simple"`) wrongly
+  // called every raw resource "craftable" and then fed its recipe key into
+  // bestAvailableTier()/calculateCraftingPlan(), which only know
+  // CRAFTING_RECIPES keys -- both throw "Unknown item" for a bare leaf key
+  // like "copper_ore". A recipe key only means "craftable" if it's also a
+  // real CRAFTING_RECIPES entry.
+  const recipeKey = GAME_ITEM_ID_TO_RECIPE_KEY.get(itemId);
+  const itemKind = recipeKey && Object.hasOwn(CRAFTING_RECIPES, recipeKey) ? "craftable" : "simple";
+
+  if (itemKind === "simple" && (stationTierOption !== null || craftingContractOption !== null)) {
+    throw new Error(`${itemName} has no known crafting recipe -- station-tier/crafting-contract don't apply.`);
+  }
+
+  let stationTier = null;
+  let craftingContract = false;
+  let kindConfirmationLine;
+  if (itemKind === "craftable") {
+    stationTier = stationTierOption ?? bestAvailableTier(recipeKey);
+    craftingContract = craftingContractOption ?? false;
+    // Validate the tier actually exists for this item (throws "no recipe
+    // variant at this tier" otherwise), matching Phase 1's own validation.
+    calculateCraftingPlan(recipeKey, MIN_QUANTITY, { stationTier, craftingContract });
+    kindConfirmationLine = "Tracking with full crafting math.";
+  } else {
+    kindConfirmationLine = "Tracking as a simple count -- no known crafting recipe for this item.";
+  }
+
+  const ownerType = scope === "guild" ? "guild" : "player";
+  const ownerId = scope === "guild" ? interaction.guildId : interaction.user.id;
+
+  if (scope === "guild") {
+    requireGuildGoalAccess(interaction, config, db);
+  }
+
+  const activeCap = scope === "guild" ? GOAL_GUILD_ACTIVE_CAP : GOAL_PERSONAL_ACTIVE_CAP;
+  // Cap counts, insert and audit row are one transaction (mentat#428).
+  const id = goalTransaction(db, () => {
+    const activeCount = countGoalsByOwner(db, { ownerType, ownerId, statuses: ["active"] });
+    const lifetimeCount = countGoalsByOwner(db, { ownerType, ownerId, statuses: ["active", "completed", "archived"] });
+    if (activeCount >= activeCap || lifetimeCount >= GOAL_LIFETIME_CAP) {
+      const existing = listGoalsByOwner(db, { ownerType, ownerId, includeCompleted: true });
+      const listing = existing.map((g) => `#${g.id} ${GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? g.item_id} (${g.status})`).join(", ");
+      const which = activeCount >= activeCap ? `the ${activeCap}-active-goal limit` : `the ${GOAL_LIFETIME_CAP}-goal lifetime limit`;
+      throw new Error(`You've hit ${which}. Delete one first: ${listing}`);
+    }
+    const newId = createGoal(db, { ownerType, ownerId, itemId, itemKind, targetQuantity: quantity, stationTier, craftingContract, dueAt, createdBy: interaction.user.id });
+    appendGoalAuditLog(db, { goalId: newId, action: "create", actorId: interaction.user.id });
+    return newId;
+  });
+
+  return { ok: true, id, itemName, quantity, itemKind, kindConfirmationLine, dueAt };
+}
+
+// ── goal:on-hand (Task 6) ──
+// Cap: a craftable goal may track on-hand credit against at most 6 distinct
+// nodes (the root item itself plus up to 5 ingredients); a simple goal
+// (no known recipe) may only ever track its own item -- there is nothing
+// else to credit.
+const GOAL_ON_HAND_CRAFTABLE_CAP = 6;
+const GOAL_ON_HAND_SIMPLE_CAP = 1;
+
+function executeGoalOnHand({ interaction, config, db }) {
+  const id = interaction.options.getInteger("id");
+  const node = interaction.options.getString("node");
+  const quantity = interaction.options.getInteger("quantity");
+
+  // Binding rule: try personal first, then guild -- whichever scope the
+  // goal is actually under determines the real authorization path. We
+  // don't know the goal's scope until we find it, so probe both scoped
+  // lookups; a real cross-tenant/cross-owner id will match neither, and
+  // isAdminActor() is only ever invoked once a REAL guild-scoped match is
+  // already confirmed -- a guild-B admin free-typing guild-A's id never
+  // reaches (or leaks anything from) the access check at all.
+  let goal = getGoalScoped(db, { id, ownerType: "player", ownerId: interaction.user.id });
+  if (!goal && interaction.guildId) {
+    const guildCandidate = getGoalScoped(db, { id, ownerType: "guild", ownerId: interaction.guildId });
+    if (guildCandidate) {
+      requireGuildGoalAccess(interaction, config, db);
+      goal = guildCandidate;
+    }
+  }
+  if (!goal) {
+    throw new Error(`Goal #${id} not found.`);
+  }
+
+  let validNodes;
+  if (goal.item_kind === "craftable") {
+    const recipeKey = GAME_ITEM_ID_TO_RECIPE_KEY.get(goal.item_id);
+    // recipeTreeNodes() returns mentat's own snake_case recipe/leaf keys,
+    // but goal_on_hand_entries stores real game item ids -- every key must
+    // be mapped through RECIPE_KEY_TO_GAME_ITEM_ID before comparing
+    // against `node`. The root node maps to goal.item_id directly (it's
+    // already the real id, that's how the goal itself was created); every
+    // other node maps through the bridge -- EXCEPT `water`, which has no
+    // real game-item id at all (gameItemIdBridge.js's documented
+    // exception) and must be filtered out, not included as a literal
+    // `undefined` entry in the Set (an `undefined` entry would make
+    // `validNodes.has(undefined)` true, and while no real Discord option
+    // value can ever BE `undefined`, leaving it in is still a real
+    // correctness bug worth avoiding deliberately, not by accident).
+    validNodes = new Set(
+      recipeTreeNodes(recipeKey)
+        .map((n) => (n.key === recipeKey ? goal.item_id : RECIPE_KEY_TO_GAME_ITEM_ID.get(n.key)))
+        .filter((gameItemId) => gameItemId !== undefined)
+    );
+  } else {
+    validNodes = new Set([goal.item_id]);
+  }
+  if (!validNodes.has(node)) {
+    throw new Error(`'${node}' is not an ingredient of this goal. Try /dune goal on-hand and use the autocomplete suggestions.`);
+  }
+
+  const cap = goal.item_kind === "craftable" ? GOAL_ON_HAND_CRAFTABLE_CAP : GOAL_ON_HAND_SIMPLE_CAP;
+  const recipeKey = goal.item_kind === "craftable" ? GAME_ITEM_ID_TO_RECIPE_KEY.get(goal.item_id) : null;
+
+  // Cap check, entry write, audit row and the completion transition are one
+  // all-or-nothing transaction (mentat#428): a failure at any step leaves no
+  // orphan entry, audit row, or half-completed goal.
+  const { previous, completed } = goalTransaction(db, () => {
+    const existingCount = countGoalOnHandEntries(db, id);
+    const alreadyHasThisNode = getGoalOnHandEntries(db, id).some((e) => e.node === node);
+    if (!alreadyHasThisNode && existingCount >= cap) {
+      throw new Error(`This goal already has ${cap} on-hand ${cap === 1 ? "entry" : "entries"} -- that's the limit. Update an existing one instead of adding a new one.`);
+    }
+
+    const prev = setGoalOnHandEntry(db, { goalId: id, node, quantity, updatedBy: interaction.user.id });
+    appendGoalAuditLog(db, { goalId: id, action: "on_hand_update", actorId: interaction.user.id, node, previousQuantity: prev?.previousQuantity ?? null, newQuantity: quantity });
+
+    // Completion check: `reachedTarget` is evaluated every time regardless of
+    // the goal's current status, but `completeGoal()`/the "complete" audit
+    // entry only ever fire the first time (guarded by `goal.status ===
+    // "active"`), so an already-completed goal doesn't get re-completed or
+    // double-logged. Deliberately NOT gating `completed` itself on that same
+    // "active" check (a first draft of this function did, and it produced a
+    // real, explainable bug: a second on-hand update on an already-completed
+    // goal -- e.g. topping off on-hand further past the target -- would
+    // silently stop reporting the goal as complete in its own confirmation
+    // embed, even though it obviously still is).
+    let done = false;
+    const entries = getGoalOnHandEntries(db, id).map((e) => ({ node: e.node, quantity: e.quantity }));
+    const targetOnHand = entries.find((e) => e.node === goal.item_id)?.quantity ?? 0;
+    const reachedTarget = goal.item_kind === "simple"
+      ? targetOnHand >= goal.target_quantity
+      : resolveEffectiveOnHandCredit(
+          recipeKey,
+          goal.target_quantity,
+          // Reverse mapping (real game-item-id -> mentat's own recipe key),
+          // the mirror image of validNodes' forward mapping above --
+          // resolveEffectiveOnHandCredit() expects recipe-key-shaped `node`
+          // values. The root entry (node === goal.item_id) maps straight to
+          // recipeKey, same special case as the forward direction; every
+          // other stored entry maps through GAME_ITEM_ID_TO_RECIPE_KEY.
+          // `water` never appears here because it was already excluded from
+          // validNodes above, so setGoalOnHandEntry can never be reached with
+          // it -- this reverse mapping never has to handle that exception.
+          entries.map((e) => ({ node: e.node === goal.item_id ? recipeKey : (GAME_ITEM_ID_TO_RECIPE_KEY.get(e.node) ?? e.node), quantity: e.quantity })),
+          { stationTier: goal.station_tier, craftingContract: !!goal.crafting_contract }
+        ).effectiveQuantity === 0;
+    if (reachedTarget) {
+      done = true;
+      if (goal.status === "active") {
+        completeGoal(db, { id });
+        appendGoalAuditLog(db, { goalId: id, action: "complete", actorId: interaction.user.id });
+      }
+    }
+    return { previous: prev, completed: done };
+  });
+
+  // nodeName is a fixed field name resolving a real game-item id to its
+  // display name (same GAME_ITEM_CATALOG_BY_ID lookup create/list/progress
+  // already use) -- not a caller-supplied key, so this stays redaction-safe.
+  const nodeName = GAME_ITEM_CATALOG_BY_ID.get(node)?.name ?? node;
+
+  return { ok: true, goalId: id, node, nodeName, quantity, previous, completed };
+}
+
+// mentat#427: "ingredients ready" for goal:list -- true when the on-hand
+// ingredient credit already covers everything needed to craft the whole
+// remaining quantity. Deliberately NOT derived from maxCompletable: that
+// oracle treats an uncredited ingredient as unconstrained, so crediting only
+// one of two leaves reports the full quantity as completable (verified
+// against resolveEffectiveOnHandCredit()). Instead: some ingredient must be
+// credited (shortfall map present) AND every on-hand-able leaf -- a
+// non-craftable node that has a real game-item id -- has shortfall 0.
+// `water` has no game-item id (gameItemIdBridge.js's documented exception),
+// so it can never be credited and is ignored, exactly as goal:on-hand's
+// validNodes excludes it; otherwise any recipe needing water could never be
+// "ready". Intermediates are ignored: crediting their leaf inputs leaves the
+// intermediate's own shortfall entry non-zero, and crediting the
+// intermediate itself cascades to its leaves anyway.
+function ingredientsReady(credited) {
+  if (credited.effectiveQuantity === 0 || !(credited.shortfall instanceof Map)) return false;
+  let sawLeaf = false;
+  for (const [key, remaining] of credited.shortfall) {
+    if (Object.hasOwn(credited.nestedCrafts ?? {}, key)) continue;
+    if (!RECIPE_KEY_TO_GAME_ITEM_ID.has(key)) continue;
+    sawLeaf = true;
+    if (remaining > 0) return false;
+  }
+  return sawLeaf;
+}
+
+// ── goal:list (Task 7) ──
+// Readable by any guild member -- unlike create/on-hand, this reuses only
+// requireGuildGoalAccess's own inGuild()/guildId DM-guard (inlined below,
+// same error text) and deliberately skips its isAdminActor() gate.
+function executeGoalList({ interaction, config, db }) {
+  const scope = interaction.options.getString("scope");
+  const includeCompleted = interaction.options.getBoolean("include-completed") ?? false;
+  const ownerType = scope === "guild" ? "guild" : "player";
+  const ownerId = scope === "guild" ? interaction.guildId : interaction.user.id;
+
+  if (scope === "guild" && (!interaction.inGuild?.() || !interaction.guildId)) {
+    throw new Error("Guild goals require running this command in a server, not a DM.");
+  }
+
+  const goals = listGoalsByOwner(db, { ownerType, ownerId, includeCompleted });
+  const rows = goals.map((goal) => {
+    try {
+      const itemName = GAME_ITEM_CATALOG_BY_ID.get(goal.item_id)?.name ?? goal.item_id;
+      let progressText = "";
+      if (goal.item_kind === "craftable" && goal.status === "active") {
+        const recipeKey = GAME_ITEM_ID_TO_RECIPE_KEY.get(goal.item_id);
+        const entries = getGoalOnHandEntries(db, goal.id).map((e) => ({ node: e.node === goal.item_id ? recipeKey : (GAME_ITEM_ID_TO_RECIPE_KEY.get(e.node) ?? e.node), quantity: e.quantity }));
+        const credited = resolveEffectiveOnHandCredit(recipeKey, goal.target_quantity, entries, { stationTier: goal.station_tier, craftingContract: !!goal.crafting_contract });
+        const pct = Math.round(((goal.target_quantity - credited.effectiveQuantity) / goal.target_quantity) * 100);
+        progressText = ` — ${pct}%${ingredientsReady(credited) ? " — ingredients ready" : ""}`;
+      } else if (goal.item_kind === "simple" && goal.status === "active") {
+        const onHand = getGoalOnHandEntries(db, goal.id).find((e) => e.node === goal.item_id)?.quantity ?? 0;
+        const pct = Math.round((Math.min(onHand, goal.target_quantity) / goal.target_quantity) * 100);
+        progressText = ` — ${pct}%`;
+      }
+      const overdue = goal.due_at !== null && goal.status === "active" && new Date(`${goal.due_at}T00:00:00Z`).getTime() < Date.now();
+      return `#${goal.id} ${itemName} (target ${goal.target_quantity.toLocaleString()}, ${goal.status})${progressText}${overdue ? " ⚠️ OVERDUE" : ""}`;
+    } catch {
+      return `#${goal.id} — unavailable (this goal's data is stale, contact an admin)`;
+    }
+  });
+
+  return { ok: true, scope, rows };
+}
+
+// ── goal:progress (Task 8) ──
+// Read access is open to any guild member the command pipeline lets through
+// (i.e. one holding a Mentat role, or any member in an open-mode guild --
+// isCommandAllowed runs before this function). Unlike create/on-hand, this
+// deliberately does NOT call requireGuildGoalAccess()/isAdminActor() once a
+// real guild-scoped match is found, matching goal:list's own precedent
+// immediately above and the plan's RBAC table (list/progress = any member
+// the role gate admits).
+function executeGoalProgress({ interaction, config, db }) {
+  const id = interaction.options.getInteger("id");
+  let goal = getGoalScoped(db, { id, ownerType: "player", ownerId: interaction.user.id });
+  if (!goal && interaction.guildId) {
+    goal = getGoalScoped(db, { id, ownerType: "guild", ownerId: interaction.guildId });
+  }
+  if (!goal) {
+    throw new Error(`Goal #${id} not found.`);
+  }
+
+  const entries = getGoalOnHandEntries(db, id);
+  const itemName = GAME_ITEM_CATALOG_BY_ID.get(goal.item_id)?.name ?? goal.item_id;
+
+  if (goal.item_kind === "simple") {
+    const onHand = entries.find((e) => e.node === goal.item_id)?.quantity ?? 0;
+    const remaining = Math.max(0, goal.target_quantity - onHand);
+    return { kind: "simple", goal, itemName, onHand, remaining };
+  }
+
+  // Craftable: reuse resolveEffectiveOnHandCredit()/estimateDuration() --
+  // the exact same Phase 1 pipeline goal:on-hand and goal:list already use
+  // to compute completion/percentage -- mapping stored real game-item-id
+  // entries back to mentat's own recipe-key node shape, mirroring
+  // executeGoalOnHand's own reverse-mapping comment above.
+  const recipeKey = GAME_ITEM_ID_TO_RECIPE_KEY.get(goal.item_id);
+  const mappedEntries = entries.map((e) => ({ node: e.node === goal.item_id ? recipeKey : (GAME_ITEM_ID_TO_RECIPE_KEY.get(e.node) ?? e.node), quantity: e.quantity }));
+  const credited = resolveEffectiveOnHandCredit(recipeKey, goal.target_quantity, mappedEntries, { stationTier: goal.station_tier, craftingContract: !!goal.crafting_contract });
+  const durations = credited.effectiveQuantity === 0 ? [] : estimateDuration(credited, { stationCount: 1 });
+
+  return { kind: "craftable", goal, itemName, plan: credited, durations, onHandEntries: mappedEntries };
+}
+
+// ── goal:delete (Task 9) ──
+// Same personal-then-guild binding-rule pattern as Tasks 6/8: probe the
+// player-owned scope first, then guild -- isAdminActor() (via
+// requireGuildGoalAccess) is only ever invoked once a REAL guild-scoped
+// match is already confirmed, so a cross-tenant/cross-owner id never
+// leaks anything and never reaches the access check at all.
+function executeGoalDelete({ interaction, config, db }) {
+  const id = interaction.options.getInteger("id");
+  let goal = getGoalScoped(db, { id, ownerType: "player", ownerId: interaction.user.id });
+  let ownerType = "player", ownerId = interaction.user.id;
+  if (!goal && interaction.guildId) {
+    const guildCandidate = getGoalScoped(db, { id, ownerType: "guild", ownerId: interaction.guildId });
+    if (guildCandidate) {
+      requireGuildGoalAccess(interaction, config, db);
+      goal = guildCandidate;
+      ownerType = "guild"; ownerId = interaction.guildId;
+    }
+  }
+  if (!goal) {
+    throw new Error(`Goal #${id} not found.`);
+  }
+
+  // Audit row written BEFORE the delete, in the spirit of "record before
+  // acting on a destructive change" -- goal_id is not a foreign key on
+  // goal_audit_log specifically so this row (and every earlier one for
+  // this goal) survives the delete that follows.
+  // Audit append and delete are one transaction (mentat#428): if the delete
+  // fails (or matches nothing) the audit row rolls back with it.
+  goalTransaction(db, () => {
+    appendGoalAuditLog(db, { goalId: id, action: "delete", actorId: interaction.user.id });
+    if (!deleteGoalScoped(db, { id, ownerType, ownerId })) {
+      throw new Error(`Goal #${id} not found.`);
+    }
+  });
+
+  return { ok: true, id };
+}
+
+// Autocomplete response handler for /dune data calculator's "item" and
+// "on-hand-N" options. "on-hand-N" is dependent on "item" -- it can only
+// suggest nodes from that item's own recipe tree (recipeTreeNodes()), so it
+// reads the already-filled "item" value off the SAME in-progress interaction
+// via interaction.options.getString("item"). Discord caps autocomplete
+// responses at 25 choices; every branch below respects that.
+export async function handleCalculatorAutocomplete(interaction) {
+  const focused = interaction.options.getFocused(true); // { name, value }
+  const query = String(focused.value || "").toLowerCase();
+
+  if (focused.name === "item") {
+    const matches = Object.entries(CRAFTING_RECIPES)
+      .filter(([, recipe]) => recipe.displayName.toLowerCase().includes(query))
+      .sort(([, a], [, b]) => a.tier - b.tier || a.displayName.localeCompare(b.displayName))
+      .slice(0, 25)
+      .map(([key, recipe]) => ({ name: recipe.displayName, value: key }));
+    await interaction.respond(matches);
+    return;
+  }
+
+  if (/^on-hand-\d$/.test(focused.name)) {
+    const selectedItem = interaction.options.getString("item");
+    if (!selectedItem || !Object.hasOwn(CRAFTING_RECIPES, selectedItem)) {
+      await interaction.respond([{ name: "Select an item first", value: "__none__" }]);
+      return;
+    }
+    const nodes = recipeTreeNodes(selectedItem)
+      .filter((n) => n.displayName.toLowerCase().includes(query))
+      .slice(0, 25)
+      .map((n) => ({ name: n.displayName, value: n.key }));
+    await interaction.respond(nodes);
+    return;
+  }
+
+  await interaction.respond([]);
+}
+
+// Autocomplete response handler for /dune goal's "item", "id", and "node"
+// options.
+//
+// CRITICAL: interaction.isAutocomplete?.() routing in index.js bypasses
+// executeDuneCommand()'s normal isCommandAllowed()/cooldown pipeline
+// entirely -- confirmed by reading index.js directly. That means every
+// branch below must independently re-derive the exact same
+// ownership/admin-tier scoping the real goal:on-hand/goal:list/goal:progress/
+// goal:delete commands already enforce (see executeGoalOnHand/
+// executeGoalDelete's own personal-then-guild binding-rule comments above),
+// or a player could see another owner's/guild's goal ids and item labels
+// just by typing in an autocomplete field -- a live information leak in the
+// suggestions themselves, even though the real command would still
+// correctly reject the actual submission. `created_by` is never used for
+// authorization anywhere in this function, same as every other goal
+// command -- it's an audit-trail field only (see goal_audit_log).
+export async function handleGoalAutocomplete(interaction, db) {
+  // Mirrors the executeDuneCommand goal:* dispatch guard -- db is null on a
+  // single-tenant deployment, and every lookup below (listGoalsByOwner, etc.)
+  // needs a real database. Without this, autocomplete was already caught by
+  // an outer try/catch so it didn't crash, but it silently returned zero
+  // suggestions with no way for a user to tell why. Respond with an empty
+  // list explicitly instead so it degrades cleanly.
+  if (!db) {
+    await interaction.respond([]);
+    return;
+  }
+  const focused = interaction.options.getFocused(true); // { name, value }
+  const query = String(focused.value ?? "").toLowerCase();
+
+  if (focused.name === "item") {
+    const matches = GAME_ITEM_CATALOG
+      .filter((entry) => entry.name.toLowerCase().includes(query))
+      .slice(0, 25)
+      .map((entry) => ({ name: entry.name, value: entry.id }));
+    await interaction.respond(matches);
+    return;
+  }
+
+  if (focused.name === "id") {
+    // CORRECTED (found while reviewing this task's own output): none of the
+    // 3 real subcommands with an `id` autocomplete field (on-hand,
+    // progress, delete) has a `scope` option at all -- only create/list
+    // have `scope`, and neither of those has `id`. Branching on
+    // interaction.options.getString("scope") here was therefore built on an
+    // assumption that is never true for any real caller of this branch; it
+    // always silently resolved to personal-only. Fixed to drop the
+    // scope-based branch entirely and instead mirror the exact same
+    // personal-then-guild binding rule the real commands
+    // (executeGoalOnHand/executeGoalProgress/executeGoalDelete) already
+    // use: always show the caller's own personal goals, and ALSO show the
+    // guild's goals if the caller is in a guild and passes the same
+    // admin-tier gate requireGuildGoalAccess enforces for any real
+    // guild-goal mutation. For on-hand/delete a non-admin must see ONLY
+    // their own personal goals -- zero guild goals, never a partial or
+    // filtered guild list. (progress differs: see the guildVisible rule
+    // below, which defers to the command's own isCommandAllowed gate.) `{ multiTenant: !!db }` mirrors index.js's own db
+    // construction rule (`config.multiTenant ? createDatabase(...) :
+    // null` -- db is truthy iff config.multiTenant is true), so this
+    // stand-in config object behaves identically to the real one without
+    // having to plumb `config` through the autocomplete routing path just
+    // for this one flag.
+    // mentat#426: delete is the only way to free a lifetime-cap slot, and a
+    // completed goal still occupies one, so delete's suggestions must include
+    // completed goals (labelled "(done)"). Guarded with ?. because not every
+    // caller's options object exposes getSubcommand.
+    const subcommand = interaction.options.getSubcommand?.();
+    const includeCompleted = subcommand === "delete";
+    // delete only: newest first (id is monotonic), so someone near the
+    // 50-goal lifetime cap sees their newest goals within Discord's
+    // 25-choice cap. Grouping (personal, then guild) is preserved.
+    const order = (rows) => (subcommand === "delete" ? [...rows].sort((a, b) => b.id - a.id) : rows);
+    const personal = order(listGoalsByOwner(db, { ownerType: "player", ownerId: interaction.user.id, includeCompleted }))
+      .map((g) => ({ ...g, __label: "" }));
+    let guild = [];
+    // mentat#425: executeGoalProgress lets any member the command pipeline
+    // admits (a Mentat role holder, or anyone in an open-mode guild) read a
+    // guild goal, so progress suggestions use that SAME isCommandAllowed
+    // check rather than the admin gate. on-hand/delete are mutations and
+    // keep the admin gate. Always scoped to the
+    // caller's own interaction.guildId, never another guild.
+    // Autocomplete bypasses executeDuneCommand's isCommandAllowed gate
+    // (index.js), so progress must re-apply that SAME role check here: in a
+    // restricted guild a member with no Mentat role is denied goal:progress
+    // and must not see guild goal ids/names in suggestions either. db is
+    // non-null (guarded above), so the multi-tenant branch is what runs.
+    const guildVisible = interaction.guildId
+      && (subcommand === "progress"
+        ? isCommandAllowed(interaction, "goal:progress", { multiTenant: !!db }, db, interaction.guildId)
+        : isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId));
+    if (guildVisible) {
+      guild = order(listGoalsByOwner(db, { ownerType: "guild", ownerId: interaction.guildId, includeCompleted }))
+        .map((g) => ({ ...g, __label: "Guild: " }));
+    }
+    // Personal first, then guild -- both can appear in the same list for an
+    // admin, so each entry is labeled to disambiguate which is which before
+    // the user picks one.
+    const goals = [...personal, ...guild]
+      .filter((g) => String(g.id).includes(query) || (GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? "").toLowerCase().includes(query))
+      .slice(0, 25)
+      .map((g) => ({ name: `${g.__label}#${g.id} ${GAME_ITEM_CATALOG_BY_ID.get(g.item_id)?.name ?? g.item_id}${g.status === "completed" ? " (done)" : ""}`, value: g.id }));
+    await interaction.respond(goals);
+    return;
+  }
+
+  if (focused.name === "node") {
+    const goalId = interaction.options.getInteger("id");
+    if (!goalId) {
+      // "node" is a String-type Discord option -- the placeholder's value
+      // must be a string, matching handleCalculatorAutocomplete's own
+      // identical-situation precedent (its on-hand-N placeholder uses
+      // value: "__none__"). A bare Number here (the original `value: 0`)
+      // is a real type mismatch, not just a style choice.
+      await interaction.respond([{ name: "Select a goal id first", value: "__none__" }]);
+      return;
+    }
+    // Same personal-then-guild binding-rule pattern as executeGoalOnHand/
+    // executeGoalDelete: probe the player-owned scope first, then guild
+    // (with the same admin-tier gate) -- a cross-tenant/cross-owner id
+    // matches neither and never reaches (or leaks anything from) the access
+    // check at all.
+    let goal = getGoalScoped(db, { id: goalId, ownerType: "player", ownerId: interaction.user.id });
+    if (!goal && interaction.guildId && isAdminActor(interaction, { multiTenant: !!db }, db, interaction.guildId)) {
+      goal = getGoalScoped(db, { id: goalId, ownerType: "guild", ownerId: interaction.guildId });
+    }
+    if (!goal) {
+      await interaction.respond([]);
+      return;
+    }
+    if (goal.item_kind === "simple") {
+      const name = GAME_ITEM_CATALOG_BY_ID.get(goal.item_id)?.name ?? goal.item_id;
+      await interaction.respond([{ name, value: goal.item_id }]);
+      return;
+    }
+    // Craftable: same recipeTreeNodes()/RECIPE_KEY_TO_GAME_ITEM_ID mapping
+    // executeGoalOnHand's validNodes builds, with the exact same `water`
+    // exclusion for the exact same reason -- see gameItemIdBridge.js's
+    // documented exception. Filtering out `choice.value === undefined`
+    // (rather than falling back to the raw recipe key, e.g. `?? n.key`) is
+    // load-bearing: a fallback would suggest mentat's own internal key
+    // ("water") as if it were a real, selectable game item id, which
+    // /dune goal on-hand would then reject as "not an ingredient" -- a
+    // suggestion the command itself can never actually accept.
+    const recipeKey = GAME_ITEM_ID_TO_RECIPE_KEY.get(goal.item_id);
+    const nodes = recipeTreeNodes(recipeKey)
+      .filter((n) => n.displayName.toLowerCase().includes(query))
+      .map((n) => ({ name: n.displayName, value: n.key === recipeKey ? goal.item_id : RECIPE_KEY_TO_GAME_ITEM_ID.get(n.key) }))
+      .filter((choice) => choice.value !== undefined)
+      .slice(0, 25);
+    await interaction.respond(nodes);
+    return;
+  }
+
+  await interaction.respond([]);
+}
+
 function setupPayload(config, interaction) {
   const clientId = process.env.DISCORD_CLIENT_ID || config?.discord?.clientId || "";
   const guildId = interaction?.guildId || "";
@@ -1252,17 +1982,24 @@ function setupPayload(config, interaction) {
 // -- /dune help was advertising 3 commands that could not be typed) and
 // had the same pre-#403 stale descriptions for the other 7. Text now
 // copied verbatim from LEGACY_WRITE_STUBS (src/writeHandler.js).
-export const WRITE_HELP_ENTRIES = [
-  { name: "write:maintenance-note", desc: "Set a maintenance note for operators.", role: "admin" },
-  { name: "write:maintenance-window", desc: "Set a maintenance window.", role: "admin" },
-  { name: "write:alert-channel", desc: "Set the alert channel for readiness/service notifications.", role: "admin" },
-  { name: "write:alert-threshold", desc: "Set alert thresholds.", role: "admin" },
-  { name: "write:digest-schedule", desc: "Set the digest schedule interval.", role: "admin" },
-  { name: "write:post-schedule", desc: "Set the scheduled post type.", role: "admin" },
-  { name: "write:add-channel", desc: "Add a channel for scheduled posts.", role: "admin" },
-  { name: "write:remove-channel", desc: "Remove a channel from scheduled posts.", role: "admin" },
-  { name: "write:cache", desc: "Clear server caches.", role: "admin" }
-];
+// Derived from LEGACY_WRITE_STUBS (writeHandler.js), the table
+// handleWriteCommand actually enforces -- name, description AND tier all
+// come from there, so help can not drift from the real gate again
+// (write:cache was hand-listed as admin while enforced as owner).
+export const WRITE_HELP_ENTRIES = LEGACY_WRITE_STUBS.map((l) => ({
+  name: `write:${l.name}`, desc: l.desc, role: l.tier, writeTier: l.tier
+}));
+
+// [mentat#424] Derived mechanically from WRITE_ACTIONS (never hand-listed)
+// so a newly added write action can not be forgotten in /dune help -- the
+// hand-maintained list this replaces missed 28 registered, dispatchable
+// subcommands (base/map/carepackage/guild/operations/bot groups plus the
+// write subcommands merged into player and server). `writeTier` is the
+// action's real gate, consumed by helpPayload() to classify each entry as
+// available/locked exactly as writeHandler.js would authorize it.
+export const WRITE_ACTION_HELP_ENTRIES = WRITE_ACTIONS.map((e) => ({
+  name: `${e.group}:${e.name}`, desc: e.desc, ...(e.tier === "host-operator" ? {} : { role: e.tier }), writeTier: e.tier
+}));
 
 export function helpPayload(config, interaction, db = null, guildId = null) {
   const all = [
@@ -1286,6 +2023,7 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "data:population", desc: "Show aggregate player count.", role: "player" },
     { name: "data:backups", desc: "List recent backup metadata.", role: "player" },
     { name: "data:maps", desc: "Show active game maps.", role: "player" },
+    { name: "data:calculator", desc: "Calculate crafting requirements — optionally track a goal against what you have on hand.", role: "player" },
     // ── player ──
     { name: "player:link", desc: "Link your Discord to your game character.", role: "player" },
     { name: "player:verify", desc: "Verify a pending character link with a code.", role: "player" },
@@ -1299,6 +2037,12 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
     { name: "player:inventory", desc: "View your personal inventory.", role: "player" },
     { name: "player:storage", desc: "View your storage containers grouped by map.", role: "player" },
     { name: "player:find", desc: "Search for items across your containers.", role: "player" },
+    // ── goal (Phase 3) ──
+    { name: "goal:create", desc: "Create a new farming goal or order. Set due-at to place a time-boxed order.", role: "player" },
+    { name: "goal:on-hand", desc: "Update your current on-hand quantity of one ingredient for a goal.", role: "player" },
+    { name: "goal:list", desc: "List your (or your guild's) active goals.", role: "player" },
+    { name: "goal:progress", desc: "Full progress detail for one goal.", role: "player" },
+    { name: "goal:delete", desc: "Delete a goal.", role: "player" },
     // ── logs ──
     { name: "logs:dune-cache", desc: "Show dune-cache container logs.", role: "player" },
     { name: "logs:dune-generated", desc: "Show dune-generated container logs.", role: "player" },
@@ -1345,15 +2089,30 @@ export function helpPayload(config, interaction, db = null, guildId = null) {
   // (buildDuneCommand() appends it conditionally) -- list it here only in
   // that same case so help always mirrors what is actually registered.
   if (writesEnabled(config)) {
-    all.push(...WRITE_HELP_ENTRIES);
+    const listed = new Set(all.map((c) => c.name));
+    for (const entry of [...WRITE_HELP_ENTRIES, ...WRITE_ACTION_HELP_ENTRIES]) {
+      if (!listed.has(entry.name)) { listed.add(entry.name); all.push(entry); }
+    }
   }
   const available = []; const locked = [];
   for (const cmd of all) {
     // Write commands are gated by write-owner/write-admin roles
     // (canWrite()), not the normal observer/admin RBAC used by
     // isCommandAllowed() -- classify them with their real gate.
-    if (cmd.name.startsWith("write:")) {
-      if (canWrite(interaction, config, null, db, guildId)) available.push(cmd); else locked.push(cmd);
+    // Same order as executeDuneCommand: the generic RBAC gate runs first,
+    // then the write tier / host-operator check. "available" must mean the
+    // caller may actually run it, so both gates must pass (mentat#424).
+    const rbacOk = RBAC_EXEMPT_COMMANDS.has(cmd.name) || isCommandAllowed(interaction, cmd.name, config, db, guildId);
+    if ((cmd.writeTier || cmd.name === "admin:broadcast") && !rbacOk) {
+      locked.push(cmd);
+    } else if (cmd.writeTier === "host-operator") {
+      // bot:self-update: authorized ONLY by the configured bot host operator
+      // identity (writeHandler.js), never by canWrite() -- mirror that here.
+      const operatorId = config?.discord?.botOperatorUserId;
+      if (operatorId && interaction?.user?.id === operatorId) available.push(cmd); else locked.push(cmd);
+    } else if (cmd.writeTier) {
+      // WRITE_ACTIONS-derived entries: gated by their real per-action tier.
+      if (canWrite(interaction, config, cmd.writeTier, db, guildId)) available.push(cmd); else locked.push(cmd);
     } else if (cmd.name === "admin:broadcast") {
       // broadcast is also gated by canWrite() (via canBroadcast(), moderator
       // tier), not the generic isCommandAllowed() default -- without this
@@ -1516,6 +2275,14 @@ export function requiredRoleIdsForCommand(command, rbac) { return rbac?.commandR
 // registers — never the internal Core-catalog registry, which both
 // diverges from the real command tree (#196) and leaks Core's adapter
 // routes/capabilities/methods to unauthenticated callers (#203).
+//
+// [mentat#424] DELIBERATELY EXCLUDES every write group/subcommand
+// (WRITE_ACTIONS and the legacy `write` group), even though /dune help
+// lists them for authorized callers. This feed is unauthenticated and
+// public: advertising operator-only mutation commands (kick, ban, server
+// stop, map despawn, ...) to anonymous callers is the same class of leak
+// as #203. Do not "fix" the apparent help/registry asymmetry by adding
+// them; test/helpWriteVisibility.test.js fails if a write group appears.
 export function getCommandRegistry() {
   return [
     {
@@ -1575,7 +2342,19 @@ export function getCommandRegistry() {
       commands: [
         { name: "population", desc: "Show server population statistics", role: "player" },
         { name: "backups", desc: "List recent database backups", role: "player" },
-        { name: "maps", desc: "Show active game maps", role: "player" }
+        { name: "maps", desc: "Show active game maps", role: "player" },
+        { name: "calculator <item>", desc: "Calculate crafting requirements, optionally against what you have on hand", role: "player" }
+      ]
+    },
+    {
+      group: "goal",
+      title: "The Long Game — Farming Goals",
+      commands: [
+        { name: "create", desc: "Create a personal or guild farming goal", role: "player" },
+        { name: "on-hand <id> <node>", desc: "Update your on-hand quantity for a goal", role: "player" },
+        { name: "list", desc: "List your (or your guild's) goals", role: "player" },
+        { name: "progress <id>", desc: "Full progress detail for one goal", role: "player" },
+        { name: "delete <id>", desc: "Delete a goal", role: "player" }
       ]
     },
     {

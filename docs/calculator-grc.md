@@ -1,5 +1,19 @@
 # Crafting Calculator — GRC Review
 
+**2026-09-28 revision note:** re-verified against the shortfall/on-hand-
+credit/max-completable/duration redesign in `calculator-design.md`. Every
+classification below still holds unchanged: the new `on-hand-N` values are
+operator-typed per invocation exactly like `quantity` always was, never
+read from any live game-account/inventory data source (that's Phase 2, a
+separate, not-yet-designed effort) — "Game-account or player data: No"
+remains accurate. The revision adds zero new recipe data (same 15-item
+dataset; every on-hand-able leaf node was already part of the original
+recipe trees), so the Third-Party Data Attribution section below needs no
+new entries either. Confirmed as part of a full Eight-Hats Layer 1 audit
+(findings: `mentat`#412) — this review's own original scope (a solo
+security+GRC pass) is superseded by that audit for anything the two
+overlap on.
+
 ## Status
 
 This is a pre-implementation compliance review for `/dune data calculator`.
@@ -92,6 +106,34 @@ ongoing risk in this feature (see also
    be used again and re-cited, rather than guessing from UI copy alone —
    this feature's data-drift risk covers logic drift, not just numeric
    drift.
+
+**Unresolved discrepancy, 2026-09-28 — recorded as a caution about
+verification discipline, not just data drift:** a single in-game reading
+reported Duraluminum Ingot's Large-tier Water cost as ×400/craft, against
+×500/craft in the original transcribed data. This was briefly treated as a
+"confirmed" correction and shipped into `calculator-implementation-prompt.md`
+and `calculator-design.md` the same day, then **reverted** once a second,
+independent source (dune.geno.gg's server-rendered item pages) corroborated
+the original ×500 for both Large and Medium tiers, and no known modifier
+(Crafting Contract `-25%`, Deep Desert Discount `-50%`) produces a clean
+×400 from a ×500 base. A third candidate source
+(duneawakeningcalculator.com) could not be read at all — pure JS shell, no
+static data or discoverable API. Current state: ×500 stands as the
+best-evidenced value; ×400 is unconfirmed and needs a fresh in-game check
+(screenshot, and note any active buff/skill/contract at the time) before
+being trusted again.
+
+**The real lesson here is procedural, not just numeric:** a single
+observation — even a direct, first-hand one — is not corroboration, and
+should not have been written up as "confirmed real drift" the way it
+initially was. The audit-trail requirements above (structural `source`/
+`verifiedAt` fields, change notes) exist to make exactly this kind of
+claim traceable and correctable; this incident is itself now part of that
+trail. Before `craftingData.js` exists, a doc correction is cheap to
+reverse — this is precisely why catching disagreements at this stage,
+before there's a shipped value with a `verifiedAt` date implying
+confidence that was never earned, is worth doing carefully rather than
+quickly.
 
 ## Dependency and Supply-Chain Review
 

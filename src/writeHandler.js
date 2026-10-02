@@ -34,7 +34,7 @@ export const LEGACY_WRITE_STUBS = Object.freeze([
       { name: "start", type: "string", desc: "Start time (ISO 8601)", required: true },
       { name: "duration", type: "integer", desc: "Duration in minutes", required: true, min: 1, max: 1440 }] },
   { group: "write", name: "alert-channel", action: "notifications:set-alert-channel", risk: "low", tier: "admin",
-    desc: "Set the alert channel for readiness/service notifications.", params: [{ name: "channel", type: "string", desc: "Discord channel ID", required: true }] },
+    desc: "Alert channel: readiness/service notifications.", params: [{ name: "channel", type: "string", desc: "Discord channel ID", required: true }] },
   { group: "write", name: "alert-threshold", action: "notifications:set-threshold", risk: "medium", tier: "admin",
     desc: "Set alert thresholds.", params: [
       { name: "metric", type: "string", desc: "Metric (readiness/services/population)", required: true },

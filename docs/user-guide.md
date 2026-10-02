@@ -34,7 +34,7 @@ Select one, then choose a command from within that group.
 |---------|-------------|
 | `/dune core about` | Shows bot version, security info, and connection details |
 | `/dune core ping` | Tests how fast the bot can reach your game server |
-| `/dune core help` | Lists all commands you have permission to use |
+| `/dune core help` | Lists all commands you have permission to use; when operator write commands are enabled they are listed too (shown as locked unless you may run them, including the role gate) |
 | `/dune core setup` | How to add this bot to your own Discord server |
 
 ### 🌍 `server` — Game Server Health
@@ -62,6 +62,7 @@ Select one, then choose a command from within that group.
 | `/dune data population` | Shows how many players are online |
 | `/dune data backups` | Lists recent game backups |
 | `/dune data maps` | Shows which game maps are running |
+| `/dune data calculator <item> [quantity] [station-tier] [crafting-contract] [on-hand-1..6] [on-hand-N-quantity] [station-count]` | Calculates crafting requirements for an item, optionally tracking a goal against ingredients you already have on hand. The `on-hand-N` slots are optional and can be in any order. |
 
 ### 🔗 `player` — Character Linking, Identity & Game Data
 
@@ -105,6 +106,16 @@ you automatically:
 You can link more than one character to your Discord account — run the
 command once per character, and see `/dune player characters` to view all
 of them.
+
+### 🎯 `goal` — Farming Goals & Orders
+
+| Command | What It Does |
+|---------|-------------|
+| `/dune goal create <scope> <item> <quantity> [due-at] [station-tier] [crafting-contract]` | Create a personal or guild farming goal (or, with `due-at` set, a time-boxed order) against any game item. Craftable items are tracked with full crafting math (`station-tier`/`crafting-contract` apply); everything else is tracked as a simple count. Guild-scoped goals require admin-tier access or server ownership. |
+| `/dune goal on-hand <id> <node> <quantity>` | Update your current on-hand quantity of one ingredient (or the goal's own item, for a simple goal) for a goal. A craftable goal may track up to 6 distinct on-hand nodes; a simple goal only its own item. Crossing the target auto-completes the goal. Guild-scoped goals require admin-tier access or server ownership. |
+| `/dune goal list <scope> [include-completed]` | List your (or your guild's) goals, with a live progress percentage for each active goal and an overdue flag for any active order past its `due-at`. Readable by any member holding a Mentat role (or in an open-mode server) -- not admin-gated. A craftable goal shows " — ingredients ready" when the ingredients you have recorded already cover crafting the whole remainder (water is ignored, since it cannot be recorded). A stale/unrenderable goal row shows as unavailable rather than breaking the rest of the list. |
+| `/dune goal progress <id>` | Full progress detail for one goal. A simple goal shows on-hand vs. target; a craftable goal reuses the crafting calculator's own shortfall/nested-craft/duration breakdown, credited against the goal's tracked on-hand entries. Readable by any member holding a Mentat role (or in an open-mode server) -- not admin-gated, and the `id` suggestions include your guild's goals to the same members. |
+| `/dune goal delete <id>` | Delete a goal, cascading its on-hand entries. Guild-scoped goals require admin-tier access or server ownership, same as create/on-hand. The `id` suggestions for delete also include completed goals (marked "(done)"), since deleting one frees a slot toward the lifetime cap. |
 
 ### 📋 `logs` — Container Logs
 

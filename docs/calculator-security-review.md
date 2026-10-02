@@ -3,6 +3,17 @@
 **Date:** 2026-07-24 (revised; supersedes 2026-07-23 draft after full
 recipe/formula re-verification)
 **Reviewer:** OpenCode agent (pre-implementation design review)
+
+**2026-09-28 note:** this review predates and does not cover the
+shortfall/on-hand-credit/max-completable/duration revision in
+`calculator-design.md` (the quantity bound also changed, 10,000 → 100,000 —
+`FINDING-CALC-1`'s worst-case numbers below are updated in place for the new
+bound, still safe on both axes checked). This review was also a **solo**
+pass (one reviewer, security+GRC lenses only) — the revised design requires
+a full Eight-Hats Layer 1 audit (all eight lenses, independently dispatched)
+before implementation, per this project's own standard; that audit's
+findings, once run, take precedence over anything in this document where
+they conflict.
 **Scope:** `/dune data calculator` — new `data:*` subcommand, `craftingData.js`,
 `craftingCalculator.js`, `commands.js` autocomplete wiring, `embedFormat.js`
 formatter. No changes to Core (`dune-awakening-selfhost-docker`) or
@@ -68,9 +79,11 @@ The implementation must re-run the standard scanner suite
   (confusing to the user) or throws an unhandled-looking error at the
   Discord API call site.
 - **Recommendation (required before merge, not deferred):**
-  1. Hard `setMinValue(1)` / `setMaxValue(10000)` on the Discord slash
+  1. Hard `setMinValue(1)` / `setMaxValue(100000)` on the Discord slash
      command option itself — enforced client-side before the interaction
-     reaches the bot.
+     reaches the bot. (Bound raised from 10,000 to 100,000 on 2026-09-28 at
+     the operator's request; see recalculated worst case below — still
+     safe on both axes.)
   2. **Independently re-validate the same bound server-side** in
      `calculateCraftingPlan()`. Client-side option constraints are a UX
      nicety, not a security boundary — a modified client, a replayed
@@ -82,17 +95,39 @@ The implementation must re-run the standard scanner suite
      every rendered line defensively, even though bound #1/#2 make this very
      unlikely to trigger in practice.
 - **Verification (recalculated using the actual verified formula, not an
-  estimate):** All arithmetic runs in JS `Number` (safe integer range up to
-  2^53). Worst case at the cap — `10000 × 1250` (max per-craft Water input,
-  Plastanium Ingot) `× 1` (Crafting Contract's 0.75 factor only ever
-  *reduces* a quantity, never increases it, so the unmodified value is
-  always the worst case) `+` nested Stravidium Fiber contribution
-  (`10000 × 100` Water) — is approximately `1.3×10^7`, many orders of
-  magnitude below `Number.MAX_SAFE_INTEGER` (~9×10^15). No overflow risk
-  once the 10,000 cap is enforced at both layers. This bound holds
+  estimate; updated 2026-09-28 for the raised 100,000 cap):** All arithmetic
+  runs in JS `Number` (safe integer range up to 2^53). Worst case at the new
+  cap — `100000 × 1250` (max per-craft Water input, Plastanium Ingot) `× 1`
+  (Crafting Contract's 0.75 factor only ever *reduces* a quantity, never
+  increases it, so the unmodified value is always the worst case) `+`
+  nested Stravidium Fiber contribution (`100000 × 100` Water) — is
+  approximately `1.35×10^8`, still many orders of magnitude below
+  `Number.MAX_SAFE_INTEGER` (~9×10^15). No overflow risk at 100,000 — there
+  is in fact enough headroom (~8 orders of magnitude at the old cap, ~7 at
+  the new one) that this bound is driven entirely by Discord embed-size
+  limits, not numeric safety; see `calculator-design.md`'s §Quantity Bound
+  for the embed-size side of this same check, including a real
+  operator-scale worked example (25,000 Duraluminum). This bound holds
   regardless of which of the 15 items or which station tier is selected,
   since Plastanium's Water requirement (1250/craft) is the largest
   per-craft ingredient quantity across the entire verified dataset.
+  **Re-verified for this revision, 2026-09-28 (closing the Layer 1 audit's
+  own deferral of this exact check):** worst-case combination — Industrial
+  Grade Lubricant (the deepest tree, 6 on-hand nodes), `quantity: 100000`,
+  `station-tier: Medium` (its only real tier), all 6 on-hand slots filled
+  near the 100,000 cap. Real numbers: 10,000 crafts needed (100,000 ÷ 10
+  output/craft); pooled Water 2,150,000 (150,000 direct + 2,000,000 via the
+  nested 40,000 Silicone Block crafts), Fuel Cell 60,000, Spice Residue
+  50,000, Flour Sand 120,000, plus the target item's own 100,000. A full
+  response — title, tier/on-hand summary line naming all 6 on-hand values,
+  a shortfall line per remaining ingredient with its explanatory
+  annotation, the nested-craft section, the max-completable line, and one
+  Duration line per applicable station type — comes to roughly 800-900
+  characters total, even with every section populated at once. This is
+  comfortably under both Discord's 1024-char single-field limit and
+  6000-char total-embed limit, with room to spare; the added
+  shortfall/max-completable/duration content does not meaningfully change
+  the conclusion the original (simpler) worst-case check already reached.
 - **Remediation branch:** implemented directly in the feature branch, not a
   deferred follow-up (this is a same-PR requirement, not a tracked gap).
 
@@ -192,7 +227,9 @@ The implementation must re-run the standard scanner suite
 ### Required before merge (same PR, not deferred)
 
 1. **FINDING-CALC-1:** Client-side + server-side `quantity` bound
-   enforcement (1–10,000), with embed truncation as defense-in-depth.
+   enforcement (1–100,000, updated 2026-09-28), with embed truncation as
+   defense-in-depth. Extends to every `on-hand-N-quantity` (0–100,000) per
+   the Layer 1 audit's finding S-1.
 2. **FINDING-CALC-3:** Structural `source` field on every recipe **variant**
    (per-tier), plus an internal-consistency test asserting no dangling
    references, no invalid quantities, no unexpected recursion/cycles, and no

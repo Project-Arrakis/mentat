@@ -7,7 +7,7 @@ export const WRITE_ACTIONS = Object.freeze([
   // verified no name collision with its read subcommands, see test above) ---
   { group: "player", name: "kick", action: "player.kick", tier: "admin", confirmPhrase: null,
     desc: "Kick a player.", params: [
-      { name: "playerId", type: "string", desc: "Player ID (Funcom-style, e.g. Server#4242)", required: true },
+      { name: "playerId", type: "string", desc: "Player ID (e.g. Server#4242)", required: true },
       { name: "reason", type: "string", desc: "Reason for the kick", required: false, maxLength: 200 }] },
   { group: "player", name: "ban", action: "player.ban", tier: "admin", confirmPhrase: "BAN PLAYER",
     desc: "Ban a player.", params: [
@@ -16,7 +16,7 @@ export const WRITE_ACTIONS = Object.freeze([
   { group: "player", name: "unban", action: "player.unban", tier: "admin", confirmPhrase: null,
     desc: "Unban a player.", params: [{ name: "playerId", type: "string", desc: "Player ID", required: true }] },
   { group: "player", name: "warn", action: "player.warn", tier: "moderator", confirmPhrase: null,
-    desc: "Broadcast a warning message to everyone on a map (not a DM).", params: [
+    desc: "Warn everyone on a map (not a DM).", params: [
       { name: "message", type: "string", desc: "Message text", required: true, maxLength: 500 },
       { name: "mapName", type: "string", desc: "Map name", required: false },
       { name: "dimension", type: "integer", desc: "Dimension", required: false }] },
@@ -53,7 +53,7 @@ export const WRITE_ACTIONS = Object.freeze([
     desc: "Start the game server.", params: [] },
   { group: "server", name: "restart-service", action: "server.restart-service", tier: "admin", confirmPhrase: null,
     desc: "Restart a specific game service.", params: [
-      { name: "service", type: "string", desc: "Service name (gateway/survival-1/overmap)", required: true }] },
+      { name: "service", type: "string", desc: "Service (gateway/survival-1/overmap)", required: true }] },
 
   // --- map (genuinely new group) ---
   { group: "map", name: "spawn", action: "map.spawn", tier: "admin", confirmPhrase: "SPAWN MAP",

@@ -25,7 +25,9 @@ local database (`src/database.js`, SQLite via `better-sqlite3`) stores only
 bot/Discord state — `guilds`, `guild_roles`, `guild_settings`, `key_versions`,
 `secret_keys`, `secret_access_log`, `oauth_sessions`, `player_links`,
 `guild_member_activity`, `bot_stats`, `stats_snapshot`,
-`guild_stats_snapshot`. It never stores game data.
+`guild_stats_snapshot`, `goals`, `goal_on_hand_entries`, `goal_audit_log`
+(Phase 3 farming goal tracking, see `docs/superpowers/specs/2026-09-29-goal-order-tracking-design.md`).
+It never stores game data.
 
 The real, only path to the game database is: **Mentat → `adapterClient.js`
 (HTTP, `Authorization: Bearer <token>`, see `adapterClient.js:405`) → Core's
