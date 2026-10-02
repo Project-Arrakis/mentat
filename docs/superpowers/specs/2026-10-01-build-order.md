@@ -34,6 +34,19 @@ still has to rule.
 | 9 | Guild base and `/order sync` | Guild-base designation in Core and `order:sync` | Core#1099, phases 3, 7, 8 | none beyond the above |
 | 10 | Owner IAM in Discord | Guided commands: view, grant or revoke one action, test | phase 2 | confirm the POST/PUT mismatch on the policy-save route (unverified) |
 
+## Phase 0 results (bot VM checks run by the operator, 2026-10-01)
+
+- Production runs commit `be8f605` (`deploy-merge-atlas`), **22 commits ahead and 24 behind** `origin/main`.
+- Production DB `schema_version` is **9**; `main` is 8. The v9 migration on the deployed code adds
+  `guild_settings.on_duty_role_id` (the unmerged #384). **#438 confirmed.** Recommended resolution:
+  land that migration on `main` as v9 first, so later migrations (including `/order` storage) start at
+  v10. Operator decision needed. (The check script tested the wrong table, `guilds`; that line is void.)
+- `ACP_MULTI_TENANT=true`, `DISCORD_RBAC_MODE=restricted`, `DISCORD_GUILD_ID` unset (global command
+  registration), `DUNE_CONSOLE_API_URL` unset: the process-default Core fallback in #442 points at a
+  placeholder URL here, so it fails closed on this deployment. Mitigating, not a fix.
+- Findings posted on mentat#438 and #442. Still open in phase 0: the operator's decision on #438, and
+  merging #453.
+
 ## Core issues that carry the dependencies
 
 #1099 (guild-base designation, `/player` read routes), #1100 (leader-scoped guild routes), #1101 (rename
