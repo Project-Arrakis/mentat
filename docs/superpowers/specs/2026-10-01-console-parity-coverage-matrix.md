@@ -284,7 +284,9 @@ exist in Core; **new Discord commands must extend them, not replace them.** Sour
 section 1 tier ladder, section 2 command groups A to G, section 3.3a), and
 `console/api/src/integrations/discord/writeActionMinTier.js` (`WRITE_ACTION_MIN_TIER`).
 
-### A. Console default policy per tier (`policy.js`, as read 2026-10-01)
+### A. Console default policy on fork and upstream `main` (`policy.js`, read 2026-10-01): OLDER, superseded by C below
+
+**Four tiers, not five: `observer` was retired and replaced by `player` (operator, 2026-10-01).** `main` still lists `observer` (identical to player there); the upstream RBAC PR branch (`tier1-upstream`) removes it (`DISCORD_ROLE_TIERS = [public, player, moderator, admin, owner]`, `observer` kept only in an `OBSOLETE_TIERS` cleanup set so old policy files are healed). Treat every mention of `observer` in this document and in `main` as `player`.
 
 | Tier | Allowed by default |
 |---|---|
@@ -316,6 +318,49 @@ enable/disable/scan`, `guild.add/remove`. owner: `player.give-item`, `player.cle
 IAM policy, so **editing the policy in the console's Access Control tab does not change Discord
 tiers** (relevant to the proposed exception E6).
 
+### C. Console default policy in the upstream RBAC PR (`origin/tier1-upstream` @ `35e7999c`, `policy.js`): THE SHIPPING MATRIX
+
+Tiers: owner, admin, moderator, player. Every non-owner tier also carries the same `Deny` block
+(`CROWN_JEWEL_DENY_ACTIONS`: `settings:*`, `server:write-credentials`, `database:write-config/mutate/
+execute`, system-backup download/import/restore and similar credential-bearing actions).
+
+| Tier | Allowed by default (explicit list; anything not listed is owner-only) |
+|---|---|
+| owner | everything |
+| admin | "operate the live server and moderate players; change nothing persistent". `server:start/stop/restart/restart-service/network-fix/storage-cleanup`; `players:read/kick-all/moderate/teleport`; `maps:read/spawn/despawn/teleport/restart/reconcile`; `admin:broadcast/broadcast-shutdown/map-chat`, MOTD and announcements read and write, history read **and clear**, transfer-settings read, item/vehicle/skill catalog reads; `logs:read`; read on bases, blueprints, carepackage, deepdesert, exchange, guilds, landsraad, sietches, storage, vehicles; `database:read/query`; `updates:check/read/self-check`; `backups:create/create-system/delete-system/read`; `setup:read`; `addons:read` |
+| moderator | "live moderation only: read everything, talk to players, and act on individual griefers (kick/ban/teleport). No config, no economy, nothing destructive or persistent." Read on server, maps, sietches, deepdesert, players, guilds, bases, storage, blueprints, vehicles, exchange, logs, landsraad; `players:kick-all/moderate/teleport`; `admin:broadcast`; `admin:map-chat` |
+| player | "a tight read-only self-service view": `server:read`, `players:read`, `guilds:read`, `maps:read` only. Deliberately **not** bases, storage, blueprints, vehicles, exchange, landsraad, sietches or deepdesert. Note in the code: these grants are still tier-wide (`players:read` is all players); own-only scoping is a tracked follow-up |
+
+Consequence: **in this policy the economy and the destructive and persistent actions are owner-only**:
+`players:give-item/grant/reset/repair/recover/delete-item/edit-item`, all `*:write-config`, guild
+`membership/rank/disband`, base mutations (refills, permissions, delete), care package grant, enable,
+disable and scan, map/sietch settings and updates, vehicles and exchange writes, settings.
+
+### D. Where the Discord write ladder (B) and the upstream console policy (C) disagree
+
+The bridge checks its own table (B) and not the console policy, so these differences are live:
+
+| Action | Discord ladder (B) | Upstream console policy (C) | Note |
+|---|---|---|---|
+| kick, ban, unban | admin | **moderator** and up (`players:moderate`) | console is looser |
+| kick-all online | not in Discord | moderator and up | no conflict, just missing |
+| teleport (player or to a partition) | admin (`map.teleport`) | **moderator** and up (`players:teleport`, `maps:teleport` is admin) | partly looser in console |
+| fill-water (`players:repair`) | admin | **owner** | Discord looser |
+| base refill generators and water | admin | **owner** (`bases:mutate`) | Discord looser |
+| guild add and remove | admin | **owner** (`guilds:membership`) | Discord looser |
+| care package grant, enable, disable, scan | admin | **owner** | Discord looser |
+| server stop and restart | owner | **admin** | Discord stricter |
+| backup create | owner | admin (`backups:create`) | Discord stricter |
+| give-item, clear-backpack | owner | owner | agree |
+| grant-all, history clear, updates apply | owner | owner | agree |
+| map spawn, despawn, respawn | admin | admin | agree |
+| map restart by a **moderator** (the Maps decision above) | n/a (admin) | **not allowed**: moderator has `maps:read` only | **my Maps decision conflicts with C**: a moderator Sietch restart needs either a console-policy change or an exception |
+
+**Open decision (operator):** which governs when they differ, the Discord ladder (B, audited as a
+product requirement) or the shipping console policy (C)? Parity says the console policy; the ladder
+was written earlier for Discord alone. Until decided, new tier proposals below follow C where C is
+explicit and B where C is silent.
+
 ## Players (staff view): revised proposal, awaiting operator rulings (2026-10-01)
 
 **Status: PROPOSED, not decided.** Revised after the operator pointed at the existing matrices. It
@@ -338,6 +383,8 @@ confirmation (E4); every write is audited with the Discord user.
 | Economy injection | give items (**existing: owner**), currency, intel, faction reputation, XP, specialization grants | **owner** | analogy: `give-item` and `carepackage.grant-all` are owner ("server-wide economy injection") |
 | Destructive | clean inventory (**existing: owner**), reset progression, reset specialization or keystones, reset journey, edit or delete an item, assign faction, recover a deleted character | **owner**, plus the second confirmation | analogy: `clear-backpack` is owner; console admin can do these, Discord stricter |
 | Not in Discord | raw item and vehicle catalogs, bulk or free-form | console only | E-rules |
+
+**Superseded in part by C and D above (read first):** under the upstream console policy, moderators already may kick, ban, unban and teleport, and every economy, repair and destructive action is **owner-only**, not admin. The table below was written against the older ladder and `main` policy; re-derive the tiers from C once the D decision is made.
 
 Open questions (only where the ladder is silent or in conflict):
 1. **Kick-all online:** admin on Discord (my proposal), or owner? The console default gives it to
