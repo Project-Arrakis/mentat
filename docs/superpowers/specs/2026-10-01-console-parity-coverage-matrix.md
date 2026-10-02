@@ -276,41 +276,82 @@ change also needs a restart~~ resolved: yes, and the backend does it automatical
 carries the rename and password together and needs the phrase UPDATE SIETCHES; the Discord path
 must not skip a restart the console would require.
 
-## Players (staff view): proposal, awaiting operator rulings (2026-10-01)
+## Existing tier matrices (binding sources, found 2026-10-01)
 
-**Status: PROPOSED, not decided.** Tiers are the controller's recommendation built on pass-1
-findings; the operator has not ruled yet. Source of capabilities: the console's Players panel (all
-tabs including Admin) as reported in panel pass 1. The player's own read-only view is a separate item
-(D15, `/player`).
+The operator recalled that tier matrices already exist for the RBAC work in the upstream PRs. Two
+exist in Core; **new Discord commands must extend them, not replace them.** Sources: Core
+`console/api/src/policy.js` (`DEFAULT_POLICIES`), `docs/rw-architecture.md` (section 0 invariant,
+section 1 tier ladder, section 2 command groups A to G, section 3.3a), and
+`console/api/src/integrations/discord/writeActionMinTier.js` (`WRITE_ACTION_MIN_TIER`).
 
-Rules for the whole panel (proposed):
-- Every staff read is **ephemeral**; player data never lands in a public channel.
-- The target is a player chosen by name (autocomplete). Players still see only themselves through `/player`.
-- Routine writes use the existing requester-only confirm button; destructive writes get a second,
-  distinct confirmation (E4). Every write is audited with the Discord user.
+### A. Console default policy per tier (`policy.js`, as read 2026-10-01)
 
-| Group | Actions | Proposed tier | Today in Discord |
+| Tier | Allowed by default |
+|---|---|
+| owner | everything (`*`) |
+| admin | `setup`, `server`, `logs`, `backups`, `updates`, `players`, `guilds`, `bases`, `storage`, `blueprints`, `vehicles`, `exchange`, `maps`, `sietches`, `deepdesert`, `admin`, `landsraad`, `addons`, `carepackage` (all `*`) plus `database:read/query/export`. **Denied:** `settings:*`, `database:write-config/mutate/execute`, `server:restart`, `carepackage:clear-history`, `carepackage:grant-all`, `admin:history:clear` |
+| moderator | read on server, maps, sietches, deepdesert, players, guilds, bases, storage, blueprints, vehicles, exchange, landsraad; `logs:*`; **`players:kick-all`**; `admin:broadcast`; `admin:map-chat` |
+| player | read on the same set as moderator (no logs, no writes) |
+| observer | identical to player |
+
+Notes: an admin in the console can do **every** `players:*` action (including reset, delete-item,
+edit-item, recover) because only the listed denials subtract. A moderator **cannot** kick or ban a
+single player (`players:moderate` is not granted) but **can** kick all online players. The player and
+observer tiers can read **all** players' data in the console (`players:read`); Discord `/player` is
+deliberately narrower (own character only, D15).
+
+### B. Discord write ladder (`rw-architecture.md` section 1, enforced by `WRITE_ACTION_MIN_TIER`)
+
+Product requirement, set by audit (CRITICAL #729): "player" is **never** a write tier (section 0
+invariant); moderator = `warn` only; admin = most writes; owner = destructive. Current rows:
+moderator: `player.warn`. admin: `player.kick/ban/unban/fill-water`, `base.refill-generators/water`,
+`server.start`, `server.restart-service`, `map.spawn/despawn/respawn/teleport`, `carepackage.grant/
+enable/disable/scan`, `guild.add/remove`. owner: `player.give-item`, `player.clear-backpack`,
+`server.restart`, `server.stop`, `carepackage.grant-all/history-clear`, `backup.create`,
+`updates.apply-game/fix-steamcmd`.
+
+**Discord is deliberately stricter than the console default** for `give-item`, `clean-inventory`
+(owner on Discord, admin in the console) and `server.stop` (owner on Discord; the console only denies
+`server:restart` to admin). The bridge checks its own table and does not read the console's editable
+IAM policy, so **editing the policy in the console's Access Control tab does not change Discord
+tiers** (relevant to the proposed exception E6).
+
+## Players (staff view): revised proposal, awaiting operator rulings (2026-10-01)
+
+**Status: PROPOSED, not decided.** Revised after the operator pointed at the existing matrices. It
+keeps every existing ladder row unchanged and only proposes tiers for **new** actions, by analogy with
+those rows. Source of capabilities: the console Players panel as reported in panel pass 1.
+
+Rules for the whole panel (proposed): staff reads are **ephemeral**; the target is a player chosen by
+name; routine writes use the requester-only confirm button, destructive writes get a second, distinct
+confirmation (E4); every write is audited with the Discord user.
+
+| Group | Actions | Tier | Basis |
 |---|---|---|---|
-| View (read-only) | list and search, profile, inventory, currency, vitals, progression, skills and specialization, journey, crafting, research, vehicles, bases | moderator | none for arbitrary players |
-| Sensitive view | exact position, teleport destinations | admin (withheld from moderators, OD23) | none |
-| Light moderation | warn, kick, refill water | moderator | warn (moderator), kick and fill-water (admin) |
-| Routine grants | give items, currency, intel, faction reputation, XP; set skill points and modules; unlock crafting, research, building sets, customizations; complete journey node or tutorial; teleport; spawn vehicle | admin | give-item (owner), fill-water (admin); the rest none |
-| Repairs | faction, Landsraad quests, gear, vehicle decay, login queue | admin | none |
-| Bans | ban, unban | admin | admin |
-| Destructive | clean inventory, reset progression, reset specialization or keystones, reset journey, edit or delete an item, assign faction, recover a deleted character, kick-all online | owner, plus the second confirmation | clean inventory (owner); the rest none |
-| Not in Discord | raw item and vehicle catalogs, anything bulk or free-form | console only | n/a |
+| View (read-only) | list and search, profile, inventory, currency, vitals, progression, skills and specialization, journey, crafting, research, vehicles, bases | **moderator** | console moderator has `players:read`; Discord reads for staff are not in the ladder (reads are not RW) |
+| Sensitive view | exact position, teleport destinations | **admin** (withheld from moderators, OD23) | stricter than console on purpose |
+| Light moderation | warn | moderator | **existing** ladder row |
+| | kick, ban, unban, fill-water | admin | **existing** ladder rows |
+| | kick-all online | admin proposed | **conflict:** console default gives it to moderator; ladder says moderator = warn only |
+| Repairs | faction, Landsraad quests, gear, vehicle decay, login queue | admin | analogy: `fill-water` is admin (`players:repair`) |
+| Routine grants | unlock crafting, research, building sets, customizations; journey node, tutorial; skill points and modules; teleport | admin | console admin; non-economy |
+| Economy injection | give items (**existing: owner**), currency, intel, faction reputation, XP, specialization grants | **owner** | analogy: `give-item` and `carepackage.grant-all` are owner ("server-wide economy injection") |
+| Destructive | clean inventory (**existing: owner**), reset progression, reset specialization or keystones, reset journey, edit or delete an item, assign faction, recover a deleted character | **owner**, plus the second confirmation | analogy: `clear-backpack` is owner; console admin can do these, Discord stricter |
+| Not in Discord | raw item and vehicle catalogs, bulk or free-form | console only | E-rules |
 
-Open questions for the operator:
-1. **Ban tier:** may moderators ban and unban? (The console groups kick and ban under one "moderate"
-   action; the Discord bridge makes both admin today.)
-2. **Routine grants:** admin only, or may moderators have some (for example giving items)?
-3. **Owner set:** is the destructive list right for owner? Faction assign and recover-deleted-character
-   are the judgment calls (today only clean inventory is owner).
+Open questions (only where the ladder is silent or in conflict):
+1. **Kick-all online:** admin on Discord (my proposal), or owner? The console default gives it to
+   moderator, which conflicts with "moderator = warn only".
+2. **Economy injection:** currency, XP, intel, faction reputation, specialization grants at **owner**
+   like `give-item`, or admin?
+3. **Destructive and judgment calls:** is owner right for assign-faction and recover-deleted-character
+   (console admin can do both today)?
 
 Known contract mismatches to fix when building (from pass 1): the console uses `give-items` and
 `give-item-id` where Discord `player.give-item` uses the singular route; the ban `reason` is not
-carried through; `map.teleport` is not obviously the per-player teleport; Discord write confirmation
-phrases are auto-filled by the bridge, so the console's typed-phrase safeguard is skipped today.
+carried through; `map.teleport` is not obviously the per-player teleport; Discord confirmation phrases
+are auto-filled by the bridge (`writeActionRoutes.js:54-62`), so the console's typed-phrase safeguard
+is skipped today.
 
 ## Next steps
 
