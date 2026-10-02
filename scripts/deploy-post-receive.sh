@@ -56,10 +56,30 @@ set -u
 require_register() {
   oldrev="$1"
   newrev="$2"
-  if bash "$WORK_DIR/scripts/command-defs-changed.sh" "$oldrev" "$newrev" "$WORK_DIR" >/dev/null 2>&1; then
-    return 1
+  # Register when EITHER signal says so. The content hash (mentat#440) is
+  # authoritative: it renders the tree under the deployed .env and covers
+  # every source file and env value that feeds it. The changed-file list is
+  # kept as defense in depth. An uncomputable hash means "register".
+  if ! bash "$WORK_DIR/scripts/command-defs-changed.sh" "$oldrev" "$newrev" "$WORK_DIR" >/dev/null 2>&1; then
+    return 0
   fi
-  return 0
+  current_hash="$(cd "$WORK_DIR" && set -a && . "$WORK_DIR/.env" && set +a && node scripts/command-defs-hash.js 2>/dev/null)" || current_hash=""
+  if ! bash "$WORK_DIR/scripts/command-register-decision.sh" "${DUNE_REGISTER_STATE_FILE:-$WORK_DIR/runtime/registered-commands.sha256}" "$current_hash"; then
+    return 0
+  fi
+  return 1
+}
+
+# Run `npm run register` and report its REAL status. The previous
+# `... | tail -5` inside an `if` reported tail's status (0) whenever the
+# register failed, so a failed registration printed "re-registered" and the
+# WARNING branch was unreachable (mentat#440).
+run_register() {
+  local out rc
+  out="$(cd "$WORK_DIR" && set -a && . "$WORK_DIR/.env" && set +a && DUNE_REGISTER_STATE_FILE="${DUNE_REGISTER_STATE_FILE:-$WORK_DIR/runtime/registered-commands.sha256}" npm run register 2>&1)"
+  rc=$?
+  printf '%s\n' "$out" | tail -5
+  return "$rc"
 }
 
 while read -r oldrev newrev refname; do
@@ -129,10 +149,11 @@ while read -r oldrev newrev refname; do
   # files changed.
   if require_register "$oldrev" "$newrev"; then
     echo "Slash command definitions changed -- re-registering with Discord..."
-    if (cd "$WORK_DIR" && set -a && . "$WORK_DIR/.env" && set +a && npm run register 2>&1 | tail -5); then
+    if run_register || { echo "Registration failed; retrying once..."; run_register; }; then
       echo "Slash commands re-registered on deploy."
     else
-      echo "WARNING: npm run register failed. Command definitions may not"
+      REGISTER_FAILED=1
+      echo "WARNING: npm run register failed twice. Command definitions may not"
       echo "reflect this deploy. Run manually if needed, on the deploy"
       echo "target itself:"
       echo "  cd ~/arrakis-control-panel && set -a && . ./.env && set +a && npm run register"
@@ -155,4 +176,8 @@ while read -r oldrev newrev refname; do
   fi
 
   echo "Deploy complete."
+  if [ "${REGISTER_FAILED:-0}" = "1" ]; then
+    echo "Deploy finished, but slash-command registration FAILED (see above)."
+    exit 1
+  fi
 done
