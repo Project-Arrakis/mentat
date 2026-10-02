@@ -41,11 +41,15 @@ Decided: **OD1 (a)** top-level names `/player` and `/goal`; **OD3 (a)** server l
 `goal:calculate` key do not happen; counts in the design stay 28 moves); **OD21** the working `/player`
 subcommand names are accepted; **OD25** the guild-leader command is `/guild`.
 
-Still open: **OD7** (default layout for self-hosters in rc.6: operator asked for background; recommendation
-(b) `split` from rc.6 with `legacy` only a rollback value) and **OD9** (group names: operator proposed
+**OD7 (b)** (decided 2026-10-02): `split` is the default layout from rc.6; `legacy` only a rollback value. The hosted
+bot stays pinned to `legacy` until the deliberate flip; the layout guard (PR-3) must ship before the default changes.
+
+Still open: **OD9** (group names: operator proposed
 using `/dune admin`; Discord allows only command > group > subcommand, so `admin moderation set` is not
-possible; recommendation `moderation` for kick/ban/unban/warn and the existing `admin` group for
-give-item, clear-backpack, fill-water once their tiers are confirmed against the write ladder).
+possible. Operator's proposal: all seven flat in `/dune admin` (`kick`, `ban`, `unban`, `warn`, `give-item`,
+`clear-backpack`, `fill-water`, names unchanged). Verified: permissions are per command key, not per group, and
+it costs no new group header. Recommendation: accept, with the required tier shown per subcommand in help.
+Awaiting the operator's yes).
 
 ## Phase 0 results (bot VM checks run by the operator, 2026-10-01)
 
