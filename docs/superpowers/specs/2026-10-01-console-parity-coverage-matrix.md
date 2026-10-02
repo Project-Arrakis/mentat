@@ -465,7 +465,7 @@ anything that clears audit history (care package history, admin command history)
 
 ## Remaining panels: proposed defaults under rules E and the global audit rule (2026-10-01)
 
-**Status: PROPOSED.** Same method as Bases: the policy action decides the tier (default from C), Discord
+**Status: ACCEPTED by the operator on 2026-10-01 ("I approve of the table").** The audit-record field list in the global rule above was not separately confirmed and remains a proposal. Same method as Bases: the policy action decides the tier (default from C), Discord
 offers reads for moderators and up unless the policy says otherwise, configuration and file or secret
 actions stay in the console, and every write is audited. Sources: pass-1 reports.
 
