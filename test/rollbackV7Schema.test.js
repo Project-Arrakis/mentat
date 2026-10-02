@@ -49,24 +49,24 @@ test("runRollback refuses a database older than schema_version 7", async () => {
   }
 });
 
-// createDatabase() always migrates to the current SCHEMA_VERSION (8, as of
-// mentat#370's purely-additive live_messages table) -- runRollback accepts
-// any version >= 7 (see rollback-v7-schema.js's own comment for why v8 is
+// createDatabase() always migrates to the current SCHEMA_VERSION (9, as of
+// mentat#372's additive service_* tables) -- runRollback accepts any
+// version >= 7 (see rollback-v7-schema.js's own comment for why v8/v9 is
 // safe here), so `before` reflects that real current version, not a
 // hardcoded 7.
-test("runRollback --dry-run reports schema_version 8 -> 6 without modifying anything", async () => {
+test("runRollback --dry-run reports schema_version 9 -> 6 without modifying anything", async () => {
   const dir = await mkdtemp(join(tmpdir(), "rollback-v7-"));
   const dbPath = join(dir, "acp.db");
   try {
     const seeded = createDatabase(dbPath);
-    assert.equal(seeded.prepare("SELECT version FROM schema_version").get().version, 8);
+    assert.equal(seeded.prepare("SELECT version FROM schema_version").get().version, 9);
     seeded.close();
 
     const result = runRollback(dbPath, { dryRun: true });
-    assert.deepEqual(result, { dryRun: true, before: 8, after: 8 });
+    assert.deepEqual(result, { dryRun: true, before: 9, after: 9 });
 
     const check = new Database(dbPath);
-    assert.equal(check.prepare("SELECT version FROM schema_version").get().version, 8, "dry-run must not actually change schema_version");
+    assert.equal(check.prepare("SELECT version FROM schema_version").get().version, 9, "dry-run must not actually change schema_version");
     const tableNames = check.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name);
     assert.equal(tableNames.includes("bot_stats"), false, "dry-run must not recreate any dropped table");
     check.close();
@@ -75,7 +75,7 @@ test("runRollback --dry-run reports schema_version 8 -> 6 without modifying anyt
   }
 });
 
-test("runRollback performs the real rollback and reports 8 -> 6", async () => {
+test("runRollback performs the real rollback and reports 9 -> 6", async () => {
   const dir = await mkdtemp(join(tmpdir(), "rollback-v7-"));
   const dbPath = join(dir, "acp.db");
   try {
@@ -83,12 +83,15 @@ test("runRollback performs the real rollback and reports 8 -> 6", async () => {
     seeded.close();
 
     const result = runRollback(dbPath);
-    assert.deepEqual(result, { dryRun: false, before: 8, after: 6 });
+    assert.deepEqual(result, { dryRun: false, before: 9, after: 6 });
 
     const check = new Database(dbPath);
     assert.equal(check.prepare("SELECT version FROM schema_version").get().version, 6);
     const tableNames = check.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name);
     assert.ok(tableNames.includes("live_messages"), "live_messages (v8) is untouched by the v7->v6 rollback, not dropped");
+    for (const survivor of ["service_channels", "service_duty_status", "service_applications"]) {
+      assert.ok(tableNames.includes(survivor), `${survivor} (v9, mentat#372) is untouched by the v7->v6 rollback, not dropped`);
+    }
     for (const restored of ["player_links", "guild_member_activity", "oauth_sessions", "bot_stats", "stats_snapshot", "guild_stats_snapshot"]) {
       assert.ok(tableNames.includes(restored), `${restored} must be recreated by a real rollback`);
     }

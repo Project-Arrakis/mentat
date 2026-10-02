@@ -47,7 +47,10 @@ export function runRollback(dbPath, { dryRun = false } = {}) {
     throw new Error(`${dbPath} has no schema_version row -- refusing to guess this database's state.`);
   }
   // Accept v7 and any later version, not only exactly 7: v8 (mentat#370,
-  // live_messages) is purely additive on top of v7's hardened shape --
+  // live_messages) and v9 (mentat#372/#438, the service_* tables plus
+  // guild_settings.on_duty_role_id, left in place by this rollback; to
+  // remove them DROP the three service_* tables, the column is inert) are
+  // purely additive on top of v7's hardened shape --
   // the six tables this script recreates were already dropped at v7 and
   // stay dropped through v8, so the rollback itself is identical either
   // way. A future purely-additive bump should keep working here without
