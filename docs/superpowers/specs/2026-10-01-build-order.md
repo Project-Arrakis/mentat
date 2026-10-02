@@ -34,6 +34,19 @@ still has to rule.
 | 9 | Guild base and `/order sync` | Guild-base designation in Core and `order:sync` | Core#1099, phases 3, 7, 8 | none beyond the above |
 | 10 | Owner IAM in Discord | Guided commands: view, grant or revoke one action, test | phase 2 | confirm the POST/PUT mismatch on the policy-save route (unverified) |
 
+## Operator decisions on the split (recorded 2026-10-02)
+
+Decided: **OD1 (a)** top-level names `/player` and `/goal`; **OD3 (a)** server lifecycle writes move to
+`/dune operations`; **OD6 (a)** the calculator stays at `/dune data calculator` (so the 29th move and the
+`goal:calculate` key do not happen; counts in the design stay 28 moves); **OD21** the working `/player`
+subcommand names are accepted; **OD25** the guild-leader command is `/guild`.
+
+Still open: **OD7** (default layout for self-hosters in rc.6: operator asked for background; recommendation
+(b) `split` from rc.6 with `legacy` only a rollback value) and **OD9** (group names: operator proposed
+using `/dune admin`; Discord allows only command > group > subcommand, so `admin moderation set` is not
+possible; recommendation `moderation` for kick/ban/unban/warn and the existing `admin` group for
+give-item, clear-backpack, fill-water once their tiers are confirmed against the write ladder).
+
 ## Phase 0 results (bot VM checks run by the operator, 2026-10-01)
 
 - Production runs commit `be8f605` (`deploy-merge-atlas`), **22 commits ahead and 24 behind** `origin/main`.
