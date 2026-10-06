@@ -6,6 +6,10 @@ change notes under `docs/changes/`.
 
 ## Unreleased
 
+### Security
+
+- **`proxy-addr` 2.0.7 -> 2.0.8 (transitive via `express@5.2.1`), GHSA-jqcg-44mw-7w3h (critical): IP spoofing via IPv4-mapped IPv6 in trust-proxy matching.** Lockfile-only patch bump via `npm audit fix`; `npm audit` now reports 0 vulnerabilities and `npm test` passes (242). Found by an org-wide lockfile audit on 2026-10-06. Takes effect on the bot only after the next deploy (`git push deploy deploy`); not deployed by this change.
+
 ### Added
 
 - **Deploy hook registers slash commands by content hash and reports failures honestly** (mentat#440, command-split PR-0). The hook now renders the command tree under the deployed `.env`, hashes it (`scripts/command-defs-hash.js`), and re-registers when it differs from the hash stored after the last *successful* registration (`runtime/registered-commands.sha256`, written by `npm run register` only after Discord accepted the PUT); the old changed-file list is used only as a fallback, with the reason printed, when the hash cannot be computed. Previously a change to `writeActions.js`, `ownerConfirmation.js`, `craftingCalculator.js` or an env value such as `DUNE_DISCORD_WRITES_ENABLED` deployed without re-registering, and a failed `npm run register` printed "re-registered" because `| tail -5` masked its exit status. Now a failure is detected, retried once, and the hook exits 1 after the restart with a clear message. `register-commands.js` also logs the writes-enabled state and the registered commands and groups. Known limit: the hash records what was last sent; it cannot see commands deleted on Discord's side or a stale old scope after switching guild/global registration (run `npm run register` by hand). A failed register prints its full output and is retried once after `DUNE_REGISTER_RETRY_DELAY` seconds (default 5). Operator note: the first deploy after this lands has no stored hash and registers once (harmless). Not included: the layout guard and an ops-webhook alert (no ops webhook exists in the hook today); the layout guard belongs with the layout flag in PR-3.
