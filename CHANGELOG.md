@@ -8,6 +8,7 @@ change notes under `docs/changes/`.
 
 ### Security
 
+- **`npm overrides` for `glob` 14.0.3 and `minimatch` 11.0.4 (dev-only coverage chain `c8` -> `test-exclude`), GHSA-3g3m-2fjr-6pw4 and GHSA-g3hv-75wg-m249 (moderate)** (mentat#465). Cleared the red `dependency-audit` job on `main`. Not runtime code: `c8` is a devDependency. `npm audit --audit-level=moderate` reports 0 vulnerabilities; `npm test` and `npm run coverage:check` pass. No c8 release fixes this yet (c8 12.0.0 still pulls the same chain); drop the two overrides once `test-exclude` updates. No deploy impact.
 - **`proxy-addr` 2.0.7 -> 2.0.8 (transitive via `express@5.2.1`), GHSA-jqcg-44mw-7w3h (critical): IP spoofing via IPv4-mapped IPv6 in trust-proxy matching.** Lockfile-only patch bump via `npm audit fix`; `npm audit` now reports 0 vulnerabilities and `npm test` passes (242). Found by an org-wide lockfile audit on 2026-10-06. Takes effect on the bot only after the next deploy (`git push deploy deploy`); not deployed by this change.
 
 ### Added
