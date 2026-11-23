@@ -196,6 +196,45 @@ DUNE_SCHEDULER_INTERVAL_MS=600000
 
 ---
 
+## Monitoring Posts from Mentat (status and alert relays)
+
+A monitoring stack (Prometheus and Alertmanager) can have its Discord posts come from Mentat itself, in Sahir Venn's voice, with the persona footer and a random signed quote, instead of from a webhook with a generic name. Data is **pushed** to the bot; the bot never reads from the monitoring host. Everything below is off unless configured, so an existing deployment is unaffected.
+
+| Variable | Purpose |
+| --- | --- |
+| `DUNE_STATUS_CHANNEL_ID` | Channel for the live status message. |
+| `DUNE_STATUS_RELAY_TOKEN` / `DUNE_STATUS_RELAY_TOKEN_FILE` | Bearer token the monitoring job must send. A separate secret from the alert relay's. Generate with `openssl rand -hex 32`; never paste it into chat. |
+| `DUNE_ALERT_RELAY_CHANNEL_ID` | Post `/api/alerts/relay` alerts as the bot in this channel. Unset = the `DUNE_ALERT_WEBHOOK_URL` path, unchanged. |
+
+**`POST /api/status/relay`** keeps ONE message up to date (posted once, then edited in place; the bot's own message, so only the bot can edit it). Send `Authorization: Bearer <token>` and JSON `{"state": "ok" | "degraded" | "down" | "unknown", "headline": "Online", "fields": [{"name": "Players", "value": "3 / 120", "inline": true}], "note": "optional"}`. The bot writes the title, a Mentat-voiced description, the quote and a "last updated" time. Behaviour:
+
+- Answers **503** until both the token and the channel are configured, **401** for a missing or wrong bearer (checked before the body, with a constant-time compare, and logged at most once a minute), **413** over 32 KB, **400** for a bad payload (state must be one of the four, at most 20 fields, text is clipped), **429** for an unchanged state sent within 10 seconds of the last update (a different state always goes through), **502** if Discord fails.
+- Updates are applied one at a time, in order. Mentions are disabled on every post.
+- Changing `DUNE_STATUS_CHANNEL_ID` posts a fresh message in the new channel and removes the old one (best effort).
+- A temporary Discord error while editing (a 5xx, a rate limit) answers **502** and keeps the same message so the sender can retry; only a message that is definitely gone (deleted, or its channel removed) is replaced with a fresh post.
+- The text of all fields together is capped at 4000 characters so the finished embed always fits Discord's 6000-character limit (**400** otherwise). The 32 KB limit is measured on the parsed body, so it holds without a `Content-Length` header.
+- Status goes stale if the sender stops pushing: the message keeps its last state with an ageing "last updated" time. Watch the sender (the monitoring job) separately.
+- The route is exempt from the proxy-secret check, like `/api/alerts/relay`, so it is protected by the bearer token alone: serve it over HTTPS.
+
+**`POST /api/alerts/relay` as the bot.** With `DUNE_ALERT_RELAY_CHANNEL_ID` set, firing and resolved alerts post as the bot (this **requires `DUNE_ALERT_RELAY_TOKEN[_FILE]`**: posts carry Mentat's identity, so an open relay would let anyone spoof them, and the route answers 503 until the token is set), one embed per alert, split into messages that stay under Discord's 6000-character limit. If the bot cannot post (missing Send Messages or Embed Links, channel gone) and `DUNE_ALERT_WEBHOOK_URL` is set, the remaining alerts go through the webhook instead of being lost. A webhook that answers 4xx/5xx is now reported as a failure (502) so Alertmanager retries, instead of being counted as relayed. If some alerts posted and none of the rest could, it answers 200 so Alertmanager does not resend and duplicate them; if nothing posted and there is no webhook it answers 502 so Alertmanager retries.
+
+Alertmanager side (`webhook_configs`, placeholders shown):
+
+```yaml
+receivers:
+  - name: mentat
+    webhook_configs:
+      - url: https://<bot host>/api/alerts/relay
+        send_resolved: true
+        max_alerts: 10
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /run/secrets/alert-relay-token
+```
+
+---
+
 ## Announcement Bridge Configuration
 
 Forwards in-game announcements to a Discord channel.

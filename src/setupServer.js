@@ -32,6 +32,7 @@ import { renderPage, errorPage } from "./setupLayout.js";
 import { isEncryptionConfigured, constantTimeStringsEqual } from "./secretsCrypto.js";
 import { recordGlobalStatsPushAttempt, recordGuildStatsPushAttempt } from "./statsPushRateLimit.js";
 import { validateConsoleUrl } from "./consoleUrlValidation.js";
+import { createStatusRelayHandler, postAlertsAsBot } from "./statusRelay.js";
 
 // #215/A2: version comes from package.json — a hardcoded literal here
 // drifted two release candidates behind the real version.
@@ -196,7 +197,7 @@ export function createSetupServer(config) {
   // (requireProxySecretFailClosed(), mounted directly on that route below)
   // rather than inheriting this middleware's fail-open default, per design
   // doc issue #844.
-  app.use(requireProxySecret({ exemptPaths: ["/api/alerts/relay", "/health", "/api/consoles/register", "/api/consoles/auto-invite/callback"], renderError: errorPage }));
+  app.use(requireProxySecret({ exemptPaths: ["/api/alerts/relay", "/api/status/relay", "/health", "/api/consoles/register", "/api/consoles/auto-invite/callback"], renderError: errorPage }));
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
@@ -1149,6 +1150,33 @@ export function createSetupServer(config) {
       return res.status(400).json({ error: "Invalid Alertmanager payload — expected {alerts: [...]}" });
     }
 
+    // mentat#469: when DUNE_ALERT_RELAY_CHANNEL_ID is set and the bot's own
+    // Discord client is available, post as Mentat (Sahir Venn's voice, random
+    // quote, persona footer) instead of through a webhook. With it unset the
+    // webhook path below is unchanged, so existing deployments are unaffected.
+    const relayChannelId = process.env.DUNE_ALERT_RELAY_CHANNEL_ID;
+    const originalTotal = payload.alerts.length;
+    let botPosted = 0;
+    if (relayChannelId && config.discordClient) {
+      // Posts made as the bot carry Mentat's identity, so unlike the webhook path (open until a token is set, for
+      // backward compatibility) they REQUIRE the relay token: no token, no bot posts.
+      if (!expectedToken) {
+        return res.status(503).json({ ok: false, error: "DUNE_ALERT_RELAY_TOKEN must be set before alerts can be posted as the bot." });
+      }
+      const outcome = await postAlertsAsBot({ client: config.discordClient, channelId: relayChannelId, alerts: payload.alerts });
+      botPosted = outcome.posted;
+      if (outcome.unposted.length === 0) {
+        return res.json({ ok: true, total: originalTotal, relayed: originalTotal, skipped: 0, via: "bot" });
+      }
+      if (!process.env.DUNE_ALERT_WEBHOOK_URL) {
+        // Answer 200 when some alerts did post: a non-2xx makes Alertmanager resend the whole batch and duplicate them.
+        if (botPosted > 0) return res.json({ ok: true, total: originalTotal, relayed: botPosted, skipped: outcome.unposted.length, via: "bot" });
+        return res.status(502).json({ ok: false, error: "Discord relay failed" });
+      }
+      // The bot could not post (missing permission, channel gone): send what is left through the webhook instead of losing it.
+      payload.alerts = outcome.unposted;
+    }
+
     const webhookUrl = process.env.DUNE_ALERT_WEBHOOK_URL;
     // Send in batches of 10 embeds (Discord limit per message)
     const EMBED_LIMIT = 10;
@@ -1174,19 +1202,21 @@ export function createSetupServer(config) {
 
         if (webhookUrl) {
           const discordPayload = JSON.stringify({ embeds });
-          await fetch(webhookUrl, {
+          const hookResponse = await fetch(webhookUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: discordPayload
           });
+          // A webhook that answers 4xx/5xx (deleted, rotated, rate limited) did not deliver: say so, so Alertmanager retries.
+          if (!hookResponse.ok) throw new Error(`Discord webhook answered ${hookResponse.status}`);
           fired += batch.length;
         }
       }
 
       res.json({
         ok: true,
-        total: payload.alerts.length,
-        relayed: fired,
+        total: originalTotal,
+        relayed: fired + botPosted,
         skipped: payload.alerts.length - fired,
         webhookConfigured: Boolean(webhookUrl)
       });
@@ -1194,6 +1224,12 @@ export function createSetupServer(config) {
       res.status(502).json({ ok: false, error: err.message || "Discord relay failed" });
     }
   });
+
+  // mentat#469: a monitoring job on the game server pushes structured status;
+  // the bot renders it in Sahir Venn's voice and keeps one live message
+  // current. Off unless DUNE_STATUS_RELAY_TOKEN[_FILE] and
+  // DUNE_STATUS_CHANNEL_ID are set; bearer-token auth like /api/alerts/relay.
+  app.post("/api/status/relay", createStatusRelayHandler({ client: config.discordClient, db }));
 
   // GET /api/commands — public command registry for the landing page and docs.
   // Returns all command groups with names, descriptions, and required roles.
