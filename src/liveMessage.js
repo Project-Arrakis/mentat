@@ -26,9 +26,12 @@ import { getLiveMessage, setLiveMessage } from "./database.js";
 // collide on the same row (one feature's message pointer silently
 // overwriting another's). Whoever wires mentat#369/#372 into this
 // function must keep messageKey an enum of hardcoded feature names.
-export async function postOrEditLiveMessage({ client, db, guildId, channelId, messageKey, content }) {
+// strictChannel (mentat#469, opt-in, default off so existing callers are unchanged): when true, a recorded
+// message in a DIFFERENT channel than the one requested is treated as stale and a fresh message is posted
+// in the requested channel. Without it, changing a feature's channel setting keeps editing the old channel's message.
+export async function postOrEditLiveMessage({ client, db, guildId, channelId, messageKey, content, strictChannel = false }) {
   const existing = getLiveMessage(db, guildId, messageKey);
-  if (existing) {
+  if (existing && (!strictChannel || existing.channel_id === channelId)) {
     try {
       const channel = await client.channels.fetch(existing.channel_id);
       if (channel?.isTextBased?.()) {

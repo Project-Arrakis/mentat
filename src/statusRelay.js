@@ -75,10 +75,18 @@ function pick(list, random = Math.random) {
   return list[Math.floor(random() * list.length)];
 }
 
-function clip(value, max) {
-  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+// multiline keeps line breaks (a field value may be several short lines) but
+// still collapses runs of spaces and blank lines; single-line text (names,
+// headlines) is flattened.
+function clip(value, max, { multiline = false } = {}) {
+  const raw = String(value ?? "");
+  const text = (multiline
+    ? raw.replace(/\r\n?/g, "\n").replace(/[^\S\n]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{3,}/g, "\n\n")
+    : raw.replace(/\s+/g, " ")).trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
+
+let warnedUnreadableTokenFile = "";
 
 export function statusRelayToken(env = process.env) {
   const direct = (env.DUNE_STATUS_RELAY_TOKEN || "").trim();
@@ -87,7 +95,12 @@ export function statusRelayToken(env = process.env) {
   if (!file) return "";
   try {
     return readFileSync(file, "utf8").trim();
-  } catch {
+  } catch (error) {
+    // A mis-set secret path must not look the same as the feature being off.
+    if (warnedUnreadableTokenFile !== file) {
+      warnedUnreadableTokenFile = file;
+      logError("status_relay.token_file_unreadable", error, { file });
+    }
     return "";
   }
 }
@@ -107,7 +120,7 @@ export function validateStatusPayload(body) {
   for (const f of rawFields) {
     if (!f || typeof f !== "object") return { ok: false, error: "each field must be an object." };
     const name = clip(f.name, LIMITS.fieldName);
-    const value = clip(f.value, LIMITS.fieldValue);
+    const value = clip(f.value, LIMITS.fieldValue, { multiline: true });
     if (!name || !value) return { ok: false, error: "each field needs a name and a value." };
     fields.push({ name, value, inline: f.inline !== false });
   }
@@ -170,11 +183,85 @@ export function alertEmbeds(alerts, { random = Math.random } = {}) {
   });
 }
 
+// Discord caps the combined text of all embeds in ONE message at 6000 characters (and 10 embeds), so a fixed
+// batch of 10 can be rejected. Chunk by cumulative size instead.
+function embedChars(embed) {
+  const e = embed.toJSON ? embed.toJSON() : embed;
+  return (e.title?.length || 0) + (e.description?.length || 0) + (e.footer?.text?.length || 0) + (e.author?.name?.length || 0) +
+    (e.fields || []).reduce((n, f) => n + (f.name?.length || 0) + (f.value?.length || 0), 0);
+}
+
+export function chunkEmbedsBySize(embeds, { maxChars = 5500, maxCount = 10 } = {}) {
+  const chunks = [];
+  let current = [];
+  let size = 0;
+  for (const embed of embeds) {
+    const n = embedChars(embed);
+    if (current.length && (current.length >= maxCount || size + n > maxChars)) {
+      chunks.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(embed);
+    size += n;
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
+}
+
+// Posts alerts as the bot, one message per size-safe chunk. Never throws; reports what did and did not go out so the
+// caller can fall back for the rest instead of re-sending what already posted (Alertmanager retries on a non-2xx).
+export async function postAlertsAsBot({ client, channelId, alerts }) {
+  const unposted = [];
+  let posted = 0;
+  let channel = null;
+  try {
+    channel = await client.channels.fetch(channelId);
+    if (!channel?.isTextBased?.()) throw new Error(`Channel ${channelId} is not text-based.`);
+  } catch (error) {
+    logError("alerts_relay.channel_unavailable", error, {});
+    return { posted: 0, unposted: alerts.slice() };
+  }
+  const embeds = alertEmbeds(alerts);
+  let offset = 0;
+  for (const chunk of chunkEmbedsBySize(embeds)) {
+    const slice = alerts.slice(offset, offset + chunk.length);
+    offset += chunk.length;
+    try {
+      await channel.send({ embeds: chunk, allowedMentions: { parse: [] } });
+      posted += chunk.length;
+    } catch (error) {
+      logError("alerts_relay.bot_post_failed", error, { alerts: chunk.length });
+      unposted.push(...slice);
+    }
+  }
+  return { posted, unposted };
+}
+
 // POST /api/status/relay handler. Fails closed: with no token or no channel
 // configured it does nothing (503), and a wrong or missing bearer is a 401
 // before the body is looked at.
 export function createStatusRelayHandler({ client, db, env = process.env, now = Date.now }) {
   let lastAcceptedMs = 0;
+  let lastState = null;
+  let chain = Promise.resolve(); // updates are applied one at a time, in arrival order
+  let lastUnauthorizedLogMs = 0;
+  let suppressedUnauthorized = 0;
+
+  async function apply(channelId, value, nowMs) {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel?.isTextBased?.() || !channel.guildId) throw new Error(`Channel ${channelId} is not a guild text channel.`);
+    return postOrEditLiveMessage({
+      client,
+      db,
+      guildId: channel.guildId,
+      channelId,
+      messageKey: STATUS_MESSAGE_KEY,
+      strictChannel: true,
+      content: { embeds: [formatStatusEmbed(value, { nowMs })], allowedMentions: { parse: [] } }
+    });
+  }
+
   return async function statusRelay(req, res) {
     const token = statusRelayToken(env);
     const channelId = env.DUNE_STATUS_CHANNEL_ID || "";
@@ -184,31 +271,42 @@ export function createStatusRelayHandler({ client, db, env = process.env, now = 
     const header = req.get("authorization") || "";
     const provided = header.startsWith("Bearer ") ? header.slice(7) : "";
     if (!constantTimeStringsEqual(provided, token)) {
-      logError("status_relay.unauthorized", new Error("Missing or invalid bearer token"), { remote: req.ip, hasAuthHeader: Boolean(header) });
+      // An internet scanner must not be able to flood the log: one line a minute, with a count of what was skipped.
+      const t = now();
+      if (t - lastUnauthorizedLogMs >= 60_000) {
+        logError("status_relay.unauthorized", new Error("Missing or invalid bearer token"), { remote: req.ip, hasAuthHeader: Boolean(header), suppressed: suppressedUnauthorized });
+        lastUnauthorizedLogMs = t;
+        suppressedUnauthorized = 0;
+      } else {
+        suppressedUnauthorized += 1;
+      }
       return res.status(401).json({ error: "Unauthorized." });
+    }
+    // The global JSON parser has already run (default 100 kb), so enforce this route's own, smaller limit here.
+    if (Number(req.get("content-length") || 0) > LIMITS.body) {
+      return res.status(413).json({ error: `Body too large (limit ${LIMITS.body} bytes).` });
     }
     const checked = validateStatusPayload(req.body);
     if (!checked.ok) return res.status(400).json({ error: checked.error });
 
     const nowMs = now();
-    if (nowMs - lastAcceptedMs < MIN_SECONDS_BETWEEN_UPDATES * 1000) {
-      return res.status(429).json({ error: `At most one update every ${MIN_SECONDS_BETWEEN_UPDATES} seconds.` });
+    // Flood protection, but never at the cost of a real change: a different state always goes through.
+    if (checked.value.state === lastState && nowMs - lastAcceptedMs < MIN_SECONDS_BETWEEN_UPDATES * 1000) {
+      return res.status(429).json({ error: `At most one unchanged update every ${MIN_SECONDS_BETWEEN_UPDATES} seconds.` });
     }
+    // Reserve synchronously, before any await, so two simultaneous requests cannot both pass the check.
+    const previous = { lastAcceptedMs, lastState };
+    lastAcceptedMs = nowMs;
+    lastState = checked.value.state;
+    const job = chain.then(() => apply(channelId, checked.value, nowMs));
+    chain = job.catch(() => {});
     try {
-      const channel = await client.channels.fetch(channelId);
-      if (!channel?.isTextBased?.() || !channel.guildId) throw new Error(`Channel ${channelId} is not a guild text channel.`);
-      const result = await postOrEditLiveMessage({
-        client,
-        db,
-        guildId: channel.guildId,
-        channelId,
-        messageKey: STATUS_MESSAGE_KEY,
-        content: { embeds: [formatStatusEmbed(checked.value, { nowMs })], allowedMentions: { parse: [] } }
-      });
-      lastAcceptedMs = nowMs;
+      const result = await job;
       logInfo("status_relay.updated", { edited: result.edited, state: checked.value.state });
       return res.json({ ok: true, edited: result.edited });
     } catch (error) {
+      lastAcceptedMs = previous.lastAcceptedMs;
+      lastState = previous.lastState;
       logError("status_relay.failed", error, {});
       return res.status(502).json({ error: "Could not update the status message." });
     }

@@ -32,7 +32,7 @@ import { renderPage, errorPage } from "./setupLayout.js";
 import { isEncryptionConfigured, constantTimeStringsEqual } from "./secretsCrypto.js";
 import { recordGlobalStatsPushAttempt, recordGuildStatsPushAttempt } from "./statsPushRateLimit.js";
 import { validateConsoleUrl } from "./consoleUrlValidation.js";
-import { createStatusRelayHandler, alertEmbeds } from "./statusRelay.js";
+import { createStatusRelayHandler, postAlertsAsBot } from "./statusRelay.js";
 
 // #215/A2: version comes from package.json — a hardcoded literal here
 // drifted two release candidates behind the real version.
@@ -1156,18 +1156,18 @@ export function createSetupServer(config) {
     // webhook path below is unchanged, so existing deployments are unaffected.
     const relayChannelId = process.env.DUNE_ALERT_RELAY_CHANNEL_ID;
     if (relayChannelId && config.discordClient) {
-      try {
-        const channel = await config.discordClient.channels.fetch(relayChannelId);
-        if (!channel?.isTextBased?.()) throw new Error(`Channel ${relayChannelId} is not text-based.`);
-        const embeds = alertEmbeds(payload.alerts);
-        for (let i = 0; i < embeds.length; i += 10) {
-          await channel.send({ embeds: embeds.slice(i, i + 10), allowedMentions: { parse: [] } });
-        }
-        return res.json({ ok: true, total: payload.alerts.length, relayed: payload.alerts.length, skipped: 0, via: "bot" });
-      } catch (err) {
-        logError("alerts_relay.bot_post_failed", err, {});
+      const total = payload.alerts.length;
+      const outcome = await postAlertsAsBot({ client: config.discordClient, channelId: relayChannelId, alerts: payload.alerts });
+      if (outcome.unposted.length === 0) {
+        return res.json({ ok: true, total, relayed: total, skipped: 0, via: "bot" });
+      }
+      if (!process.env.DUNE_ALERT_WEBHOOK_URL) {
+        // Answer 200 when some alerts did post: a non-2xx makes Alertmanager resend the whole batch and duplicate them.
+        if (outcome.posted > 0) return res.json({ ok: true, total, relayed: outcome.posted, skipped: outcome.unposted.length, via: "bot" });
         return res.status(502).json({ ok: false, error: "Discord relay failed" });
       }
+      // The bot could not post (missing permission, channel gone): send what is left through the webhook instead of losing it.
+      payload.alerts = outcome.unposted;
     }
 
     const webhookUrl = process.env.DUNE_ALERT_WEBHOOK_URL;
@@ -1220,8 +1220,7 @@ export function createSetupServer(config) {
   // the bot renders it in Sahir Venn's voice and keeps one live message
   // current. Off unless DUNE_STATUS_RELAY_TOKEN[_FILE] and
   // DUNE_STATUS_CHANNEL_ID are set; bearer-token auth like /api/alerts/relay.
-  app.post("/api/status/relay", express.json({ limit: "32kb" }),
-    createStatusRelayHandler({ client: config.discordClient, db }));
+  app.post("/api/status/relay", createStatusRelayHandler({ client: config.discordClient, db }));
 
   // GET /api/commands — public command registry for the landing page and docs.
   // Returns all command groups with names, descriptions, and required roles.

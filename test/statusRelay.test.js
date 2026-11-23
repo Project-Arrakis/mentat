@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createDatabase, getLiveMessage } from "../src/database.js";
+import { createServer } from "node:http";
+import { createDatabase, getLiveMessage, setLiveMessage } from "../src/database.js";
 import { createSetupServer } from "../src/setupServer.js";
 import {
   STATUS_MESSAGE_KEY,
   alertEmbeds,
+  chunkEmbedsBySize,
   createStatusRelayHandler,
   formatStatusEmbed,
   statusRelayToken,
@@ -73,6 +75,13 @@ test("validateStatusPayload clips long text instead of passing it through", () =
   assert.equal(r.ok, true);
   assert.ok(r.value.headline.length <= 80 && r.value.note.length <= 300);
   assert.ok(r.value.fields[0].name.length <= 40 && r.value.fields[0].value.length <= 300);
+});
+
+test("validateStatusPayload keeps line breaks in a field value but flattens names and the headline", () => {
+  const r = validateStatusPayload({ state: "ok", headline: "On\nline", fields: [{ name: "A\nB", value: "Smooth\r\nServer tick: 20 Hz\n\n\n\nLag:   0" }] });
+  assert.equal(r.value.headline, "On line");
+  assert.equal(r.value.fields[0].name, "A B");
+  assert.equal(r.value.fields[0].value, "Smooth\nServer tick: 20 Hz\n\nLag: 0");
 });
 
 // ── the Mentat voice ────────────────────────────────────────────────────────
@@ -296,4 +305,164 @@ test("POST /api/alerts/relay keeps the old webhook behaviour when DUNE_ALERT_REL
       assert.equal(channel._sent.length, 0, "the bot does not post unless the channel is configured");
     })
   );
+});
+
+// ── review fixes (mentat#469) ───────────────────────────────────────────────
+
+test("a state change inside the 10 second window is NOT dropped; the same state is still throttled", async () => {
+  const db = createDatabase(":memory:");
+  const channel = fakeChannel();
+  let t = 1_800_000_000_000;
+  const handler = createStatusRelayHandler({ client: fakeClient({ "chan-1": channel }), db, env, now: () => t });
+  await handler(fakeReq({ token: "relay-secret" }), fakeRes());
+  t += 3000;
+  const down = fakeRes();
+  await handler(fakeReq({ token: "relay-secret", body: { state: "down", headline: "Offline" } }), down);
+  assert.equal(down.code, 200, "ok -> down must go through even 3 seconds later");
+  t += 3000;
+  const again = fakeRes();
+  await handler(fakeReq({ token: "relay-secret", body: { state: "down", headline: "Offline" } }), again);
+  assert.equal(again.code, 429);
+});
+
+test("two simultaneous identical updates cannot both reach Discord (the slot is reserved before any await)", async () => {
+  const db = createDatabase(":memory:");
+  const channel = fakeChannel();
+  const slow = fakeClient({ "chan-1": channel });
+  const realFetch = slow.channels.fetch;
+  slow.channels.fetch = async (id) => { await new Promise((r) => setTimeout(r, 25)); return realFetch(id); };
+  const handler = createStatusRelayHandler({ client: slow, db, env, now: () => 1_800_000_000_000 });
+  const [a, b] = [fakeRes(), fakeRes()];
+  await Promise.all([handler(fakeReq({ token: "relay-secret" }), a), handler(fakeReq({ token: "relay-secret" }), b)]);
+  assert.deepEqual([a.code, b.code].sort(), [200, 429]);
+  assert.equal(channel._sent.length, 1);
+});
+
+test("a failed update does not consume the throttle slot, so the retry is accepted", async () => {
+  const db = createDatabase(":memory:");
+  const channel = fakeChannel();
+  let broken = true;
+  const client = { channels: { fetch: async (id) => { if (broken) throw new Error("boom"); return channel; } } };
+  const handler = createStatusRelayHandler({ client, db, env, now: () => 1_800_000_000_000 });
+  const first = fakeRes();
+  await handler(fakeReq({ token: "relay-secret" }), first);
+  assert.equal(first.code, 502);
+  broken = false;
+  const retry = fakeRes();
+  await handler(fakeReq({ token: "relay-secret" }), retry);
+  assert.equal(retry.code, 200);
+});
+
+test("changing DUNE_STATUS_CHANNEL_ID posts a fresh message in the new channel instead of editing the old one", async () => {
+  const db = createDatabase(":memory:");
+  const oldChannel = fakeChannel({ id: "old-chan", guildId: "guild-1" });
+  const newChannel = fakeChannel({ id: "chan-1", guildId: "guild-1" });
+  setLiveMessage(db, "guild-1", STATUS_MESSAGE_KEY, "old-chan", "old-msg");
+  const handler = createStatusRelayHandler({ client: fakeClient({ "old-chan": oldChannel, "chan-1": newChannel }), db, env });
+  const res = fakeRes();
+  await handler(fakeReq({ token: "relay-secret" }), res);
+  assert.equal(res.code, 200);
+  assert.equal(res.body.edited, false);
+  assert.equal(newChannel._sent.length, 1);
+  assert.equal(oldChannel._edited.length, 0);
+  assert.equal(getLiveMessage(db, "guild-1", STATUS_MESSAGE_KEY).channel_id, "chan-1");
+});
+
+test("an oversized body is refused with 413 after authentication", async () => {
+  const db = createDatabase(":memory:");
+  const handler = createStatusRelayHandler({ client: fakeClient({ "chan-1": fakeChannel() }), db, env });
+  const req = fakeReq({ token: "relay-secret" });
+  const realGet = req.get;
+  req.get = (h) => (h.toLowerCase() === "content-length" ? String(64 * 1024) : realGet(h));
+  const res = fakeRes();
+  await handler(req, res);
+  assert.equal(res.code, 413);
+  const unauth = fakeReq({ token: "wrong" });
+  unauth.get = (h) => (h.toLowerCase() === "content-length" ? String(64 * 1024) : "");
+  const res2 = fakeRes();
+  await handler(unauth, res2);
+  assert.equal(res2.code, 401, "authentication is checked before the size");
+});
+
+test("chunkEmbedsBySize respects the 6000-character and 10-embed limits", () => {
+  const big = (n) => ({ toJSON: () => ({ title: "t", description: "d".repeat(n), fields: [], footer: { text: "f" } }) });
+  const bySize = chunkEmbedsBySize([big(2000), big(2000), big(2000), big(2000)]);
+  assert.deepEqual(bySize.map((c) => c.length), [2, 2], "two at a time, not four");
+  const byCount = chunkEmbedsBySize(Array.from({ length: 23 }, () => big(10)));
+  assert.deepEqual(byCount.map((c) => c.length), [10, 10, 3]);
+  assert.deepEqual(chunkEmbedsBySize([]), []);
+  const worst = alertEmbeds(Array.from({ length: 10 }, (_, i) => ({ status: "firing", labels: { alertname: `A${i}`, severity: "warning", instance: "x".repeat(100) }, annotations: { summary: "s".repeat(300), description: "d".repeat(900) }, startsAt: "2026-11-23T10:00:00Z" })));
+  for (const chunk of chunkEmbedsBySize(worst)) {
+    const chars = chunk.reduce((n, e) => { const j = e.toJSON(); return n + j.title.length + j.description.length + j.footer.text.length + j.fields.reduce((m, f) => m + f.name.length + f.value.length, 0); }, 0);
+    assert.ok(chars <= 6000, `chunk of ${chunk.length} was ${chars} characters`);
+  }
+});
+
+function alertBody(count) {
+  return JSON.stringify({ alerts: Array.from({ length: count }, (_, i) => ({ status: "firing", labels: { alertname: `A${i}`, severity: "warning" }, annotations: { summary: "s".repeat(300), description: "d".repeat(900) }, startsAt: "2026-11-23T10:00:00Z" })) });
+}
+
+async function withCaptureWebhook(fn) {
+  const received = [];
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => { received.push(JSON.parse(body)); res.end("{}"); });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try { await fn(`http://127.0.0.1:${server.address().port}/hook`, received); } finally { await new Promise((r) => server.close(r)); }
+}
+
+test("when the bot cannot post, alerts fall back to the webhook instead of being lost", async () => {
+  const channel = fakeChannel({ id: "alerts-1" });
+  channel.send = async () => { throw new Error("Missing Permissions"); };
+  await withCaptureWebhook((hookUrl, received) =>
+    withEnv({ DUNE_ALERT_RELAY_TOKEN: "", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_RELAY_CHANNEL_ID: "alerts-1", DUNE_ALERT_WEBHOOK_URL: hookUrl }, () =>
+      withApp(fakeClient({ "alerts-1": channel }), async (base) => {
+        const res = await fetch(`${base}/api/alerts/relay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: alertBody(3) });
+        assert.equal(res.status, 200);
+        assert.equal((await res.json()).webhookConfigured, true);
+        assert.equal(received.reduce((n, p) => n + p.embeds.length, 0), 3, "all three alerts reached the webhook");
+      })
+    )
+  );
+});
+
+test("a partial bot failure with no webhook answers 200 (so Alertmanager does not duplicate) and reports the shortfall", async () => {
+  const channel = fakeChannel({ id: "alerts-1" });
+  let calls = 0;
+  channel.send = async (content) => { calls += 1; if (calls === 2) throw new Error("rate limited"); channel._sent.push(content); return { id: `m${calls}` }; };
+  await withEnv({ DUNE_ALERT_RELAY_TOKEN: "", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_RELAY_CHANNEL_ID: "alerts-1", DUNE_ALERT_WEBHOOK_URL: "" }, () =>
+    withApp(fakeClient({ "alerts-1": channel }), async (base) => {
+      const res = await fetch(`${base}/api/alerts/relay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: alertBody(6) });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.via, "bot");
+      assert.ok(body.relayed > 0 && body.skipped > 0 && body.relayed + body.skipped === 6, JSON.stringify(body));
+    })
+  );
+});
+
+test("nothing posted and no webhook is a 502, so Alertmanager retries", async () => {
+  const channel = fakeChannel({ id: "alerts-1" });
+  channel.send = async () => { throw new Error("Missing Permissions"); };
+  await withEnv({ DUNE_ALERT_RELAY_TOKEN: "", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_RELAY_CHANNEL_ID: "alerts-1", DUNE_ALERT_WEBHOOK_URL: "" }, () =>
+    withApp(fakeClient({ "alerts-1": channel }), async (base) => {
+      const res = await fetch(`${base}/api/alerts/relay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: alertBody(2) });
+      assert.equal(res.status, 502);
+    })
+  );
+});
+
+test("an unreadable DUNE_STATUS_RELAY_TOKEN_FILE is logged once, not silent", () => {
+  const lines = [];
+  const original = console.error;
+  console.error = (line) => lines.push(String(line));
+  try {
+    statusRelayToken({ DUNE_STATUS_RELAY_TOKEN_FILE: "/nonexistent/second-path" });
+    statusRelayToken({ DUNE_STATUS_RELAY_TOKEN_FILE: "/nonexistent/second-path" });
+  } finally {
+    console.error = original;
+  }
+  assert.equal(lines.filter((l) => l.includes("status_relay.token_file_unreadable")).length, 1);
 });
