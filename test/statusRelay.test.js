@@ -417,11 +417,14 @@ test("when the bot cannot post, alerts fall back to the webhook instead of being
   const channel = fakeChannel({ id: "alerts-1" });
   channel.send = async () => { throw new Error("Missing Permissions"); };
   await withCaptureWebhook((hookUrl, received) =>
-    withEnv({ DUNE_ALERT_RELAY_TOKEN: "", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_RELAY_CHANNEL_ID: "alerts-1", DUNE_ALERT_WEBHOOK_URL: hookUrl }, () =>
+    withEnv({ DUNE_ALERT_RELAY_TOKEN: "alert-secret", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_RELAY_CHANNEL_ID: "alerts-1", DUNE_ALERT_WEBHOOK_URL: hookUrl }, () =>
       withApp(fakeClient({ "alerts-1": channel }), async (base) => {
-        const res = await fetch(`${base}/api/alerts/relay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: alertBody(3) });
+        const res = await fetch(`${base}/api/alerts/relay`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer alert-secret" }, body: alertBody(3) });
         assert.equal(res.status, 200);
-        assert.equal((await res.json()).webhookConfigured, true);
+        const body = await res.json();
+        assert.equal(body.webhookConfigured, true);
+        assert.equal(body.total, 3);
+        assert.equal(body.relayed, 3);
         assert.equal(received.reduce((n, p) => n + p.embeds.length, 0), 3, "all three alerts reached the webhook");
       })
     )
@@ -432,9 +435,9 @@ test("a partial bot failure with no webhook answers 200 (so Alertmanager does no
   const channel = fakeChannel({ id: "alerts-1" });
   let calls = 0;
   channel.send = async (content) => { calls += 1; if (calls === 2) throw new Error("rate limited"); channel._sent.push(content); return { id: `m${calls}` }; };
-  await withEnv({ DUNE_ALERT_RELAY_TOKEN: "", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_RELAY_CHANNEL_ID: "alerts-1", DUNE_ALERT_WEBHOOK_URL: "" }, () =>
+  await withEnv({ DUNE_ALERT_RELAY_TOKEN: "alert-secret", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_RELAY_CHANNEL_ID: "alerts-1", DUNE_ALERT_WEBHOOK_URL: "" }, () =>
     withApp(fakeClient({ "alerts-1": channel }), async (base) => {
-      const res = await fetch(`${base}/api/alerts/relay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: alertBody(6) });
+      const res = await fetch(`${base}/api/alerts/relay`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer alert-secret" }, body: alertBody(6) });
       assert.equal(res.status, 200);
       const body = await res.json();
       assert.equal(body.via, "bot");
@@ -446,9 +449,9 @@ test("a partial bot failure with no webhook answers 200 (so Alertmanager does no
 test("nothing posted and no webhook is a 502, so Alertmanager retries", async () => {
   const channel = fakeChannel({ id: "alerts-1" });
   channel.send = async () => { throw new Error("Missing Permissions"); };
-  await withEnv({ DUNE_ALERT_RELAY_TOKEN: "", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_RELAY_CHANNEL_ID: "alerts-1", DUNE_ALERT_WEBHOOK_URL: "" }, () =>
+  await withEnv({ DUNE_ALERT_RELAY_TOKEN: "alert-secret", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_RELAY_CHANNEL_ID: "alerts-1", DUNE_ALERT_WEBHOOK_URL: "" }, () =>
     withApp(fakeClient({ "alerts-1": channel }), async (base) => {
-      const res = await fetch(`${base}/api/alerts/relay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: alertBody(2) });
+      const res = await fetch(`${base}/api/alerts/relay`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer alert-secret" }, body: alertBody(2) });
       assert.equal(res.status, 502);
     })
   );
@@ -465,4 +468,108 @@ test("an unreadable DUNE_STATUS_RELAY_TOKEN_FILE is logged once, not silent", ()
     console.error = original;
   }
   assert.equal(lines.filter((l) => l.includes("status_relay.token_file_unreadable")).length, 1);
+});
+
+// ── second review round (mentat#469) ────────────────────────────────────────
+
+test("posting alerts as the bot REQUIRES the relay token (no spoofing as Mentat); the answer is 503 and nothing posts", async () => {
+  const channel = fakeChannel({ id: "alerts-1" });
+  await withEnv({ DUNE_ALERT_RELAY_TOKEN: "", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_RELAY_CHANNEL_ID: "alerts-1", DUNE_ALERT_WEBHOOK_URL: "" }, () =>
+    withApp(fakeClient({ "alerts-1": channel }), async (base) => {
+      const res = await fetch(`${base}/api/alerts/relay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: alertBody(1) });
+      assert.equal(res.status, 503);
+      assert.equal(channel._sent.length, 0);
+    })
+  );
+});
+
+test("a webhook that answers 4xx is reported as a failure (502) so Alertmanager retries, not as relayed", async () => {
+  const server = createServer((req, res) => { req.resume(); req.on("end", () => { res.statusCode = 404; res.end("{}"); }); });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    await withEnv({ DUNE_ALERT_RELAY_TOKEN: "", DUNE_ALERT_RELAY_TOKEN_FILE: "", DUNE_ALERT_RELAY_CHANNEL_ID: "", DUNE_ALERT_WEBHOOK_URL: `http://127.0.0.1:${server.address().port}/hook` }, () =>
+      withApp(fakeClient({}), async (base) => {
+        const res = await fetch(`${base}/api/alerts/relay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: alertBody(1) });
+        assert.equal(res.status, 502);
+      })
+    );
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test("validateStatusPayload keeps the built embed under Discord's 6000 characters by capping total field text", () => {
+  const many = Array.from({ length: 20 }, (_, i) => ({ name: `Field ${i}`.padEnd(40, "n"), value: "v".repeat(300) }));
+  assert.equal(validateStatusPayload({ state: "ok", headline: "Online", fields: many }).ok, false);
+  const fits = Array.from({ length: 10 }, (_, i) => ({ name: `Field ${i}`.padEnd(40, "n"), value: "v".repeat(300) }));
+  const ok = validateStatusPayload({ state: "ok", headline: "h".repeat(80), note: "n".repeat(300), fields: fits });
+  assert.equal(ok.ok, true);
+  const json = formatStatusEmbed(ok.value, { random: () => 0.99 }).toJSON();
+  const chars = json.title.length + json.description.length + json.footer.text.length + json.fields.reduce((n, f) => n + f.name.length + f.value.length, 0);
+  assert.ok(chars <= 6000, `worst allowed embed was ${chars} characters`);
+});
+
+test("a transient Discord error while editing is NOT turned into a duplicate post; the caller gets a 502 to retry", async () => {
+  const db = createDatabase(":memory:");
+  const channel = fakeChannel();
+  setLiveMessage(db, "guild-1", STATUS_MESSAGE_KEY, "chan-1", "msg-existing");
+  channel.messages.fetch = async () => ({ id: "msg-existing", edit: async () => { const e = new Error("Service Unavailable"); e.code = 0; e.status = 503; throw e; } });
+  const handler = createStatusRelayHandler({ client: fakeClient({ "chan-1": channel }), db, env });
+  const res = fakeRes();
+  await handler(fakeReq({ token: "relay-secret" }), res);
+  assert.equal(res.code, 502);
+  assert.equal(channel._sent.length, 0, "no second message");
+  assert.equal(getLiveMessage(db, "guild-1", STATUS_MESSAGE_KEY).message_id, "msg-existing", "the pointer is unchanged");
+});
+
+test("a message that is definitely gone (Unknown Message) IS replaced with a fresh post", async () => {
+  const db = createDatabase(":memory:");
+  const channel = fakeChannel();
+  setLiveMessage(db, "guild-1", STATUS_MESSAGE_KEY, "chan-1", "msg-deleted");
+  channel.messages.fetch = async () => { const e = new Error("Unknown Message"); e.code = 10008; throw e; };
+  const handler = createStatusRelayHandler({ client: fakeClient({ "chan-1": channel }), db, env });
+  const res = fakeRes();
+  await handler(fakeReq({ token: "relay-secret" }), res);
+  assert.equal(res.code, 200);
+  assert.equal(res.body.edited, false);
+  assert.equal(channel._sent.length, 1);
+});
+
+test("moving the status channel removes the stale message in the old channel (best effort)", async () => {
+  const db = createDatabase(":memory:");
+  const oldChannel = fakeChannel({ id: "old-chan" });
+  const deleted = [];
+  oldChannel.messages.fetch = async (id) => ({ id, delete: async () => { deleted.push(id); } });
+  const newChannel = fakeChannel({ id: "chan-1" });
+  setLiveMessage(db, "guild-1", STATUS_MESSAGE_KEY, "old-chan", "old-msg");
+  const handler = createStatusRelayHandler({ client: fakeClient({ "old-chan": oldChannel, "chan-1": newChannel }), db, env });
+  await handler(fakeReq({ token: "relay-secret" }), fakeRes());
+  assert.deepEqual(deleted, ["old-msg"]);
+  assert.equal(newChannel._sent.length, 1);
+});
+
+test("the body limit also applies when Content-Length is absent (a chunked request)", async () => {
+  const db = createDatabase(":memory:");
+  const handler = createStatusRelayHandler({ client: fakeClient({ "chan-1": fakeChannel() }), db, env });
+  const big = { state: "ok", headline: "x", fields: [], filler: "z".repeat(40 * 1024) };
+  const res = fakeRes();
+  await handler(fakeReq({ token: "relay-secret", body: big }), res);
+  assert.equal(res.code, 413);
+});
+
+test("an older failed update cannot undo a newer update's throttle reservation", async () => {
+  const db = createDatabase(":memory:");
+  const channel = fakeChannel();
+  let calls = 0;
+  const client = { channels: { fetch: async (id) => { calls += 1; if (calls === 1) { await new Promise((r) => setTimeout(r, 30)); throw new Error("boom"); } return channel; } } };
+  const handler = createStatusRelayHandler({ client, db, env, now: () => 1_800_000_000_000 });
+  const [a, b] = [fakeRes(), fakeRes()];
+  const first = handler(fakeReq({ token: "relay-secret", body: { state: "ok", headline: "Online" } }), a);
+  const second = handler(fakeReq({ token: "relay-secret", body: { state: "down", headline: "Offline" } }), b);
+  await Promise.all([first, second]);
+  assert.equal(a.code, 502);
+  assert.equal(b.code, 200);
+  const repeat = fakeRes();
+  await handler(fakeReq({ token: "relay-secret", body: { state: "down", headline: "Offline" } }), repeat);
+  assert.equal(repeat.code, 429, "the newer reservation (down) still throttles a repeat");
 });

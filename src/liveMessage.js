@@ -29,7 +29,11 @@ import { getLiveMessage, setLiveMessage } from "./database.js";
 // strictChannel (mentat#469, opt-in, default off so existing callers are unchanged): when true, a recorded
 // message in a DIFFERENT channel than the one requested is treated as stale and a fresh message is posted
 // in the requested channel. Without it, changing a feature's channel setting keeps editing the old channel's message.
-export async function postOrEditLiveMessage({ client, db, guildId, channelId, messageKey, content, strictChannel = false }) {
+// rethrowTransient (mentat#469, opt-in): only fall through to a fresh post when the old message or channel is
+// definitely gone (Unknown Message/Channel) or not accessible; any other failure (a 5xx, a rate limit, a network
+// blip) is rethrown so the caller can retry, instead of leaving the old message behind next to a duplicate.
+const GONE_CODES = new Set([10003, 10008, 50001, 50013]);
+export async function postOrEditLiveMessage({ client, db, guildId, channelId, messageKey, content, strictChannel = false, rethrowTransient = false }) {
   const existing = getLiveMessage(db, guildId, messageKey);
   if (existing && (!strictChannel || existing.channel_id === channelId)) {
     try {
@@ -39,10 +43,21 @@ export async function postOrEditLiveMessage({ client, db, guildId, channelId, me
         await message.edit(content);
         return { edited: true, channelId: existing.channel_id, messageId: existing.message_id };
       }
-    } catch {
+    } catch (error) {
       // Stored message/channel no longer resolves (deleted, permissions
       // changed, etc.) -- fall through and post a fresh one below rather
       // than throwing, since a stale pointer must not break the feature.
+      // With rethrowTransient, anything that is not a definite "gone" is the caller's to retry.
+      if (rethrowTransient && !GONE_CODES.has(error?.code)) throw error;
+    }
+  } else if (existing && strictChannel) {
+    // The setting moved to another channel: best-effort remove the old message so a stale copy is not left behind.
+    try {
+      const oldChannel = await client.channels.fetch(existing.channel_id);
+      const oldMessage = await oldChannel?.messages?.fetch?.(existing.message_id);
+      await oldMessage?.delete?.();
+    } catch {
+      // Already gone or not ours to delete; the new message is posted either way.
     }
   }
 

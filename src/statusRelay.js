@@ -22,7 +22,7 @@ import { logError, logInfo } from "./logger.js";
 
 export const STATUS_MESSAGE_KEY = "status";
 const MIN_SECONDS_BETWEEN_UPDATES = 10;
-const LIMITS = { headline: 80, note: 300, fieldName: 40, fieldValue: 300, fields: 20, body: 32 * 1024 };
+const LIMITS = { headline: 80, note: 300, fieldName: 40, fieldValue: 300, fields: 20, body: 32 * 1024, fieldsText: 4000 };
 
 const STATES = {
   ok: { emoji: "🟢", color: "success" },
@@ -123,6 +123,10 @@ export function validateStatusPayload(body) {
     const value = clip(f.value, LIMITS.fieldValue, { multiline: true });
     if (!name || !value) return { ok: false, error: "each field needs a name and a value." };
     fields.push({ name, value, inline: f.inline !== false });
+  }
+  // Discord caps one embed's total text at 6000 characters; the voice, quote and footer need about 1000 of that.
+  if (fields.reduce((n, f) => n + f.name.length + f.value.length, 0) > LIMITS.fieldsText) {
+    return { ok: false, error: `fields hold more than ${LIMITS.fieldsText} characters of text in total.` };
   }
   const note = body.note === undefined ? "" : clip(body.note, LIMITS.note);
   return { ok: true, value: { state: body.state, headline, fields, note } };
@@ -244,6 +248,7 @@ export async function postAlertsAsBot({ client, channelId, alerts }) {
 export function createStatusRelayHandler({ client, db, env = process.env, now = Date.now }) {
   let lastAcceptedMs = 0;
   let lastState = null;
+  let seq = 0; // identifies the latest reservation so an older failure cannot undo a newer one
   let chain = Promise.resolve(); // updates are applied one at a time, in arrival order
   let lastUnauthorizedLogMs = 0;
   let suppressedUnauthorized = 0;
@@ -258,6 +263,7 @@ export function createStatusRelayHandler({ client, db, env = process.env, now = 
       channelId,
       messageKey: STATUS_MESSAGE_KEY,
       strictChannel: true,
+      rethrowTransient: true,
       content: { embeds: [formatStatusEmbed(value, { nowMs })], allowedMentions: { parse: [] } }
     });
   }
@@ -283,7 +289,8 @@ export function createStatusRelayHandler({ client, db, env = process.env, now = 
       return res.status(401).json({ error: "Unauthorized." });
     }
     // The global JSON parser has already run (default 100 kb), so enforce this route's own, smaller limit here.
-    if (Number(req.get("content-length") || 0) > LIMITS.body) {
+    // (Content-Length can be absent on a chunked request, so measure the parsed body as well.)
+    if (Number(req.get("content-length") || 0) > LIMITS.body || JSON.stringify(req.body ?? null).length > LIMITS.body) {
       return res.status(413).json({ error: `Body too large (limit ${LIMITS.body} bytes).` });
     }
     const checked = validateStatusPayload(req.body);
@@ -296,6 +303,7 @@ export function createStatusRelayHandler({ client, db, env = process.env, now = 
     }
     // Reserve synchronously, before any await, so two simultaneous requests cannot both pass the check.
     const previous = { lastAcceptedMs, lastState };
+    const mine = ++seq;
     lastAcceptedMs = nowMs;
     lastState = checked.value.state;
     const job = chain.then(() => apply(channelId, checked.value, nowMs));
@@ -305,8 +313,10 @@ export function createStatusRelayHandler({ client, db, env = process.env, now = 
       logInfo("status_relay.updated", { edited: result.edited, state: checked.value.state });
       return res.json({ ok: true, edited: result.edited });
     } catch (error) {
-      lastAcceptedMs = previous.lastAcceptedMs;
-      lastState = previous.lastState;
+      if (seq === mine) {
+        lastAcceptedMs = previous.lastAcceptedMs;
+        lastState = previous.lastState;
+      }
       logError("status_relay.failed", error, {});
       return res.status(502).json({ error: "Could not update the status message." });
     }
