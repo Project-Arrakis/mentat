@@ -245,7 +245,7 @@ to edit in its local database). `/dune server atlas` uses the same source.
 |----------|---------|-------------|
 | `DUNE_ATLAS_CHANNEL_ID` | *(empty)* | Channel for the self-refreshing message. Unset disables it |
 | `DUNE_ATLAS_INTERVAL_MS` | `600000` | Refresh interval in milliseconds |
-| `DUNE_ATLAS_PASSWORD_ROLE_IDS` | *(empty)* | Adapter source only: role IDs the scheduled refresh presents to the console. Passwords the console returns are shown only while `@everyone` cannot see the channel |
+| `DUNE_ATLAS_PASSWORD_ROLE_IDS` | *(empty)* | Adapter source only: role IDs the scheduled refresh presents to the console. The channel message shows the passwords the console returns only while `@everyone` cannot see the channel |
 
 By default the data comes from the console's Discord adapter atlas route. A
 console without that route answers `Invalid API key` and the message stops
@@ -281,7 +281,7 @@ Setup:
 
    ```bash
    install -d -m 700 ~/.config/mentat
-   (umask 077; read -rs -p 'Console API key: ' K && printf '%s\n' "$K" > ~/.config/mentat/console-api-key); echo
+   (umask 077; F=~/.config/mentat/console-api-key; read -rs -p 'Console API key: ' K && [[ $K =~ ^dak_[0-9a-f]{8}_[A-Za-z0-9_-]+$ ]] && printf '%s\n' "$K" > "$F.new" && chmod 600 "$F.new" && mv "$F.new" "$F" && printf '\nsaved\n' || printf '\nnot saved (expected one key starting dak_), any earlier file is unchanged\n')
    ```
 
 3. Check the file exists, then add the three variables to the bot's `.env` and
@@ -329,7 +329,7 @@ shell history, run this as the bot's user:
 
 ```bash
 install -d -m 700 ~/.config/mentat
-(umask 077; F=~/.config/mentat/atlas-passwords.json; IFS= read -rs -p 'Sietch password: ' P && [ -n "$P" ] && J="$(P="$P" node -e 'process.stdout.write(JSON.stringify({ "*": process.env.P }))')" && printf '%s\n' "$J" > "$F.new" && chmod 600 "$F.new" && mv "$F.new" "$F" && printf '\nsaved\n' || printf '\nnot saved, any earlier file is unchanged\n')
+(umask 077; F=~/.config/mentat/atlas-passwords.json; IFS= read -rs -p 'Sietch password: ' P && [ -n "$P" ] && J="$(P="$P" node -e 'const p = process.env.P; if (p.length > 64 || /[\x60\r\n]/.test(p)) process.exit(1); process.stdout.write(JSON.stringify({ "*": p }))')" && printf '%s\n' "$J" > "$F.new" && chmod 600 "$F.new" && mv "$F.new" "$F" && printf '\nsaved\n' || printf '\nnot saved (1 to 64 characters, no backtick), any earlier file is unchanged\n')
 ```
 
 It replaces the whole file, so add any other entries again afterwards.
@@ -342,10 +342,15 @@ a restart. Change the file when you change a password in the console.
 
 Rules:
 
-- Passwords appear only in the channel message. `/dune server atlas` replies do
-  not include them.
-- They are shown only while `@everyone` cannot see the channel, whether they come
-  from this file or from the adapter source. Otherwise they are left out and
+- Passwords from this file appear only in the channel message, never in
+  `/dune server atlas` replies.
+- With the adapter source, `/dune server atlas` replies show any password the
+  console returns for the caller's roles. The channel rule below does not apply
+  to replies. Only the caller sees a reply, unless
+  `DISCORD_DEFAULT_EPHEMERAL=false`, which posts it in the channel where the
+  command was run.
+- The channel message shows passwords, from this file or from the adapter source,
+  only while `@everyone` cannot see the channel. Otherwise they are left out and
   `atlas.refresh.failed` is logged. Every role that can see the channel can read
   them, so review those roles.
 - The bot checks at each refresh, not at the moment permissions change. If the

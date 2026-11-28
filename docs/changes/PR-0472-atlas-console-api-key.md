@@ -32,9 +32,11 @@ An entry named `*` is shared by the Hagga Basin sietches and never applies to
 the Deep Desert.
 The refresher now uses `strictChannel` and `rethrowTransient`, so a message
 holding passwords does not stay in an earlier channel or get duplicated.
-The `@everyone` rule covers passwords from the adapter source too, which
-before this change were shown whatever the channel's visibility. Except on
-Windows, a passwords file that group or other users can access is not used.
+In the channel message, the `@everyone` rule covers passwords from the adapter
+source too, which before this change were shown whatever the channel's
+visibility. `/dune server atlas` replies are unchanged and still show passwords
+the adapter source returns for the caller's roles. Except on Windows, a
+passwords file that group or other users can access is not used.
 
 ## Overall Theme
 
@@ -45,9 +47,12 @@ route, without giving the bot more access than reading map state.
 
 One high-effort code review of the change, with its findings fixed in this pull
 request. A second high-effort review covered the `*` shared password entry and
-those fixes. Fixed from it: adapter-source passwords shown in a channel
-`@everyone` can see, `*` reaching a sietch named `*`, a documented command that
-could empty the passwords file, and permissions checked only at startup.
+those fixes. Fixed from it: adapter-source passwords shown by the atlas message
+in a channel `@everyone` can see, `*` reaching a sietch named `*`, a documented
+command that could empty the passwords file, and permissions checked only at
+startup. A third high-effort review covered that round and found no blocker.
+Fixed from it: documentation saying command replies never show passwords, and
+setup commands that could save a value the bot rejects.
 
 ## Verification
 
