@@ -8,16 +8,10 @@ import { signedHeaders, writeBridgeSignedHeaders } from "./actorSignature.js";
 // verify against Core's write bridge.
 const WRITE_BRIDGE_ROUTES = new Set(["write-execute", "write-preview"]);
 import { getDefaultSecureDispatcher } from "./secureFetchDispatcher.js";
+import { AdapterHttpError } from "./adapterErrors.js";
+import { createConsoleAtlas } from "./consoleAtlas.js";
 
-export class AdapterHttpError extends Error {
-  constructor(message, { status, route, body }) {
-    super(message);
-    this.name = "AdapterHttpError";
-    this.status = status;
-    this.route = route;
-    this.body = body;
-  }
-}
+export { AdapterHttpError };
 
 // Routes that are live in upstream main with real data.
 //
@@ -272,6 +266,10 @@ export class AdapterClient {
     this.fetchImpl = fetchImpl;
     this.getGuildConfig = getGuildConfig;
     this.dispatcher = dispatcher;
+    // Opt-in second source for #the-atlas -- see consoleAtlas.js.
+    this.consoleAtlas = config.atlasConsole
+      ? createConsoleAtlas(config.atlasConsole, { fetchImpl, dispatcher, timeoutMs: config.adapter.timeoutMs })
+      : null;
   }
 
   _resolveConfig(guildId) {
@@ -285,7 +283,12 @@ export class AdapterClient {
   health(actor, guildId) { return this.request("health", actor, undefined, guildId); }
   status(actor, diagnostic = false, guildId) { return this.request("status", actor, diagnostic ? { diagnostic: true } : undefined, guildId); }
   coriolis(actor, guildId) { return this.request("coriolis", actor, undefined, guildId); }
-  atlas(actor, guildId) { return this.request("atlas", actor, undefined, guildId); }
+  atlas(actor, guildId) {
+    // The configured Discord server only; every other guild keeps using its
+    // own Console's adapter route.
+    if (this.consoleAtlas && guildId === this.consoleAtlas.guildId) return this.consoleAtlas.fetchAtlas();
+    return this.request("atlas", actor, undefined, guildId);
+  }
   readiness(actor, diagnostic = false, guildId) { return this.request("readiness", actor, diagnostic ? { diagnostic: true } : undefined, guildId); }
   services(actor, guildId) { return this.request("services", actor, undefined, guildId); }
   population(actor, guildId) { return this.request("population", actor, undefined, guildId); }

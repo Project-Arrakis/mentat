@@ -235,6 +235,125 @@ receivers:
 
 ---
 
+## #the-atlas Channel
+
+A single message that the bot keeps current with each sietch's PvP/PvE setting
+and the Coriolis cycle. Needs multi-tenant mode (the bot records which message
+to edit in its local database). `/dune server atlas` uses the same source.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DUNE_ATLAS_CHANNEL_ID` | *(empty)* | Channel for the self-refreshing message. Unset disables it |
+| `DUNE_ATLAS_INTERVAL_MS` | `600000` | Refresh interval in milliseconds |
+| `DUNE_ATLAS_PASSWORD_ROLE_IDS` | *(empty)* | Adapter source only: role IDs the scheduled refresh presents to the console |
+
+By default the data comes from the console's Discord adapter atlas route. A
+console without that route answers `Invalid API key` and the message stops
+updating.
+
+### Atlas from a Console API key
+
+For a console without the adapter atlas route, the bot can build the same
+message from the console's own API. Set all three values, or none:
+
+| Variable | Description |
+|----------|-------------|
+| `DUNE_ATLAS_API_KEY_FILE` | File holding a Console API key (one line starting `dak_`). There is no variable for the key itself |
+| `DUNE_ATLAS_CONSOLE_URL` | The console's public `https://` address. The key is sent nowhere else |
+| `DUNE_ATLAS_GUILD_ID` | The one Discord server that sees this console's atlas. Other servers keep using their own console's adapter route |
+
+Differences from the adapter source:
+
+- Live sandstorm status is not available, and the message says so.
+- This source carries no sietch passwords. To show them, use the passwords file
+  below.
+
+The bot reads `GET /api/maps/combat-state` and `GET /api/map/spice`. A redirect
+is treated as an error, so use the final address. A wrong or incomplete setting
+stops the bot at startup with a message saying what is wrong.
+
+Setup:
+
+1. In the console, create an API key with **Maps: read** and no other
+   permission.
+2. On the bot host, as the bot's user, save it without echoing it into your
+   shell history:
+
+   ```bash
+   install -d -m 700 ~/.config/mentat
+   (umask 077; read -rs -p 'Console API key: ' K && printf '%s\n' "$K" > ~/.config/mentat/console-api-key); echo
+   ```
+
+3. Check the file exists, then add the three variables to the bot's `.env` and
+   restart the service. Use the full path (`~` is not expanded there), for
+   example `DUNE_ATLAS_API_KEY_FILE=/home/bot/.config/mentat/console-api-key`.
+   A wrong value stops the whole bot, for every Discord server, until it is
+   corrected.
+4. Check the log for `atlas.refresh.started` with your server's ID in
+   `consoleApiGuildId`, and no `atlas.refresh.failed` after it.
+
+Rotation: create a new key, repeat step 2, restart the service, check step 4,
+then revoke the old key in the console. To switch the feature off, remove the
+three variables, restart, and revoke the key.
+
+### Sietch passwords in the channel message
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DUNE_ATLAS_PASSWORDS_FILE` | *(empty)* | JSON file of sietch passwords to show in the `DUNE_ATLAS_CHANNEL_ID` message. Works with either source |
+
+The file is one object. Each name is a sietch's name exactly as the message
+shows it, or its partition number. For a sietch shown as `Partition 8`, use
+`8`; the `(Instance 1)` after a Deep Desert entry is not part of its name:
+
+```json
+{
+  "Sietch Example": "the-password",
+  "8": "another-password"
+}
+```
+
+When the sietches share one password, use the name `*` instead:
+
+```json
+{
+  "*": "the-shared-password"
+}
+```
+
+`*` covers every Hagga Basin sietch that has no entry of its own. It never
+applies to the Deep Desert, which shows a password only when an entry names it.
+To write that file without the password reaching your shell history:
+
+```bash
+(umask 077; IFS= read -rs -p 'Sietch password: ' P && [ -n "$P" ] && P="$P" node -e 'process.stdout.write(JSON.stringify({ "*": process.env.P }) + "\n")' > ~/.config/mentat/atlas-passwords.json); echo
+```
+
+Keep it outside the project folder, readable by the bot's user only
+(`chmod 600`). The bot reads it at each refresh, so a changed password appears
+without a restart. Change the file when you change a password in the console.
+
+Rules:
+
+- Passwords appear only in the channel message. `/dune server atlas` replies do
+  not include them.
+- They are added only while `@everyone` cannot see the channel. Otherwise they
+  are left out and `atlas.refresh.failed` is logged. Every role that can see the
+  channel can read them, so review those roles.
+- The bot checks at each refresh, not at the moment permissions change. If the
+  channel is opened by mistake, the passwords stay up until the next refresh
+  (10 minutes by default): delete the message and change the passwords.
+- Changing `DUNE_ATLAS_CHANNEL_ID` removes the earlier message when the bot can,
+  and logs it when it cannot. A move to a channel in another Discord server
+  leaves the earlier message: delete it by hand.
+- In that channel the bot needs View Channel, Send Messages, Embed Links and
+  Read Message History. Without the last, each refresh posts a new copy.
+- The number of file entries that match no sietch is logged.
+- A file that cannot be read, or holds a password over 64 characters or with a
+  backtick or line break, leaves all passwords out and logs the reason.
+
+---
+
 ## Announcement Bridge Configuration
 
 Forwards in-game announcements to a Discord channel.

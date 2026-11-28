@@ -253,6 +253,7 @@ export function loadConfig(env = process.env) {
         }
       }
     },
+    atlasConsole: loadAtlasConsole(env),
     adapter: {
       baseUrl: multiTenant ? (optionalEnv(env, "DUNE_CONSOLE_API_URL") || "http://placeholder") : requiredEnv(env, "DUNE_CONSOLE_API_URL"),
       token: multiTenant ? (readSecret(env, "DUNE_DISCORD_ADAPTER_TOKEN", "DUNE_DISCORD_ADAPTER_TOKEN_FILE") || "placeholder") : readSecret(env, "DUNE_DISCORD_ADAPTER_TOKEN", "DUNE_DISCORD_ADAPTER_TOKEN_FILE"),
@@ -454,6 +455,29 @@ function readOptionalSecretFile(env, fileName) {
   } catch {
     return undefined;
   }
+}
+
+// loadAtlasConsole: optional. Builds #the-atlas from a Console's own API with
+// a Console API key instead of the Discord adapter's atlas route (see
+// consoleAtlas.js). All three settings or none. The key is read from a file
+// only, and no error here repeats the file's content.
+function loadAtlasConsole(env) {
+  const names = ["DUNE_ATLAS_API_KEY_FILE", "DUNE_ATLAS_CONSOLE_URL", "DUNE_ATLAS_GUILD_ID"];
+  const [keyFile, consoleUrl, guildId] = names.map((name) => optionalEnv(env, name));
+  if (!keyFile && !consoleUrl && !guildId) return null;
+  if (!keyFile || !consoleUrl || !guildId) throw new Error(`${names.join(", ")} must be set together.`);
+
+  const url = URL.canParse(consoleUrl) ? new URL(consoleUrl) : null;
+  if (!url || url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+    throw new Error("DUNE_ATLAS_CONSOLE_URL must be a plain https:// address, with no user name, query or fragment.");
+  }
+  if (!/^\d{15,21}$/.test(guildId)) throw new Error("DUNE_ATLAS_GUILD_ID must be a Discord server ID (digits only).");
+
+  const apiKey = readFileSync(keyFile, "utf8").trim();
+  if (!/^dak_[0-9a-f]{8}_[A-Za-z0-9_-]+$/.test(apiKey)) {
+    throw new Error("DUNE_ATLAS_API_KEY_FILE does not contain a Console API key (one line starting with dak_).");
+  }
+  return { baseUrl: url.href, apiKey, guildId };
 }
 
 function parseCsv(value) {
