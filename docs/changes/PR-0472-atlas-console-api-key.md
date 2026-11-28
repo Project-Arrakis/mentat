@@ -33,6 +33,16 @@ the Deep Desert.
 The refresher now uses `strictChannel` and `rethrowTransient`, so a message
 holding passwords does not stay in an earlier channel or get duplicated.
 
+## Overall Theme
+
+Keep the atlas message working on a console without the Discord adapter atlas
+route, without giving the bot more access than reading map state.
+
+## Findings Mitigated
+
+One high-effort code review of the change, with its findings fixed in this pull
+request. The `*` shared password entry was added after that review.
+
 ## Verification
 
 `npm test`; `test/consoleAtlas.test.js`, `test/atlasPasswords.test.js`.
