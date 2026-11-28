@@ -33,7 +33,7 @@ import { getLiveMessage, setLiveMessage } from "./database.js";
 // definitely gone (Unknown Message/Channel) or not accessible; any other failure (a 5xx, a rate limit, a network
 // blip) is rethrown so the caller can retry, instead of leaving the old message behind next to a duplicate.
 const GONE_CODES = new Set([10003, 10008, 50001, 50013]);
-export async function postOrEditLiveMessage({ client, db, guildId, channelId, messageKey, content, strictChannel = false, rethrowTransient = false }) {
+export async function postOrEditLiveMessage({ client, db, guildId, channelId, messageKey, content, strictChannel = false, rethrowTransient = false, onStaleCopy = () => {} }) {
   const existing = getLiveMessage(db, guildId, messageKey);
   if (existing && (!strictChannel || existing.channel_id === channelId)) {
     try {
@@ -56,8 +56,10 @@ export async function postOrEditLiveMessage({ client, db, guildId, channelId, me
       const oldChannel = await client.channels.fetch(existing.channel_id);
       const oldMessage = await oldChannel?.messages?.fetch?.(existing.message_id);
       await oldMessage?.delete?.();
-    } catch {
-      // Already gone or not ours to delete; the new message is posted either way.
+    } catch (error) {
+      // The new message is posted either way. Unless the old one (10008) or its channel (10003) is gone, the
+      // caller is told that a copy remains.
+      if (error?.code !== 10003 && error?.code !== 10008) onStaleCopy(existing.channel_id);
     }
   }
 

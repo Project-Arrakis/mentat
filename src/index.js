@@ -125,6 +125,8 @@ for (const [envVar, label] of [
   ["ACP_SECRETS_KEY_FILE", "ACP_SECRETS_KEY_FILE"],
   ["ACP_AGE_IDENTITY_FILE", "ACP_AGE_IDENTITY_FILE"],
   ["ACP_KEK_FILE", "ACP_KEK_FILE"],
+  ["DUNE_ATLAS_API_KEY_FILE", "DUNE_ATLAS_API_KEY_FILE"],
+  ["DUNE_ATLAS_PASSWORDS_FILE", "DUNE_ATLAS_PASSWORDS_FILE"],
   ["MENTAT_PROXY_SHARED_SECRET_FILE", "MENTAT_PROXY_SHARED_SECRET_FILE"]
 ]) {
   const path = process.env[envVar];
@@ -315,13 +317,18 @@ client.once(Events.ClientReady, (readyClient) => {
       client,
       db,
       channelId: atlasChannelId,
+      passwordsFile: process.env.DUNE_ATLAS_PASSWORDS_FILE || null,
       onError: (error) => logError("atlas.refresh.failed", error)
     });
     void refresher.refresh();
     const atlasTimer = setInterval(() => refresher.refresh(), atlasIntervalMs);
     atlasTimer.unref?.();
     atlasRefresh = { active: true, stop() { clearInterval(atlasTimer); } };
-    logInfo("atlas.refresh.started", { channel: atlasChannelId, intervalMs: atlasIntervalMs });
+    logInfo("atlas.refresh.started", {
+      channel: atlasChannelId,
+      intervalMs: atlasIntervalMs,
+      consoleApiGuildId: config.atlasConsole?.guildId || null
+    });
   } else if (atlasChannelId && !db) {
     logError("atlas.refresh.failed", new Error("DUNE_ATLAS_CHANNEL_ID is set but multi-tenant mode (with a local database) is required for the self-refreshing atlas message."));
   }

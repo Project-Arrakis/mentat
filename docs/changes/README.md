@@ -77,6 +77,7 @@ an issue instead of a pull request.
 | `PR-0457-register-by-content-hash` | PR | Register slash commands by content hash (#440) | PR #457 |
 | `PR-0436` | PR | `/dune core help` lists all write subcommands (mentat#424) | PR #436 |
 | `PR-0470` | PR | Monitoring posts from Mentat in Sahir Venn's voice | PR #470 |
+| `PR-0472-atlas-console-api-key` | PR | #the-atlas from a Console API key, with sietch passwords from a file | PR #472 |
 
 Every future substantive PR should add or update its matching change note before
 merge. If a security finding is tracked as an issue, record the issue in this

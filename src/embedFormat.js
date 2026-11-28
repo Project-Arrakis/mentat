@@ -782,6 +782,28 @@ function sortByPartitionIdAscending(sietches) {
   return [...sietches].sort((a, b) => Number(a.partitionId) - Number(b.partitionId));
 }
 
+// A Discord field holds 1024 characters, so a long list continues in further
+// fields, broken between sietches: a cut line would show half a password.
+function atlasFields(name, lines) {
+  const values = [];
+  for (const line of lines) {
+    const last = values.length - 1;
+    if (last >= 0 && values[last].length + 1 + line.length <= 1024) values[last] += `\n${line}`;
+    else values.push(line);
+  }
+  return values.map((value, index) => ({ name: index ? `${name} (continued)` : name, value, inline: false }));
+}
+
+// Replaces the channel message when it may hold passwords that its audience
+// should no longer see and no fresh data is available.
+export function formatAtlasWithdrawnEmbed() {
+  return duneEmbed({
+    title: "📜 The Atlas",
+    color: "warning",
+    description: "❔ The atlas could not be refreshed. The earlier message was cleared because this channel is no longer restricted."
+  });
+}
+
 export function formatAtlasEmbed(payload) {
   if (payload?.ok !== true) {
     return duneEmbed({
@@ -792,23 +814,28 @@ export function formatAtlasEmbed(payload) {
   }
   const hagga = Array.isArray(payload?.sietches?.HaggaBasin) ? payload.sietches.HaggaBasin : [];
   const deepDesert = Array.isArray(payload?.sietches?.DeepDesert) ? payload.sietches.DeepDesert : [];
-  const nextCycleUnix = Math.floor(new Date(payload?.coriolisNextCycleAt).getTime() / 1000);
+  const nextCycleUnix = payload?.coriolisNextCycleAt
+    ? Math.floor(new Date(payload.coriolisNextCycleAt).getTime() / 1000)
+    : Number.NaN;
   const coriolisLine = payload?.coriolisSeed && Number.isFinite(nextCycleUnix)
     ? `🌪️ Coriolis seed **${payload.coriolisSeed}** — next cycle <t:${nextCycleUnix}:R>`
     : "🌪️ Coriolis cycle not yet known.";
 
+  // Said out loud: a source with no storm data must not read as calm weather.
+  const stormNote = payload.sandstormAvailable === false ? "\n❔ Live sandstorm status is not available." : "";
+
   const fields = [];
-  if (hagga.length) fields.push({ name: "Hagga Basin", value: hagga.map((sietch) => atlasSietchLine(sietch)).join("\n"), inline: false });
+  if (hagga.length) fields.push(...atlasFields("Hagga Basin", hagga.map((sietch) => atlasSietchLine(sietch))));
   if (deepDesert.length) {
     const ordered = sortByPartitionIdAscending(deepDesert);
-    fields.push({ name: "The Deep Desert", value: ordered.map((sietch, index) => atlasSietchLine(sietch, index + 1)).join("\n"), inline: false });
+    fields.push(...atlasFields("The Deep Desert", ordered.map((sietch, index) => atlasSietchLine(sietch, index + 1))));
   }
   if (!fields.length) fields.push({ name: "Sietches", value: "No sietches are currently reporting.", inline: false });
 
   return duneEmbed({
     title: "📜 The Atlas",
     color: "spice",
-    description: coriolisLine,
+    description: `${coriolisLine}${stormNote}`,
     fields
   });
 }
