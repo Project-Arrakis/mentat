@@ -32,6 +32,9 @@ An entry named `*` is shared by the Hagga Basin sietches and never applies to
 the Deep Desert.
 The refresher now uses `strictChannel` and `rethrowTransient`, so a message
 holding passwords does not stay in an earlier channel or get duplicated.
+The `@everyone` rule covers passwords from the adapter source too, which
+before this change were shown whatever the channel's visibility. Except on
+Windows, a passwords file that group or other users can access is not used.
 
 ## Overall Theme
 
@@ -41,7 +44,10 @@ route, without giving the bot more access than reading map state.
 ## Findings Mitigated
 
 One high-effort code review of the change, with its findings fixed in this pull
-request. The `*` shared password entry was added after that review.
+request. A second high-effort review covered the `*` shared password entry and
+those fixes. Fixed from it: adapter-source passwords shown in a channel
+`@everyone` can see, `*` reaching a sietch named `*`, a documented command that
+could empty the passwords file, and permissions checked only at startup.
 
 ## Verification
 

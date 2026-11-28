@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -257,6 +257,114 @@ test("a bad file leaves passwords out and no error repeats its content", async (
     assert.doesNotMatch(textOf(channel.sent[0]), /fake-secret/);
   }
   await assert.rejects(readAtlasPasswords(join(tmpdir(), "no-such-atlas-passwords.json")), /ENOENT/);
+});
+
+const FROM_SOURCE = {
+  ...ATLAS,
+  sietches: {
+    HaggaBasin: ATLAS.sietches.HaggaBasin.map((sietch) => ({ ...sietch, loginPassword: "fake-source-pass" })),
+    DeepDesert: ATLAS.sietches.DeepDesert.map((sietch) => ({ ...sietch, loginPassword: "fake-source-desert" }))
+  }
+};
+
+function sourceRefresher(channel, atlas, { file = null, db = createDatabase(":memory:") } = {}) {
+  const errors = [];
+  const refresher = atlasRefresher({
+    adapterClient: { atlas },
+    client: { channels: { fetch: async () => channel } },
+    db,
+    channelId: "channel-1",
+    passwordsFile: file,
+    onError: (error) => errors.push(error)
+  });
+  return { refresher, errors };
+}
+
+test("passwords from the source are left out when @everyone can see the channel", async (t) => {
+  for (const file of [null, passwordsFile(t)]) {
+    const channel = fakeChannel({ everyoneCanView: true });
+    const { refresher, errors } = sourceRefresher(channel, async () => FROM_SOURCE, { file });
+
+    await refresher.refresh();
+
+    assert.equal(channel.sent.length, 1, "the atlas itself still posts");
+    assert.doesNotMatch(textOf(channel.sent[0]), /fake-/);
+    assert.match(textOf(channel.sent[0]), /Sietch Zahir/);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].message, /passwords left out/);
+    assert.ok(!errors[0].message.includes("fake-"));
+  }
+  assert.equal(FROM_SOURCE.sietches.HaggaBasin[0].loginPassword, "fake-source-pass", "the source payload is not changed");
+});
+
+test("passwords from the source still show in a channel @everyone cannot see", async () => {
+  const channel = fakeChannel();
+  const { refresher, errors } = sourceRefresher(channel, async () => FROM_SOURCE);
+
+  await refresher.refresh();
+
+  assert.deepEqual(errors, []);
+  assert.match(textOf(channel.sent[0]), /fake-source-pass/);
+  assert.match(textOf(channel.sent[0]), /fake-source-desert/);
+});
+
+test("a failing source asked for passwords by role also clears an opened channel", async (t) => {
+  const before = process.env.DUNE_ATLAS_PASSWORD_ROLE_IDS;
+  t.after(() => {
+    if (before === undefined) delete process.env.DUNE_ATLAS_PASSWORD_ROLE_IDS;
+    else process.env.DUNE_ATLAS_PASSWORD_ROLE_IDS = before;
+  });
+  for (const [roles, edits] of [["role-1", 1], ["", 0]]) {
+    process.env.DUNE_ATLAS_PASSWORD_ROLE_IDS = roles;
+    const channel = fakeChannel({ everyoneCanView: true });
+    const db = createDatabase(":memory:");
+    setLiveMessage(db, "guild-1", "atlas", "channel-1", "message-1");
+    const { refresher } = sourceRefresher(channel, async () => { throw new Error("source down"); }, { db });
+
+    await refresher.refresh();
+
+    assert.equal(channel.edits.length, edits, `roles "${roles}"`);
+  }
+});
+
+test("a sietch named like the shared entry does not pick it up", () => {
+  const payload = {
+    ok: true,
+    sietches: {
+      HaggaBasin: [{ partitionId: "1", serverDisplayName: "*" }],
+      DeepDesert: [{ partitionId: "8", serverDisplayName: "*" }, { partitionId: "*", serverDisplayName: null }]
+    }
+  };
+  const result = withAtlasPasswords(payload, new Map([["*", "fake-shared-pass"]]));
+  assert.equal(result.sietches.HaggaBasin[0].loginPassword, "fake-shared-pass");
+  assert.deepEqual(result.sietches.DeepDesert.map((s) => s.loginPassword), [undefined, undefined]);
+});
+
+test("a file other users can access is not used", { skip: process.platform === "win32" && "no POSIX permissions" }, async (t) => {
+  for (const mode of [0o644, 0o640, 0o604, 0o660, 0o606]) {
+    const file = passwordsFile(t);
+    chmodSync(file, mode);
+    const channel = fakeChannel();
+    const { refresher, errors } = refresherFor([channel], { file });
+
+    await refresher.refresh();
+
+    assert.doesNotMatch(textOf(channel.sent[0]), /fake-/, mode.toString(8));
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].message, new RegExp(`open to other users \\(permissions ${mode.toString(8)}\\)`));
+    assert.ok(!errors[0].message.includes("fake-"));
+  }
+  for (const mode of [0o600, 0o400]) {
+    const file = passwordsFile(t);
+    chmodSync(file, mode);
+    assert.equal((await readAtlasPasswords(file)).get("8"), "fake-desert-pass", mode.toString(8));
+  }
+});
+
+test("permissions are not checked on Windows", async (t) => {
+  const file = passwordsFile(t);
+  chmodSync(file, 0o644);
+  assert.equal((await readAtlasPasswords(file, { platform: "win32" })).size, 2);
 });
 
 test("without a passwords file nothing is added", async () => {

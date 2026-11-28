@@ -1,7 +1,14 @@
 import { formatAtlasEmbed, formatAtlasWithdrawnEmbed } from "./embedFormat.js";
 import { postOrEditLiveMessage } from "./liveMessage.js";
 import { getLiveMessage } from "./database.js";
-import { countUnmatchedPasswords, isHiddenFromEveryone, readAtlasPasswords, withAtlasPasswords } from "./atlasPasswords.js";
+import {
+  countUnmatchedPasswords,
+  hasAtlasPasswords,
+  isHiddenFromEveryone,
+  readAtlasPasswords,
+  withAtlasPasswords,
+  withoutAtlasPasswords
+} from "./atlasPasswords.js";
 import { parseCsv } from "./scheduler.js";
 
 // atlasRefresh.js (mentat#376, dune-awakening-selfhost-docker#938): the
@@ -40,14 +47,20 @@ function schedulerActor(guildId) {
 }
 
 export function atlasRefresher({ adapterClient, client, db, channelId, messageKey = "atlas", passwordsFile = null, onError = () => {} }) {
-  // Read on every refresh, so a changed password needs no restart. A problem
-  // is reported and the message still updates, without passwords.
+  // The file is read on every refresh, so a changed password needs no restart.
+  // A problem is reported and the message still updates, without the file's
+  // passwords.
   async function addPasswords(channel, payload) {
+    // No password, from the file or from the source, goes into a channel that
+    // @everyone can see.
+    if (!isHiddenFromEveryone(channel)) {
+      if (passwordsFile || hasAtlasPasswords(payload)) {
+        onError(new Error("Sietch passwords left out: @everyone can see the atlas channel, or that could not be checked."));
+      }
+      return withoutAtlasPasswords(payload);
+    }
     if (!passwordsFile) return payload;
     try {
-      if (!isHiddenFromEveryone(channel)) {
-        throw new Error("Sietch passwords left out: @everyone can see the atlas channel, or that could not be checked.");
-      }
       const passwords = await readAtlasPasswords(passwordsFile);
       // Only the number is reported: a mistyped name could be a password.
       const unmatched = countUnmatchedPasswords(payload, passwords);
@@ -80,10 +93,13 @@ export function atlasRefresher({ adapterClient, client, db, channelId, messageKe
   // hold passwords, so if the channel is no longer restricted it is replaced
   // rather than left standing until the source answers again.
   async function fetchAtlas(channel) {
+    const actor = schedulerActor(channel.guildId);
     try {
-      return await adapterClient.atlas(schedulerActor(channel.guildId), channel.guildId);
+      return await adapterClient.atlas(actor, channel.guildId);
     } catch (error) {
-      if (passwordsFile && !isHiddenFromEveryone(channel) && getLiveMessage(db, channel.guildId, messageKey)) {
+      // Passwords come from the file, or from a source asked for them by role.
+      const mayHoldPasswords = Boolean(passwordsFile) || actor.roleIds.length > 0;
+      if (mayHoldPasswords && !isHiddenFromEveryone(channel) && getLiveMessage(db, channel.guildId, messageKey)) {
         await publish(channel.guildId, formatAtlasWithdrawnEmbed()).catch(onError);
       }
       throw error;

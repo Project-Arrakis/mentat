@@ -245,7 +245,7 @@ to edit in its local database). `/dune server atlas` uses the same source.
 |----------|---------|-------------|
 | `DUNE_ATLAS_CHANNEL_ID` | *(empty)* | Channel for the self-refreshing message. Unset disables it |
 | `DUNE_ATLAS_INTERVAL_MS` | `600000` | Refresh interval in milliseconds |
-| `DUNE_ATLAS_PASSWORD_ROLE_IDS` | *(empty)* | Adapter source only: role IDs the scheduled refresh presents to the console |
+| `DUNE_ATLAS_PASSWORD_ROLE_IDS` | *(empty)* | Adapter source only: role IDs the scheduled refresh presents to the console. Passwords the console returns are shown only while `@everyone` cannot see the channel |
 
 By default the data comes from the console's Discord adapter atlas route. A
 console without that route answers `Invalid API key` and the message stops
@@ -323,23 +323,31 @@ When the sietches share one password, use the name `*` instead:
 
 `*` covers every Hagga Basin sietch that has no entry of its own. It never
 applies to the Deep Desert, which shows a password only when an entry names it.
-To write that file without the password reaching your shell history:
+
+To write a file holding only the `*` entry, without the password reaching your
+shell history, run this as the bot's user:
 
 ```bash
-(umask 077; IFS= read -rs -p 'Sietch password: ' P && [ -n "$P" ] && P="$P" node -e 'process.stdout.write(JSON.stringify({ "*": process.env.P }) + "\n")' > ~/.config/mentat/atlas-passwords.json); echo
+install -d -m 700 ~/.config/mentat
+(umask 077; F=~/.config/mentat/atlas-passwords.json; IFS= read -rs -p 'Sietch password: ' P && [ -n "$P" ] && J="$(P="$P" node -e 'process.stdout.write(JSON.stringify({ "*": process.env.P }))')" && printf '%s\n' "$J" > "$F.new" && chmod 600 "$F.new" && mv "$F.new" "$F" && printf '\nsaved\n' || printf '\nnot saved, any earlier file is unchanged\n')
 ```
 
-Keep it outside the project folder, readable by the bot's user only
-(`chmod 600`). The bot reads it at each refresh, so a changed password appears
-without a restart. Change the file when you change a password in the console.
+It replaces the whole file, so add any other entries again afterwards.
+
+Keep the file outside the project folder, owned by the bot's user and open to
+that user only (`chmod 600`). Except on Windows, a file that group or other
+users can access is not used: no password from it is shown and the reason is
+logged. The bot reads it at each refresh, so a changed password appears without
+a restart. Change the file when you change a password in the console.
 
 Rules:
 
 - Passwords appear only in the channel message. `/dune server atlas` replies do
   not include them.
-- They are added only while `@everyone` cannot see the channel. Otherwise they
-  are left out and `atlas.refresh.failed` is logged. Every role that can see the
-  channel can read them, so review those roles.
+- They are shown only while `@everyone` cannot see the channel, whether they come
+  from this file or from the adapter source. Otherwise they are left out and
+  `atlas.refresh.failed` is logged. Every role that can see the channel can read
+  them, so review those roles.
 - The bot checks at each refresh, not at the moment permissions change. If the
   channel is opened by mistake, the passwords stay up until the next refresh
   (10 minutes by default): delete the message and change the passwords.
